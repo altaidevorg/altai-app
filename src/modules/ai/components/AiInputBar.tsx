@@ -248,11 +248,6 @@ export function AiInputBar() {
         />
       )}
 
-      <div className="mb-1 flex items-center gap-0.5 px-0.5">
-        {agentPickerEnabled && <AgentSwitcher variant="toolbar" />}
-        <ModelDropdown />
-      </div>
-
       <div
         className={cn(
           "flex flex-col rounded-xl border border-border/40 bg-card/50",
@@ -281,15 +276,7 @@ export function AiInputBar() {
 
         <Popover open={pickerOpen}>
           <PopoverAnchor asChild>
-            <div className="flex items-end gap-0.5 px-1 py-1">
-              <ToolbarIcon
-                title="Attach file or image"
-                onClick={() => fileInputRef.current?.click()}
-                disabled={c.isBusy}
-              >
-                <HugeiconsIcon icon={Attachment01Icon} size={14} strokeWidth={1.75} />
-              </ToolbarIcon>
-
+            <div className="px-2.5 pt-2">
               <textarea
                 ref={c.textareaRef}
                 value={c.value}
@@ -341,75 +328,12 @@ export function AiInputBar() {
                 rows={1}
                 disabled={c.isBusy}
                 className={cn(
-                  "max-h-44 min-h-[24px] flex-1 resize-none bg-transparent px-1 py-0",
-                  "text-[13px] leading-6 text-foreground outline-none",
+                  "block w-full max-h-44 min-h-[24px] resize-none bg-transparent",
+                  "text-[13px] leading-5 text-foreground outline-none",
                   "placeholder:text-muted-foreground/55",
                   "disabled:cursor-not-allowed",
                 )}
               />
-
-              {c.voice.supported && (
-                <ToolbarIcon
-                  title={
-                    !c.voice.hasKey
-                      ? "Voice needs an OpenAI key"
-                      : c.voice.recording
-                        ? "Stop & transcribe"
-                        : c.voice.transcribing
-                          ? "Transcribing…"
-                          : "Voice input"
-                  }
-                  onClick={() =>
-                    c.voice.recording ? c.voice.stop() : void c.voice.start()
-                  }
-                  disabled={c.isBusy || c.voice.transcribing || !c.voice.hasKey}
-                  className={cn(
-                    c.voice.recording &&
-                      "bg-destructive/10 text-destructive hover:bg-destructive/15 hover:text-destructive",
-                  )}
-                >
-                  {c.voice.recording ? (
-                    <span className="size-2 animate-pulse rounded-full bg-destructive" />
-                  ) : c.voice.transcribing ? (
-                    <Spinner className="size-3" />
-                  ) : (
-                    <HugeiconsIcon icon={Mic01Icon} size={14} strokeWidth={1.75} />
-                  )}
-                </ToolbarIcon>
-              )}
-
-              {c.isBusy ? (
-                <Button
-                  type="button"
-                  size="icon"
-                  onClick={c.stop}
-                  className={cn(
-                    "size-6 rounded-md p-0 transition-colors",
-                    "bg-foreground/10 text-foreground hover:bg-foreground/15",
-                  )}
-                  aria-label="Stop"
-                  title="Stop"
-                >
-                  <span className="block size-2 rounded-[2px] bg-foreground" />
-                </Button>
-              ) : (
-                <Button
-                  type="button"
-                  size="icon"
-                  onClick={c.submit}
-                  disabled={!c.canSend}
-                  className={cn(
-                    "size-6 rounded-md p-0 transition-all",
-                    c.canSend
-                      ? "bg-foreground text-background hover:bg-foreground/90 active:scale-95"
-                      : "bg-foreground/10 text-foreground/35",
-                  )}
-                  aria-label="Send"
-                  title="Send (Enter)"
-                >
-                  <HugeiconsIcon icon={ArrowUpIcon} size={12} strokeWidth={2.25} />
-                </Button>
-              )}
             </div>
           </PopoverAnchor>
           {fileTrigger ? (
@@ -431,10 +355,85 @@ export function AiInputBar() {
             />
           )}
         </Popover>
-      </div>
 
-      <div className="mt-1 flex items-center justify-end px-0.5">
-        <PermissionModeSwitcher variant="toolbar" />
+        <div className="flex items-center gap-0.5 px-1.5 pb-1 pt-0.5">
+          <ToolbarIcon
+            title="Attach file or image"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={c.isBusy}
+          >
+            <HugeiconsIcon icon={Attachment01Icon} size={14} strokeWidth={1.75} />
+          </ToolbarIcon>
+
+          {agentPickerEnabled && <AgentSwitcher variant="toolbar" />}
+          <ModelDropdown />
+          <PermissionModeSwitcher variant="toolbar-icon" />
+
+          <div className="flex-1" />
+
+          {c.voice.supported && (
+            <ToolbarIcon
+              title={
+                !c.voice.hasKey
+                  ? "Voice needs an OpenAI key"
+                  : c.voice.recording
+                    ? "Stop & transcribe"
+                    : c.voice.transcribing
+                      ? "Transcribing…"
+                      : "Voice input"
+              }
+              onClick={() =>
+                c.voice.recording ? c.voice.stop() : void c.voice.start()
+              }
+              disabled={c.isBusy || c.voice.transcribing || !c.voice.hasKey}
+              className={cn(
+                c.voice.recording &&
+                  "bg-destructive/10 text-destructive hover:bg-destructive/15 hover:text-destructive",
+              )}
+            >
+              {c.voice.recording ? (
+                <span className="size-2 animate-pulse rounded-full bg-destructive" />
+              ) : c.voice.transcribing ? (
+                <Spinner className="size-3" />
+              ) : (
+                <HugeiconsIcon icon={Mic01Icon} size={14} strokeWidth={1.75} />
+              )}
+            </ToolbarIcon>
+          )}
+
+          {c.isBusy ? (
+            <Button
+              type="button"
+              size="icon"
+              onClick={c.stop}
+              className={cn(
+                "size-6 rounded-md p-0 transition-colors",
+                "bg-foreground/10 text-foreground hover:bg-foreground/15",
+              )}
+              aria-label="Stop"
+              title="Stop"
+            >
+              <span className="block size-2 rounded-[2px] bg-foreground" />
+            </Button>
+          ) : (
+            <Button
+              type="button"
+              size="icon"
+              onClick={c.submit}
+              disabled={!c.canSend}
+              className={cn(
+                "size-6 rounded-md p-0 transition-all",
+                c.canSend
+                  ? "bg-foreground text-background hover:bg-foreground/90 active:scale-95"
+                  : "bg-foreground/10 text-foreground/35",
+              )}
+              aria-label="Send"
+              title="Send (Enter)"
+            >
+              <HugeiconsIcon icon={ArrowUpIcon} size={12} strokeWidth={2.25} />
+            </Button>
+          )}
+        </div>
       </div>
 
       <AnimatePresence initial={false}>
