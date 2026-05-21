@@ -4,6 +4,9 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
@@ -11,6 +14,7 @@ import { openSettingsWindow } from "@/modules/settings/openSettingsWindow";
 import {
   AbsoluteIcon,
   ArrowDown01Icon,
+  AtomicPowerIcon,
   BookSearchIcon,
   CodeIcon,
   DatabaseIcon,
@@ -23,7 +27,7 @@ import {
   Tick02Icon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import type { AgentIconId } from "../lib/agents";
+import { ISANAGENT_AGENT_IDS, type AgentIconId } from "../lib/agents";
 import { useAgentsStore } from "../store/agentsStore";
 
 const ICONS: Record<AgentIconId, typeof CodeIcon> = {
@@ -66,9 +70,15 @@ export function AgentSwitcher({
   // still labels the disabled-but-active edge correctly until the store
   // downgrades it on the next setDisabled call.
   const active = allList.find((a) => a.id === activeId) ?? list[0] ?? allList[0];
-  const builtIn = list.filter((a) => a.builtIn);
+  const builtIn = list.filter(
+    (a) => a.builtIn && !ISANAGENT_AGENT_IDS.has(a.id),
+  );
+  const mlAgents = list.filter(
+    (a) => a.builtIn && ISANAGENT_AGENT_IDS.has(a.id),
+  );
   const custom = list.filter((a) => !a.builtIn);
   const ActiveIcon = ICONS[active.icon] ?? SparklesIcon;
+  const activeIsMl = ISANAGENT_AGENT_IDS.has(active.id);
 
   const resolved: AgentSwitcherVariant =
     variant ?? (isMiniWindow ? "mini" : "default");
@@ -177,6 +187,72 @@ export function AgentSwitcher({
             </DropdownMenuItem>
           );
         })}
+        {mlAgents.length > 0 ? (
+          <DropdownMenuSub>
+            <DropdownMenuSubTrigger
+              className={cn(
+                "flex items-center gap-2 px-2 py-1.5 text-[12px] font-normal",
+                activeIsMl && "bg-accent/40",
+              )}
+            >
+              <HugeiconsIcon
+                icon={AtomicPowerIcon}
+                size={13}
+                strokeWidth={1.75}
+                className={cn(
+                  "shrink-0",
+                  activeIsMl ? "text-foreground" : "text-muted-foreground",
+                )}
+              />
+              <span className="flex-1">ML Agents</span>
+            </DropdownMenuSubTrigger>
+            <DropdownMenuSubContent
+              sideOffset={4}
+              collisionPadding={8}
+              className="min-w-60"
+            >
+              {mlAgents.map((a) => {
+                const Icon = ICONS[a.icon] ?? SparklesIcon;
+                return (
+                  <DropdownMenuItem
+                    key={a.id}
+                    onSelect={() => setActiveId(a.id)}
+                    className={cn(
+                      "flex items-start gap-2 pr-2 text-[12px]",
+                      a.id === activeId && "bg-accent/40",
+                    )}
+                  >
+                    <HugeiconsIcon
+                      icon={Icon}
+                      size={13}
+                      strokeWidth={1.75}
+                      className={cn(
+                        "mt-0.5 shrink-0",
+                        a.id === activeId
+                          ? "text-foreground"
+                          : "text-muted-foreground",
+                      )}
+                    />
+                    <span className="flex min-w-0 flex-1 flex-col">
+                      <span>{a.name}</span>
+                      <span className="line-clamp-1 text-[10.5px] text-muted-foreground">
+                        {a.description}
+                      </span>
+                    </span>
+                    {a.id === activeId ? (
+                      <HugeiconsIcon
+                        icon={Tick02Icon}
+                        size={12}
+                        strokeWidth={2}
+                        className="mt-0.5 shrink-0 text-foreground"
+                      />
+                    ) : null}
+                  </DropdownMenuItem>
+                );
+              })}
+            </DropdownMenuSubContent>
+          </DropdownMenuSub>
+        ) : null}
         {custom.length > 0 ? (
           <>
             <DropdownMenuSeparator />

@@ -1,613 +1,666 @@
-# ALTAI Proje Fikirleri
+# ALTAI Adaptive ML Agent — Tasarim Felsefesi
 
-> IsanAgent v0.9.0 kapasiteleri uzerinden olusturulmustur.
-> Son guncelleme: 2026-05-20
-
----
-
-## IsanAgent Altyapi Ozeti
-
-| Kategori | Detay |
-|----------|-------|
-| **Toplam Tool** | 44 (16 builtin + 13 execution + 3 ML domain + 3 workflow + 8 sub-agent + 1 skill) |
-| **Execution Provider** | 4 (Local, Jupyter, SSH, Colab MCP) |
-| **Channel** | 4 (Terminal, API/HTTP, Slack, Email) + **Tauri** (ALTAI icin ozel) |
-| **Sub-agent** | 3 hazir profil (researcher, coder, evaluator) + custom tanim |
-| **Memory** | SQLite FTS5 ile full-text search, short-term + long-term reflection |
-| **Skill Sistemi** | SKILL.md dosyalarindan dinamik yukleme, `always` modu, gereksinim kontrolu |
-| **Doom Loop** | SHA-256 hash ile tekrar eden tool call tespiti + otomatik duzeltme |
-| **Cron** | SQLite'da persist edilen zamanlanmis gorevler |
-
-### Tool Envanteri (Referans)
-
-<details>
-<summary>Tum 44 tool listesi (tiklayarak ac)</summary>
-
-**Dosya Sistemi:** `read_file`, `write_file`, `edit_file`, `list_dir`, `glob_files`, `search_text`
-
-**Shell & Runtime:** `exec`, `python_run`
-
-**Web & Arastirma:** `web_search`, `web_fetch`, `arxiv_search`, `arxiv_fetch`, `hf_hub_file_fetch`
-
-**Execution Plane:** `execution_session_create`, `execution_run`, `execution_run_background`, `execution_job_status`, `execution_job_result`, `execution_read_log`, `execution_job_list`, `execution_job_cancel`, `execution_artifact_list`, `execution_cancel`, `execution_session_close`, `colab_mcp_tool_call`, `execution_env_info`
-
-**Bellek & Zamanlama:** `search_memory`, `fetch_memory_by_date`, `cron`, `message`, `get_env`
-
-**Workflow:** `todo_write`, `search_tools`, `ask_user`
-
-**Sub-agent:** `subagent_spawn`, `subagent_plan_execute`, `task_list`, `task_get`, `task_cancel`, `task_history_list`, `agent_list`, `task_dashboard`
-
-**Diger:** `git_worktree`, `load_skill_instructions`
-
-</details>
-
-### Execution Provider Detaylari
-
-| Provider | Nasil Calisir | GPU | Persistent State |
-|----------|--------------|-----|------------------|
-| **Local** | `sh -c` veya Python subprocess/REPL | Host GPU | REPL modunda evet |
-| **Jupyter** | HTTP + WebSocket, kernel bazli | Kernel'e bagli | Evet (kernel memory) |
-| **SSH** | russh ile remote baglanti | Remote GPU | REPL modunda evet |
-| **Colab MCP** | Browser MCP koprusu | Ucretsiz T4/TPU | Notebook session boyunca |
+> ALTAI uzerinde ML problemlerine cozum ureten agent'lar **hardcoded recete**
+> takip etmek yerine **kendi cozumlerini kesfeder**. Bu belge o kesif sisteminin
+> mimarisini, modullerini ve calisma orneklerini anlatir.
+>
+> Son guncelleme: 2026-05-21
 
 ---
 
-## Mevcut Agentlar (Tamamlandi)
+## 0. Niye Hardcoded Degil?
 
-| # | Agent | IsanAgent | Durum |
-|---|-------|-----------|-------|
-| 1 | **Paper Reproducer** | Evet | Eklendi |
-| 2 | **Notebook Assistant** | Evet | Eklendi |
-| 3 | **Dataset Generator** | Evet | Eklendi |
+Onceki tasarim "13 farkli agent, her birinin tam pipeline'i belli" idi: SFT Atelier
+= Unsloth + DoRA, RAG Workbench = bge-m3 + Qdrant, vs. Bu yaklasimin uc kritik
+problemi var:
 
----
+1. **Her kullanici farkli bir istekte bulunur.** "Hukuk Q&A botu" ile "agent'ım
+   tool call'larda hata yapiyor" ayni receteyle cozulemez.
+2. **Hicbir yontem her durumda dogru calismaz.** RAG bazı domain'lerde fine-tune'u
+   yener, bazılarinda yenilir. Quantization bazi modellerde kabul edilebilir
+   kalite kaybi verir, bazılarinda vermez. Onceden bilemeyiz.
+3. **State of the art ayda bir kayar.** "Modern SFT Atelier" Mart 2026'da yazildi,
+   Mayis 2026'da Muon optimizer sahneye cikti. Sabitlersek geride kaliriz.
 
-## Yeni Proje Fikirleri
-
-### Proje 1: Model Fine-Tuner
-
-**Tek satir:** Kullanici bir base model + dataset secer, agent training scriptini yazar, calistirir, sonuclari raporlar.
-
-**Mimari:**
-
-```
-Kullanici Girdisi          IsanAgent Akisi
------------------          ----------------
-"Llama-3 8B'yi            1. hf_hub_file_fetch → config.json oku
- SFT dataset ile          2. execution_env_info → GPU/RAM kontrol
- fine-tune et"            3. execution_session_create (local/ssh/colab)
-                          4. execution_run → pilot (1 epoch, kucuk batch)
-                          5. execution_run_background → full training
-                          6. execution_job_status → progress takip
-                          7. execution_artifact_list → checkpoint'ler
-                          8. Sonuc raporu + karsilastirma tablosu
-```
-
-**Kullanilan Toollar:**
-
-| Tool | Amac |
-|------|------|
-| `hf_hub_file_fetch` | Model config, tokenizer config, README okuma |
-| `execution_env_info` | GPU varligini, Python versiyonunu kontrol |
-| `execution_session_create` | Local/SSH/Jupyter/Colab session baslatma |
-| `execution_run` | Pilot training (kisa, senkron) |
-| `execution_run_background` | Full training (background job) |
-| `execution_job_status` | Training progress sorgu |
-| `execution_job_result` | Final metrikler (loss, accuracy) |
-| `execution_artifact_list` | Checkpoint dosyalari, log'lar |
-| `web_search` | Best practices arastirma (learning rate, batch size) |
-| `arxiv_search` | Fine-tuning teknikleri icin paper arama |
-| `todo_write` | Training pipeline asamalarini izleme |
-| `subagent_spawn` | Paralel: biri train ederken digeri eval yapar |
-
-**Ozel Yetenekler:**
-- **Auto-promote:** 120 saniyeyi gecen `execution_run` otomatik olarak background job'a donusur
-- **Colab MCP:** Ucretsiz T4 GPU uzerinde fine-tuning (Google hesabi ile)
-- **SSH Provider:** Remote sunucuda A100/H100 uzerinde training
-- **Checkpoint recovery:** `execution_artifact_list` ile kaydedilmis checkpoint'ten devam
-
-**Zorluk Derecesi:** Orta-Yuksek
-
-**Gerekli Skill'ler (olusturulmali):**
-- `ml-execution-preflight`: Training oncesi ortam kontrolu
-- `oom-recovery-playbook`: Bellek tasma durumunda otomatik kurtarma (batch size kucultme, gradient accumulation)
+Cozum: IsanAgent'in zaten sahip oldugu **arastirma + execution + sub-agent + memory**
+envanterini bir **meta-pattern**'a baglamak. Hangi yontem, hangi kutuphane, hangi
+optimizasyon — bunlarin hepsi **kesif sonucu** belirlenir, hardcoded degil.
 
 ---
 
-### Proje 2: Research Agent (Derin Arastirma Asistani)
+## 1. Iki Sabit Bilesen
 
-**Tek satir:** Bir ML konusu hakkinda cok katmanli derin arastirma yapar: paper, kod, benchmark, karsilastirma.
+Yalniz iki sey degismez:
 
-**Mimari:**
+| Bilesen | Rolu | Niye sabit |
+|---------|------|-----------|
+| **IsanAgent** (Rust runtime, 44 tool, 4 execution provider, sub-agent DAG, SQLite FTS5 memory, cron) | Tum problemleri kesfeden ve yuruten orkestratör | Bu agent harness'inin kendisi; onun ustune bina kuruyoruz |
+| **Afterimage** (Python lib: SFT, DPO/KTO/ORPO, tool-calling, structured-output, MCQ, doc-grounded QA jeneratorleri + multi-judge agreement + Croissant card) | Sentetik veri uretimi disiplini | Veri uretimi tekrarlanabilir, denetlenebilir, versiyonlanabilir olmali |
+
+Geri kalan her sey — hangi optimizasyon algoritmasi, hangi quantize formati, hangi
+serving engine, hangi eval suite — **IsanAgent'in arastirip pilotladigi degiskenler**.
+
+---
+
+## 2. Meta-Pattern: Her ML Talebine Uygulanan Dongü
+
+IsanAgent her ML problemine ayni 8 adimli dongüyle yaklasir. Hangi modullerin
+secileceği bu dongünün cikti.
 
 ```
-Kullanici: "Vision Transformer'larin                Sub-agent DAG:
- son 2 yildaki gelismeleri"
-                                                    ┌─── researcher: arxiv_search
-                                                    │    "ViT survey 2024-2026"
-                                                    │
-              subagent_plan_execute ───────────────> ├─── researcher: web_search
-                                                    │    "state-of-art ViT benchmarks"
-                                                    │
-                                                    ├─── researcher: hf_hub_file_fetch
-                                                    │    "top ViT model configs"
-                                                    │
-                                                    └─── evaluator: synthesize
-                                                         Tum sonuclari birlestir
-                                                         Celiskiler? Bilgi boslugu?
+┌──────────────────────────────────────────────────────────────┐
+│  1. UNDERSTAND   Kullanicinin talebini parse et             │
+│                  Belirsizse ask_user                         │
+│                  Dogrulanabilir bir hedef yaz                │
+│                  ("X metric ≥ Y on Z dataset")               │
+├──────────────────────────────────────────────────────────────┤
+│  2. RESEARCH     arxiv_search + web_search (son 12 ay)       │
+│                  hf_hub_file_fetch (ilgili model/dataset)    │
+│                  search_memory (daha once benzerini gordum?) │
+│                  subagent_spawn paralel arastirma            │
+├──────────────────────────────────────────────────────────────┤
+│  3. ENUMERATE    2-4 ADAY YOL sirala (1 secme!)             │
+│                  Her yol icin maliyet (sure, GPU, $)         │
+│                  Bilinen failure mode'lar (papers'tan)       │
+├──────────────────────────────────────────────────────────────┤
+│  4. PILOT        Her aday icin EN KUCUK dogrulanabilir parca │
+│                  Pilot pass kriteri net (orn. "20 ornekte    │
+│                  ≥%70 doğruluk")                             │
+│                  subagent_spawn paralel pilotlama            │
+├──────────────────────────────────────────────────────────────┤
+│  5. EVALUATE     Pilotlari hedef proxy'ye karsi karsilastir  │
+│                  Geçemeyenleri ele                           │
+│                  Tavan vuran vs umut vereni ayir             │
+├──────────────────────────────────────────────────────────────┤
+│  6. SCALE        Kazanan yolu tam butce ile yurut            │
+│                  execution_run_background + monitoring       │
+│                  Sub-agent loss/metrik izler                 │
+├──────────────────────────────────────────────────────────────┤
+│  7. VERIFY       Gercek hedefe karsi son eval                │
+│                  Iskolu — Hata sinifi cikar → ADIM 3'e don   │
+├──────────────────────────────────────────────────────────────┤
+│  8. PERSIST      search_memory'ye delta yaz                  │
+│                  "Hedef G icin yol A calisti, sinyal X'ti"   │
+│                  Iyi pattern → SKILL.md emit et              │
+└──────────────────────────────────────────────────────────────┘
 ```
 
-**Kullanilan Toollar:**
+Bu dongü **hardcoded**'tir. Icindeki yollarin/modullerin hangileri olacagi
+**kesfedilir**.
 
-| Tool | Amac |
-|------|------|
-| `arxiv_search` | Paper kesfetme (30'a kadar sonuc) |
-| `arxiv_fetch` | Tam paper icerigi (Markdown veya PDF cikartma) |
-| `web_search` | Genel web arastirma (DuckDuckGo/Jina) |
-| `web_fetch` | Blog, dokumantasyon, benchmark sayfasi okuma |
-| `hf_hub_file_fetch` | Model card, config, tokenizer bilgisi |
-| `subagent_spawn` | Paralel arastirma gorevleri |
-| `subagent_plan_execute` | Siralama: kesfet → derinlestir → celiskileri kontrol → sentez |
-| `search_memory` | Onceki session'lardan hatirla |
-| `todo_write` | Arastirma asamalarini izle |
-| `write_file` | Sonuc raporunu dosyaya kaydet |
+---
 
-**Sub-agent Akisi (plan_execute):**
+## 3. Discovery Protokolleri
 
-```json
+Her bilinmeyen icin IsanAgent'in standart kesif yolu:
+
+### 3.1 "Hangi yaklasim?" (UNDERSTAND/RESEARCH/ENUMERATE)
+
+```
+arxiv_search(query, last=12mo)
+  → ilk 30 result, en cok atif alanlar
+web_search("<problem> 2026 best practice")
+  → blog'lar, framework karsilastirma yazilari
+hf_hub_file_fetch(model_card_url)
+  → "bu modelle ne yapanlar olmus" sinyali
+search_memory("benzer problem onceden")
+  → kullanici tabanindan ortaya cikan paternler
+
+→ subagent_spawn(researcher) ile ozetlet
+→ subagent_spawn(evaluator) ile celiskileri sapta
+→ kullanici hala emin degilse: ask_user
+```
+
+### 3.2 "Hangi kutuphane/format?" (PILOT)
+
+```
+Her aday icin en kucuk dogrulanabilir parca:
+  - Egitim: 50-100 step, dataset'in %1'i
+  - Quantize: 1 katmani veya kucuk model
+  - RAG embedding: 100 dokuman pilot index
+  - Inference engine: 10 prompt, throughput olc
+  - Eval suite: 50 sample sub-task
+
+Pilot pass kriteri ONCEDEN yazilir, sonradan rasyonalize edilmez.
+execution_run_background + execution_artifact_list ile artifact toplanir.
+```
+
+### 3.3 "Hangisinde durayim?" (EVALUATE/VERIFY)
+
+```
+Her pilot icin:
+  - Gercek goal proxy'sine yakinligi (orn. mini-MMLU-Pro)
+  - Maliyet (GPU-saat, $, kullanici sabri)
+  - Risk: known failure mode papers'a sahip mi
+  - Tavan: ek butce ile ne kadar artar (extrapolation)
+
+Karar:
+  - Net kazanan → SCALE
+  - Iki esitse → kullaniciya tradeoff sun, ask_user
+  - Hicbiri yetmiyor → ENUMERATE'e geri, farkli yol arasi
+```
+
+### 3.4 "Ne zaman vazgeceyim?" (Doom Loop Defansi)
+
+```
+IsanAgent'in built-in SHA-256 fingerprint:
+  - Ayni tool call 3x tekrarlanirsa SYSTEM: DOOM LOOP DETECTED
+  - Loss / eval 3 epoch dusmuyorsa strateji degisimi zorla
+  - Aynni hata sinifi 3 iterasyondur azalmiyorsa insan etiketi yonlendir
+  - Total butce %150'yi gectiyse: dur, kullaniciya rapor, ask_user
+```
+
+---
+
+## 4. Capability Catalog (Kesif Sozlugü)
+
+Bu liste **secim** degil; IsanAgent'in **arasindan secebilecegi modullerin**
+katalogudur. Hangisini secmesi gerektigini Bolum 2'deki meta-pattern belirler.
+
+Tum referanslar 2026 Mayis durumudur ve guncelliklerini koruyabilmek icin
+periyodik `arxiv_search` + `web_fetch` ile dogrulanmali.
+
+### 4.1 Veri Uretimi (Afterimage cekirdek)
+
+| Modul | Ne uretir | Kaynak |
+|-------|-----------|--------|
+| Magpie | SFT dialog ciftleri (pre-query template) | [arXiv:2406.08464](https://arxiv.org/abs/2406.08464), [magpie-align/magpie](https://github.com/magpie-align/magpie) |
+| Evol-Instruct | Instruction karmasiklastirma | [arXiv:2304.12244](https://arxiv.org/abs/2304.12244) |
+| CoT-Self-Instruct | Reasoning trace + SFT | [arXiv:2507.23751](https://arxiv.org/abs/2507.23751) |
+| Multi-Judge DPO/KTO/ORPO | Preference data + κ/α agreement | DPO [arXiv:2305.18290](https://arxiv.org/abs/2305.18290), KTO [arXiv:2402.01306](https://arxiv.org/abs/2402.01306), ORPO [arXiv:2403.07691](https://arxiv.org/abs/2403.07691) |
+| APIGen-MT | Multi-turn tool-calling trace | [arXiv:2504.03601](https://arxiv.org/abs/2504.03601) |
+| RAGAS-style doc-QA | Document-grounded QA | [arXiv:2309.15217](https://arxiv.org/abs/2309.15217) |
+| Structured-output | JSON Schema'ya uyan ornek | XGrammar/SLOT [arXiv:2505.04016](https://arxiv.org/abs/2505.04016) |
+| MCQ | Multiple-choice question | Afterimage native |
+
+Tum modullerin ciktilari: JSONL + Parquet + HF Dataset Card + Croissant JSON-LD
+(NeurIPS 2025 zorunluluk [NeurIPS guidelines](https://neurips.cc/Conferences/2025/DataHostingGuidelines)).
+
+### 4.2 Veri Filtre/Dedup (genelde Afterimage pipeline icinde cagrilir)
+
+| Modul | Amac | Kaynak |
+|-------|------|--------|
+| datatrove MinHash | n-gram near-duplicate | [datatrove](https://github.com/huggingface/datatrove) |
+| SemDeDup | embedding-based dedup | [arXiv:2303.09540](https://arxiv.org/abs/2303.09540) |
+| FineWeb-Edu classifier | egitim degeri filtresi | [arXiv:2406.17557](https://arxiv.org/abs/2406.17557) |
+| n-gram contamination check | MMLU/HumanEval/GSM8K vs leak | [arXiv:2412.15194](https://arxiv.org/abs/2412.15194) |
+| Presidio | PII redact | Microsoft |
+
+### 4.3 Egitim Framework
+
+| Framework | Guclu yan | Kaynak |
+|-----------|-----------|--------|
+| Unsloth | Tek-GPU SFT 2x hizli, 70% az VRAM | [unslothai/unsloth](https://github.com/unslothai/unsloth) |
+| TRL | DPO/GRPO/RLOO/OnlineDPO referans impl | [huggingface/trl](https://github.com/huggingface/trl) |
+| Axolotl | YAML-config, multi-GPU first | [axolotl-ai-cloud/axolotl](https://github.com/axolotl-ai-cloud/axolotl) |
+| LLaMA-Factory | UI + en genis model coverage | [hiyouga/LLaMA-Factory](https://github.com/hiyouga/LLaMA-Factory) |
+| torchtune | PyTorch-native FSDP-2 | [pytorch.org/torchtune](https://pytorch.org/blog/torchtune-fine-tune-llms/) |
+| verl / OpenRLHF | >70B online RL (DAPO, GRPO) | [verl-project/verl](https://github.com/verl-project/verl), [OpenRLHF](https://github.com/OpenRLHF/OpenRLHF) |
+| NeMo-Aligner | Megatron 3D parallel | [arXiv:2405.01481](https://arxiv.org/abs/2405.01481) |
+
+### 4.4 PEFT
+
+| Yontem | Ne zaman | Kaynak |
+|--------|----------|--------|
+| LoRA | Universal baseline | [arXiv:2106.09685](https://arxiv.org/abs/2106.09685) |
+| QLoRA (NF4 + double-quant) | VRAM <24GB | [arXiv:2305.14314](https://arxiv.org/abs/2305.14314) |
+| DoRA | LoRA + %1-4 (ICML 2024 Oral) | [arXiv:2402.09353](https://arxiv.org/abs/2402.09353) |
+| rsLoRA | r >= 64 stabilite | [arXiv:2312.03732](https://arxiv.org/abs/2312.03732) |
+| LoftQ init | QLoRA accuracy bridge | [arXiv:2310.08659](https://arxiv.org/abs/2310.08659) |
+
+### 4.5 Preference / RL Optimizasyon
+
+| Yontem | Ne ile | Kaynak |
+|--------|--------|--------|
+| DPO | offline pairs | [arXiv:2305.18290](https://arxiv.org/abs/2305.18290) |
+| KTO | unpaired binary | [arXiv:2402.01306](https://arxiv.org/abs/2402.01306) |
+| ORPO | SFT + alignment tek adim | [arXiv:2403.07691](https://arxiv.org/abs/2403.07691) |
+| SimPO | reference-free length-normalized | [arXiv:2405.14734](https://arxiv.org/abs/2405.14734) |
+| IPO | deterministic prefs, DPO overfit | [arXiv:2310.12036](https://arxiv.org/abs/2310.12036) |
+| GRPO | reasoning RL (R1) | [arXiv:2402.03300](https://arxiv.org/abs/2402.03300), [arXiv:2501.12948](https://arxiv.org/abs/2501.12948) |
+| DAPO | scale + clip-higher | [arXiv:2503.14476](https://arxiv.org/abs/2503.14476) |
+| RLOO | critic-free, dusuk VRAM | [arXiv:2402.14740](https://arxiv.org/abs/2402.14740) |
+| Online DPO | bridge offline-online | TRL `OnlineDPOTrainer` |
+
+### 4.6 Quantize Formati
+
+| Format | Hedef | Kutuphane | Kaynak |
+|--------|-------|-----------|--------|
+| W4A16 (AWQ) | Production GPU default | GPTQModel + Marlin | [arXiv:2306.00978](https://arxiv.org/abs/2306.00978), [GPTQModel](https://github.com/ModelCloud/GPTQModel) |
+| W4A16 (GPTQ) | Alt. Marlin | GPTQModel | [arXiv:2210.17323](https://arxiv.org/abs/2210.17323) |
+| W8A8 INT | Eski GPU (A100/L4) | llm-compressor + SmoothQuant | [arXiv:2211.10438](https://arxiv.org/abs/2211.10438), [llm-compressor](https://github.com/vllm-project/llm-compressor) |
+| FP8 (E4M3/E5M2) | Hopper/Ada/Blackwell | llm-compressor + TransformerEngine | [vLLM FP8 docs](https://docs.vllm.ai/en/latest/features/quantization/quantized_kvcache/) |
+| GGUF Q4_K_M / IQ4_XS | Apple/CPU/Ollama/mobil | llama.cpp | [llama.cpp quantize](https://github.com/ggml-org/llama.cpp/blob/master/tools/quantize/README.md) |
+| EXL3 2-4bpw | Tek 24GB GPU @ 70B | turboderp/exllamav3 | [exllamav3](https://github.com/turboderp-org/exllamav3) |
+| AQLM 2-bit | extreme compress | AQLM + PV-Tuning | [arXiv:2401.06118](https://arxiv.org/abs/2401.06118) |
+| HQQ | calibration-free hizli | mobiusml/hqq | [mobiusml/hqq](https://github.com/mobiusml/hqq) |
+
+### 4.7 Serving
+
+| Engine | Hedef | Kaynak |
+|--------|-------|--------|
+| vLLM (V1) | Linux+CUDA default | [docs.vllm.ai](https://docs.vllm.ai/), [arXiv:2309.06180](https://arxiv.org/abs/2309.06180) |
+| SGLang | prefix-agir agent/RAG | [github.com/sgl-project/sglang](https://github.com/sgl-project/sglang) |
+| LMDeploy (TurboMind) | C++ engine, vLLM rakibi | [InternLM/lmdeploy](https://github.com/InternLM/lmdeploy) |
+| TGI | HF stack (bakim modunda) | [huggingface/text-generation-inference](https://github.com/huggingface/text-generation-inference) |
+| llama.cpp server | local-first, multimodal | [ggml-org/llama.cpp](https://github.com/ggml-org/llama.cpp) |
+| Ollama | dev kolay, MLX preview | [docs.ollama.com](https://docs.ollama.com/) |
+| MLX-LM | Apple Silicon native | [mlx-examples](https://github.com/ml-explore/mlx-examples) |
+| ExLlamaV3 + TabbyAPI | consumer 24GB @ 70B | [exllamav3](https://github.com/turboderp-org/exllamav3) |
+| TensorRT-LLM / NIM | NVIDIA Enterprise | [NVIDIA/TensorRT-LLM](https://github.com/NVIDIA/TensorRT-LLM) |
+| ExecuTorch + QNN | mobil/edge | [pytorch/executorch](https://github.com/pytorch/executorch) |
+
+### 4.8 Speculative Decode
+
+| Yontem | Kazanim | Kaynak |
+|--------|---------|--------|
+| EAGLE-3 | 3-6.5x, 70-80% acceptance | [arXiv:2503.01840](https://arxiv.org/abs/2503.01840) |
+| DeepSeek MTP | 1.8x, >80% MTP1 | [arXiv:2412.19437](https://arxiv.org/abs/2412.19437) |
+| Medusa | parallel head, dusuk acceptance | [arXiv:2401.10774](https://arxiv.org/abs/2401.10774) |
+| Lookahead | draft-model yok | [LMSys blog](https://lmsys.org/blog/2023-11-21-lookahead-decoding/) |
+
+### 4.9 Retrieval / RAG
+
+| Bilesen | Aday | Kaynak |
+|---------|------|--------|
+| Embedder | bge-m3, Qwen3-Embedding, voyage-3, gemini-embedding-2, Jina v4 | [bge-m3](https://huggingface.co/BAAI/bge-m3), [arXiv:2402.03216](https://arxiv.org/abs/2402.03216) |
+| Vector store | pgvector, Qdrant, LanceDB, Milvus, Vespa | [Qdrant benchmarks](https://qdrant.tech/benchmarks/) |
+| Reranker | bge-reranker-v2-m3, mxbai-rerank, Cohere, Voyage | [bge-reranker-v2-m3](https://huggingface.co/BAAI/bge-reranker-v2-m3) |
+| Pattern | Contextual Retrieval, RAPTOR, GraphRAG, CRAG, Self-RAG, HyDE | [Anthropic CR](https://www.anthropic.com/news/contextual-retrieval), [arXiv:2401.18059](https://arxiv.org/abs/2401.18059) |
+| Late interaction | ColBERTv2, PLAID, Jina-ColBERT-v2 | [arXiv:2112.01488](https://arxiv.org/abs/2112.01488) |
+| Chunking | recursive 512, late chunking, semantic, proposition, RAPTOR | [Jina late chunking](https://arxiv.org/abs/2409.04701) |
+
+### 4.10 Eval Harnessleri
+
+| Harness | En iyi yan | Kaynak |
+|---------|-----------|--------|
+| lm-evaluation-harness | open-weight standardi | [EleutherAI/lm-evaluation-harness](https://github.com/EleutherAI/lm-evaluation-harness) |
+| lighteval | hizli, sample-level log | [huggingface/lighteval](https://github.com/huggingface/lighteval) |
+| Inspect AI | frontier safety + agentic | [inspect.aisi.org.uk](https://inspect.aisi.org.uk/) |
+| OpenCompass | Mandarin + 100+ task | [open-compass/opencompass](https://github.com/open-compass/opencompass) |
+| HELM | multi-metric holistic | [crfm.stanford.edu/helm](https://crfm.stanford.edu/helm/) |
+| DeepEval | pytest-style app-eval | [confident-ai/deepeval](https://github.com/confident-ai/deepeval) |
+| RAGAS | RAG metrik default | [docs.ragas.io](https://docs.ragas.io/) |
+
+### 4.11 Benchmark Tier'lari
+
+IsanAgent kullanicinin hedef seviyesine gore secer:
+
+| Tier | Tasks | Sure | Kaynak |
+|------|-------|------|--------|
+| Smoke | IFEval + GSM8K-CoT + mini MMLU-Pro | ~30 dk / 7B | meta-pattern adim 4 (pilot) |
+| Standard | + BBH + MATH lvl 5 + GPQA + MUSR + Arena-Hard v2 + LiveCodeBench + BFCL v3 | ~3h | meta-pattern adim 7 (verify) |
+| Frontier | + HLE + RULER 128k + LongBench v2 + τ³-bench + AILuminate + MMMU-Pro + Aider Polyglot + OSWorld-Verified + MathArena | ~12h | son onaylama |
+
+Contaminated/saturated benchmark uyarisi: MMLU/HumanEval/HellaSwag/GSM8K/SWE-bench
+Verified artik kullanim disi ([arXiv:2504.07825](https://arxiv.org/pdf/2504.07825),
+[Morph SWE-bench Pro](https://www.morphllm.com/swe-bench-pro), HF [Open LLM
+Leaderboard retired](https://huggingface.co/spaces/open-llm-leaderboard/open_llm_leaderboard/discussions/1135)).
+IsanAgent eval secerken bu durumu **arxiv_search('benchmark contamination
+2026')** ile her seferinde dogrulamali.
+
+---
+
+## 5. Worked Examples — Ayni Meta-Pattern, Farkli Yollar
+
+Dort farkli kullanici talebi, dordünun de meta-pattern sonucu farkli modul
+kombinasyonu secmesi:
+
+### Ornek 1: "Llama-3'u hukuk metinlerine adapte et"
+
+```
+UNDERSTAND  → ask_user: "Soru-cevap mi, ozetleme mi, sözlesme analizi mi?"
+            → cevap: "Hukuk kullanici sorularina dokuman-temelli cevap"
+            → goal: RAGAS faithfulness ≥ 0.9 + style match ≥ 0.85
+
+RESEARCH    → arxiv_search("legal LLM RAG vs fine-tune 2026")
+            → web_fetch(LightOn "RAG is Dead Long Live RAG")
+            → search_memory: bos
+            → Bulgu: "hukuk citation-zorunlulugu nedeniyle RAG mecbur,
+                       style icin SFT olabilir"
+
+ENUMERATE   → Yol A: Pure RAG (Contextual Retrieval + bge-m3 + reranker)
+            → Yol B: SFT (Afterimage doc-grounded QA + Unsloth + DoRA)
+            → Yol C: Hibrit (A + B birlikte)
+
+PILOT       → A: 200 sözlesme, 50 soru, RAGAS faithfulness
+            → B: Afterimage 1K QA ornegi, Unsloth 1 epoch, eval ayni 50 soru
+            → C: A index'i + B SFT modeli ile cevap
+
+EVALUATE    → A: faithfulness 0.92, style 0.71
+            → B: faithfulness 0.71, style 0.88
+            → C: faithfulness 0.92, style 0.86  ← KAZANAN
+
+SCALE       → Bolum 4.1 (Afterimage RAGAS-style QA) tam veri
+            → Bolum 4.3 (Unsloth) + Bolum 4.4 (DoRA r=16)
+            → Bolum 4.9 (Contextual Retrieval + bge-m3 + bge-reranker-v2-m3)
+            → Bolum 4.6 (W4A16 AWQ Marlin) + Bolum 4.7 (vLLM)
+
+VERIFY      → Standard tier eval, RAGAS sonuc dashboard
+
+PERSIST     → memory: "legal Q&A: hybrid wins, faithfulness gate critical"
+            → SKILL.md: "domain-citation-aware adaptation playbook"
+```
+
+Hicbir bolum hardcoded olarak "hukuk = bunlar" demedi. Kesfedildi.
+
+---
+
+### Ornek 2: "Agentim tool call'larda hata yapiyor"
+
+```
+UNDERSTAND  → ask_user: "Olcecek bir benchmark var mi?"
+            → cevap: "BFCL v3'te %58, %75'e cikarmak istiyorum"
+            → goal: BFCL v3 ≥ 75 (mevcut: 58)
+
+RESEARCH    → arxiv_search("tool calling fine-tune 2026")
+            → Bulgu: APIGen-MT, xLAM, ToolACE keskin sonuclar
+            → hf_hub_file_fetch(xlam-function-calling-60k)
+
+ENUMERATE   → Yol A: Sadece prompt engineering + few-shot
+            → Yol B: APIGen-MT veri + Unsloth SFT
+            → Yol C: B + GRPO with execution reward
+
+PILOT       → A: 30 prompt variation, BFCL v3 mini → 62 (tavan yakin)
+            → B: 1K Afterimage trace, SFT 1 epoch, BFCL v3 mini → 78
+            → C: cok pahali, A/B yeterli → ele
+
+EVALUATE    → A tavan; B esik gecti
+            → SCALE = B
+
+SCALE       → Bolum 4.1 (Afterimage APIGen-MT) tam 60K trace
+            → Bolum 4.3 (Unsloth) + Bolum 4.4 (LoRA r=32 — Magpie-style
+              cesitlilik LoRA'da yeterli, DoRA gerekmedi)
+            → Bolum 4.10 (BFCL v3 eval gate)
+
+VERIFY      → BFCL v3 79.2 (hedefi gecti)
+
+PERSIST     → memory: "tool calling: APIGen-MT + SFT, 60K iyi nokta"
+```
+
+Burada GRPO **secilmedi** — pilot maliyetinin gereksiz oldugunu gosterdi.
+
+---
+
+### Ornek 3: "70B modeli ucuza serve etmek istiyorum"
+
+```
+UNDERSTAND  → ask_user: "Ayda budgen ne, latency hedefin ne?"
+            → cevap: "$500/ay, p99 < 3s"
+            → goal: cost ≤ 500$/ay, latency p99 ≤ 3s
+
+RESEARCH    → web_fetch(Spheron May 2026 pricing, RunPod, Modal)
+            → arxiv_search("model distillation 2026", "quantization quality")
+            → Bulgu: 3 reel patika
+
+ENUMERATE   → Yol A: 70B W4A16 quantize + spot H100 (Bolum 4.6/4.7)
+            → Yol B: 8B distill + full precision (Bolum 4.3 + KD)
+            → Yol C: Routing (easy → 8B, hard → 70B; Bolum 4.10 ile classifier)
+
+PILOT       → A: GPTQModel quantize, vLLM serve, 100 query benchmark
+            → B: 5K KD dataset (Afterimage), Unsloth distill, eval
+            → C: classifier train, A + B birlikte route
+
+EVALUATE    → A: quality OK, cost $720/ay (H100 spot, ~%80 utilization)
+            → B: quality -3%, cost $90/ay  ← cost gecti, quality dustu
+            → C: quality OK, cost $140/ay, p99 +400ms route overhead
+
+            kullaniciya goster, ask_user kulturel karar:
+            "$90 + %3 dusus vs $140 + %3 dusus yok"
+            → cevap: "C, route overhead kabul edilebilir"
+
+SCALE       → C secildi:
+            → Bolum 4.6 (W4A16) + Bolum 4.7 (vLLM + multi-LoRA)
+            → 8B distill icin Bolum 4.3 + Magpie KD veri
+            → routing classifier: kucuk bert tabanli
+
+VERIFY      → 1 hafta production canary, cost $138/ay, p99 2.7s
+```
+
+Burada quantize **degil**, **routing** kazandi. Ama kullanici karari ile.
+
+---
+
+### Ornek 4: "MathArena AIME 2026'da %50 ustu istiyorum"
+
+```
+UNDERSTAND  → goal: MathArena AIME 2026 contest skor ≥ %50
+            → baz model: Qwen3-7B (kullanici secimi)
+
+RESEARCH    → arxiv_search("math reasoning RL 2026")
+            → Bulgu: R1 (open-r1 reproduce), DAPO, GRPO + verifier
+            → search_memory: bos
+
+ENUMERATE   → Yol A: Sadece SFT Mixture-of-Thoughts
+            → Yol B: A + GRPO with sympy/code verifier
+            → Yol C: B + PRM (process reward model)
+
+PILOT       → A: 1K trace SFT, mini-AIME prelim → %18
+            → B: A + 500 GRPO iter (matematik reward), prelim → %34
+            → C: B + ACTPRM (arXiv:2504.10559), prelim → %38 ama variance yuksek
+
+EVALUATE    → A tavan dusuk; B kararli artis; C marjinal + risk
+            → SCALE = B
+
+SCALE       → Bolum 4.1 (Afterimage CoT-Self-Instruct) Mixture-of-Thoughts
+              tarzi 10K trace
+            → Bolum 4.3 (Unsloth SFT cold-start) +
+              Bolum 4.5 (GRPO via TRL GRPOTrainer)
+            → Verifier toolu: sympy + IsanAgent execution sandbox
+            → cron: her hafta MathArena AIME 2026 contest eval
+
+VERIFY      → MathArena AIME 2026 May score: %54 (hedef gecti)
+
+PERSIST     → memory: "math RL: GRPO + sympy verifier yeterli, PRM marjinal"
+            → SKILL.md: "verifiable-reward-RL-playbook"
+```
+
+Burada PRM **bilinmiyordu**, arastirildi, pilotlandi, marjinal cikti, atildi.
+
+---
+
+## 6. Adaptasyon Mekanizmalari
+
+IsanAgent kendi kendinin kullanicisidir. Her run, bir sonraki run'a malzeme verir.
+
+### 6.1 Memory Delta
+
+`search_memory` ile sorulup `write` ile yazilan kayitlar:
+
+```
 {
-  "steps": [
-    {
-      "id": "discovery",
-      "depends_on": [],
-      "prompt": "arxiv_search + web_search ile son 2 yilin ViT paper'larini bul"
-    },
-    {
-      "id": "deep_read",
-      "depends_on": ["discovery"],
-      "prompt": "En onemli 5 paper'i arxiv_fetch ile oku, methodoloji cikar"
-    },
-    {
-      "id": "contradiction_check",
-      "depends_on": ["deep_read"],
-      "prompt": "Paper'lar arasindaki celiskileri bul, claim'leri karsilastir"
-    },
-    {
-      "id": "synthesis",
-      "depends_on": ["contradiction_check"],
-      "prompt": "Tum bulgulari birlesik bir rapor olarak yaz"
-    }
-  ]
+  "goal_class": "domain_qa_with_citations",
+  "approach_tried": "hybrid_rag_plus_sft",
+  "signal_at_pilot": { "ragas_faithfulness": 0.92, "style": 0.86 },
+  "scaled_outcome": { "ragas_faithfulness": 0.93, "style": 0.88 },
+  "modules_used": ["afterimage.docgrounded", "unsloth", "dora", "bge-m3",
+                   "bge-reranker-v2-m3", "vllm", "awq_marlin"],
+  "session_id": "...",
+  "timestamp": "2026-05-21T..."
 }
 ```
 
-**Ozel Yetenekler:**
-- **Bellek:** Arastirma sonuclari `session_summaries`'e kaydedilir, gelecek session'larda `search_memory` ile hatirlanir
-- **Long-term reflection:** 60 saniyede bir calisan reflection engine, kisa vadeli ozetleri uzun vadeli kaliplara donusturur
-- **Celiski tespiti:** Evaluator sub-agent farklı kaynaklardaki celiskileri saptar
+Bir sonraki kullanici "hukuk Q&A" istedi diyelim — meta-pattern ADIM 2'de bu kayit
+RESEARCH'e sinyal olur. Hardcoded recipe degil; **istatistiksel prior**.
 
-**Zorluk Derecesi:** Orta
+### 6.2 Skill Emisyonu
 
-**Gerekli Skill'ler (olusturulmali):**
-- `literature-to-recipe`: Paper'dan implementation recipe cikarma
+Bir yol uc kez ardisik basariyla calistiysa IsanAgent `SKILL.md` yazar:
+
+```markdown
+---
+name: domain-citation-aware-adaptation
+trigger: "domain Q&A with required citations"
+confidence: high (3 successful runs)
+---
+
+## When
+- User asks for domain expert chatbot with grounding requirements
+
+## Recipe (discovered, not hardcoded)
+- Stage 1: Afterimage doc-grounded QA generator
+- Stage 2: Unsloth + DoRA r=16 on style examples
+- Stage 3: Contextual Retrieval + bge-m3 hybrid
+- Stage 4: bge-reranker-v2-m3 top-50 rerank
+- Stage 5: vLLM serve with AWQ
+
+## Eval gate
+- RAGAS faithfulness >= 0.90
+- Style match >= 0.85
+```
+
+Bu skill kullanicinin **bilgisi disinda** olusur ve gelecek sorularda
+`load_skill_instructions` ile cagrilir. Hardcoded degil — **emerged**.
+
+### 6.3 Doom Loop Defansi
+
+```
+- Ayni tool call 3 fingerprint match → strateji degis
+- Loss/eval 3 iter dusmuyor → optimizer veya LR rezet
+- Hata sinifi 3 iter sabit → insan etiketine yonlendir
+- Total butce %150 → dur + ask_user
+```
+
+Bu mekanizmalar IsanAgent runtime'inda zaten var. Adaptive ML Agent bunlari
+**fark etmeden** kullanir.
+
+### 6.4 Cron-Based Surveillance
+
+Olusturulan modeller ureтime cikinca:
+
+```
+cron_expr: "0 6 * * *"   # her gun 06:00
+message: "Production endpoint icin canary 3 prompt sonucu kontrol et.
+          Cevap embedding shift cosine > 0.05 mi? lm-eval mini-suite
+          skor dususu var mi? Var ise meta-pattern'i tekrar ac:
+          ADIM 7 VERIFY iskodu → ADIM 3 ENUMERATE."
+```
+
+Boylece pipeline canli — bir kerelik calismaz.
 
 ---
 
-### Proje 3: Experiment Tracker (Deney Yonetim Sistemi)
+## 7. Ne Hardcoded, Ne Discovered?
 
-**Tek satir:** Birden fazla ML deneyini paralel calistirir, sonuclari karsilastirir, en iyi hyperparameter'lari onerir.
+| Sabit (asla degismez) | Kesfedilen (her run yeniden) |
+|----------------------|------------------------------|
+| IsanAgent runtime + 44 tool | Hangi tool secilir |
+| Afterimage modullari (Magpie, DPO, APIGen-MT, RAGAS-QA, vs.) | Hangi modul cagrilir, hangi parametre ile |
+| 8-adimli meta-pattern dongüsü | Her adimda ne yapilir |
+| Capability catalog'un VARLIGI | Catalog'tan ne secilir |
+| Croissant + HF Dataset Card formati (Afterimage cikti) | Dataset icerigi |
+| Doom loop defansi mekanizmasi | Hangi noktada tetiklenir |
+| Memory + skill emisyon disiplini | Hangi pattern skill olur |
 
-**Mimari:**
-
-```
-                        ┌── Job 1: lr=1e-4, bs=32 ──────┐
-                        │                                 │
-Kullanici:              ├── Job 2: lr=3e-4, bs=16 ──────┤──→ Karsilastirma
-"3 farkli lr dene"      │                                 │    Tablosu
-                        └── Job 3: lr=1e-3, bs=32 ──────┘
-                             |                    |
-                     execution_run_background   execution_job_status
-                                                  (periyodik polling)
-```
-
-**Kullanilan Toollar:**
-
-| Tool | Amac |
-|------|------|
-| `execution_session_create` | Her deney icin session |
-| `execution_run_background` | Paralel training job'lari |
-| `execution_job_list` | Tum job'larin durumu |
-| `execution_job_status` | Tekil job progress |
-| `execution_job_result` | Final metrikler |
-| `execution_artifact_list` | Loss grafikleri, checkpoint'ler |
-| `execution_read_log` | Training log'larini oku (satir bazli) |
-| `execution_job_cancel` | Basarisiz deneyi durdur |
-| `todo_write` | Deney pipeline durumunu goster |
-| `write_file` | Sonuc raporunu dosyaya kaydet |
-| `cron` | Zamanlanmis deney (orn: her gece retrain) |
-| `subagent_spawn` | Biri train, digeri eval, ucuncusu report |
-
-**Deney Karsilastirma Raporu Formati:**
-
-```
-| Deney | LR    | BS | Epoch | Val Loss | Val Acc | Durum    |
-|-------|-------|----|-------|----------|---------|----------|
-| exp-1 | 1e-4  | 32 | 10    | 0.342    | 91.2%   | Tamamlandi |
-| exp-2 | 3e-4  | 16 | 10    | 0.298    | 93.1%   | Tamamlandi |
-| exp-3 | 1e-3  | 32 | 7     | 0.891    | 45.3%   | Iptal      |
-
-Oneri: exp-2 (lr=3e-4, bs=16) en iyi sonucu verdi.
-```
-
-**Ozel Yetenekler:**
-- **Cron ile zamanlama:** `cron_expr` ile "her gece 02:00'de retrain" senaryosu
-- **Auto-cancel:** Loss diverge ederse job otomatik iptal
-- **Artifact yonetimi:** `.execution_artifacts/{session_id}/` altinda tum ciktilar (grafikler, CSV, checkpoint)
-- **Wake-on-completion:** Background job bittiginde parent agent otomatik uyandirilir
-
-**Zorluk Derecesi:** Orta
+Bu ayrim **kasitlidir**. Sabit kisim **agent harness'i**; degisken kisim **agent'in
+kendi cozumudur**.
 
 ---
 
-### Proje 4: ML Debugger (ML Hata Ayiklayici)
+## 8. Implementasyon Onerisi
 
-**Tek satir:** Training coktugunde veya loss dusmediginde root cause analizi yapar ve duzeltme onerir.
+Mevcut hardcoded agent'lara dokunmadan tek bir yeni agent eklenir:
 
-**Mimari:**
+```ts
+// src/modules/ai/lib/agents.ts
+{
+  id: "builtin:adaptive-ml",
+  name: "Adaptive ML",
+  description: "Discovers its own solution for any ML request via research, pilot, evaluate, adapt.",
+  icon: "spark",
+  builtIn: true,
+  instructions: `You are an adaptive ML engineer.
 
+For ANY ML request, follow the 8-step meta-pattern:
+
+1. UNDERSTAND — parse the request, ask_user if critical ambiguity,
+   write a verifiable goal.
+2. RESEARCH — arxiv_search, web_search, hf_hub_file_fetch, search_memory.
+   Do NOT pick a recipe yet. You are SURVEYING.
+3. ENUMERATE — propose 2-4 candidate paths with cost + risk.
+4. PILOT — for each candidate, run the smallest verifiable version.
+   Define pilot pass criteria BEFORE running.
+5. EVALUATE — compare pilots; reject those that fail; identify winner OR
+   present tradeoff to ask_user.
+6. SCALE — run the winner at full budget, monitor with sub-agent.
+7. VERIFY — final eval against the actual goal. If miss, identify failure
+   class and loop to step 3 with new info.
+8. PERSIST — write memory delta; if a path succeeded 3x, emit a SKILL.md.
+
+Capability catalog (you SELECT from these via research, not hardcoded):
+- Data: Afterimage modules (Magpie, DPO, APIGen-MT, RAGAS-QA, ...)
+- Training: Unsloth, TRL, Axolotl, verl, OpenRLHF, ...
+- PEFT: LoRA, QLoRA, DoRA, rsLoRA
+- Preference/RL: DPO, KTO, ORPO, SimPO, GRPO, DAPO, RLOO
+- Quantize: AWQ, GPTQ, W8A8, FP8, GGUF, EXL3
+- Serving: vLLM, SGLang, LMDeploy, MLX, ExLlamaV3, Ollama
+- RAG: bge-m3, Contextual Retrieval, hybrid + RRF, reranker
+- Eval: lm-eval, lighteval, Inspect AI, RAGAS, BFCL v3, MathArena
+
+Doom loop: if same tool call 3x, change strategy. If loss/eval 3 iter no
+progress, restart with new hyperparams. If budget overrun 150%, stop and
+ask_user.
+
+Persist: write memory, emit skills on repeated success.
+
+You are NOT a recipe runner. You are a researcher who runs experiments.`
+}
 ```
-Kullanici: "Training crash ediyor,    Agent Akisi:
- CUDA out of memory"
-                                      1. execution_read_log → hata mesajini oku
-                                      2. search_text → kodda OOM noktasini bul
-                                      3. read_file → model tanimini incele
-                                      4. Analiz: batch_size x model_params x dtype = VRAM
-                                      5. Oneri: batch_size=4, gradient_accumulation=8
-                                      6. edit_file → config'i guncelle
-                                      7. execution_run → test et
-                                      8. Basarili? → Rapor. Basarisiz? → Doom loop engeli
-```
 
-**Kullanilan Toollar:**
+Diger gerekli degisiklikler:
 
-| Tool | Amac |
-|------|------|
-| `execution_read_log` | Crash log'unu satir satir oku |
-| `read_file` | Model kodu, config dosyalari |
-| `search_text` | Hata mesajini codebase'de ara |
-| `edit_file` | Config/kod duzeltmesi |
-| `execution_run` | Fix'i test et |
-| `web_search` | Hata mesajini internette ara |
-| `arxiv_search` | Ilgili teknik paper (orn: mixed precision) |
-| `glob_files` | Proje yapisini kesfet |
-| `execution_env_info` | GPU/VRAM bilgisi |
-| `todo_write` | Debug asamalarini izle |
-| `subagent_spawn` | researcher: hata arastir, coder: fix yaz |
+- `AgentSwitcher.tsx` ICONS map'ine `spark` ekle (varsa zaten)
+- `AgentIntroCard.tsx` AGENT_WORKFLOWS'a yeni agent icin gorsel akis:
+  "UNDERSTAND → RESEARCH → ENUMERATE → PILOT → EVALUATE → SCALE → VERIFY → PERSIST"
 
-**Hata Kategorileri ve Otomatik Mudahale:**
-
-| Hata Tipi | Tespit Yontemi | Otomatik Fix |
-|-----------|---------------|--------------|
-| **CUDA OOM** | "CUDA out of memory" log'da | batch_size kucult, grad accum artir |
-| **NaN Loss** | "nan" veya "inf" loss degerinde | learning rate dusur, gradient clipping ekle |
-| **Shape Mismatch** | "size mismatch" veya "expected X got Y" | Model layer boyutlarini kontrol et |
-| **Import Error** | "ModuleNotFoundError" | `pip install` onerisi |
-| **Convergence** | Loss 5 epoch boyunca dusmuyor | LR scheduler, warmup, data augmentation onerisi |
-
-**Ozel Yetenekler:**
-- **Doom loop korunmasi:** Ayni hatayi 3+ kez tekrarlarsa `[SYSTEM: DOOM LOOP DETECTED]` ile farkli strateji zorlar
-- **OOM recovery playbook:** Skill olarak yuklenebilir, adim adim bellek optimizasyonu
-
-**Zorluk Derecesi:** Orta-Yuksek
-
-**Gerekli Skill'ler (olusturulmali):**
-- `oom-recovery-playbook`: OOM durumunda adim adim kurtarma proseduru
-- `scientific-python-debugging`: Python debugging best practices
+Hardcoded olan eski uc agent (Paper Reproducer, Notebook Assistant, Dataset
+Generator) **scoped task entry points** olarak kalir. Adaptive ML Agent **fuzzy /
+open-ended** istekler icin.
 
 ---
 
-### Proje 5: Codebase Analyst (ML Kod Analisti)
+## 9. Implementasyon Sirasi
 
-**Tek satir:** Mevcut bir ML projesini derinlemesine analiz eder: mimari, bagimliliklar, test durumu, performans sorunlari.
+Adaptive ML Agent'i hayata gecirmek icin mantikli sira:
 
-**Mimari:**
+| Adim | Is | Cikti |
+|------|----|------|
+| 1 | Adaptive ML Agent tanimi + sistem promptu | `builtin:adaptive-ml` |
+| 2 | Capability catalog'u IsanAgent skill olarak emit et | `~/.altai/skills/catalog/*.md` |
+| 3 | Meta-pattern adimlarini SKILL.md olarak yaz | `meta-pattern.md` |
+| 4 | Memory delta seması — `search_memory` JSON formati standardı | repo'da dokumante |
+| 5 | Skill emisyon seması — basari sayaci + cikti template | repo'da dokumante |
+| 6 | Worked Example test setleri — yukarıdaki 4 örnek e2e | regression suite |
+| 7 | Live benchmark cron template (MathArena, LiveCodeBench gibi) | cron config örnegi |
+| 8 | Production canary template (her urun icin) | cron config örnegi |
 
-```
-Kullanici: "Bu ML projesini analiz et"
-
-  subagent_plan_execute:
-  ┌───────────────────────────────────────────────────┐
-  │ Step 1: researcher                                │
-  │   glob_files → proje yapisi                       │
-  │   read_file → README, requirements.txt, setup.py  │
-  │   search_text → "import torch", "import tf"       │
-  │                                                   │
-  │ Step 2: coder                                     │
-  │   read_file → model.py, train.py, data.py         │
-  │   search_text → "class.*Model", "def forward"     │
-  │   Mimari cikartma                                 │
-  │                                                   │
-  │ Step 3: evaluator                                 │
-  │   search_text → "test_", "assert", "pytest"       │
-  │   glob_files → tests/**/*.py                      │
-  │   Kalite degerlendirme                            │
-  └───────────────────────────────────────────────────┘
-
-  Cikti: Yapilandirilmis analiz raporu
-```
-
-**Kullanilan Toollar:**
-
-| Tool | Amac |
-|------|------|
-| `glob_files` | Proje yapisi haritalama |
-| `read_file` | Kaynak kod, config, README |
-| `search_text` | Pattern arama (import, class tanimi, test) |
-| `list_dir` | Dizin icerik listesi |
-| `subagent_spawn` | Paralel analiz (mimari, kalite, guvenlik) |
-| `subagent_plan_execute` | Siralı analiz: kesfet → analiz → degerlendir |
-| `write_file` | Raporu dosyaya kaydet |
-| `web_search` | Kullanilan kutuphanelerin guncel versiyonlari |
-| `hf_hub_file_fetch` | Kullanilan model'in orijinal config'i |
-| `execution_run` | `pip list`, `pytest --co`, `pylint` calistirma |
-
-**Rapor Ciktisi:**
-
-```
-## Proje Analizi: {proje_adi}
-
-### Genel Bakis
-- Framework: PyTorch 2.1
-- Model Tipi: Vision Transformer (ViT-B/16)
-- Dataset: ImageNet-1K subset
-
-### Mimari
-- Model: 86M parametre, 12 layer, 768 hidden
-- Loss: CrossEntropyLoss
-- Optimizer: AdamW (lr=1e-4, wd=0.01)
-
-### Kod Kalitesi
-- Test coverage: 23% (DUSUK)
-- Linting hatalari: 47
-- Type hint kullanimi: %12
-
-### Potansiyel Sorunlar
-- [ ] Data loader'da num_workers=0 (yavas)
-- [ ] Mixed precision kullanilmiyor
-- [ ] Checkpoint kaydi yok
-- [ ] Reproducibility: seed set edilmemis
-
-### Oneriler
-1. num_workers=4 yap
-2. torch.cuda.amp ekle
-3. Her epoch sonunda checkpoint kaydet
-4. random seed sabitle
-```
-
-**Zorluk Derecesi:** Dusuk-Orta
+Mevcut hardcoded agent'lar dokunulmadan. Yeni agent **yeni dosya degisiklikleri:**
+`src/modules/ai/lib/agents.ts` + `src/modules/ai/components/AgentSwitcher.tsx`
++ `src/modules/ai/components/AgentIntroCard.tsx`.
 
 ---
 
-### Proje 6: Autonomous Training Pipeline (Otonom Egitim Hatti)
+## 10. Felsefe Ozeti
 
-**Tek satir:** Zamanlanmis gorevlerle veri toplama → training → evaluation → raporlama pipeline'i.
+> "Bir kullanici 'modeli iyilestir' der; IsanAgent ne sectiğini sormaz, secimini
+> kesfeder."
 
-**Mimari:**
+Hardcoded recipe = bir gecmis donemin best practice'i sabitlenmis hali. State
+of the art ayda bir kayar. ALTAI'nin **iyilesme hızı** kullanicilarinin **yeni
+yontemleri ne kadar hizli deneyebildigine** baglidir. Adaptive ML Agent bunu
+hizlandirir cunku:
 
-```
-Cron: Her gun 02:00                      Cron: Her hafta Pazar 06:00
-         │                                         │
-         ▼                                         ▼
-  ┌──────────────┐                         ┌──────────────┐
-  │ Veri Toplama  │                         │ Full Retrain  │
-  │ web_fetch     │                         │ execution_run │
-  │ arxiv_fetch   │──→ dataset.jsonl ──────>│ _background   │
-  │ write_file    │                         │               │
-  └──────────────┘                         └──────┬───────┘
-                                                   │
-                                                   ▼
-                                           ┌──────────────┐
-                                           │ Evaluation    │
-                                           │ execution_run │
-                                           │ Karsilastir   │
-                                           └──────┬───────┘
-                                                   │
-                                                   ▼
-                                           ┌──────────────┐
-                                           │ Bildirim      │
-                                           │ message       │
-                                           │ (Slack/Email) │
-                                           └──────────────┘
-```
+- Kullanici "DPO mu KTO mu?" demek zorunda degil → IsanAgent arastirir.
+- Kullanici "AWQ mu GPTQ mu?" demek zorunda degil → IsanAgent pilotlar.
+- Kullanici "bge-m3 mi voyage-3 mu?" demek zorunda degil → IsanAgent karsilastirir.
+- Yeni teknik cikinca dokumantasyon guncellenmek zorunda degil → IsanAgent
+  zaten `arxiv_search` ile yakaliyor.
 
-**Kullanilan Toollar:**
-
-| Tool | Amac |
-|------|------|
-| `cron` | Zamanlanmis gorev tanimlama (veri toplama, training, eval) |
-| `web_search` + `web_fetch` | Yeni veri kaynaklari toplama |
-| `arxiv_search` + `arxiv_fetch` | Yeni paper'lar izleme |
-| `execution_session_create` | Training ortami hazirlama |
-| `execution_run_background` | Uzun sureli training |
-| `execution_job_status` | Training izleme |
-| `execution_artifact_list` | Checkpoint, log, grafik toplama |
-| `message` | Slack/Email ile sonuc bildirimi |
-| `write_file` | Veri seti, rapor kaydetme |
-| `search_memory` | Onceki training sonuclarini hatirla |
-| `todo_write` | Pipeline durumu izleme |
-
-**Cron Ornekleri:**
-
-```
-# Her gun gece 2'de yeni veri topla
-cron_expr: "0 2 * * *"
-message: "Yeni training verisi topla ve dataset.jsonl'e ekle"
-
-# Her hafta pazar sabah 6'da retrain
-cron_expr: "0 6 * * 0"
-message: "Full model retraining baslat, onceki checkpoint'ten devam et"
-
-# Her ay 1'inde benchmark karsilastir
-cron_expr: "0 10 1 * *"
-message: "Aylik benchmark raporu olustur, onceki aylarla karsilastir"
-```
-
-**Ozel Yetenekler:**
-- **Webhook token:** Cron job'lari disaridan tetiklenebilir (CI/CD entegrasyonu)
-- **Multi-channel bildirim:** Training bittikten sonra Slack + Email ile sonuc gonder
-- **Wake-on-completion:** `wake_on_job_terminal` ile background job bitince agent otomatik uyanir
-
-**Zorluk Derecesi:** Yuksek
+Iki sabit (IsanAgent + Afterimage) **disiplin** saglar. Geri kalan tum **kesif**
+IsanAgent'in isidir.
 
 ---
 
-### Proje 7: HuggingFace Hub Manager
-
-**Tek satir:** Hugging Face Hub uzerindeki modelleri/datasetleri yonetir, karsılastırır, dokumante eder.
-
-**Mimari:**
-
-```
-Kullanici: "Llama-3 ile Mistral'i    Agent Akisi:
- karsılastır"
-                                     1. hf_hub_file_fetch → Llama-3/config.json
-                                     2. hf_hub_file_fetch → Mistral/config.json
-                                     3. hf_hub_file_fetch → Llama-3/README.md
-                                     4. hf_hub_file_fetch → Mistral/README.md
-                                     5. web_search → benchmark sonuclari
-                                     6. Karsilastirma tablosu olustur
-                                     7. write_file → raporu kaydet
-```
-
-**Kullanilan Toollar:**
-
-| Tool | Amac |
-|------|------|
-| `hf_hub_file_fetch` | config.json, README.md, tokenizer_config.json okuma |
-| `web_search` | Benchmark sonuclari, community tartismalari |
-| `web_fetch` | Model card detaylari, leaderboard sayfalari |
-| `write_file` | Model card, dataset card yazma |
-| `subagent_spawn` | Her model icin paralel bilgi toplama |
-| `search_memory` | Daha once incelenen modelleri hatirla |
-
-**Cikti Formati:**
-
-```
-## Model Karsilastirma: Llama-3-8B vs Mistral-7B
-
-| Ozellik        | Llama-3-8B    | Mistral-7B     |
-|----------------|---------------|----------------|
-| Parametre      | 8.03B         | 7.24B          |
-| Context        | 8192          | 32768          |
-| Vocab Size     | 128256        | 32000          |
-| Hidden Size    | 4096          | 4096           |
-| Layers         | 32            | 32             |
-| Attention      | GQA (8 KV)    | GQA (8 KV)     |
-| MMLU           | 66.6          | 62.5           |
-| HumanEval      | 62.2          | 32.8           |
-| Lisans         | Llama 3 CLA   | Apache 2.0     |
-```
-
-**Zorluk Derecesi:** Dusuk
-
----
-
-## Gelismis Proje Fikirleri (Ileri Seviye)
-
-### Proje 8: Multi-Agent ML Workshop
-
-**Tek satir:** Birden fazla sub-agent'in koordineli calistigi tam bir ML projesi: data → train → evaluate → deploy.
-
-```
-coordinator (ana agent)
-  ├── researcher: paper + benchmark arastirma
-  ├── data_engineer (coder): veri hazirlama
-  ├── trainer (coder): model training
-  ├── evaluator: sonuc degerlendirme
-  └── writer (coder): rapor + model card yazma
-```
-
-**subagent_plan_execute ile DAG:**
-1. `researcher` → Konu arastir, best practices bul
-2. `data_engineer` → Dataset hazirlama (researcher sonuclarina bagli)
-3. `trainer` → Model training (dataset'e bagli)
-4. `evaluator` → Sonuclari degerlendir (training'e bagli)
-5. `writer` → Rapor + model card yaz (tum sonuclara bagli)
-
-**Zorluk Derecesi:** Cok Yuksek
-
----
-
-### Proje 9: Paper-to-Production Pipeline
-
-**Tek satir:** Paper Reproducer + Fine-Tuner + Experiment Tracker birlesimi: paper oku → implement → train → evaluate → karsılastır.
-
-```
-Kullanici: "Bu paper'i reproduce et ve CIFAR-100'de test et"
-
-  Paper Reproducer → Kod uret
-       │
-       ▼
-  Experiment Tracker → 3 farkli config dene
-       │
-       ▼
-  ML Debugger → Hatalari duzelt
-       │
-       ▼
-  Research Agent → Sonuclari paper ile karsılastır
-       │
-       ▼
-  Rapor: "Paper claim: 94.2% acc. Bizim sonuc: 93.8% acc. Fark analizi: ..."
-```
-
-**Zorluk Derecesi:** Cok Yuksek
-
----
-
-### Proje 10: Scheduled Model Monitor
-
-**Tek satir:** Production'daki modeli izler, performans duserse alarm verir, otomatik retrain tetikler.
-
-```
-Cron: Her saat
-  │
-  ▼
-  execution_run → inference_test.py
-  │
-  ├── Accuracy > threshold? → OK, log yaz
-  │
-  └── Accuracy < threshold? → message (Slack alarm)
-                              → cron: retrain job tetikle
-```
-
-**Zorluk Derecesi:** Yuksek
-
----
-
-## Oncelik Matrisi
-
-| Oncelik | Proje | Zorluk | Etki | Neden Oncelikli |
-|---------|-------|--------|------|-----------------|
-| **1** | Model Fine-Tuner | Orta-Yuksek | Cok Yuksek | Execution harness + Colab = ucretsiz GPU training, en buyuk differentiator |
-| **2** | Research Agent | Orta | Yuksek | Sub-agent + bellek sistemi hazir, hemen calisir |
-| **3** | Experiment Tracker | Orta | Yuksek | Background jobs + artifacts zaten var, fine-tuner ile dogal tamamlayici |
-| **4** | HuggingFace Hub Manager | Dusuk | Orta | En kolay implementasyon, hf_hub_file_fetch hazir |
-| **5** | ML Debugger | Orta-Yuksek | Yuksek | Doom loop + OOM playbook unique ozellikler, ama skill yazilmali |
-| **6** | Codebase Analyst | Dusuk-Orta | Orta | Mevcut toollarla hemen yapilabilir |
-| **7** | Training Pipeline | Yuksek | Cok Yuksek | Cron + background jobs + multi-channel = guclu ama karmasik |
-| **8** | Multi-Agent Workshop | Cok Yuksek | Cok Yuksek | Tum agent yeteneklerinin birlesimi, showcase proje |
-| **9** | Paper-to-Production | Cok Yuksek | Cok Yuksek | Diger agent'larin birlesimi, son asama |
-| **10** | Model Monitor | Yuksek | Yuksek | Production monitoring, cron + alerting gerekli |
-
----
-
-## Implementasyon Notu
-
-Her yeni agent icin gereken minimum degisiklikler:
-
-1. **`src/modules/ai/lib/agents.ts`** — `BUILTIN_AGENTS` array'ine agent tanimi ekle, `ISANAGENT_AGENT_IDS`'e ID ekle, `AgentIconId`'ye icon ekle
-2. **`src/modules/ai/components/AgentSwitcher.tsx`** — `ICONS` map'ine icon ekle
-3. **`src/modules/ai/components/AgentIntroCard.tsx`** — `AGENT_WORKFLOWS`'a workflow tanimi ekle
-4. **Opsiyonel:** IsanAgent workspace'ine skill SKILL.md dosyasi ekle
-
-Yeni tool yazmaya gerek yok — tum projeler IsanAgent'in mevcut 44 tool'u ile calisir.
+**Belge surumu:** v3.0 — Hardcoded 13 proje → meta-pattern + capability catalog +
+4 worked example + adaptasyon mekanizmalari + tek "Adaptive ML Agent" implementasyon
+notu. 2026-05-21.
