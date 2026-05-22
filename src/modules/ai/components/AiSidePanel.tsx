@@ -81,7 +81,7 @@ export function AiSidePanel({
       aria-label="AI assistant"
       className="flex h-full min-h-0 flex-col bg-card text-[12px]"
     >
-      <SessionTabs />
+      <SessionTabs onCloseLast={onClose} />
       {sessionId ? (
         <Body sessionId={sessionId} />
       ) : (
@@ -99,12 +99,23 @@ export function AiSidePanel({
   );
 }
 
-function SessionTabs() {
+function SessionTabs({ onCloseLast }: { onCloseLast: () => void }) {
   const sessions = useChatStore((s) => s.sessions);
   const activeId = useChatStore((s) => s.activeSessionId);
   const switchSession = useChatStore((s) => s.switchSession);
   const newSession = useChatStore((s) => s.newSession);
   const deleteSession = useChatStore((s) => s.deleteSession);
+
+  // When the user removes the last session, close the AI panel. The store
+  // auto-creates a fresh "New chat" placeholder so the next reopen starts
+  // clean — without this the user gets stuck with one undeletable pill
+  // showing a stale auto-title (e.g. "Restructure the selected function
+  // for...") that the panel refuses to release.
+  const onSessionDelete = (id: string) => {
+    const wasLast = sessions.length === 1;
+    deleteSession(id);
+    if (wasLast) onCloseLast();
+  };
 
   // ARIA tablist arrow / Home / End / Delete navigation. Auto-activation
   // (moving focus also switches the session) — most common pattern; JAWS
@@ -131,11 +142,14 @@ function SessionTabs() {
       next = total - 1;
       handled = true;
     } else if (e.key === "Delete") {
-      if (total > 1) {
-        e.preventDefault();
-        deleteSession(sessions[idx].id);
-        // The store will pick a new active session; restore focus to
-        // whichever tab is selected after the re-render.
+      e.preventDefault();
+      const wasLast = total === 1;
+      deleteSession(sessions[idx].id);
+      if (wasLast) {
+        onCloseLast();
+      } else {
+        // The store picked a new active session; move focus to whichever
+        // tab is now selected so the SR announces the new selection.
         moveFocusToActiveTab(e.currentTarget);
       }
       return;
@@ -164,13 +178,13 @@ function SessionTabs() {
   }
 
   return (
-    <div className="flex h-8 shrink-0 items-center gap-0.5 border-b border-border/40 bg-transparent px-1.5">
+    <div className="flex h-9 shrink-0 items-center gap-1 border-b border-border/40 bg-transparent px-2">
       <div
         role="tablist"
         aria-label="Chat sessions"
         aria-orientation="horizontal"
         onKeyDown={onTablistKey}
-        className="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
       >
         {sessions.map((session, i) => (
           <SessionTab
@@ -180,8 +194,11 @@ function SessionTabs() {
             position={i + 1}
             total={sessions.length}
             onSelect={() => switchSession(session.id)}
-            onDelete={() => deleteSession(session.id)}
-            canDelete={sessions.length > 1}
+            onDelete={() => onSessionDelete(session.id)}
+            // Always allow closing — even the last chat. Removing the last
+            // pill closes the AI panel; the store creates a fresh "New
+            // chat" silently so the next reopen starts clean.
+            canDelete={true}
           />
         ))}
       </div>
@@ -191,11 +208,11 @@ function SessionTabs() {
         title="New chat session"
         aria-label="New chat session"
         className={cn(
-          "inline-flex size-6 shrink-0 items-center justify-center rounded-md",
-          "text-muted-foreground transition-colors hover:bg-accent hover:text-foreground",
+          "inline-flex size-7 shrink-0 items-center justify-center rounded-md",
+          "text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground",
         )}
       >
-        <HugeiconsIcon icon={Add01Icon} size={13} strokeWidth={1.75} />
+        <HugeiconsIcon icon={Add01Icon} size={14} strokeWidth={1.75} />
       </button>
       <ChatHistory />
     </div>
@@ -228,8 +245,8 @@ function SessionTab({
       tabIndex={active ? 0 : -1}
       onClick={onSelect}
       onKeyDown={(e) => {
-        // Enter / Space activate the focused tab (auto-activation also fires
-        // on arrow keys via the parent tablist handler).
+        // Enter / Space activate the focused tab (auto-activation also
+        // fires on arrow keys via the parent tablist handler).
         if (e.key === "Enter" || e.key === " ") {
           e.preventDefault();
           onSelect();
@@ -237,10 +254,19 @@ function SessionTab({
       }}
       title={title}
       className={cn(
-        "group flex h-6 min-w-0 max-w-44 shrink-0 cursor-pointer items-center gap-1.5 rounded-md px-2 text-[11px] transition-colors outline-none",
+        // Pill geometry: h-7 (28px) inside the h-9 (36px) strip gives a
+        // proper 4 px top/bottom breathing margin. max-w-52 (208px) lets
+        // longer titles read before truncating.
+        "group/tab relative flex h-7 min-w-0 max-w-52 shrink-0 cursor-pointer items-center rounded-md text-[11.5px] outline-none transition-colors",
+        // Padding is asymmetric: roomy on the left for the title, tighter
+        // on the right where the X sits. When the close button is hidden
+        // the right padding matches the left for symmetry.
+        canDelete ? "pl-2.5 pr-1" : "px-2.5",
+        // Active state lights up clearly via bg + medium weight; inactive
+        // hover is a much softer ghost.
         active
-          ? "bg-foreground/[0.07] text-foreground"
-          : "text-muted-foreground hover:bg-foreground/[0.04] hover:text-foreground/85",
+          ? "bg-foreground/[0.09] font-medium text-foreground"
+          : "text-muted-foreground hover:bg-foreground/[0.05] hover:text-foreground/90",
       )}
     >
       <span className="min-w-0 flex-1 truncate">{title}</span>
@@ -253,22 +279,38 @@ function SessionTab({
           }}
           onKeyDown={(e) => {
             // Don't let Enter/Space bubble — the parent tab handler would
-            // re-activate and the parent tablist handler would intercept.
+            // re-activate the tab and the parent tablist handler would
+            // intercept the keystroke.
             if (e.key === "Enter" || e.key === " ") e.stopPropagation();
           }}
           title="Close session"
           aria-label={`Close session ${title}`}
           className={cn(
-            // 24x24 hit area satisfies WCAG 2.5.8 target size — visual glyph
-            // stays small via the inner icon size.
-            "inline-flex size-6 shrink-0 items-center justify-center rounded transition-opacity",
-            "hover:bg-foreground/10 focus-visible:opacity-100",
-            active
-              ? "opacity-60 hover:opacity-100"
-              : "opacity-0 group-hover:opacity-60",
+            // 24×24 hit area satisfies WCAG 2.5.8. The visible chrome lives
+            // on a perfectly round 18×18 pip below — that's the geometry
+            // the eye reads. The outer 24×24 region stays transparent so
+            // there's no awkward squared-off hover slab next to the title.
+            "group/closex ml-0.5 inline-flex size-6 shrink-0 items-center justify-center outline-none",
+            "transition-opacity duration-150",
+            // Hidden by default; appears in one step when the pill is
+            // hovered. Snap-on feels more native at this scale than a
+            // graded opacity cascade.
+            "opacity-0 group-hover/tab:opacity-100 focus-visible:opacity-100",
           )}
         >
-          <HugeiconsIcon icon={Cancel01Icon} size={9} strokeWidth={2} />
+          <span
+            className={cn(
+              // 18×18 round pip. The size is chosen to look balanced inside
+              // a 28-px pill while keeping a 3-px breathing gap to the
+              // outer hit area on every side.
+              "inline-flex size-[18px] items-center justify-center rounded-full",
+              "text-muted-foreground/80 transition-colors duration-150",
+              "group-hover/closex:bg-foreground/15 group-hover/closex:text-foreground",
+              "group-focus-visible/closex:bg-foreground/15 group-focus-visible/closex:text-foreground group-focus-visible/closex:ring-1 group-focus-visible/closex:ring-foreground/20",
+            )}
+          >
+            <HugeiconsIcon icon={Cancel01Icon} size={10} strokeWidth={2.5} />
+          </span>
         </button>
       ) : null}
     </div>
