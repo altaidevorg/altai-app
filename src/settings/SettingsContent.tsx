@@ -6,12 +6,14 @@ import {
   CodeSquareIcon,
   InformationCircleIcon,
   Settings01Icon,
+  UniversalAccessIcon,
   UserMultiple02Icon,
   KeyboardIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { JSX, useEffect } from "react";
 import { AboutSection } from "./sections/AboutSection";
+import { AccessibilitySection } from "./sections/AccessibilitySection";
 import { AgentsSection } from "./sections/AgentsSection";
 import { GeneralSection } from "./sections/GeneralSection";
 import { LanguageServersSection } from "./sections/LanguageServersSection";
@@ -29,6 +31,7 @@ const TABS: {
   { id: "models", label: "Models", icon: AiScanIcon, component: ModelsSection },
   { id: "agents", label: "Agents", icon: UserMultiple02Icon, component: AgentsSection },
   { id: "language-servers", label: "Languages", icon: CodeSquareIcon, component: LanguageServersSection },
+  { id: "accessibility", label: "Accessibility", icon: UniversalAccessIcon, component: AccessibilitySection },
   { id: "about", label: "About", icon: InformationCircleIcon, component: AboutSection },
 ];
 

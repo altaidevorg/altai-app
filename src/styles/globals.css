@@ -282,3 +282,115 @@ html *::-webkit-scrollbar {
 .altai-collapsible-content[data-state="closed"] {
   animation: altai-collapsible-up 160ms cubic-bezier(0.4, 0, 0.2, 1);
 }
+
+/* ============================================================
+ *  Accessibility overrides
+ *
+ *  Driven by the preference store via `useApplyA11yClasses`.
+ *  The hook lands these onto <html>:
+ *    data-a11y-motion="reduce" | "no-preference"   (override OS query)
+ *    .a11y-high-contrast
+ *    .a11y-larger-text
+ *    .a11y-underline-links
+ *    .a11y-strong-focus
+ *    .a11y-show-skip-links
+ * ============================================================ */
+
+/* Skip links — sr-only until focused. The href targets render
+ * `id="altai-main"` (App.tsx <main>) and `id="altai-ai-panel"`
+ * (AiSidePanel.tsx <aside>). */
+.a11y-skip-link {
+  position: absolute;
+  top: 0.5rem;
+  left: 0.5rem;
+  z-index: 9999;
+  padding: 0.5rem 0.75rem;
+  background: var(--background);
+  color: var(--foreground);
+  border: 2px solid var(--ring);
+  border-radius: 0.375rem;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  text-decoration: none;
+  transform: translateY(-200%);
+  transition: transform 120ms ease-out;
+}
+.a11y-skip-link:focus,
+.a11y-skip-link:focus-visible {
+  transform: translateY(0);
+  outline: none;
+}
+/* User can opt into always-visible skip links from Settings →
+ * Accessibility → Show skip links. */
+html.a11y-show-skip-links .a11y-skip-link {
+  transform: translateY(0);
+}
+
+/* Respect OS prefers-reduced-motion unless the user picked "never". */
+@media (prefers-reduced-motion: reduce) {
+  html:not([data-a11y-motion="no-preference"]) *,
+  html:not([data-a11y-motion="no-preference"]) *::before,
+  html:not([data-a11y-motion="no-preference"]) *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+html[data-a11y-motion="reduce"] *,
+html[data-a11y-motion="reduce"] *::before,
+html[data-a11y-motion="reduce"] *::after {
+  animation-duration: 0.001ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.001ms !important;
+  scroll-behavior: auto !important;
+}
+@media (prefers-reduced-motion: reduce) {
+  .a11y-skip-link {
+    transition: none;
+  }
+}
+
+/* High contrast — darken muted-foreground (audit M1) and boost border
+ * opacity so state-carrying borders pass 3:1 non-text contrast. */
+html.a11y-high-contrast {
+  --muted-foreground: oklch(0.35 0.005 264);
+  --border: oklch(0.55 0.005 264);
+  --ring: oklch(0.35 0.05 264);
+}
+html.a11y-high-contrast.dark,
+.dark.a11y-high-contrast {
+  --muted-foreground: oklch(0.88 0.005 264);
+  --border: oklch(1 0 0 / 0.45);
+  --ring: oklch(0.85 0.05 264);
+}
+
+/* Larger UI text — scales the root font-size up ~10%. All Tailwind
+ * text-* utilities use rem, so they cascade. */
+html.a11y-larger-text {
+  font-size: 17.5px;
+}
+
+/* Always-underline links for users who can't perceive color. Excludes
+ * anything that already looks like a button. */
+html.a11y-underline-links a:not([class*="button"]):not(.no-underline) {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* Stronger focus rings — 4px outline, high-contrast, forced visible
+ * on both mouse and keyboard focus so the eye can always track where
+ * keyboard landed. */
+html.a11y-strong-focus *:focus,
+html.a11y-strong-focus *:focus-visible {
+  outline: 4px solid var(--ring) !important;
+  outline-offset: 2px !important;
+  border-radius: 4px;
+}
+html.a11y-strong-focus {
+  --ring: oklch(0.45 0.18 250);
+}
+html.a11y-strong-focus.dark,
+.dark.a11y-strong-focus {
+  --ring: oklch(0.78 0.18 250);
+}

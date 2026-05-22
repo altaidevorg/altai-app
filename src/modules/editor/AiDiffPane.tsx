@@ -1,6 +1,6 @@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { usePreferencesStore } from "@/modules/settings/preferences";
+import { useTheme } from "@/modules/theme";
 import type { AiDiffStatus } from "@/modules/tabs";
 import { presentableDiff, unifiedMergeView } from "@codemirror/merge";
 import { EditorState, type Extension } from "@codemirror/state";
@@ -11,7 +11,6 @@ import CodeMirror, { type ReactCodeMirrorRef } from "@uiw/react-codemirror";
 import { useEffect, useMemo, useRef } from "react";
 import { buildSharedExtensions, languageCompartment } from "./lib/extensions";
 import { resolveLanguage, resolveLanguageSync } from "./lib/languageResolver";
-import { EDITOR_THEME_EXT } from "./lib/themes";
 
 type Props = {
   path: string;
@@ -67,6 +66,14 @@ const DIFF_THEME = EditorView.theme({
   },
 });
 
+const BASIC_SETUP = {
+  lineNumbers: true,
+  foldGutter: true,
+  highlightActiveLine: false,
+  highlightActiveLineGutter: false,
+  searchKeymap: true,
+} as const;
+
 const STATUS_LABEL: Record<AiDiffStatus, string> = {
   pending: "Pending review",
   approved: "Applied",
@@ -92,8 +99,7 @@ export function AiDiffPane({
   onReject,
 }: Props) {
   const cmRef = useRef<ReactCodeMirrorRef>(null);
-  const editorThemeId = usePreferencesStore((s) => s.editorTheme);
-  const themeExt = EDITOR_THEME_EXT[editorThemeId] ?? EDITOR_THEME_EXT.atomone;
+  const { resolvedTheme } = useTheme();
 
   const initialLang = useMemo(() => resolveLanguageSync(path), [path]);
   const extensions = useMemo(
@@ -193,18 +199,12 @@ export function AiDiffPane({
         <CodeMirror
           ref={cmRef}
           value={proposedContent}
-          theme={themeExt}
+          theme={resolvedTheme}
           extensions={extensions}
           editable={false}
           height="100%"
           className="h-full"
-          basicSetup={{
-            lineNumbers: true,
-            foldGutter: true,
-            highlightActiveLine: false,
-            highlightActiveLineGutter: false,
-            searchKeymap: true,
-          }}
+          basicSetup={BASIC_SETUP}
         />
       </div>
     </div>

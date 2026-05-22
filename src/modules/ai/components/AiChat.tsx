@@ -33,6 +33,7 @@ import {
 import { SLASH_COMMANDS, ALTAI_CMD_RE } from "../lib/slashCommands";
 import { Spinner } from "@/components/ui/spinner";
 import { useChatStore, sendMessage } from "../store/chatStore";
+import { usePreferencesStore } from "@/modules/settings/preferences";
 import type {
   ChatStatus,
   DynamicToolUIPart,
@@ -188,6 +189,16 @@ export function AiChatView({
   const isBusy = status === "submitted" || status === "streaming";
   const lastMessage = messages[messages.length - 1];
   const showSpinner = isBusy && lastMessage?.role === "user";
+  // Accessibility — pref-driven aria-live policy for the chat transcript.
+  // "off" disables announcements entirely (some SR users prefer to pull
+  // updates via virtual cursor instead of being interrupted on every chunk).
+  const chatAnnounce = usePreferencesStore((s) => s.chatAnnounce);
+  const ariaLiveProp: "off" | "polite" | "assertive" =
+    chatAnnounce === "off"
+      ? "off"
+      : chatAnnounce === "assertive"
+        ? "assertive"
+        : "polite";
   const streamingMessageId =
     status === "streaming" && lastMessage?.role === "assistant"
       ? lastMessage.id
@@ -206,7 +217,7 @@ export function AiChatView({
 
   if (messages.length === 0) {
     return (
-      <Conversation className="overflow-x-hidden">
+      <Conversation className="overflow-x-hidden" aria-live={ariaLiveProp}>
         <ConversationContent className="min-w-0">
           <ConversationEmptyState
             title="Ask ALTAI anything"
@@ -218,7 +229,7 @@ export function AiChatView({
   }
 
   return (
-    <Conversation className="overflow-x-hidden">
+    <Conversation className="overflow-x-hidden" aria-live={ariaLiveProp}>
       <ConversationContent className="min-w-0 gap-5 p-3">
         {messages.map((m) => (
           <RenderedMessage
@@ -251,7 +262,15 @@ export function AiChatView({
           />
         )}
         {error && (
-          <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+          // role="alert" => assertive live region. Without this the chat
+          // failure was silent to screen readers and the agent appeared
+          // to hang. JAWS/NVDA/VoiceOver will interrupt and announce the
+          // error message + "Dismiss" affordance.
+          <div
+            role="alert"
+            aria-atomic="true"
+            className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive"
+          >
             <div className="font-medium">Something went wrong.</div>
             <div className="mt-0.5 leading-relaxed opacity-90">
               {error.message}
