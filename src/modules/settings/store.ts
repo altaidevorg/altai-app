@@ -21,6 +21,32 @@ export const PERMISSION_MODE_LABELS: Record<PermissionMode, string> = {
   bypass: "Bypass permissions",
 };
 
+/** Override for the OS `prefers-reduced-motion` query. */
+export type ReduceMotionPref = "system" | "always" | "never";
+
+export const REDUCE_MOTION_LABELS: Record<ReduceMotionPref, string> = {
+  system: "Follow system",
+  always: "Always reduce",
+  never: "Never reduce",
+};
+
+/** Stronger UI focus rings for keyboard users. */
+export type FocusRingPref = "default" | "strong";
+
+export const FOCUS_RING_LABELS: Record<FocusRingPref, string> = {
+  default: "Default (2 px)",
+  strong: "Strong (4 px, high contrast)",
+};
+
+/** Screen reader announcement policy for streaming chat messages. */
+export type ChatAnnouncePref = "off" | "polite" | "assertive";
+
+export const CHAT_ANNOUNCE_LABELS: Record<ChatAnnouncePref, string> = {
+  off: "Off",
+  polite: "Polite (default)",
+  assertive: "Assertive",
+};
+
 export const PERMISSION_MODE_DESCRIPTIONS: Record<PermissionMode, string> = {
   ask: "Approve every file edit, write, and shell command before it runs.",
   "auto-edit":
@@ -87,6 +113,16 @@ export type Preferences = {
   permissionMode: PermissionMode;
   bypassPermissionsEnabled: boolean;
   agentPickerEnabled: boolean;
+  // Accessibility
+  reduceMotion: ReduceMotionPref;
+  highContrast: boolean;
+  largerText: boolean;
+  underlineLinks: boolean;
+  focusRing: FocusRingPref;
+  chatAnnounce: ChatAnnouncePref;
+  approvalAnnounceAssertive: boolean;
+  terminalScreenReader: boolean;
+  showSkipLinks: boolean;
 };
 
 const STORE_PATH = "altai-settings.json";
@@ -122,6 +158,15 @@ const KEY_SHORTCUTS = "shortcuts";
 const KEY_PERMISSION_MODE = "permissionMode";
 const KEY_BYPASS_PERMISSIONS_ENABLED = "bypassPermissionsEnabled";
 const KEY_AGENT_PICKER_ENABLED = "agentPickerEnabled";
+const KEY_A11Y_REDUCE_MOTION = "a11yReduceMotion";
+const KEY_A11Y_HIGH_CONTRAST = "a11yHighContrast";
+const KEY_A11Y_LARGER_TEXT = "a11yLargerText";
+const KEY_A11Y_UNDERLINE_LINKS = "a11yUnderlineLinks";
+const KEY_A11Y_FOCUS_RING = "a11yFocusRing";
+const KEY_A11Y_CHAT_ANNOUNCE = "a11yChatAnnounce";
+const KEY_A11Y_APPROVAL_ASSERTIVE = "a11yApprovalAnnounceAssertive";
+const KEY_A11Y_TERMINAL_SR = "a11yTerminalScreenReader";
+const KEY_A11Y_SKIP_LINKS = "a11yShowSkipLinks";
 
 export const TERMINAL_FONT_SIZE_DEFAULT = 14;
 export const TERMINAL_FONT_SIZE_MIN = 8;
@@ -170,6 +215,16 @@ export const DEFAULT_PREFERENCES: Preferences = {
   permissionMode: "ask",
   bypassPermissionsEnabled: false,
   agentPickerEnabled: true,
+  // Accessibility defaults.
+  reduceMotion: "system",
+  highContrast: false,
+  largerText: false,
+  underlineLinks: false,
+  focusRing: "default",
+  chatAnnounce: "polite",
+  approvalAnnounceAssertive: true,
+  terminalScreenReader: true,
+  showSkipLinks: false,
 };
 
 const store = new LazyStore(STORE_PATH, { defaults: {}, autoSave: 200 });
@@ -273,6 +328,32 @@ export async function loadPreferences(): Promise<Preferences> {
     agentPickerEnabled:
       get<boolean>(KEY_AGENT_PICKER_ENABLED) ??
       DEFAULT_PREFERENCES.agentPickerEnabled,
+    reduceMotion:
+      get<ReduceMotionPref>(KEY_A11Y_REDUCE_MOTION) ??
+      DEFAULT_PREFERENCES.reduceMotion,
+    highContrast:
+      get<boolean>(KEY_A11Y_HIGH_CONTRAST) ??
+      DEFAULT_PREFERENCES.highContrast,
+    largerText:
+      get<boolean>(KEY_A11Y_LARGER_TEXT) ?? DEFAULT_PREFERENCES.largerText,
+    underlineLinks:
+      get<boolean>(KEY_A11Y_UNDERLINE_LINKS) ??
+      DEFAULT_PREFERENCES.underlineLinks,
+    focusRing:
+      get<FocusRingPref>(KEY_A11Y_FOCUS_RING) ??
+      DEFAULT_PREFERENCES.focusRing,
+    chatAnnounce:
+      get<ChatAnnouncePref>(KEY_A11Y_CHAT_ANNOUNCE) ??
+      DEFAULT_PREFERENCES.chatAnnounce,
+    approvalAnnounceAssertive:
+      get<boolean>(KEY_A11Y_APPROVAL_ASSERTIVE) ??
+      DEFAULT_PREFERENCES.approvalAnnounceAssertive,
+    terminalScreenReader:
+      get<boolean>(KEY_A11Y_TERMINAL_SR) ??
+      DEFAULT_PREFERENCES.terminalScreenReader,
+    showSkipLinks:
+      get<boolean>(KEY_A11Y_SKIP_LINKS) ??
+      DEFAULT_PREFERENCES.showSkipLinks,
   };
 }
 
@@ -444,6 +525,61 @@ export async function setAgentPickerEnabled(value: boolean): Promise<void> {
   await writePref(KEY_AGENT_PICKER_ENABLED, value);
 }
 
+// --- Accessibility setters ---
+
+export async function setReduceMotion(value: ReduceMotionPref): Promise<void> {
+  await writePref(KEY_A11Y_REDUCE_MOTION, value);
+}
+
+export async function setHighContrast(value: boolean): Promise<void> {
+  await writePref(KEY_A11Y_HIGH_CONTRAST, value);
+}
+
+export async function setLargerText(value: boolean): Promise<void> {
+  await writePref(KEY_A11Y_LARGER_TEXT, value);
+}
+
+export async function setUnderlineLinks(value: boolean): Promise<void> {
+  await writePref(KEY_A11Y_UNDERLINE_LINKS, value);
+}
+
+export async function setFocusRing(value: FocusRingPref): Promise<void> {
+  await writePref(KEY_A11Y_FOCUS_RING, value);
+}
+
+export async function setChatAnnounce(value: ChatAnnouncePref): Promise<void> {
+  await writePref(KEY_A11Y_CHAT_ANNOUNCE, value);
+}
+
+export async function setApprovalAnnounceAssertive(
+  value: boolean,
+): Promise<void> {
+  await writePref(KEY_A11Y_APPROVAL_ASSERTIVE, value);
+}
+
+export async function setTerminalScreenReader(value: boolean): Promise<void> {
+  await writePref(KEY_A11Y_TERMINAL_SR, value);
+}
+
+export async function setShowSkipLinks(value: boolean): Promise<void> {
+  await writePref(KEY_A11Y_SKIP_LINKS, value);
+}
+
+/** Reset all accessibility prefs to defaults. */
+export async function resetAccessibility(): Promise<void> {
+  await Promise.all([
+    setReduceMotion(DEFAULT_PREFERENCES.reduceMotion),
+    setHighContrast(DEFAULT_PREFERENCES.highContrast),
+    setLargerText(DEFAULT_PREFERENCES.largerText),
+    setUnderlineLinks(DEFAULT_PREFERENCES.underlineLinks),
+    setFocusRing(DEFAULT_PREFERENCES.focusRing),
+    setChatAnnounce(DEFAULT_PREFERENCES.chatAnnounce),
+    setApprovalAnnounceAssertive(DEFAULT_PREFERENCES.approvalAnnounceAssertive),
+    setTerminalScreenReader(DEFAULT_PREFERENCES.terminalScreenReader),
+    setShowSkipLinks(DEFAULT_PREFERENCES.showSkipLinks),
+  ]);
+}
+
 export type PrefKey = keyof Preferences;
 
 /** Subscribe to changes from any window (settings → main). */
@@ -482,6 +618,15 @@ export async function onPreferencesChange(
     [KEY_PERMISSION_MODE]: "permissionMode",
     [KEY_BYPASS_PERMISSIONS_ENABLED]: "bypassPermissionsEnabled",
     [KEY_AGENT_PICKER_ENABLED]: "agentPickerEnabled",
+    [KEY_A11Y_REDUCE_MOTION]: "reduceMotion",
+    [KEY_A11Y_HIGH_CONTRAST]: "highContrast",
+    [KEY_A11Y_LARGER_TEXT]: "largerText",
+    [KEY_A11Y_UNDERLINE_LINKS]: "underlineLinks",
+    [KEY_A11Y_FOCUS_RING]: "focusRing",
+    [KEY_A11Y_CHAT_ANNOUNCE]: "chatAnnounce",
+    [KEY_A11Y_APPROVAL_ASSERTIVE]: "approvalAnnounceAssertive",
+    [KEY_A11Y_TERMINAL_SR]: "terminalScreenReader",
+    [KEY_A11Y_SKIP_LINKS]: "showSkipLinks",
   };
   // Same-process writes still fire onChange immediately; cross-window writes
   // arrive via the Tauri event emitted by writePref().

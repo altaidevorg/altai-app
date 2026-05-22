@@ -13,6 +13,7 @@ import {
 import { HugeiconsIcon } from "@hugeicons/react";
 import type { ToolUIPart } from "ai";
 import { memo, useId } from "react";
+import { usePreferencesStore } from "@/modules/settings/preferences";
 
 type Props = {
   part: Extract<ToolUIPart, { state: "approval-requested" }>;
@@ -36,6 +37,11 @@ function AiToolApprovalImpl({ part, toolName, onRespond }: Props) {
   const Icon = meta?.icon ?? ToolsIcon;
   const input = part.input as Record<string, unknown>;
   const titleId = useId();
+  // Accessibility pref — when true (default) interrupt the screen reader so
+  // a blind user doesn't sit through streaming output unaware the agent is
+  // blocked on approval. Off → demote to role="status" (polite — announced
+  // when the SR reaches a sentence boundary).
+  const assertive = usePreferencesStore((s) => s.approvalAnnounceAssertive);
 
   return (
     <div
@@ -43,9 +49,9 @@ function AiToolApprovalImpl({ part, toolName, onRespond }: Props) {
       aria-labelledby={titleId}
       className="rounded-lg border border-border bg-card shadow-sm"
     >
-      {/* Off-screen assertive announcement: screen readers should interrupt
-          streaming output to tell the user the agent is now blocked on them. */}
-      <div role="alert" className="sr-only">
+      {/* Off-screen live region. role="alert" → assertive (interrupts);
+          role="status" → polite. Controlled by the accessibility pref. */}
+      <div role={assertive ? "alert" : "status"} className="sr-only">
         {label} requires approval
       </div>
       <div className="flex items-center gap-2 border-b border-border/60 px-3 py-2">

@@ -66,6 +66,7 @@ import {
   type RunInTerminalOptions,
 } from "@/modules/terminal/runInTerminal";
 import { usePreferencesStore } from "@/modules/settings/preferences";
+import { useApplyA11yClasses } from "@/modules/settings/applyA11yClasses";
 import { onKeysChanged } from "@/modules/settings/store";
 import {
   ShortcutsDialog,
@@ -172,6 +173,10 @@ function readSidebarView(): SidebarViewId {
 }
 
 export default function App() {
+  // Mirror accessibility preferences onto <html> so the CSS overrides in
+  // globals.css apply reduce-motion, high-contrast, larger-text,
+  // strong-focus, underline-links, and visible-skip-link rules app-wide.
+  useApplyA11yClasses();
   const {
     tabs,
     activeId,
@@ -1404,6 +1409,21 @@ export default function App() {
               reader users can H-navigate: h1 (global) → h2 (each Settings
               section / AI session) → h3 (sub-blocks). */}
           <h1 className="sr-only">ALTAI workspace</h1>
+          {/* Skip links — the first focusable elements on the page. Keyboard
+              users can jump straight to the editor or AI panel without
+              walking through the ~25 toolbar/sidebar buttons in between.
+              Visually hidden until focused; users with `showSkipLinks` on
+              keep them visible. */}
+          <a href="#altai-main" className="a11y-skip-link">
+            Skip to main content
+          </a>
+          <a
+            href="#altai-ai-panel"
+            className="a11y-skip-link"
+            style={{ left: "12rem" }}
+          >
+            Skip to AI assistant
+          </a>
           <Header
             tabs={tabs}
             activeId={activeId}
@@ -1430,7 +1450,10 @@ export default function App() {
             searchRef={searchInlineRef}
           />
 
-          <main className="zoom-content flex min-h-0 flex-1 flex-col">
+          <main
+            id="altai-main"
+            className="zoom-content flex min-h-0 flex-1 flex-col"
+          >
             <ResizablePanelGroup
               orientation="horizontal"
               className="min-h-0 flex-1"
