@@ -7,8 +7,8 @@ import {
 } from "@codemirror/search";
 import { keymap } from "@codemirror/view";
 import { usePreferencesStore } from "@/modules/settings/preferences";
+import { useTheme } from "@/modules/theme";
 import CodeMirror, { type ReactCodeMirrorRef } from "@uiw/react-codemirror";
-import { EDITOR_THEME_EXT } from "./lib/themes";
 import {
   forwardRef,
   useEffect,
@@ -56,6 +56,20 @@ type Props = {
   onClose?: () => void;
 };
 
+// Module-scoped so prop identity is stable across renders. An inline literal
+// would make @uiw/react-codemirror reconfigure the full state on every render.
+const BASIC_SETUP = {
+  lineNumbers: true,
+  highlightActiveLineGutter: true,
+  foldGutter: true,
+  bracketMatching: true,
+  closeBrackets: true,
+  autocompletion: true,
+  highlightActiveLine: true,
+  highlightSelectionMatches: true,
+  searchKeymap: true,
+} as const;
+
 function formatBytes(n: number): string {
   if (n < 1024) return `${n} B`;
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
@@ -68,7 +82,7 @@ export const EditorPane = forwardRef<EditorPaneHandle, Props>(
     const reloadRef = useRef(reload);
     reloadRef.current = reload;
     const cmRef = useRef<ReactCodeMirrorRef>(null);
-    const editorThemeId = usePreferencesStore((s) => s.editorTheme);
+    const { resolvedTheme } = useTheme();
     const vimMode = usePreferencesStore((s) => s.vimMode);
     const languageRef = useRef<string | null>(null);
     const apiKeyRef = useRef<string | null>(null);
@@ -100,8 +114,6 @@ export const EditorPane = forwardRef<EditorPaneHandle, Props>(
         unsubPrefs();
       };
     }, []);
-    const themeExt = EDITOR_THEME_EXT[editorThemeId] ?? EDITOR_THEME_EXT.atomone;
-
     // Stabilize save + onSaved via refs so the extensions array never changes
     // identity — a new identity makes @uiw/react-codemirror reconfigure the
     // whole state, wiping the language compartment.
@@ -288,21 +300,11 @@ export const EditorPane = forwardRef<EditorPaneHandle, Props>(
           ref={cmRef}
           value={doc.content}
           onChange={onChange}
-          theme={themeExt}
+          theme={resolvedTheme}
           extensions={extensions}
           height="100%"
           className="flex-1 min-h-0 overflow-hidden"
-          basicSetup={{
-            lineNumbers: true,
-            highlightActiveLineGutter: true,
-            foldGutter: true,
-            bracketMatching: true,
-            closeBrackets: true,
-            autocompletion: true,
-            highlightActiveLine: true,
-            highlightSelectionMatches: true,
-            searchKeymap: true,
-          }}
+          basicSetup={BASIC_SETUP}
         />
       </div>
     );

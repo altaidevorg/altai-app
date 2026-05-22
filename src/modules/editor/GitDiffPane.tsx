@@ -1,7 +1,7 @@
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Spinner } from "@/components/ui/spinner";
-import { usePreferencesStore } from "@/modules/settings/preferences";
+import { useTheme } from "@/modules/theme";
 import { unifiedMergeView } from "@codemirror/merge";
 import { EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
@@ -16,7 +16,6 @@ import {
   commitDiffKey,
 } from "./lib/diffCache";
 import { resolveLanguage, resolveLanguageSync } from "./lib/languageResolver";
-import { EDITOR_THEME_EXT } from "./lib/themes";
 
 type WorkingSource = {
   kind: "working";
@@ -85,6 +84,14 @@ const DIFF_THEME = EditorView.theme({
   },
 });
 
+const BASIC_SETUP = {
+  lineNumbers: true,
+  foldGutter: true,
+  highlightActiveLine: false,
+  highlightActiveLineGutter: false,
+  searchKeymap: true,
+} as const;
+
 function countDiffLines(patch: string): { added: number; removed: number } {
   let added = 0;
   let removed = 0;
@@ -127,8 +134,7 @@ function loadStateFromCache(
 
 export function GitDiffPane({ source, chipLabel, active }: Props) {
   const cmRef = useRef<ReactCodeMirrorRef>(null);
-  const editorThemeId = usePreferencesStore((s) => s.editorTheme);
-  const themeExt = EDITOR_THEME_EXT[editorThemeId] ?? EDITOR_THEME_EXT.atomone;
+  const { resolvedTheme } = useTheme();
   const [state, setState] = useState<LoadState>(() =>
     active ? loadStateFromCache(source) : { kind: "idle" },
   );
@@ -306,18 +312,12 @@ export function GitDiffPane({ source, chipLabel, active }: Props) {
           <CodeMirror
             ref={cmRef}
             value={modifiedContent}
-            theme={themeExt}
+            theme={resolvedTheme}
             extensions={extensions}
             editable={false}
             height="100%"
             className="h-full"
-            basicSetup={{
-              lineNumbers: true,
-              foldGutter: true,
-              highlightActiveLine: false,
-              highlightActiveLineGutter: false,
-              searchKeymap: true,
-            }}
+            basicSetup={BASIC_SETUP}
           />
         )}
       </div>

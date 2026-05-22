@@ -55,36 +55,9 @@ export const PERMISSION_MODE_DESCRIPTIONS: Record<PermissionMode, string> = {
     "Auto-approve everything, including shell commands. Use only in sandboxed environments.",
 };
 
-export const EDITOR_THEMES = [
-  "atomone",
-  "aura",
-  "copilot",
-  "github-dark",
-  "github-light",
-  "nord",
-  "tokyo-night",
-  "xcode-dark",
-  "xcode-light",
-] as const;
-
-export type EditorThemeId = (typeof EDITOR_THEMES)[number];
-
-export const EDITOR_THEME_LABELS: Record<EditorThemeId, string> = {
-  atomone: "Atom One",
-  aura: "Aura",
-  copilot: "Copilot",
-  "github-dark": "GitHub Dark",
-  "github-light": "GitHub Light",
-  nord: "Nord",
-  "tokyo-night": "Tokyo Night",
-  "xcode-dark": "Xcode Dark",
-  "xcode-light": "Xcode Light",
-};
-
 export type Preferences = {
   theme: ThemePref;
   defaultModelId: ModelId;
-  editorTheme: EditorThemeId;
   customInstructions: string;
   autostart: boolean;
   restoreWindowState: boolean;
@@ -128,7 +101,6 @@ export type Preferences = {
 const STORE_PATH = "altai-settings.json";
 const KEY_THEME = "theme";
 const KEY_DEFAULT_MODEL = "defaultModelId";
-const KEY_EDITOR_THEME = "editorTheme";
 const KEY_CUSTOM_INSTRUCTIONS = "customInstructions";
 const KEY_AUTOSTART = "autostart";
 const KEY_RESTORE_WINDOW = "restoreWindowState";
@@ -186,7 +158,6 @@ export const TERMINAL_SCROLLBACK_PRESETS = [
 export const DEFAULT_PREFERENCES: Preferences = {
   theme: "system",
   defaultModelId: DEFAULT_MODEL_ID,
-  editorTheme: "atomone",
   customInstructions: "",
   autostart: false,
   restoreWindowState: true,
@@ -251,8 +222,6 @@ export async function loadPreferences(): Promise<Preferences> {
     theme: get<ThemePref>(KEY_THEME) ?? DEFAULT_PREFERENCES.theme,
     defaultModelId:
       get<ModelId>(KEY_DEFAULT_MODEL) ?? DEFAULT_PREFERENCES.defaultModelId,
-    editorTheme:
-      get<EditorThemeId>(KEY_EDITOR_THEME) ?? DEFAULT_PREFERENCES.editorTheme,
     customInstructions:
       get<string>(KEY_CUSTOM_INSTRUCTIONS) ??
       DEFAULT_PREFERENCES.customInstructions,
@@ -363,10 +332,6 @@ export async function setTheme(value: ThemePref): Promise<void> {
 
 export async function setDefaultModel(value: ModelId): Promise<void> {
   await writePref(KEY_DEFAULT_MODEL, value);
-}
-
-export async function setEditorTheme(value: EditorThemeId): Promise<void> {
-  await writePref(KEY_EDITOR_THEME, value);
 }
 
 export async function setCustomInstructions(value: string): Promise<void> {
@@ -589,7 +554,6 @@ export async function onPreferencesChange(
   const map: Record<string, PrefKey> = {
     [KEY_THEME]: "theme",
     [KEY_DEFAULT_MODEL]: "defaultModelId",
-    [KEY_EDITOR_THEME]: "editorTheme",
     [KEY_CUSTOM_INSTRUCTIONS]: "customInstructions",
     [KEY_AUTOSTART]: "autostart",
     [KEY_RESTORE_WINDOW]: "restoreWindowState",
