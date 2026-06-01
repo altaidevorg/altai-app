@@ -193,6 +193,10 @@ const pendingPersist = new Map<
   { latest: UIMessage[]; timer: ReturnType<typeof setTimeout> }
 >();
 
+// Message arrays freshly hydrated from disk. The persistence subscription
+// skips these once — re-writing a thread we just read back is pure waste.
+const loadedMessagesRefs = new WeakSet<UIMessage[]>();
+
 function flushPersistEntry(id: string) {
   const entry = pendingPersist.get(id);
   if (!entry) return;
@@ -537,7 +541,10 @@ export const useChatStore = create<StoreState>((set, get) => ({
     void saveActiveId(id);
 
     void loadMessages(id).then((m) => {
-      if (get().activeSessionId === id) set({ nativeMessages: m ?? [] });
+      if (get().activeSessionId !== id) return;
+      const loaded = m ?? [];
+      loadedMessagesRefs.add(loaded);
+      set({ nativeMessages: loaded });
     });
   },
 
@@ -595,7 +602,9 @@ export const useChatStore = create<StoreState>((set, get) => ({
       void loadMessages(nextActive).then((m) => {
         // Guard against a rapid switch landing elsewhere before this resolves.
         if (get().activeSessionId !== nextActive) return;
-        set({ nativeMessages: m ?? [] });
+        const loaded = m ?? [];
+        loadedMessagesRefs.add(loaded);
+        set({ nativeMessages: loaded });
       });
     }
   },
@@ -618,6 +627,11 @@ useChatStore.subscribe((state, prev) => {
   // session actions, so skip it here (also avoids a spurious empty-write).
   if (state.activeSessionId !== prev.activeSessionId) return;
   if (state.nativeMessages === prev.nativeMessages) return;
+  // A thread just hydrated from disk — don't write it straight back.
+  if (loadedMessagesRefs.has(state.nativeMessages)) {
+    loadedMessagesRefs.delete(state.nativeMessages);
+    return;
+  }
   const id = state.activeSessionId;
   if (!id) return;
   persistNativeMessages(id, state.nativeMessages);
