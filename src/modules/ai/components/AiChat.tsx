@@ -33,7 +33,7 @@ import {
 } from "@hugeicons/core-free-icons";
 import { SLASH_COMMANDS, ALTAI_CMD_RE } from "../lib/slashCommands";
 import { Spinner } from "@/components/ui/spinner";
-import { useChatStore, sendMessage } from "../store/chatStore";
+import { useChatStore } from "../store/chatStore";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import type {
   ChatStatus,
@@ -205,11 +205,6 @@ export function AiChatView({
       ? lastMessage.id
       : null;
   const step = useChatStore((s) => s.agentMeta.step);
-  const hitStepCap = useChatStore((s) => s.agentMeta.hitStepCap);
-  const compactionNotice = useChatStore((s) => s.agentMeta.compactionNotice);
-  const patchAgentMeta = useChatStore((s) => s.patchAgentMeta);
-  const showContinue =
-    !isBusy && hitStepCap && lastMessage?.role === "assistant";
 
   const onApproval = useCallback(
     (id: string, approved: boolean) => addToolApprovalResponse({ id, approved }),
@@ -240,27 +235,11 @@ export function AiChatView({
             streaming={m.id === streamingMessageId}
           />
         ))}
-        {compactionNotice && (
-          <CompactionNotice
-            droppedCount={compactionNotice.droppedCount}
-            onDismiss={() => patchAgentMeta({ compactionNotice: null })}
-          />
-        )}
         {showSpinner && (
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
             <Spinner />
             <span className="truncate">{step ?? "Thinking…"}</span>
           </div>
-        )}
-        {showContinue && (
-          <ContinueRow
-            onContinue={() => {
-              patchAgentMeta({ hitStepCap: false });
-              void sendMessage(
-                "Continue from where you stopped. Don't recap — just keep going.",
-              );
-            }}
-          />
         )}
         {error && (
           // role="alert" => assertive live region. Without this the chat
@@ -290,52 +269,6 @@ export function AiChatView({
     </Conversation>
   );
 }
-
-const CompactionNotice = memo(function CompactionNotice({
-  droppedCount,
-  onDismiss,
-}: {
-  droppedCount: number;
-  onDismiss: () => void;
-}) {
-  return (
-    <div className="flex items-center gap-2 rounded-md border border-border/40 bg-muted/30 px-2.5 py-1.5 text-[11px] text-muted-foreground">
-      <span className="size-1.5 shrink-0 rounded-full bg-amber-500/80" />
-      <span className="flex-1 truncate">
-        Context compacted — {droppedCount} older tool result
-        {droppedCount === 1 ? "" : "s"} elided to save tokens.
-      </span>
-      <button
-        type="button"
-        onClick={onDismiss}
-        className="text-[10.5px] underline opacity-70 hover:opacity-100"
-      >
-        Dismiss
-      </button>
-    </div>
-  );
-});
-
-const ContinueRow = memo(function ContinueRow({
-  onContinue,
-}: {
-  onContinue: () => void;
-}) {
-  return (
-    <div className="flex items-center gap-2 rounded-md border border-border/50 bg-card/60 px-2.5 py-1.5 text-[11px]">
-      <span className="flex-1 text-muted-foreground">
-        Hit the step limit. Continue to keep going.
-      </span>
-      <button
-        type="button"
-        onClick={onContinue}
-        className="rounded-md border border-border/60 bg-background px-2 py-0.5 text-[11px] font-medium text-foreground transition-colors hover:bg-accent"
-      >
-        Continue
-      </button>
-    </div>
-  );
-});
 
 const RenderedMessage = memo(function RenderedMessage({
   message,

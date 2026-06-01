@@ -12,6 +12,15 @@ export type AgentEvent =
   | { type: "edit_diff"; file: string; before: string; after: string; hunk_id: string }
   | { type: "approval_request"; id: string; action: string; payload: unknown }
   | { type: "thinking"; content: string }
+  | { type: "clarification"; content: string; choices: string[] }
+  | {
+      type: "usage";
+      prompt_tokens: number;
+      completion_tokens: number;
+      total_tokens: number;
+      cache_read_tokens: number;
+      cache_creation_tokens: number;
+    }
   | { type: "done"; reason: string }
   | { type: "error"; message: string }
   | { type: "notebook_output"; notebook_id: string; cell_index: number; output: unknown }
@@ -27,10 +36,6 @@ export async function initAgentEventBridge(): Promise<UnlistenFn> {
   return listen<AgentEvent>("agent://event", (event) => {
     const payload = event.payload;
     const store = useChatStore.getState();
-
-    // Only process native events when in isanagent backend mode.
-    if (store.backendMode !== "isanagent") return;
-
     switch (payload.type) {
       case "agent_message":
         store.appendNativeMessage(payload.content, payload.role);
@@ -64,6 +69,33 @@ export async function initAgentEventBridge(): Promise<UnlistenFn> {
       case "thinking":
         store.patchAgentMeta({ status: "thinking", step: payload.content });
         break;
+
+      case "clarification":
+        // The agent is asking the user something. Render the question as an
+        // assistant message and expose any preset choices as clickable chips;
+        // the turn yields back to the user (idle) until they reply.
+        store.appendNativeMessage(payload.content, "assistant");
+        store.setPendingChoices(payload.choices);
+        store.patchAgentMeta({ status: "idle", step: null });
+        break;
+
+      case "usage": {
+        // Accumulate per-call token usage into the run meter, mirroring the
+        // old Vercel `onUsage` semantics (prompt → input, completion →
+        // output, cache_read → cached). Reset happens on session change via
+        // IDLE_META.
+        const cur = store.agentMeta.tokens;
+        store.patchAgentMeta({
+          tokens: {
+            inputTokens: cur.inputTokens + payload.prompt_tokens,
+            outputTokens: cur.outputTokens + payload.completion_tokens,
+            cachedInputTokens: cur.cachedInputTokens + payload.cache_read_tokens,
+          },
+          lastInputTokens: payload.prompt_tokens,
+          lastCachedTokens: payload.cache_read_tokens,
+        });
+        break;
+      }
 
       case "approval_request":
         store.patchAgentMeta({

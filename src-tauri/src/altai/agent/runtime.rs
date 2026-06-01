@@ -58,6 +58,23 @@ pub enum Event {
     Thinking {
         content: String,
     },
+    /// An `ask_user` clarification surfaced by IsanAgent's ClarificationHub.
+    /// `content` is the question; `choices` are optional preset answers the UI
+    /// can render as buttons. Replying with a normal message resolves it (the
+    /// runtime routes the next inbound message to the pending wait).
+    Clarification {
+        content: String,
+        choices: Vec<String>,
+    },
+    /// Per-LLM-call token accounting forwarded from IsanAgent's `AgentUsage`
+    /// telemetry. The frontend accumulates these into the run's token meter.
+    Usage {
+        prompt_tokens: u32,
+        completion_tokens: u32,
+        total_tokens: u32,
+        cache_read_tokens: u32,
+        cache_creation_tokens: u32,
+    },
     Done {
         reason: String,
     },
@@ -500,9 +517,32 @@ pub async fn start_agent(
         while let Some(out_msg) = global_outbound_rx.recv().await {
             match out_msg {
                 BusMessage::Outbound(outbound) => {
-                    let event = Event::AgentMessage {
-                        content: outbound.content,
-                        role: "assistant".to_string(),
+                    // Clarifications (`ask_user`) ride on outbound metadata —
+                    // surface them as a distinct event so the UI can render the
+                    // preset choices as buttons. A normal reply resolves them.
+                    let event = if outbound
+                        .metadata
+                        .contains_key(isanagent::clarification::METADATA_CLARIFICATION)
+                    {
+                        let choices = outbound
+                            .metadata
+                            .get(isanagent::clarification::METADATA_CLARIFICATION_CHOICES)
+                            .and_then(|v| v.as_array())
+                            .map(|arr| {
+                                arr.iter()
+                                    .filter_map(|x| x.as_str().map(str::to_string))
+                                    .collect::<Vec<_>>()
+                            })
+                            .unwrap_or_default();
+                        Event::Clarification {
+                            content: outbound.content,
+                            choices,
+                        }
+                    } else {
+                        Event::AgentMessage {
+                            content: outbound.content,
+                            role: "assistant".to_string(),
+                        }
                     };
                     let _ = app_for_outbound.emit("agent://event", &event);
                 }

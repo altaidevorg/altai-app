@@ -29,16 +29,30 @@ impl TauriChannel {
     }
 
     /// Send an inbound user message into the IsanAgent bus.
-    pub async fn inject_user_message(&self, content: String) -> Result<(), String> {
+    ///
+    /// `image_urls` are base64 data URIs (`data:<media_type>;base64,…`) or
+    /// https URLs; they become multimodal `ImageUrl` attachments that the
+    /// provider layer forwards to vision-capable models.
+    pub async fn inject_user_message(
+        &self,
+        content: String,
+        image_urls: Vec<String>,
+    ) -> Result<(), String> {
         let guard = self.bus_tx.lock().await;
         let tx = guard.as_ref().ok_or("TauriChannel not started")?;
+        let attachments = image_urls
+            .into_iter()
+            .map(|url| isanagent::utils::ContentPart::ImageUrl {
+                image_url: isanagent::utils::ImageUrl { url, detail: None },
+            })
+            .collect();
         let msg = isanagent::bus::InboundMessage {
             channel: self.name().to_string(),
             sender_id: "tauri_user".to_string(),
             chat_id: self.chat_id.clone(),
             thread_id: None,
             content,
-            attachments: vec![],
+            attachments,
             metadata: std::collections::HashMap::new(),
         };
         tx.send(BusMessage::Inbound(msg))
@@ -132,6 +146,20 @@ pub fn map_telemetry_to_event(
         }),
         TelemetryEvent::AgentThought { thought, .. } => Some(Event::Thinking {
             content: thought.clone(),
+        }),
+        TelemetryEvent::AgentUsage {
+            prompt_tokens,
+            completion_tokens,
+            total_tokens,
+            cache_read_tokens,
+            cache_creation_tokens,
+            ..
+        } => Some(Event::Usage {
+            prompt_tokens: *prompt_tokens,
+            completion_tokens: *completion_tokens,
+            total_tokens: *total_tokens,
+            cache_read_tokens: *cache_read_tokens,
+            cache_creation_tokens: *cache_creation_tokens,
         }),
         TelemetryEvent::ToolProgress {
             tool_name, message, ..

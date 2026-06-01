@@ -40,13 +40,18 @@ pub async fn agent_start(
     runtime::start_agent(&state, &pname, &key, &model, persona, base).await
 }
 
-/// Send a user message into the IsanAgent bus.
+/// Send a user message into the IsanAgent bus, with optional image
+/// attachments (base64 data URIs or https URLs) for vision-capable models.
 #[tauri::command]
 pub async fn agent_send(
     state: State<'_, AgentRuntime>,
     message: String,
+    images: Option<Vec<String>>,
 ) -> Result<(), String> {
-    state.channel.inject_user_message(message).await
+    state
+        .channel
+        .inject_user_message(message, images.unwrap_or_default())
+        .await
 }
 
 /// Approve or deny an agent action (placeholder for future approval flow).
