@@ -479,8 +479,8 @@ pub async fn start_agent(
     // Start the TauriChannel
     channel.start(bus_tx.clone()).await.map_err(|e| format!("TauriChannel start failed: {}", e))?;
 
-    // Bus router: forward inbound → agent, outbound/telemetry → frontend
-    let app_for_bus = app.clone();
+    // Bus router: forward inbound → agent, outbound → channel. (Telemetry is
+    // emitted by the outbound router below, not here — see note in the loop.)
     let channel_for_outbound = channel.clone();
     async_runtime::spawn(async move {
         while let Some(msg) = bus_rx.recv().await {
@@ -491,11 +491,13 @@ pub async fn start_agent(
                 BusMessage::Outbound(outbound) => {
                     let _ = channel_for_outbound.send(outbound).await;
                 }
-                BusMessage::Telemetry(ref telemetry) => {
-                    if let Some(event) = map_telemetry_to_event(telemetry) {
-                        let _ = app_for_bus.emit("agent://event", &event);
-                    }
-                }
+                // NOTE: telemetry is intentionally NOT handled here. Agent and
+                // tool telemetry flows through `global_outbound_tx` (the
+                // outbound router below) and is emitted there exactly once.
+                // `bus_tx` only ever carries Inbound (user + synthetic
+                // execution-job follow-ups) and Cancel, so handling Telemetry
+                // here would be dead code today and a double-emit footgun if
+                // anything later routed telemetry to this channel.
                 BusMessage::Cancel(chat_id) => {
                     let _ = agent_node
                         .send_packet(BusMessage::Cancel(chat_id))

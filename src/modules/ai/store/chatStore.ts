@@ -197,6 +197,12 @@ const pendingPersist = new Map<
 // skips these once — re-writing a thread we just read back is pure waste.
 const loadedMessagesRefs = new WeakSet<UIMessage[]>();
 
+// Fingerprint of the runtime config we last successfully started. Lets us skip
+// the per-message `agent_start` IPC when nothing changed (the Rust side no-ops
+// on an identical fingerprint anyway). Reset to null on any start/send failure
+// so a dead runtime is always restarted on the next attempt.
+let lastStartFingerprint: string | null = null;
+
 function flushPersistEntry(id: string) {
   const entry = pendingPersist.get(id);
   if (!entry) return;
@@ -699,20 +705,34 @@ async function sendViaIsanAgent(
   const activeAgent = agentsState.all().find((a) => a.id === agentsState.activeId);
   const instructions = activeAgent?.instructions?.trim() || undefined;
 
-  try {
-    await native.agentStart({
-      providerName,
-      apiKey,
-      modelName,
-      instructions,
-      baseUrl,
-    });
-  } catch (e) {
-    store.patchAgentMeta({
-      status: "error",
-      error: `ALTAI runtime failed to start: ${e}`,
-    });
-    return false;
+  // Only (re)start the runtime when the target config actually changes —
+  // avoids a redundant IPC round-trip on every message. Mirrors the fields
+  // the Rust runtime fingerprints (provider, key, model, base URL, persona).
+  const startFingerprint = JSON.stringify([
+    providerName,
+    apiKey,
+    modelName,
+    baseUrl ?? "",
+    instructions ?? "",
+  ]);
+  if (startFingerprint !== lastStartFingerprint) {
+    try {
+      await native.agentStart({
+        providerName,
+        apiKey,
+        modelName,
+        instructions,
+        baseUrl,
+      });
+      lastStartFingerprint = startFingerprint;
+    } catch (e) {
+      lastStartFingerprint = null;
+      store.patchAgentMeta({
+        status: "error",
+        error: `ALTAI runtime failed to start: ${e}`,
+      });
+      return false;
+    }
   }
 
   store.patchAgentMeta({ status: "thinking", step: "Sending to ALTAI..." });
@@ -734,7 +754,9 @@ async function sendViaIsanAgent(
     return true;
   } catch (e) {
     // Without this the status would stay stuck on "thinking" if the IPC call
-    // rejects (e.g. the runtime died between start and send).
+    // rejects (e.g. the runtime died between start and send). Drop the start
+    // fingerprint so the next message re-initializes the runtime.
+    lastStartFingerprint = null;
     store.patchAgentMeta({
       status: "error",
       error: e instanceof Error ? e.message : String(e),
