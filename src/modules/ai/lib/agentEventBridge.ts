@@ -21,10 +21,46 @@ export type AgentEvent =
       cache_read_tokens: number;
       cache_creation_tokens: number;
     }
+  | {
+      type: "execution_run_finished";
+      provider_id: string;
+      session_id: string;
+      exit_code: number | null;
+      duration_ms: number;
+      stdout_len: number;
+      stderr_len: number;
+      artifact_count: number;
+      git_head: string | null;
+      description: string | null;
+    }
+  | {
+      type: "execution_job_finished";
+      job_id: string;
+      session_id: string;
+      provider_id: string;
+      status: string;
+      exit_code: number | null;
+      duration_ms: number;
+      stdout_len: number;
+      stderr_len: number;
+      artifact_count: number;
+      description: string | null;
+    }
+  | {
+      type: "background_job_updated";
+      job_id: string;
+      state: string;
+      kind: string;
+      detail: string | null;
+    }
   | { type: "done"; reason: string }
   | { type: "error"; message: string }
   | { type: "notebook_output"; notebook_id: string; cell_index: number; output: unknown }
   | { type: "experiment_result"; experiment_id: string; metrics: unknown; artifacts: string[] };
+
+function plural(n: number, noun: string): string {
+  return `${n} ${noun}${n === 1 ? "" : "s"}`;
+}
 
 /**
  * Initialize the agent event bridge.
@@ -101,6 +137,31 @@ export async function initAgentEventBridge(): Promise<UnlistenFn> {
         store.patchAgentMeta({
           status: "awaiting-approval",
           approvalsPending: store.agentMeta.approvalsPending + 1,
+        });
+        break;
+
+      // Execution-harness lifecycle. The agent typically also gets woken to
+      // summarize a finished job, so these surface as a lightweight transient
+      // status line rather than persisted messages.
+      case "execution_run_finished": {
+        const secs = (payload.duration_ms / 1000).toFixed(1);
+        store.patchAgentMeta({
+          step: `Run finished — exit ${payload.exit_code ?? "?"}, ${secs}s, ${plural(payload.artifact_count, "artifact")}`,
+        });
+        break;
+      }
+
+      case "execution_job_finished": {
+        const secs = (payload.duration_ms / 1000).toFixed(1);
+        store.patchAgentMeta({
+          step: `Background job ${payload.job_id} ${payload.status} — ${secs}s, ${plural(payload.artifact_count, "artifact")}`,
+        });
+        break;
+      }
+
+      case "background_job_updated":
+        store.patchAgentMeta({
+          step: `Background job ${payload.job_id}: ${payload.state}`,
         });
         break;
 

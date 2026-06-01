@@ -81,6 +81,39 @@ pub enum Event {
     Error {
         message: String,
     },
+    /// A synchronous `execution_run` completed.
+    ExecutionRunFinished {
+        provider_id: String,
+        session_id: String,
+        exit_code: Option<i32>,
+        duration_ms: u64,
+        stdout_len: usize,
+        stderr_len: usize,
+        artifact_count: usize,
+        git_head: Option<String>,
+        description: Option<String>,
+    },
+    /// A background `execution_run_background` job reached a terminal state.
+    ExecutionJobFinished {
+        job_id: String,
+        session_id: String,
+        provider_id: String,
+        /// `completed`, `failed`, `cancelled`, or `timeout`.
+        status: String,
+        exit_code: Option<i32>,
+        duration_ms: u64,
+        stdout_len: usize,
+        stderr_len: usize,
+        artifact_count: usize,
+        description: Option<String>,
+    },
+    /// A background job changed state (spawned → running → terminal).
+    BackgroundJobUpdated {
+        job_id: String,
+        state: String,
+        kind: String,
+        detail: Option<String>,
+    },
     NotebookOutput {
         notebook_id: String,
         cell_index: usize,
@@ -398,6 +431,50 @@ pub async fn start_agent(
         tools.register(Box::new(isanagent::tools::execution::ExecutionCancelTool {
             harness: harness.clone(),
         }));
+
+        // Read background-job stdout/stderr line-by-line — lets the agent
+        // inspect a long-running job's logs without fetching the full result.
+        tools.register(Box::new(isanagent::tools::execution::ExecutionReadLogTool {
+            jobs: execution_jobs.clone(),
+            harness: harness.clone(),
+        }));
+
+        // Colab MCP tool-call proxy — registered only when colab_mcp is the
+        // default provider, the feature is enabled, and a non-empty allowlist
+        // compiles. Mirrors the gating in the isanagent reference binary.
+        if workspace.config.execution_default_provider() == "colab_mcp"
+            && workspace
+                .config
+                .execution_colab_mcp_extra_mcp_tool_call_enabled()
+        {
+            let patterns = workspace
+                .config
+                .execution_colab_mcp_extra_mcp_tool_allowlist();
+            if patterns.is_empty() {
+                log::warn!(
+                    "colab_mcp extra_mcp_tool_call enabled but allowlist empty; skipping colab_mcp_tool_call registration."
+                );
+            } else {
+                match isanagent::tools::execution::compile_colab_mcp_tool_allowlist(&patterns) {
+                    Ok(gs) => {
+                        let max_chars =
+                            workspace.config.execution_max_output_bytes().min(512 * 1024);
+                        tools.register(Box::new(
+                            isanagent::tools::execution::ColabMcpToolCallTool {
+                                harness: harness.clone(),
+                                allowlist: gs,
+                                max_result_chars: max_chars,
+                                jobs: Some(execution_jobs.clone()),
+                                inflight: Some(inflight_sync.clone()),
+                            },
+                        ));
+                    }
+                    Err(e) => log::warn!(
+                        "invalid colab_mcp extra_mcp_tool_allowlist: {e}; skipping colab_mcp_tool_call"
+                    ),
+                }
+            }
+        }
     }
 
     // Provider — `base_url_override` (from the JS side, derived from the

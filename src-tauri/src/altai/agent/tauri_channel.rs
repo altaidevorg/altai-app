@@ -166,6 +166,64 @@ pub fn map_telemetry_to_event(
         } => Some(Event::Thinking {
             content: format!("[{}] {}", tool_name, message),
         }),
+        TelemetryEvent::ExecutionRunFinished {
+            provider_id,
+            session_id,
+            exit_code,
+            duration_ms,
+            stdout_len,
+            stderr_len,
+            artifact_count,
+            git_head,
+            description,
+            ..
+        } => Some(Event::ExecutionRunFinished {
+            provider_id: provider_id.clone(),
+            session_id: session_id.clone(),
+            exit_code: *exit_code,
+            duration_ms: *duration_ms,
+            stdout_len: *stdout_len,
+            stderr_len: *stderr_len,
+            artifact_count: *artifact_count,
+            git_head: git_head.clone(),
+            description: description.clone(),
+        }),
+        TelemetryEvent::ExecutionJobFinished {
+            job_id,
+            session_id,
+            provider_id,
+            status,
+            exit_code,
+            duration_ms,
+            stdout_len,
+            stderr_len,
+            artifact_count,
+            description,
+            ..
+        } => Some(Event::ExecutionJobFinished {
+            job_id: job_id.clone(),
+            session_id: session_id.clone(),
+            provider_id: provider_id.clone(),
+            status: status.clone(),
+            exit_code: *exit_code,
+            duration_ms: *duration_ms,
+            stdout_len: *stdout_len,
+            stderr_len: *stderr_len,
+            artifact_count: *artifact_count,
+            description: description.clone(),
+        }),
+        TelemetryEvent::BackgroundJobUpdated {
+            job_id,
+            state,
+            kind,
+            detail,
+            ..
+        } => Some(Event::BackgroundJobUpdated {
+            job_id: job_id.clone(),
+            state: state.clone(),
+            kind: kind.clone(),
+            detail: detail.clone(),
+        }),
         _ => None,
     }
 }
