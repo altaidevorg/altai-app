@@ -996,7 +996,7 @@ pub fn clone(workspace: &WorkspaceEnv, url: &str, dest_parent: &str) -> Result<S
 fn repo_dir_name(url: &str) -> String {
     let trimmed = url.trim_end_matches('/');
     let last = trimmed
-        .rsplit(|c| c == '/' || c == ':')
+        .rsplit(['/', ':'])
         .find(|s| !s.is_empty())
         .unwrap_or(trimmed);
     let stem = last.strip_suffix(".git").unwrap_or(last);
