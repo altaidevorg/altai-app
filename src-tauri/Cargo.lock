@@ -3160,7 +3160,7 @@ dependencies = [
  "js-sys",
  "log",
  "wasm-bindgen",
- "windows-core 0.62.2",
+ "windows-core 0.61.2",
 ]
 
 [[package]]
@@ -3523,7 +3523,7 @@ checksum = "a6cb138bb79a146c1bd460005623e142ef0181e3d0219cb493e02f7d08a35695"
 [[package]]
 name = "isanagent"
 version = "0.9.0"
-source = "git+https://github.com/altaidevorg/isanagent.git?branch=main#2022f3368b61ca569debec56b47efbfd9006f3c5"
+source = "git+https://github.com/altaidevorg/isanagent.git?branch=main#21942583dccc372b22a3b01cad131a386aef267a"
 dependencies = [
  "arboard",
  "async-stream",
@@ -6720,7 +6720,7 @@ version = "3.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32824fab5e16e6c4d86dc1ba84489390419a39f97699852b66480bb87d297ed8"
 dependencies = [
- "dirs 5.0.1",
+ "dirs 4.0.0",
 ]
 
 [[package]]
