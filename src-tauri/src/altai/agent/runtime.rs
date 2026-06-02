@@ -399,7 +399,7 @@ pub async fn start_agent(
         memory_node: memory_node.clone(),
     }));
 
-    // Compaction overhaul (efecnc/isanagent altai-v0.1.0). The agent can
+    // Compaction overhaul (upstream isanagent — altaidevorg/isanagent#39). The agent can
     // now schedule a between-turns context compaction via `compact_context`
     // and re-fetch a tool result that fell out of the live context via
     // `recall_tool_result`. Both surface in the chat as their own tool

@@ -1,7 +1,10 @@
 # Patch: add `is_error` to `TelemetryEvent::ToolResult` (upstream `isanagent`)
 
-**Target repo:** `efecnc/isanagent` (currently pinned in ALTAI at tag `altai-v0.1.0`,
-commit `e005bce`).
+> **Status:** Implemented and upstreamed in **altaidevorg/isanagent#39**. ALTAI
+> depends on upstream `altaidevorg/isanagent` (`branch = "main"`) — no fork pin.
+> This doc is kept as the design record for the change.
+
+**Target repo:** `altaidevorg/isanagent` (`main`).
 
 **Why:** ALTAI renders tool calls in the chat, but a *failed* tool currently
 shows as a success. The agent already knows the outcome —
@@ -14,7 +17,7 @@ tools that legitimately return error text would be mis-flagged.)
 
 ---
 
-## Crate changes (`efecnc/isanagent`)
+## Crate changes (`altaidevorg/isanagent`)
 
 ### 1. `src/bus.rs` — add the field to the `ToolResult` variant
 

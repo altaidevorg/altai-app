@@ -37,7 +37,7 @@ import { isValidElement, memo, useState } from "react";
 
 export type ToolPart = ToolUIPart | DynamicToolUIPart;
 
-// Keyed on the tool names IsanAgent (tag altai-v0.1.0) actually emits over
+// Keyed on the tool names IsanAgent actually emits over
 // `agent://event` — see `fn name()` across `isanagent/src/tools/*`. The
 // previous keys (`bash_run`, `grep`, `glob`, `edit`, `list_directory`, …)
 // were the Vercel AI SDK tool names from the removed chat path; under the
