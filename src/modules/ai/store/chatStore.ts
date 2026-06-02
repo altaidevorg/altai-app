@@ -74,6 +74,11 @@ const IDLE_META: AgentMeta = {
 
 export type MiniState = {
   open: boolean;
+  /**
+   * Element that had focus when the panel was opened. Focus is restored to
+   * it on close so keyboard/AT users aren't orphaned to <body> (a11y D4).
+   */
+  opener?: HTMLElement | null;
 };
 
 export type PendingSelection = {
@@ -283,9 +288,32 @@ export const useChatStore = create<StoreState>((set, get) => ({
   },
 
   mini: { open: false },
-  openMini: () => set({ mini: { open: true } }),
-  closeMini: () => set({ mini: { open: false } }),
-  toggleMini: () => set((s) => ({ mini: { open: !s.mini.open } })),
+  openMini: () =>
+    set((s) => {
+      // Capture the opener so we can restore focus on close (a11y D4).
+      // Only record on a real open transition; ignore re-opens.
+      if (s.mini.open) return s;
+      const opener =
+        typeof document !== "undefined"
+          ? (document.activeElement as HTMLElement | null)
+          : null;
+      return { mini: { open: true, opener } };
+    }),
+  closeMini: () =>
+    set((s) => {
+      const { opener } = s.mini;
+      // Restore focus to the element that opened the panel, if it's still
+      // in the document; otherwise leave focus where it is (a11y D4).
+      if (opener && document.contains(opener)) {
+        opener.focus?.();
+      }
+      return { mini: { open: false, opener: null } };
+    }),
+  toggleMini: () => {
+    const s = get();
+    if (s.mini.open) s.closeMini();
+    else s.openMini();
+  },
 
   panelOpen: false,
   openPanel: () => set({ panelOpen: true }),

@@ -518,6 +518,13 @@ export default function App() {
   const isNotebookTab = activeTab?.kind === "notebook";
   const isSettingsTab = activeTab?.kind === "settings";
 
+  // Reflect the active tab in the document title so the OS window/tab and
+  // screen-reader title announcements track context (a11y D6).
+  useEffect(() => {
+    const name = activeTab?.title?.trim();
+    document.title = name ? `${name} — ALTAI` : "ALTAI";
+  }, [activeTab?.title]);
+
   // Route every `openSettingsWindow(...)` call through this hook's tabs
   // store. The registration is idempotent across HMR re-mounts; the
   // returned cleanup wipes the impl so callers fail loud if the host
