@@ -7,7 +7,7 @@ import {
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { homeDir } from "@tauri-apps/api/path";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Spinner } from "@/components/ui/spinner";
 import { cn } from "@/lib/utils";
 import { folderName, prettyDir, useWorkspaceFolderStore } from "./folder";
@@ -32,6 +32,13 @@ export function WorkspaceWelcome() {
   const [cloneUrl, setCloneUrl] = useState("");
   const [cloning, setCloning] = useState(false);
   const [cloneError, setCloneError] = useState<string | null>(null);
+
+  // Move SR focus into the title on mount so screen-reader users land in
+  // context instead of at the top of an unlabelled document.
+  const titleRef = useRef<HTMLHeadingElement | null>(null);
+  useEffect(() => {
+    titleRef.current?.focus();
+  }, []);
 
   useEffect(() => {
     let alive = true;
@@ -70,7 +77,10 @@ export function WorkspaceWelcome() {
   };
 
   return (
-    <div className="flex h-screen w-screen items-center justify-center bg-background px-6 text-foreground">
+    <main
+      aria-labelledby="workspace-welcome-title"
+      className="flex h-screen w-screen items-center justify-center bg-background px-6 text-foreground"
+    >
       <div className="flex w-full max-w-sm flex-col items-center">
         {/* Brand */}
         <img
@@ -79,7 +89,14 @@ export function WorkspaceWelcome() {
           draggable={false}
           className="size-16 rounded-2xl"
         />
-        <h1 className="mt-4 text-xl font-semibold tracking-tight">ALTAI</h1>
+        <h1
+          id="workspace-welcome-title"
+          ref={titleRef}
+          tabIndex={-1}
+          className="mt-4 text-xl font-semibold tracking-tight outline-none"
+        >
+          ALTAI
+        </h1>
         <p className="mt-1 text-[12.5px] text-muted-foreground">
           Open a project to start
         </p>
@@ -124,9 +141,17 @@ export function WorkspaceWelcome() {
                 )}
               />
               {cloneError ? (
-                <div className="rounded bg-destructive/10 px-2 py-1.5 text-[11px] leading-relaxed text-destructive">
+                <div
+                  role="alert"
+                  className="rounded bg-destructive/10 px-2 py-1.5 text-[11px] leading-relaxed text-destructive"
+                >
                   {cloneError}
                 </div>
+              ) : null}
+              {cloning ? (
+                <span role="status" className="sr-only">
+                  Cloning repository…
+                </span>
               ) : null}
               <button
                 type="button"
@@ -153,16 +178,22 @@ export function WorkspaceWelcome() {
 
         {/* Recent projects */}
         <div className="mt-8 flex w-full flex-col">
-          <div className="mb-2 flex items-center justify-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground/70">
+          <h2
+            id="workspace-recents-title"
+            className="mb-2 flex items-center justify-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground/70"
+          >
             <HugeiconsIcon icon={Clock01Icon} size={12} strokeWidth={1.75} />
             Recent
-          </div>
+          </h2>
           {recents.length === 0 ? (
             <div className="rounded-lg border border-dashed border-border/60 px-3 py-5 text-center text-[12px] text-muted-foreground/70">
               No recent projects yet.
             </div>
           ) : (
-            <ul className="flex min-w-0 flex-col">
+            <ul
+              aria-labelledby="workspace-recents-title"
+              className="flex min-w-0 flex-col"
+            >
               {recents.map((path) => (
                 <li key={path} className="group/recent min-w-0">
                   <div className="flex min-w-0 items-center rounded-md transition-colors hover:bg-muted/50">
@@ -197,7 +228,7 @@ export function WorkspaceWelcome() {
           )}
         </div>
       </div>
-    </div>
+    </main>
   );
 }
 

@@ -372,7 +372,15 @@ function ClarificationChoices() {
   const choices = useChatStore((s) => s.pendingChoices);
   if (!choices || choices.length === 0) return null;
   return (
-    <div className="flex shrink-0 flex-wrap gap-1.5 border-t border-border/40 px-3 py-2">
+    <div
+      role="group"
+      aria-label="Suggested replies"
+      className="flex shrink-0 flex-wrap gap-1.5 border-t border-border/40 px-3 py-2"
+    >
+      <span aria-live="polite" className="sr-only">
+        {choices.length} suggested{" "}
+        {choices.length === 1 ? "reply" : "replies"} available
+      </span>
       {choices.map((choice, i) => (
         <button
           key={`${i}-${choice}`}
