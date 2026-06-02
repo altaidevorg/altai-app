@@ -5,7 +5,7 @@ import {
   SearchQuery,
   setSearchQuery,
 } from "@codemirror/search";
-import { keymap } from "@codemirror/view";
+import { EditorView, keymap } from "@codemirror/view";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import { useTheme } from "@/modules/theme";
 import CodeMirror, { type ReactCodeMirrorRef } from "@uiw/react-codemirror";
@@ -144,6 +144,9 @@ export const EditorPane = forwardRef<EditorPaneHandle, Props>(
           close: () => onCloseRef.current?.(),
         })),
         ...buildSharedExtensions(),
+        EditorView.contentAttributes.of(() => ({
+          "aria-label": `Editor: ${pathRef.current}`,
+        })),
         languageCompartment.of([]),
         inlineCompletion({
           getPrefs: () => {

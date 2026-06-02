@@ -63,7 +63,7 @@
     --secondary: oklch(0.963 0.002 197.1);
     --secondary-foreground: oklch(0.218 0.008 223.9);
     --muted: oklch(0.963 0.002 197.1);
-    --muted-foreground: oklch(0.56 0.021 213.5);
+    --muted-foreground: oklch(0.48 0.021 213.5);
     --accent: oklch(0.963 0.002 197.1);
     --accent-foreground: oklch(0.218 0.008 223.9);
     --destructive: oklch(0.577 0.245 27.325);
@@ -348,6 +348,50 @@ html[data-a11y-motion="reduce"] *::after {
 @media (prefers-reduced-motion: reduce) {
   .a11y-skip-link {
     transition: none;
+  }
+}
+
+/* Forced colors / Windows High-Contrast (audit D1).
+ * The OS replaces our palette with its own system colors. Make sure
+ * interactive controls keep visible borders and a clear focus ring so
+ * they don't disappear into the background. System color keywords
+ * (Highlight, ButtonText, CanvasText) are honored by the OS theme. */
+@media (forced-colors: active) {
+  /* Let the OS map colors for interactive controls. */
+  button,
+  [role="button"],
+  input,
+  textarea,
+  select,
+  a {
+    forced-color-adjust: auto;
+  }
+  /* High-visibility focus indicator using the system Highlight color. */
+  :focus-visible {
+    outline: 2px solid Highlight;
+    outline-offset: 1px;
+  }
+  /* Icon-only buttons often rely on background/SVG color alone, which is
+   * flattened in forced-colors mode — give them an explicit border. */
+  button,
+  [role="button"] {
+    border: 1px solid ButtonText;
+  }
+}
+
+/* OS "more contrast" preference (audit D1). Honor it the same way the
+ * in-app `.a11y-high-contrast` class does, so users who set stronger
+ * contrast at the OS level get it without toggling the app pref. */
+@media (prefers-contrast: more) {
+  :root {
+    --muted-foreground: oklch(0.35 0.005 264);
+    --border: oklch(0.55 0.005 264);
+    --ring: oklch(0.35 0.05 264);
+  }
+  .dark {
+    --muted-foreground: oklch(0.88 0.005 264);
+    --border: oklch(1 0 0 / 0.45);
+    --ring: oklch(0.85 0.05 264);
   }
 }
 

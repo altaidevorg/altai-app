@@ -19,12 +19,17 @@ type Props = {
   // Suppress the error state — the chat renders its own dismissible error
   // block, so the inline pill shouldn't duplicate it.
   hideError?: boolean;
+  // Render the sr-only live region. The pill is mounted in more than one
+  // place (inline transcript + log opener); only one instance should own
+  // the announcement or screen readers double-announce every status change.
+  announce?: boolean;
 };
 
 export function AgentStatusPill({
   onClick,
   busy = false,
   hideError = false,
+  announce = true,
 }: Props) {
   const meta = useChatStore((s) => s.agentMeta);
 
@@ -53,10 +58,14 @@ export function AgentStatusPill({
   return (
     <>
       {/* Stable live region — sits outside AnimatePresence so the key change
-          on the element below doesn't tear down the announcement. */}
-      <span role="status" aria-live="polite" className="sr-only">
-        Agent status: {label}
-      </span>
+          on the element below doesn't tear down the announcement. Only the
+          announcing instance renders it so a second mounted pill doesn't
+          double-announce. */}
+      {announce ? (
+        <span role="status" aria-live="polite" className="sr-only">
+          Agent status: {label}
+        </span>
+      ) : null}
       <AnimatePresence mode="wait">
         {onClick ? (
           <motion.button

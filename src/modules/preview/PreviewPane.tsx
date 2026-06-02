@@ -84,6 +84,7 @@ export const PreviewPane = forwardRef<PreviewPaneHandle, Props>(
               size={12}
               strokeWidth={1.75}
               className="shrink-0"
+              aria-hidden
             />
             <span className="truncate">
               Many public sites refuse to embed (X-Frame-Options). If the page
@@ -103,7 +104,7 @@ export const PreviewPane = forwardRef<PreviewPaneHandle, Props>(
               <iframe
                 key={`${url}#${nonce}`}
                 src={url}
-                title="Preview"
+                title={`Preview: ${url}`}
                 className="h-full w-full border-0"
                 // sandbox grants the bare minimum for a dev preview: scripts,
                 // same-origin (cookies/storage for the previewed app), forms,

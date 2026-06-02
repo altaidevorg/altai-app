@@ -19,7 +19,11 @@ export const Conversation = ({ className, ...props }: ConversationProps) => (
     role="log"
     aria-live="polite"
     aria-atomic="false"
-    aria-relevant="additions text"
+    // Only announce newly-added nodes. Dropping "text" prevents in-place
+    // token-stream mutations from being re-announced during streaming (D3).
+    // Callers can pass `aria-busy` (e.g. while streaming) — it forwards via
+    // {...props} below — to suppress announcements until a turn settles.
+    aria-relevant="additions"
     aria-label="Conversation"
     {...props}
   />

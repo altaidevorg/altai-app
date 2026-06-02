@@ -298,22 +298,25 @@ export function NotebookPane({ path, active, onDirtyChange }: NotebookPaneProps)
         </div>
 
         {/* Cells */}
-        {notebook.cells.map((cell, i) => (
-          <NotebookCell
-            key={i}
-            cell={cell}
-            index={i}
-            isExecuting={executingCells.has(`${path}:${i}`)}
-            onSourceChange={handleSourceChange}
-            onExecute={handleExecute}
-            onDelete={handleDelete}
-            onMoveUp={handleMoveUp}
-            onMoveDown={handleMoveDown}
-            onToggleType={handleToggleType}
-            isFirst={i === 0}
-            isLast={i === notebook.cells.length - 1}
-          />
-        ))}
+        <div role="list" className="space-y-2">
+          {notebook.cells.map((cell, i) => (
+            <div key={i} role="listitem">
+              <NotebookCell
+                cell={cell}
+                index={i}
+                isExecuting={executingCells.has(`${path}:${i}`)}
+                onSourceChange={handleSourceChange}
+                onExecute={handleExecute}
+                onDelete={handleDelete}
+                onMoveUp={handleMoveUp}
+                onMoveDown={handleMoveDown}
+                onToggleType={handleToggleType}
+                isFirst={i === 0}
+                isLast={i === notebook.cells.length - 1}
+              />
+            </div>
+          ))}
+        </div>
 
         {/* Add cell buttons */}
         <div className="flex gap-2 px-14 pt-2">

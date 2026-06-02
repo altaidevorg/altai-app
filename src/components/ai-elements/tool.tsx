@@ -291,6 +291,17 @@ const ToolImpl = ({
       className={cn("group/tool not-prose w-full", className)}
       {...props}
     >
+      {/* SR-announced status mirror. The visual status dot below conveys
+          state to sighted users only; this announces transitions (running /
+          done / error) to screen readers. Errors are assertive so they
+          interrupt; everything else is polite. */}
+      <span
+        role={isError ? "alert" : "status"}
+        aria-live={isError ? "assertive" : "polite"}
+        className="sr-only"
+      >
+        {label}: {STATUS_LABEL[state]}
+      </span>
       <CollapsibleTrigger
         disabled={!hasDetails}
         className={cn(

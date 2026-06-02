@@ -272,6 +272,7 @@ function CollapsedSegments({
             <button
               type="button"
               title="Show hidden folders"
+              aria-label="Show hidden folders"
               className="flex items-center rounded-sm px-1 text-muted-foreground hover:bg-accent hover:text-foreground"
             >
               <HugeiconsIcon
