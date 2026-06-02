@@ -300,11 +300,7 @@ export function NotebookPane({ path, active, onDirtyChange }: NotebookPaneProps)
         {/* Cells */}
         <div role="list" className="space-y-2">
           {notebook.cells.map((cell, i) => (
-            <div
-              key={i}
-              role="listitem"
-              aria-label={`${cell.cellType === "code" ? "Code" : "Markdown"} cell ${i + 1}`}
-            >
+            <div key={i} role="listitem">
               <NotebookCell
                 cell={cell}
                 index={i}

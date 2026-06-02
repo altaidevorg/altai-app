@@ -82,11 +82,15 @@ export function NotebookCell({
 
       <div className="flex">
         {/* Execution count gutter */}
-        <div
-          className="w-12 shrink-0 pt-2 text-right pr-2 text-xs text-muted-foreground font-mono select-none"
-          aria-label={cell.cellType === "code" ? executionAriaLabel : undefined}
-        >
-          {cell.cellType === "code" ? executionLabel : ""}
+        <div className="w-12 shrink-0 pt-2 text-right pr-2 text-xs text-muted-foreground font-mono select-none">
+          {cell.cellType === "code" ? (
+            <>
+              <span className="sr-only">{executionAriaLabel}</span>
+              <span aria-hidden="true">{executionLabel}</span>
+            </>
+          ) : (
+            ""
+          )}
         </div>
 
         <div className="min-w-0 flex-1">

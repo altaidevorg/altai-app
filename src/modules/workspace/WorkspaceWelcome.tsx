@@ -148,11 +148,9 @@ export function WorkspaceWelcome() {
                   {cloneError}
                 </div>
               ) : null}
-              {cloning ? (
-                <span role="status" className="sr-only">
-                  Cloning repository…
-                </span>
-              ) : null}
+              <span role="status" className="sr-only">
+                {cloning ? "Cloning repository…" : ""}
+              </span>
               <button
                 type="button"
                 onClick={() => void onClone()}
