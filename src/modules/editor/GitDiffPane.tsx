@@ -280,14 +280,17 @@ export function GitDiffPane({ source, chipLabel, active }: Props) {
         <div className="flex shrink-0 items-center gap-3 text-[10.5px] tabular-nums text-muted-foreground">
           <span className="truncate max-w-80 font-mono">{repoRoot}</span>
           {useFallback ? (
-            <>
+            <span
+              className="flex items-center gap-3"
+              aria-label={`${stats.added} lines added, ${stats.removed} lines removed`}
+            >
               <span className="text-emerald-600 dark:text-emerald-400">
                 +{stats.added}
               </span>
               <span className="text-rose-600 dark:text-rose-400">
                 −{stats.removed}
               </span>
-            </>
+            </span>
           ) : null}
         </div>
       </div>

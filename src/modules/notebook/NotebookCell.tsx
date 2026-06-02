@@ -43,6 +43,11 @@ export function NotebookCell({
   );
 
   const executionLabel = cell.executionCount != null ? `[${cell.executionCount}]` : "[ ]";
+  const executionAriaLabel = isExecuting
+    ? "executing"
+    : cell.executionCount != null
+      ? `executed ${cell.executionCount}`
+      : "not executed";
 
   const outputs = useMemo(
     () => renderOutputs(cell.outputs, index),
@@ -57,27 +62,30 @@ export function NotebookCell({
       )}
     >
       {/* Cell toolbar */}
-      <div className="absolute -top-3 right-2 z-10 hidden gap-1 group-hover:flex">
-        <CellButton onClick={() => onExecute(index)} title="Run (Ctrl+Enter)">
+      <div className="absolute -top-3 right-2 z-10 hidden gap-1 group-hover:flex group-focus-within:flex">
+        <CellButton onClick={() => onExecute(index)} title="Run (Ctrl+Enter)" ariaLabel="Run cell (Ctrl+Enter)">
           {isExecuting ? "..." : "\u25B6"}
         </CellButton>
-        <CellButton onClick={() => onMoveUp(index)} disabled={isFirst} title="Move up">
+        <CellButton onClick={() => onMoveUp(index)} disabled={isFirst} title="Move up" ariaLabel="Move cell up">
           \u2191
         </CellButton>
-        <CellButton onClick={() => onMoveDown(index)} disabled={isLast} title="Move down">
+        <CellButton onClick={() => onMoveDown(index)} disabled={isLast} title="Move down" ariaLabel="Move cell down">
           \u2193
         </CellButton>
-        <CellButton onClick={() => onToggleType(index)} title="Toggle code/markdown">
+        <CellButton onClick={() => onToggleType(index)} title="Toggle code/markdown" ariaLabel="Toggle code or markdown">
           {cell.cellType === "code" ? "M" : "<>"}
         </CellButton>
-        <CellButton onClick={() => onDelete(index)} title="Delete cell">
+        <CellButton onClick={() => onDelete(index)} title="Delete cell" ariaLabel="Delete cell">
           \u00D7
         </CellButton>
       </div>
 
       <div className="flex">
         {/* Execution count gutter */}
-        <div className="w-12 shrink-0 pt-2 text-right pr-2 text-xs text-muted-foreground font-mono select-none">
+        <div
+          className="w-12 shrink-0 pt-2 text-right pr-2 text-xs text-muted-foreground font-mono select-none"
+          aria-label={cell.cellType === "code" ? executionAriaLabel : undefined}
+        >
           {cell.cellType === "code" ? executionLabel : ""}
         </div>
 
@@ -86,7 +94,16 @@ export function NotebookCell({
           {cell.cellType === "markdown" && !focused ? (
             <div
               className="px-3 py-2 text-sm prose prose-sm dark:prose-invert max-w-none cursor-text"
+              role="button"
+              tabIndex={0}
+              aria-label="Edit markdown cell"
               onClick={() => setFocused(true)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  setFocused(true);
+                }
+              }}
               dangerouslySetInnerHTML={{ __html: cell.source }}
             />
           ) : (
@@ -96,6 +113,7 @@ export function NotebookCell({
                 "border-0 outline-none focus:ring-1 focus:ring-blue-500/40 rounded",
                 cell.cellType === "code" ? "min-h-[2.5rem]" : "min-h-[2rem]",
               )}
+              aria-label="Cell source"
               value={cell.source}
               onChange={(e) => onSourceChange(index, e.target.value)}
               onFocus={() => setFocused(true)}
@@ -108,7 +126,9 @@ export function NotebookCell({
 
           {/* Outputs */}
           {outputs.length > 0 && (
-            <div className="border-t border-border/40">{outputs}</div>
+            <div className="border-t border-border/40" role="status" aria-live="polite">
+              {outputs}
+            </div>
           )}
         </div>
       </div>
@@ -121,11 +141,13 @@ function CellButton({
   onClick,
   disabled,
   title,
+  ariaLabel,
 }: {
   children: React.ReactNode;
   onClick: () => void;
   disabled?: boolean;
   title: string;
+  ariaLabel: string;
 }) {
   return (
     <button
@@ -137,6 +159,7 @@ function CellButton({
       onClick={onClick}
       disabled={disabled}
       title={title}
+      aria-label={ariaLabel}
     >
       {children}
     </button>

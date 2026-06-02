@@ -74,6 +74,7 @@ export function renderOutput(output: CellOutput, key: string): JSX.Element {
           <div
             key={key}
             className="px-3 py-1 text-sm notebook-html-output"
+            aria-label="Cell output"
             dangerouslySetInnerHTML={{ __html: html }}
           />
         );
@@ -82,10 +83,10 @@ export function renderOutput(output: CellOutput, key: string): JSX.Element {
       const png = getMimeData(data, "image/png");
       if (png) {
         return (
-          <div key={key} className="px-3 py-2">
+          <div key={key} className="px-3 py-2" aria-label="Cell image output">
             <img
               src={`data:image/png;base64,${png.trim()}`}
-              alt="output"
+              alt=""
               className="max-w-full"
             />
           </div>
@@ -98,6 +99,7 @@ export function renderOutput(output: CellOutput, key: string): JSX.Element {
           <div
             key={key}
             className="px-3 py-2"
+            aria-label="Cell output"
             dangerouslySetInnerHTML={{ __html: svg }}
           />
         );
