@@ -62,8 +62,13 @@ export function useFileTree(rootPath: string | null, options?: Options) {
     nodesRef.current = nodes;
   }, [nodes]);
 
-  const fetchChildren = useCallback(async (path: string) => {
-    setNodes((s) => ({ ...s, [path]: { status: "loading" } }));
+  // `silent` re-lists a directory in place without flipping it to the
+  // "loading" (spinner) state first — used by the live watcher so background
+  // refreshes don't make every expanded folder flicker on each fs change.
+  const fetchChildren = useCallback(async (path: string, silent = false) => {
+    if (!silent) {
+      setNodes((s) => ({ ...s, [path]: { status: "loading" } }));
+    }
     try {
       const entries = await invoke<DirEntry[]>("fs_read_dir", {
         path,
@@ -114,6 +119,10 @@ export function useFileTree(rootPath: string | null, options?: Options) {
   // changed dir) keeps this robust against path-normalization mismatches and
   // mirrors the showHidden effect above; the set is small (only expanded dirs)
   // and the backend debounces bursts.
+  //
+  // The backend watcher is a single per-window instance (one WatcherState),
+  // matching this hook's single mount; a second concurrent useFileTree would
+  // contend over that one watcher.
   useEffect(() => {
     if (!rootPath) return;
     const workspace = currentWorkspaceEnv();
@@ -131,7 +140,8 @@ export function useFileTree(rootPath: string | null, options?: Options) {
       const loadedPaths = Object.entries(nodesRef.current)
         .filter(([, state]) => state.status === "loaded")
         .map(([path]) => path);
-      for (const path of loadedPaths) void fetchChildren(path);
+      // Silent: refresh in place so expanded folders don't flash a spinner.
+      for (const path of loadedPaths) void fetchChildren(path, true);
     }).then((fn) => {
       if (cancelled) fn();
       else unlisten = fn;

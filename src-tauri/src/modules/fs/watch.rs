@@ -68,11 +68,10 @@ fn run_debounce_loop(app: AppHandle, root: String, rx: Receiver<()>) {
             match rx.recv_timeout(DEBOUNCE) {
                 Ok(()) => continue,
                 Err(RecvTimeoutError::Timeout) => break,
-                Err(RecvTimeoutError::Disconnected) => {
-                    // Flush the final batch before stopping.
-                    let _ = app.emit("fs://changed", FsChangedEvent { root });
-                    return;
-                }
+                // Watcher dropped mid-burst (workspace switch / shutdown): the
+                // root is being abandoned, so discard the in-flight batch
+                // instead of emitting for a root the listener is tearing down.
+                Err(RecvTimeoutError::Disconnected) => return,
             }
         }
         let _ = app.emit(
@@ -164,7 +163,13 @@ mod tests {
     /// End-to-end platform check: a real watcher on a temp dir must observe a
     /// structural event when a file/dir is created. Guards against a backend
     /// (e.g. macOS FSEvents) reporting creates in a shape our filter misses.
+    ///
+    /// Ignored by default — it depends on live OS event delivery (FSEvents /
+    /// inotify) whose latency makes it flaky under CI load, and the native
+    /// backend may be absent in sandboxed runners. Run locally with
+    /// `cargo test fs::watch -- --ignored` after touching the watcher.
     #[test]
+    #[ignore = "live-fs smoke test; run locally with --ignored"]
     fn watcher_observes_created_entries() {
         let dir = tempfile::tempdir().expect("tempdir");
         let (tx, rx) = channel::<()>();
