@@ -7,7 +7,7 @@
 // is used to "hide" a webview while keeping its DOM/JS state alive, since
 // native child webviews always render above HTML and ignore CSS.
 
-use tauri::{AppHandle, LogicalPosition, LogicalSize, Manager, WebviewBuilder, WebviewUrl};
+use tauri::{AppHandle, LogicalPosition, LogicalSize, Manager, WebviewUrl, WebviewWindowBuilder};
 
 fn validate_label(label: &str) -> Result<(), String> {
     if label.is_empty() || label.len() > 128 {
@@ -49,21 +49,25 @@ pub async fn webview_create(
     validate_label(&label)?;
     let parsed = validate_url(&url)?;
 
-    // React Strict Mode double-mounts effects in dev; treat a re-create of
-    // an existing label as a no-op instead of erroring, so we don't lose
-    // logged-in state on every dev re-render.
-    if app.get_webview(&label).is_some() {
+    if app.get_webview_window(&label).is_some() {
         return Ok(());
     }
 
-    let window = app.get_window("main").ok_or("main window not found")?;
+    let main_window = app.get_webview_window("main").ok_or("main window not found")?;
+    let scale_factor = main_window.scale_factor().map_err(|e| e.to_string())?;
+    let main_pos = main_window
+        .inner_position()
+        .map_err(|e| e.to_string())?
+        .to_logical::<f64>(scale_factor);
 
-    window
-        .add_child(
-            WebviewBuilder::new(label.as_str(), WebviewUrl::External(parsed)),
-            LogicalPosition::new(x, y),
-            LogicalSize::new(width.max(1.0), height.max(1.0)),
-        )
+    WebviewWindowBuilder::new(&app, label.as_str(), WebviewUrl::External(parsed))
+        .position(main_pos.x + x, main_pos.y + y)
+        .inner_size(width.max(1.0), height.max(1.0))
+        .decorations(false)
+        .parent(&main_window)
+        .map_err(|e| e.to_string())?
+        .skip_taskbar(true)
+        .build()
         .map_err(|e| e.to_string())?;
 
     Ok(())
@@ -81,11 +85,19 @@ pub async fn webview_set_bounds(
     validate_label(&label)?;
     // The frontend can race ahead of close — silently no-op if the webview
     // is already gone rather than surfacing a noisy error.
-    let Some(webview) = app.get_webview(&label) else {
+    let Some(webview) = app.get_webview_window(&label) else {
         return Ok(());
     };
+    
+    let main_window = app.get_webview_window("main").ok_or("main window not found")?;
+    let scale_factor = main_window.scale_factor().map_err(|e| e.to_string())?;
+    let main_pos = main_window
+        .inner_position()
+        .map_err(|e| e.to_string())?
+        .to_logical::<f64>(scale_factor);
+
     webview
-        .set_position(LogicalPosition::new(x, y))
+        .set_position(LogicalPosition::new(main_pos.x + x, main_pos.y + y))
         .map_err(|e| e.to_string())?;
     webview
         .set_size(LogicalSize::new(width.max(1.0), height.max(1.0)))
@@ -96,7 +108,7 @@ pub async fn webview_set_bounds(
 #[tauri::command]
 pub async fn webview_close(app: AppHandle, label: String) -> Result<(), String> {
     validate_label(&label)?;
-    if let Some(webview) = app.get_webview(&label) {
+    if let Some(webview) = app.get_webview_window(&label) {
         webview.close().map_err(|e| e.to_string())?;
     }
     Ok(())
