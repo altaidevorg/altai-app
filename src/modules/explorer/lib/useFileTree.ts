@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { currentWorkspaceEnv } from "@/modules/workspace";
 import { usePreferencesStore } from "@/modules/settings/preferences";
@@ -49,9 +50,17 @@ export function useFileTree(rootPath: string | null, options?: Options) {
   );
   const [renaming, setRenaming] = useState<string | null>(null);
 
+  // Latest `nodes` for the watcher callback, which must read current state
+  // without re-subscribing every time the tree changes.
+  const nodesRef = useRef(nodes);
+
   useEffect(() => {
     showHiddenRef.current = showHidden;
   }, [showHidden]);
+
+  useEffect(() => {
+    nodesRef.current = nodes;
+  }, [nodes]);
 
   const fetchChildren = useCallback(async (path: string) => {
     setNodes((s) => ({ ...s, [path]: { status: "loading" } }));
@@ -97,6 +106,43 @@ export function useFileTree(rootPath: string | null, options?: Options) {
     // every expanded directory.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showHidden, rootPath, fetchChildren]);
+
+  // Real-time refresh: watch the workspace root and re-list any loaded
+  // (expanded) directory whenever the filesystem structure changes, so files
+  // and folders created outside the app — including hidden dot-folders —
+  // appear without pressing Refresh. Re-listing the loaded set (not just the
+  // changed dir) keeps this robust against path-normalization mismatches and
+  // mirrors the showHidden effect above; the set is small (only expanded dirs)
+  // and the backend debounces bursts.
+  useEffect(() => {
+    if (!rootPath) return;
+    const workspace = currentWorkspaceEnv();
+    let unlisten: (() => void) | undefined;
+    let cancelled = false;
+
+    void invoke("fs_watch_start", { path: rootPath, workspace }).catch((e) => {
+      // Non-fatal — the manual Refresh button remains as a fallback.
+      console.error("fs_watch_start failed:", e);
+    });
+
+    void listen<{ root: string }>("fs://changed", (event) => {
+      // Drop events for a stale root during a workspace switch.
+      if (event.payload.root !== rootPath) return;
+      const loadedPaths = Object.entries(nodesRef.current)
+        .filter(([, state]) => state.status === "loaded")
+        .map(([path]) => path);
+      for (const path of loadedPaths) void fetchChildren(path);
+    }).then((fn) => {
+      if (cancelled) fn();
+      else unlisten = fn;
+    });
+
+    return () => {
+      cancelled = true;
+      unlisten?.();
+      void invoke("fs_watch_stop").catch(() => {});
+    };
+  }, [rootPath, fetchChildren]);
 
   const toggle = useCallback(
     (path: string) => {
