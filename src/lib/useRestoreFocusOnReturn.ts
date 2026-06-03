@@ -20,12 +20,14 @@ const IS_WINDOWS =
  *
  * Two layers are needed on Windows:
  *  1. NATIVE focus — push OS/UIA focus into the WebView2 content via
- *     `webview.setFocus()`. We run with Tauri's `unstable` feature for
- *     multi-webview tabs; in that mode tao can't decide which child webview
- *     to focus, so it forwards nothing on `WM_SETFOCUS` and OS focus stays
- *     stranded on the outer window. JAWS/Narrator then read the virtual
- *     buffer but the content isn't interactable. `element.focus()` alone
- *     can't fix this — it only sets `document.activeElement`, not OS focus.
+ *     `webview.setFocus()`. Previously this used the `unstable` feature for
+ *     child webviews; now we use stable `WebviewWindow` parented to the main
+ *     window. In both cases, tao (on Windows) sometimes fails to decide
+ *     which child to focus, so it forwards nothing on `WM_SETFOCUS` and OS
+ *     focus stays stranded on the outer window. JAWS/Narrator then read the
+ *     virtual buffer but the content isn't interactable. `element.focus()`
+ *     alone can't fix this — it only sets `document.activeElement`, not OS
+ *     focus.
  *  2. ELEMENT focus — once the content owns native focus, restore the
  *     precise last-focused element.
  *
