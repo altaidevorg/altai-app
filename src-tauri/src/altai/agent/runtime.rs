@@ -205,32 +205,6 @@ fn permission_mode_to_shell_mode(mode: Option<&str>) -> Option<ShellPolicyMode> 
     }
 }
 
-#[cfg(test)]
-mod permission_mode_tests {
-    use super::*;
-
-    #[test]
-    fn only_bypass_allows_shell() {
-        // ask and auto-edit must still gate shell/code (UI contract: auto-edit auto-approves
-        // edits only). bypass is the sole mode that maps to Allow.
-        assert_eq!(
-            permission_mode_to_shell_mode(Some("ask")),
-            Some(ShellPolicyMode::Ask)
-        );
-        assert_eq!(
-            permission_mode_to_shell_mode(Some("auto-edit")),
-            Some(ShellPolicyMode::Ask)
-        );
-        assert_eq!(
-            permission_mode_to_shell_mode(Some("bypass")),
-            Some(ShellPolicyMode::Allow)
-        );
-        // Unknown / empty must not downgrade to Allow — leave the on-disk default.
-        assert_eq!(permission_mode_to_shell_mode(Some("nonsense")), None);
-        assert_eq!(permission_mode_to_shell_mode(None), None);
-    }
-}
-
 /// Runtime state managed by Tauri — holds the IsanAgent channel and bus.
 pub struct AgentRuntime {
     pub channel: Arc<TauriChannel>,
@@ -282,6 +256,8 @@ pub fn init(app: AppHandle) -> Result<(), Box<dyn std::error::Error>> {
 /// `https://api.anthropic.com/v1/messages`,
 /// `http://localhost:1234/v1/chat/completions`). IsanAgent's HTTP
 /// clients POST to this URL as-is.
+#[allow(clippy::too_many_arguments)] // Mirrors the agent_start command surface (provider/model/
+// key/base_url/persona/workspace/permission); bundling into a struct adds no clarity here.
 pub async fn start_agent(
     runtime: &AgentRuntime,
     provider_name: &str,
@@ -838,4 +814,30 @@ pub async fn start_agent(
     *fp_guard = Some(new_fp);
 
     Ok(())
+}
+
+#[cfg(test)]
+mod permission_mode_tests {
+    use super::*;
+
+    #[test]
+    fn only_bypass_allows_shell() {
+        // ask and auto-edit must still gate shell/code (UI contract: auto-edit auto-approves
+        // edits only). bypass is the sole mode that maps to Allow.
+        assert_eq!(
+            permission_mode_to_shell_mode(Some("ask")),
+            Some(ShellPolicyMode::Ask)
+        );
+        assert_eq!(
+            permission_mode_to_shell_mode(Some("auto-edit")),
+            Some(ShellPolicyMode::Ask)
+        );
+        assert_eq!(
+            permission_mode_to_shell_mode(Some("bypass")),
+            Some(ShellPolicyMode::Allow)
+        );
+        // Unknown / empty must not downgrade to Allow — leave the on-disk default.
+        assert_eq!(permission_mode_to_shell_mode(Some("nonsense")), None);
+        assert_eq!(permission_mode_to_shell_mode(None), None);
+    }
 }

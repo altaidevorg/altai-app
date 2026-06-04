@@ -17,6 +17,7 @@ use tauri::State;
 /// active model so the model picker actually controls where requests
 /// go (OpenAI vs xAI vs Groq vs LM Studio etc.).
 #[tauri::command]
+#[allow(clippy::too_many_arguments)] // Tauri command surface: each field is an explicit IPC arg.
 pub async fn agent_start(
     state: State<'_, AgentRuntime>,
     provider_name: Option<String>,
