@@ -241,8 +241,9 @@ export const EditorPane = forwardRef<EditorPaneHandle, Props>(
         openSearch: () => {
           const view = cmRef.current?.view;
           if (!view) return;
+          // openSearchPanel focuses the panel's search field; don't pull focus
+          // back to the editor content or the user can't type in the panel.
           openSearchPanel(view);
-          view.focus();
         },
         clearQuery: () => {
           const view = cmRef.current?.view;

@@ -169,7 +169,7 @@ export const SearchInline = forwardRef<SearchInlineHandle, Props>(
                 aria-label={placeholder}
                 value={q}
                 placeholder={placeholder}
-                className={`h-7 w-full bg-muted/80 ${editorHandle ? "pr-12" : "pr-7"} pl-7 text-[13px]! placeholder:text-muted-foreground/70 focus-visible:ring-0`}
+                className={`h-7 w-full bg-muted/80 ${editorHandle ? "pr-14" : "pr-7"} pl-7 text-[13px]! placeholder:text-muted-foreground/70 focus-visible:ring-0`}
                 onChange={(e) => {
                   const next = e.target.value;
                   setQ(next);
@@ -201,7 +201,7 @@ export const SearchInline = forwardRef<SearchInlineHandle, Props>(
                     clearTarget();
                     inputRef.current?.focus();
                   }}
-                  className={`absolute top-1/2 ${editorHandle ? "right-8" : "right-1.5"} -translate-y-1/2 rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground`}
+                  className={`absolute top-1/2 ${editorHandle ? "right-9" : "right-1.5"} -translate-y-1/2 rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground`}
                   aria-label="Clear search"
                 >
                   <HugeiconsIcon
