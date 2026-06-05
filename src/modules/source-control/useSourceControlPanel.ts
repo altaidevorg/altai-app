@@ -27,6 +27,8 @@ const CONVENTIONAL_PREFIX =
   /^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\([^)]+\))?: .+/;
 const COMMIT_MESSAGE_SYSTEM_PROMPT =
   "You write concise Conventional Commit subject lines in English. Return exactly one complete line, with no markdown, no quotes, no body, and no explanation.";
+const COMMIT_MESSAGE_TEMPLATE_SYSTEM_PROMPT =
+  "You write commit messages by following the user's template exactly. Return only the commit message text, with no markdown fences, no surrounding quotes, and no explanation.";
 
 export type DiffSelection = {
   path: string;
@@ -190,10 +192,14 @@ function truncateDiff(diff: string): { text: string; truncated: boolean } {
   return { text: diff.slice(0, COMMIT_DIFF_CHAR_LIMIT), truncated: true };
 }
 
-function cleanCommitMessage(raw: string): string {
+function cleanCommitMessage(raw: string, keepMultiline = false): string {
   let text = raw.trim();
   const fence = text.match(/^```[a-zA-Z0-9_-]*\n([\s\S]*?)\n```\s*$/);
   if (fence) text = fence[1].trim();
+  // A custom template can produce a multi-line body/footer — keep it whole.
+  if (keepMultiline) {
+    return text.replace(/^["'`]+|["'`]+$/g, "").trim();
+  }
   const firstLine = text
     .split(/\r?\n/)
     .map((line) => line.trim())
@@ -210,17 +216,27 @@ function buildCommitMessagePrompt(
   entries: SourceControlEntry[],
   diffText: string,
   truncated: boolean,
+  template?: string,
 ): string {
+  const trimmedTemplate = template?.trim();
+  const format = trimmedTemplate
+    ? [
+        "Follow this commit message template exactly — match its structure, sections, and wording style:",
+        trimmedTemplate,
+      ]
+    : [
+        "Format: type(scope): subject",
+        "Allowed types: feat, fix, docs, style, refactor, perf, test, build, ci, chore, revert.",
+        "Examples:",
+        "- feat(source-control): generate commit messages",
+        "- fix(git): handle staged diff errors",
+        "- chore: update project metadata",
+        "Use a short lowercase subject in imperative mood. Omit the scope if it would be vague.",
+        "Do not stop after the type or an opening parenthesis; the line must include a subject after ': '.",
+      ];
   return [
     "Generate one complete commit message for the staged changes only.",
-    "Format: type(scope): subject",
-    "Allowed types: feat, fix, docs, style, refactor, perf, test, build, ci, chore, revert.",
-    "Examples:",
-    "- feat(source-control): generate commit messages",
-    "- fix(git): handle staged diff errors",
-    "- chore: update project metadata",
-    "Use a short lowercase subject in imperative mood. Omit the scope if it would be vague.",
-    "Do not stop after the type or an opening parenthesis; the line must include a subject after ': '.",
+    ...format,
     truncated
       ? "The diff below was truncated; infer from the visible staged changes only."
       : "The full staged diff is included below.",
@@ -868,27 +884,44 @@ export function useSourceControlPanel(
         prefs.mlxBaseURL,
         mlxModelId,
       );
+      const template = prefs.commitMessageTemplate?.trim() ?? "";
+      const useTemplate = template.length > 0;
       const result = await generateText({
         model,
-        system: COMMIT_MESSAGE_SYSTEM_PROMPT,
-        prompt: buildCommitMessagePrompt(stagedEntries, diffText, truncated),
+        system: useTemplate
+          ? COMMIT_MESSAGE_TEMPLATE_SYSTEM_PROMPT
+          : COMMIT_MESSAGE_SYSTEM_PROMPT,
+        prompt: buildCommitMessagePrompt(
+          stagedEntries,
+          diffText,
+          truncated,
+          template,
+        ),
         maxOutputTokens: COMMIT_MESSAGE_MAX_OUTPUT_TOKENS,
         temperature: 0.2,
       });
-      let message = cleanCommitMessage(result.text);
-      if (!isValidCommitMessage(message)) {
-        const repair = await generateText({
-          model,
-          system: COMMIT_MESSAGE_SYSTEM_PROMPT,
-          prompt: buildRepairCommitMessagePrompt(message, stagedEntries),
-          maxOutputTokens: COMMIT_MESSAGE_MAX_OUTPUT_TOKENS,
-          temperature: 0,
-        });
-        message = cleanCommitMessage(repair.text);
-      }
-      if (!isValidCommitMessage(message)) {
+      let message = cleanCommitMessage(result.text, useTemplate);
+      // The conventional-format validation/repair only applies to the default
+      // format; a custom template is accepted as the model returns it.
+      if (!useTemplate) {
+        if (!isValidCommitMessage(message)) {
+          const repair = await generateText({
+            model,
+            system: COMMIT_MESSAGE_SYSTEM_PROMPT,
+            prompt: buildRepairCommitMessagePrompt(message, stagedEntries),
+            maxOutputTokens: COMMIT_MESSAGE_MAX_OUTPUT_TOKENS,
+            temperature: 0,
+          });
+          message = cleanCommitMessage(repair.text);
+        }
+        if (!isValidCommitMessage(message)) {
+          throw new Error(
+            "AI returned an invalid commit message. Try again or switch models.",
+          );
+        }
+      } else if (!message) {
         throw new Error(
-          "AI returned an invalid commit message. Try again or switch models.",
+          "AI returned an empty commit message. Try again or switch models.",
         );
       }
       setCommitMessage(message);

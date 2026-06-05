@@ -92,6 +92,8 @@ export type Preferences = {
   recentModelIds: string[];
   vimMode: boolean;
   minimapEnabled: boolean;
+  /** User template the AI follows when generating commit messages. Empty = Conventional Commits. */
+  commitMessageTemplate: string;
   showHidden: boolean;
   terminalWebglEnabled: boolean;
   terminalFontFamily: string;
@@ -137,6 +139,7 @@ const KEY_FAVORITE_MODELS = "favoriteModelIds";
 const KEY_RECENT_MODELS = "recentModelIds";
 const KEY_VIM_MODE = "vimMode";
 const KEY_MINIMAP = "minimapEnabled";
+const KEY_COMMIT_TEMPLATE = "commitMessageTemplate";
 const KEY_SHOW_HIDDEN = "showHidden";
 const LEGACY_KEY_SHOW_HIDDEN_DIRS = "showHiddenDirectories";
 const KEY_TERMINAL_WEBGL_ENABLED = "terminalWebglEnabled";
@@ -196,6 +199,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   recentModelIds: [],
   vimMode: false,
   minimapEnabled: true,
+  commitMessageTemplate: "",
   showHidden: true,
   terminalWebglEnabled: true,
   terminalFontFamily: "",
@@ -287,6 +291,9 @@ export async function loadPreferences(): Promise<Preferences> {
     vimMode: get<boolean>(KEY_VIM_MODE) ?? DEFAULT_PREFERENCES.vimMode,
     minimapEnabled:
       get<boolean>(KEY_MINIMAP) ?? DEFAULT_PREFERENCES.minimapEnabled,
+    commitMessageTemplate:
+      get<string>(KEY_COMMIT_TEMPLATE) ??
+      DEFAULT_PREFERENCES.commitMessageTemplate,
     showHidden:
       get<boolean>(KEY_SHOW_HIDDEN) ??
       get<boolean>(LEGACY_KEY_SHOW_HIDDEN_DIRS) ??
@@ -437,6 +444,10 @@ export async function setVimMode(value: boolean): Promise<void> {
 
 export async function setMinimapEnabled(value: boolean): Promise<void> {
   await writePref(KEY_MINIMAP, value);
+}
+
+export async function setCommitMessageTemplate(value: string): Promise<void> {
+  await writePref(KEY_COMMIT_TEMPLATE, value);
 }
 
 export async function setShowHidden(value: boolean): Promise<void> {
@@ -616,6 +627,7 @@ export async function onPreferencesChange(
     [KEY_RECENT_MODELS]: "recentModelIds",
     [KEY_VIM_MODE]: "vimMode",
     [KEY_MINIMAP]: "minimapEnabled",
+    [KEY_COMMIT_TEMPLATE]: "commitMessageTemplate",
     [KEY_SHOW_HIDDEN]: "showHidden",
     [KEY_TERMINAL_WEBGL_ENABLED]: "terminalWebglEnabled",
     [KEY_TERMINAL_FONT_FAMILY]: "terminalFontFamily",

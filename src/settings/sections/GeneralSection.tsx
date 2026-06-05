@@ -21,6 +21,7 @@ import {
   setAgentPickerEnabled,
   setAutostart,
   setBypassPermissionsEnabled,
+  setCommitMessageTemplate,
   setMinimapEnabled,
   setRestoreWindowState,
   setShowHidden,
@@ -60,6 +61,9 @@ export function GeneralSection() {
   const restoreWindowState = usePreferencesStore((s) => s.restoreWindowState);
   const vimMode = usePreferencesStore((s) => s.vimMode);
   const minimapEnabled = usePreferencesStore((s) => s.minimapEnabled);
+  const commitMessageTemplate = usePreferencesStore(
+    (s) => s.commitMessageTemplate,
+  );
   const showHidden = usePreferencesStore((s) => s.showHidden);
   const terminalWebglEnabled = usePreferencesStore(
     (s) => s.terminalWebglEnabled,
@@ -171,6 +175,25 @@ export function GeneralSection() {
             onCheckedChange={(v) => void setShowHidden(v)}
           />
         </SettingRow>
+      </div>
+
+      <div className="flex flex-col gap-2">
+        <Label>Source Control</Label>
+        <div className="flex flex-col gap-1.5">
+          <span className="text-[12px] text-muted-foreground">
+            Custom template the AI follows for the &quot;Generate&quot; commit
+            message button (and ⌘/Ctrl+G) in Source Control. Leave blank for
+            Conventional Commits.
+          </span>
+          <textarea
+            value={commitMessageTemplate}
+            onChange={(e) => void setCommitMessageTemplate(e.target.value)}
+            rows={4}
+            spellCheck={false}
+            placeholder={"<type>(<scope>): <subject>\n\n<why this change>"}
+            className="min-h-20 w-full resize-y rounded-none border border-border bg-background px-2.5 py-1.5 font-mono text-[12px] outline-none focus:border-foreground/40"
+          />
+        </div>
       </div>
 
       <div className="flex flex-col gap-2">
