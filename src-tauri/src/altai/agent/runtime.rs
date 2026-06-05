@@ -437,10 +437,14 @@ pub async fn route_send(
     // Cross-provider failover: refresh the process-global fallback list per send
     // so it tracks the current primary. `build_fallback_specs` drops the
     // candidate if it equals the primary (so the primary is never its own
-    // fallback). Empty list = failover off. The list is process-global, so with
-    // several different-model runs in flight the most recent send's primary is
-    // the one excluded — correct for the common (sequential) case; acceptable
-    // for concurrent multi-model.
+    // fallback). Empty list = failover off.
+    //
+    // CAVEAT: `set_fallback_providers` is process-GLOBAL (isanagent owns one
+    // list), so concurrent sends from different chats race here — last writer
+    // wins until each call's `chat_with_retry` reads it. Failover only fires on
+    // primary exhaustion (a rare, mostly-sequential path), so a stray cross-chat
+    // fallback is benign; truly per-chat fallback would need a per-instance list
+    // upstream in isanagent.
     match fallback {
         Some(fb) => {
             let specs = isanagent::agent::build_fallback_specs(

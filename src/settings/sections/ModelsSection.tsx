@@ -171,6 +171,7 @@ function FailoverBlock({ keys }: { keys: KeysMap }) {
             <DropdownMenuTrigger asChild>
               <Button
                 variant="outline"
+                aria-label="Failover model"
                 className="h-8 flex-1 justify-between gap-2 px-2.5 text-[11.5px]"
               >
                 <span className="flex items-center gap-2 truncate">
