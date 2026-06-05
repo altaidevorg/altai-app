@@ -301,6 +301,9 @@ export default function App() {
   const [terminalDrawerOpen, setTerminalDrawerOpen] = useState(true);
   const terminalDrawerRef = useRef<PanelImperativeHandle | null>(null);
   const terminalDrawerHeightRef = useRef(readTerminalDrawerHeight());
+  // Guards against a 0px ResizeObserver tick on mount spuriously closing the
+  // (default-open) drawer before layout settles — only mirror genuine collapses.
+  const terminalDrawerSeenOpenRef = useRef(false);
   // A freshly cloned workspace opens straight into Source Control so the new
   // repo is visible without manually switching views; otherwise restore the
   // persisted view. The transient flag is cleared on mount below.
@@ -324,13 +327,12 @@ export default function App() {
     else p.collapse();
   }, []);
   const toggleTerminalDrawer = useCallback(() => {
-    setTerminalDrawerOpen((open) => {
-      const next = !open;
-      // Opening with no terminal yet — spin one up for the drawer.
-      if (next && activeTerminalId == null) newTab();
-      return next;
-    });
-  }, [activeTerminalId, newTab]);
+    const willOpen = !terminalDrawerOpen;
+    // Opening with no terminal yet — spin one up (outside the state updater,
+    // which must stay pure).
+    if (willOpen && activeTerminalId == null) newTab();
+    setTerminalDrawerOpen(willOpen);
+  }, [terminalDrawerOpen, activeTerminalId, newTab]);
   const cycleSidebarView = useCallback(
     (view: SidebarViewId) => {
       const panel = sidebarRef.current;
@@ -740,7 +742,13 @@ export default function App() {
     useWorkspaceFolderStore.getState().clearJustCloned();
   }, []);
   const { explorerRoot: terminalExplorerRoot, inheritedCwdForNewTab } =
-    useWorkspaceCwd(activeTab, tabs, workspaceFolder ?? launchCwd ?? home);
+    useWorkspaceCwd(
+      // Terminals live in the drawer now, so cwd tracking follows the drawer's
+      // active terminal rather than the main active tab (#61).
+      activeTerminalTab ?? undefined,
+      tabs,
+      workspaceFolder ?? launchCwd ?? home,
+    );
   // The opened workspace folder IS the explorer root (IDE behavior): the file
   // tree stays anchored to the project instead of following wherever a terminal
   // has cd'd (which made it jump to `/`). Falls back to the terminal-derived
@@ -1079,12 +1087,14 @@ export default function App() {
     [tabs, disposeTab],
   );
 
-  const activeTerminalLeafCwd =
-    activeTab?.kind === "terminal"
-      ? (findLeafCwd(activeTab.paneTree, activeTab.activeLeafId) ??
-        activeTab.cwd ??
-        null)
-      : null;
+  const activeTerminalLeafCwd = activeTerminalTab
+    ? (findLeafCwd(
+        activeTerminalTab.paneTree,
+        activeTerminalTab.activeLeafId,
+      ) ??
+      activeTerminalTab.cwd ??
+      null)
+    : null;
 
   const activeFilePath = (() => {
     if (activeTab?.kind === "editor") return activeTab.path;
@@ -1105,15 +1115,14 @@ export default function App() {
     ? (launchCwd ?? home ?? null)
     : null;
   const sourceControlContextPath = (() => {
-    if (activeTab?.kind === "terminal") {
-      return activeTerminalLeafCwd ?? explorerRoot ?? workspaceFallbackPath;
-    }
     if (activeTab?.kind === "editor") return dirname(activeTab.path);
     if (activeTab?.kind === "git-diff") return activeTab.repoRoot;
     if (activeTab?.kind === "git-commit-file") return activeTab.repoRoot;
     if (activeTab?.kind === "git-history") return activeTab.repoRoot;
     if (activeTab?.kind === "github-items") return activeTab.repoRoot;
     if (activeTab?.kind === "project-board") return activeTab.repoRoot;
+    // No main tab — anchor to the drawer terminal's cwd (#61).
+    if (activeTerminalLeafCwd) return activeTerminalLeafCwd;
     return explorerRoot ?? workspaceFallbackPath;
   })();
   const hasOpenGitTab = useMemo(
@@ -1705,19 +1714,34 @@ export default function App() {
           {tabs
             .filter((t) => t.kind === "terminal")
             .map((t) => (
-              <button
+              <div
                 key={t.id}
-                type="button"
-                onClick={() => setActiveTerminalId(t.id)}
                 className={cn(
-                  "shrink-0 rounded px-2 py-0.5 text-[11px] transition-colors",
+                  "group/term flex shrink-0 items-center gap-0.5 rounded pl-2 pr-1 text-[11px] transition-colors",
                   t.id === activeTerminalId
                     ? "bg-accent text-foreground"
                     : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
                 )}
               >
-                {t.kind === "terminal" && t.private ? "private" : t.title || "shell"}
-              </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveTerminalId(t.id)}
+                  className="py-0.5"
+                >
+                  {t.kind === "terminal" && t.private
+                    ? "private"
+                    : t.title || "shell"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleClose(t.id)}
+                  title="Close terminal"
+                  aria-label="Close terminal"
+                  className="rounded px-0.5 text-muted-foreground/60 opacity-0 transition-opacity hover:text-foreground focus-visible:opacity-100 group-hover/term:opacity-100"
+                >
+                  ✕
+                </button>
+              </div>
             ))}
         </div>
         <button
@@ -1904,6 +1928,7 @@ export default function App() {
                         return;
                       }
                       if (px > 0) {
+                        terminalDrawerSeenOpenRef.current = true;
                         terminalDrawerHeightRef.current =
                           clampTerminalDrawerHeight(px);
                         try {
@@ -1915,7 +1940,10 @@ export default function App() {
                           // storage may fail in private mode
                         }
                         if (!terminalDrawerOpen) setTerminalDrawerOpen(true);
-                      } else if (terminalDrawerOpen) {
+                      } else if (
+                        terminalDrawerOpen &&
+                        terminalDrawerSeenOpenRef.current
+                      ) {
                         setTerminalDrawerOpen(false);
                       }
                     }}
@@ -1975,9 +2003,7 @@ export default function App() {
             home={home}
             onCd={sendCd}
             onWorkspaceChange={switchWorkspace}
-            privateActive={
-              activeTab?.kind === "terminal" && activeTab.private === true
-            }
+            privateActive={activeTerminalTab?.private === true}
           />
 
           {hasComposer ? (
