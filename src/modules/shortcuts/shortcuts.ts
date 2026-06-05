@@ -18,6 +18,7 @@ export type ShortcutId =
   | "pane.focusNext"
   | "pane.focusPrev"
   | "pane.source"
+  | "terminal.toggle"
   | "search.focus"
   | "explorer.search"
   | "explorer.focus"
@@ -112,6 +113,12 @@ export const SHORTCUTS: Shortcut[] = [
     label: "Close tab or pane",
     group: "Tabs",
     defaultBindings: [{ [MOD_PROP]: true, key: "w" }],
+  },
+  {
+    id: "terminal.toggle",
+    label: "Toggle terminal",
+    group: "Panes",
+    defaultBindings: [{ [MOD_PROP]: true, key: "j" }],
   },
   {
     id: "pane.splitRight",
