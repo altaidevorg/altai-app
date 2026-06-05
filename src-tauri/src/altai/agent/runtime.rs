@@ -417,6 +417,7 @@ pub async fn route_send(
     base_url_override: Option<&str>,
     workspace_path: Option<&str>,
     permission_mode: Option<&str>,
+    fallback: Option<isanagent::agent::FallbackProviderSpec>,
     message: String,
     images: Vec<String>,
     chat_id: String,
@@ -432,6 +433,27 @@ pub async fn route_send(
         permission_mode,
     )
     .await?;
+
+    // Cross-provider failover: refresh the process-global fallback list per send
+    // so it tracks the current primary. `build_fallback_specs` drops the
+    // candidate if it equals the primary (so the primary is never its own
+    // fallback). Empty list = failover off. The list is process-global, so with
+    // several different-model runs in flight the most recent send's primary is
+    // the one excluded — correct for the common (sequential) case; acceptable
+    // for concurrent multi-model.
+    match fallback {
+        Some(fb) => {
+            let specs = isanagent::agent::build_fallback_specs(
+                provider_name,
+                base_url_override.unwrap_or(""),
+                model_name,
+                vec![fb],
+            );
+            isanagent::agent::set_fallback_providers(specs);
+        }
+        None => isanagent::agent::set_fallback_providers(Vec::new()),
+    }
+
     channel.inject_user_message(message, images, chat_id).await
 }
 
