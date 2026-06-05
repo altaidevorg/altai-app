@@ -3559,7 +3559,7 @@ checksum = "a6cb138bb79a146c1bd460005623e142ef0181e3d0219cb493e02f7d08a35695"
 [[package]]
 name = "isanagent"
 version = "0.10.0"
-source = "git+https://github.com/efecnc/isanagent.git?branch=fix%2Fbound-forbid-final-nudges#f8533f3d57456ca3fd5a4cfcbe0e0cc1f573eefb"
+source = "git+https://github.com/efecnc/isanagent.git?rev=f8533f3d57456ca3fd5a4cfcbe0e0cc1f573eefb#f8533f3d57456ca3fd5a4cfcbe0e0cc1f573eefb"
 dependencies = [
  "arboard",
  "async-stream",

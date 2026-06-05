@@ -49,9 +49,10 @@ hex = "0.4"
 tar = "0.4"
 
 # İsanAgent — embedded as Rust crate (direct API, no sidecar)
-# Temporarily pinned to the fork branch carrying the forbid-final nudge bound
-# (altaidevorg/isanagent#58). Revert to altaidevorg/main once that PR merges.
-isanagent = { git = "https://github.com/efecnc/isanagent.git", branch = "fix/bound-forbid-final-nudges" }
+# Temporarily pinned to the fork COMMIT carrying the forbid-final nudge bound
+# (altaidevorg/isanagent#58) — an immutable rev, not a mutable branch ref.
+# Revert to altaidevorg/main once that PR merges.
+isanagent = { git = "https://github.com/efecnc/isanagent.git", rev = "f8533f3d57456ca3fd5a4cfcbe0e0cc1f573eefb" }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
