@@ -10,6 +10,8 @@ import { ImagePreviewPane } from "./ImagePreviewPane";
 type Props = {
   tabs: Tab[];
   activeId: number;
+  /** Git repo root for minimap git-diff markers (#82). */
+  repoRoot?: string | null;
   onDirtyChange: (id: number, dirty: boolean) => void;
   registerHandle: (id: number, handle: EditorPaneHandle | null) => void;
   onCloseTab: (id: number) => void;
@@ -26,6 +28,7 @@ function isMarkdownPath(path: string): boolean {
 export function EditorStack({
   tabs,
   activeId,
+  repoRoot,
   onDirtyChange,
   registerHandle,
   onCloseTab,
@@ -179,6 +182,7 @@ export function EditorStack({
                 <EditorPane
                   ref={getRefCallback(t.id)}
                   path={t.path}
+                  repoRoot={repoRoot}
                   onDirtyChange={getDirtyCallback(t.id)}
                   onClose={getCloseCallback(t.id)}
                 />
