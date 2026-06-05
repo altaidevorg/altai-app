@@ -5,6 +5,7 @@ import { search } from "@codemirror/search";
 import { Compartment, EditorState, type Extension } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { showMinimap } from "@replit/codemirror-minimap";
+import { computeMinimapGutters, gitChangesField } from "./minimapMarkers";
 
 // Compartments allow runtime reconfiguration without rebuilding state.
 export const languageCompartment = new Compartment();
@@ -13,14 +14,21 @@ export const wrapCompartment = new Compartment();
 export const vimCompartment = new Compartment();
 export const minimapCompartment = new Compartment();
 
-/** Right-side code minimap for navigating long files (#66). */
+/**
+ * Right-side code minimap for navigating long files (#66), with git-diff and
+ * selection/search markers in its gutter (#82). Gutters recompute on doc,
+ * selection, and git-change updates.
+ */
 export function minimapExtension(): Extension {
-  // Static config, so `.of` is the idiomatic form (no doc/state dependency).
-  return showMinimap.of({
-    create: () => ({ dom: document.createElement("div") }),
-    displayText: "blocks",
-    showOverlay: "mouse-over",
-  });
+  return [
+    gitChangesField,
+    showMinimap.compute(["doc", "selection", gitChangesField], (state) => ({
+      create: () => ({ dom: document.createElement("div") }),
+      displayText: "blocks",
+      showOverlay: "mouse-over",
+      gutters: computeMinimapGutters(state),
+    })),
+  ];
 }
 
 // Only what basicSetup doesn't already cover, to avoid duplicate extensions.

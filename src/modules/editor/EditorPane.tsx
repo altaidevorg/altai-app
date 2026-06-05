@@ -33,8 +33,11 @@ initVimGlobals();
 import { resolveLanguage } from "./lib/languageResolver";
 import { useDocument } from "./lib/useDocument";
 import { inlineCompletion } from "./lib/autocomplete/inlineExtension";
+import { parseChangedLines, setGitChanges } from "./lib/minimapMarkers";
 import { getKey } from "@/modules/ai/lib/keyring";
 import { onKeysChanged } from "@/modules/settings/store";
+import { native } from "@/modules/ai/lib/native";
+import { listen } from "@tauri-apps/api/event";
 
 export type EditorPaneHandle = {
   setQuery: (q: string) => void;
@@ -57,6 +60,8 @@ export type EditorPaneHandle = {
 
 type Props = {
   path: string;
+  /** Git repo root, used to compute minimap git-diff markers (#82). */
+  repoRoot?: string | null;
   onDirtyChange?: (dirty: boolean) => void;
   onSaved?: () => void;
   onClose?: () => void;
@@ -83,7 +88,7 @@ function formatBytes(n: number): string {
 }
 
 export const EditorPane = forwardRef<EditorPaneHandle, Props>(
-  function EditorPane({ path, onDirtyChange, onSaved, onClose }, ref) {
+  function EditorPane({ path, repoRoot, onDirtyChange, onSaved, onClose }, ref) {
     const { doc, onChange, save, reload } = useDocument({ path, onDirtyChange });
     const reloadRef = useRef(reload);
     reloadRef.current = reload;
@@ -210,6 +215,56 @@ export const EditorPane = forwardRef<EditorPaneHandle, Props>(
         ),
       });
     }, [minimapEnabled]);
+
+    // Minimap git-diff markers (#82): fetch the file's working-tree diff and
+    // push the changed lines into editor state. Refreshes when the file is
+    // saved (fs:file-written) since the working diff is against the on-disk file.
+    useEffect(() => {
+      let cancelled = false;
+      const refresh = async () => {
+        const view = cmRef.current?.view;
+        if (!view) return;
+        if (!repoRoot) {
+          view.dispatch({
+            effects: setGitChanges.of({
+              added: new Set(),
+              modified: new Set(),
+              deleted: new Set(),
+            }),
+          });
+          return;
+        }
+        try {
+          const result = await native.gitDiff(repoRoot, path, false);
+          if (cancelled) return;
+          const liveView = cmRef.current?.view;
+          if (!liveView) return;
+          liveView.dispatch({
+            effects: setGitChanges.of(parseChangedLines(result.diffText)),
+          });
+        } catch {
+          if (cancelled) return;
+          cmRef.current?.view?.dispatch({
+            effects: setGitChanges.of({
+              added: new Set(),
+              modified: new Set(),
+              deleted: new Set(),
+            }),
+          });
+        }
+      };
+      void refresh();
+      const unlistenPromise = listen<{ path?: string }>(
+        "fs:file-written",
+        (event) => {
+          if (event.payload?.path === path) void refresh();
+        },
+      );
+      return () => {
+        cancelled = true;
+        void unlistenPromise.then((un) => un());
+      };
+    }, [path, repoRoot]);
 
     useEffect(() => {
       let cancelled = false;

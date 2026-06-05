@@ -1484,6 +1484,7 @@ export default function App() {
           <EditorStack
             tabs={tabs}
             activeId={activeId}
+            repoRoot={explorerRoot}
             registerHandle={registerEditorHandle}
             onDirtyChange={handleEditorDirty}
             onCloseTab={disposeTab}
