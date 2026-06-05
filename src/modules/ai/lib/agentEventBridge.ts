@@ -16,13 +16,12 @@ const todoWriteSchema = z.object({
   items: z.array(z.record(z.string(), z.unknown())),
 });
 
-/** Normalize the agent's free-form todo status into the app's TodoStatus. */
+/** Normalize the agent's free-form todo status into the app's TodoStatus.
+ *  Case-insensitive + tolerant of common LLM variants. */
 function toTodoStatus(value: unknown): TodoStatus {
-  if (value === "pending" || value === "in_progress" || value === "completed") {
-    return value;
-  }
-  if (value === "done" || value === "complete") return "completed";
-  if (value === "active" || value === "running" || value === "in-progress") {
+  const v = typeof value === "string" ? value.trim().toLowerCase().replace(/[\s-]+/g, "_") : "";
+  if (["completed", "complete", "done", "finished"].includes(v)) return "completed";
+  if (["in_progress", "active", "running", "doing", "started", "wip"].includes(v)) {
     return "in_progress";
   }
   return "pending";
