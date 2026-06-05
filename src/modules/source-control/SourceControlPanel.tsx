@@ -55,6 +55,8 @@ import {
   type CheckState,
   type SourceControlFileEntry,
 } from "./useSourceControlPanel";
+import { useGitHubStore } from "@/modules/github";
+import { openSettingsWindow } from "@/modules/settings/openSettingsWindow";
 
 type Props = {
   open: boolean;
@@ -139,6 +141,12 @@ export const SourceControlPanel = memo(function SourceControlPanel({
   onOpenDiff,
 }: Props) {
   const scm = useSourceControlPanel(open, sourceControl, onOpenDiff);
+  const githubConnection = useGitHubStore((s) => s.connection);
+  const githubRefresh = useGitHubStore((s) => s.refresh);
+  // Refresh the GitHub connection status when the panel opens.
+  useEffect(() => {
+    if (open) void githubRefresh();
+  }, [open, githubRefresh]);
   const refreshAnimationRef = useRef<number | null>(null);
   const [refreshAnimating, setRefreshAnimating] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -522,6 +530,32 @@ export const SourceControlPanel = memo(function SourceControlPanel({
               className="shrink-0"
             />
             <span className="flex-1 text-[12px] font-medium">Commit Graph</span>
+            <HugeiconsIcon
+              icon={ArrowRight01Icon}
+              size={12}
+              strokeWidth={2}
+              className="shrink-0 opacity-50 transition-transform group-hover:translate-x-0.5"
+            />
+          </button>
+        ) : null}
+
+        {scm.status ? (
+          <button
+            type="button"
+            onClick={() => openSettingsWindow("github")}
+            className="group flex shrink-0 cursor-pointer items-center gap-2 border-b border-border/40 px-3 py-2 text-left text-muted-foreground transition-colors hover:bg-foreground/[0.04] hover:text-foreground"
+          >
+            <HugeiconsIcon
+              icon={GithubIcon}
+              size={13}
+              strokeWidth={1.85}
+              className={cn("shrink-0", githubConnection && "text-emerald-500")}
+            />
+            <span className="flex-1 text-[12px] font-medium">
+              {githubConnection
+                ? `GitHub: @${githubConnection.login}`
+                : "Connect to GitHub"}
+            </span>
             <HugeiconsIcon
               icon={ArrowRight01Icon}
               size={12}
