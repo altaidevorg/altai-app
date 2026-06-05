@@ -1,4 +1,5 @@
 export { TerminalPane, type TerminalPaneHandle } from "./TerminalPane";
+export { TerminalPanelHeader } from "./TerminalPanelHeader";
 export { TerminalStack } from "./TerminalStack";
 export {
   disposeSession,
