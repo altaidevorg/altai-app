@@ -198,12 +198,27 @@ export function useTabs(initial?: Partial<TerminalTab>) {
       },
     ];
   });
-  const [activeId, setActiveId] = useState(1);
+  // Terminals live in a bottom drawer (#61), decoupled from the main `activeId`
+  // which now only ever references non-terminal tabs (0 = none → welcome).
+  const [activeId, setActiveId] = useState(0);
+  const [activeTerminalId, setActiveTerminalId] = useState<number | null>(1);
   const nextIdRef = useRef(3);
   const tabsRef = useRef(tabs);
 
   useEffect(() => {
     tabsRef.current = tabs;
+  }, [tabs]);
+
+  // Keep the drawer's active terminal valid as terminals are created/closed
+  // (covers every close path without threading state into each).
+  useEffect(() => {
+    setActiveTerminalId((curr) => {
+      if (curr !== null && tabs.some((t) => t.id === curr && t.kind === "terminal")) {
+        return curr;
+      }
+      const firstTerm = tabs.find((t) => t.kind === "terminal");
+      return firstTerm ? firstTerm.id : null;
+    });
   }, [tabs]);
 
   const newTab = useCallback((cwd?: string) => {
@@ -220,7 +235,7 @@ export function useTabs(initial?: Partial<TerminalTab>) {
         activeLeafId: leafId,
       },
     ]);
-    setActiveId(tabId);
+    setActiveTerminalId(tabId);
     return tabId;
   }, []);
 
@@ -244,7 +259,7 @@ export function useTabs(initial?: Partial<TerminalTab>) {
           activeLeafId: leafId,
         },
       ]);
-      setActiveId(tabId);
+      setActiveTerminalId(tabId);
       return { tabId, leafId };
     },
     [],
@@ -265,7 +280,7 @@ export function useTabs(initial?: Partial<TerminalTab>) {
         private: true,
       },
     ]);
-    setActiveId(tabId);
+    setActiveTerminalId(tabId);
     return tabId;
   }, []);
 
@@ -1004,7 +1019,8 @@ export function useTabs(initial?: Partial<TerminalTab>) {
         },
       ];
     });
-    setActiveId(tabId);
+    setActiveTerminalId(tabId);
+    setActiveId(0);
     for (const lid of toDispose) disposeSession(lid);
   }, []);
 
@@ -1012,6 +1028,8 @@ export function useTabs(initial?: Partial<TerminalTab>) {
     tabs,
     activeId,
     setActiveId,
+    activeTerminalId,
+    setActiveTerminalId,
     newTab,
     newTerminalTabWithLeaf,
     newPrivateTab,

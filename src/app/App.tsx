@@ -145,6 +145,29 @@ const AGENT_SIDEBAR_MIN_WIDTH = 380;
 const AGENT_SIDEBAR_MAX_WIDTH = 640;
 const AGENT_SIDEBAR_WIDTH_STORAGE_KEY = "altai.agentSidebar.width";
 
+// Terminal bottom drawer (#61).
+const TERMINAL_DRAWER_DEFAULT_HEIGHT = 280;
+const TERMINAL_DRAWER_MIN_HEIGHT = 120;
+const TERMINAL_DRAWER_HEIGHT_STORAGE_KEY = "altai.terminalDrawer.height";
+
+function clampTerminalDrawerHeight(height: number): number {
+  return Math.max(TERMINAL_DRAWER_MIN_HEIGHT, Math.round(height));
+}
+
+function readTerminalDrawerHeight(): number {
+  try {
+    const stored = window.localStorage.getItem(
+      TERMINAL_DRAWER_HEIGHT_STORAGE_KEY,
+    );
+    const parsed = stored ? Number.parseInt(stored, 10) : NaN;
+    return Number.isFinite(parsed)
+      ? clampTerminalDrawerHeight(parsed)
+      : TERMINAL_DRAWER_DEFAULT_HEIGHT;
+  } catch {
+    return TERMINAL_DRAWER_DEFAULT_HEIGHT;
+  }
+}
+
 function clampSidebarWidth(width: number): number {
   return Math.min(
     SIDEBAR_MAX_WIDTH,
@@ -207,6 +230,8 @@ export default function App() {
     tabs,
     activeId,
     setActiveId,
+    activeTerminalId,
+    setActiveTerminalId,
     newTab,
     newPrivateTab,
     openFileTab,
@@ -242,10 +267,12 @@ export default function App() {
   const tabsRef = useRef(tabs);
   tabsRef.current = tabs;
 
+  // The terminal shown in the bottom drawer — decoupled from the main `activeId`
+  // (which only references non-terminal tabs now). #61
   const activeTerminalTab = useMemo(() => {
-    const t = tabs.find((x) => x.id === activeId);
+    const t = tabs.find((x) => x.id === activeTerminalId);
     return t && t.kind === "terminal" ? t : null;
-  }, [tabs, activeId]);
+  }, [tabs, activeTerminalId]);
   const activeLeafId = activeTerminalTab?.activeLeafId ?? null;
 
   const searchAddons = useRef<Map<number, SearchAddon>>(new Map());
@@ -269,6 +296,11 @@ export default function App() {
   const agentSidebarRef = useRef<PanelImperativeHandle | null>(null);
   const agentSidebarWidthRef = useRef(readAgentSidebarWidth());
   const agentSidebarWidthWriteTimerRef = useRef(0);
+  // Terminal bottom drawer (#61). Open by default so a terminal is visible on
+  // launch (as a drawer now, not a full-screen tab).
+  const [terminalDrawerOpen, setTerminalDrawerOpen] = useState(true);
+  const terminalDrawerRef = useRef<PanelImperativeHandle | null>(null);
+  const terminalDrawerHeightRef = useRef(readTerminalDrawerHeight());
   // A freshly cloned workspace opens straight into Source Control so the new
   // repo is visible without manually switching views; otherwise restore the
   // persisted view. The transient flag is cleared on mount below.
@@ -291,6 +323,14 @@ export default function App() {
     if (p.getSize().asPercentage <= 0) p.expand();
     else p.collapse();
   }, []);
+  const toggleTerminalDrawer = useCallback(() => {
+    setTerminalDrawerOpen((open) => {
+      const next = !open;
+      // Opening with no terminal yet — spin one up for the drawer.
+      if (next && activeTerminalId == null) newTab();
+      return next;
+    });
+  }, [activeTerminalId, newTab]);
   const cycleSidebarView = useCallback(
     (view: SidebarViewId) => {
       const panel = sidebarRef.current;
@@ -615,6 +655,11 @@ export default function App() {
   }, [hydrateSessions]);
 
   const activeTab = tabs.find((t) => t.id === activeId);
+  // Terminals live in the bottom drawer, not the main tab bar (#61).
+  const mainTabs = useMemo(
+    () => tabs.filter((t) => t.kind !== "terminal"),
+    [tabs],
+  );
   const isTerminalTab = activeTab?.kind === "terminal";
   const isEditorTab = activeTab?.kind === "editor";
   const isPreviewTab = activeTab?.kind === "preview";
@@ -836,6 +881,20 @@ export default function App() {
     }
   }, [miniOpen]);
 
+  // Sync the terminal drawer panel to its open state (#61).
+  useEffect(() => {
+    const panel = terminalDrawerRef.current;
+    if (!panel) return;
+    const collapsed = panel.getSize().asPercentage <= 0;
+    if (terminalDrawerOpen && collapsed) {
+      const target = clampTerminalDrawerHeight(terminalDrawerHeightRef.current);
+      terminalDrawerHeightRef.current = target;
+      panel.resize(`${target}px`);
+    } else if (!terminalDrawerOpen && !collapsed) {
+      panel.collapse();
+    }
+  }, [terminalDrawerOpen]);
+
   // One-time guard for stale dev-server state: if the persisted/ref width is
   // below the current min (e.g. after AGENT_SIDEBAR_MIN_WIDTH was bumped while
   // the app was hot-reloaded), bump the live panel back up to min on mount.
@@ -916,10 +975,12 @@ export default function App() {
 
   const openNewTab = useCallback(() => {
     newTab(inheritedCwdForNewTab());
+    setTerminalDrawerOpen(true);
   }, [newTab, inheritedCwdForNewTab]);
 
   const openNewPrivateTab = useCallback(() => {
     newPrivateTab(inheritedCwdForNewTab());
+    setTerminalDrawerOpen(true);
   }, [newPrivateTab, inheritedCwdForNewTab]);
 
   const sendCd = useCallback(
@@ -939,6 +1000,7 @@ export default function App() {
   const cdInNewTab = useCallback(
     (path: string) => {
       const tabId = newTab(path);
+      setTerminalDrawerOpen(true);
       setTimeout(() => {
         const tab = tabsRef.current.find((x) => x.id === tabId);
         if (!tab || tab.kind !== "terminal") return;
@@ -1177,21 +1239,29 @@ export default function App() {
 
   const splitActivePaneInActiveTab = useCallback(
     (dir: "row" | "col") => {
-      const t = tabsRef.current.find((x) => x.id === activeId);
+      if (activeTerminalId == null) return;
+      const t = tabsRef.current.find((x) => x.id === activeTerminalId);
       if (!t || t.kind !== "terminal") return;
-      splitActivePane(activeId, dir);
+      splitActivePane(activeTerminalId, dir);
     },
-    [activeId, splitActivePane],
+    [activeTerminalId, splitActivePane],
   );
 
   const handleCloseTabOrPane = useCallback(() => {
-    const t = tabsRef.current.find((x) => x.id === activeId);
-    if (t?.kind === "terminal" && leafIds(t.paneTree).length > 1) {
-      closeActivePane(activeId);
+    // A focused main tab closes first; otherwise close the drawer terminal/pane.
+    const main = tabsRef.current.find((x) => x.id === activeId);
+    if (main) {
+      handleClose(activeId);
       return;
     }
-    handleClose(activeId);
-  }, [activeId, closeActivePane, handleClose]);
+    if (activeTerminalId == null) return;
+    const term = tabsRef.current.find((x) => x.id === activeTerminalId);
+    if (term?.kind === "terminal" && leafIds(term.paneTree).length > 1) {
+      closeActivePane(activeTerminalId);
+    } else {
+      handleClose(activeTerminalId);
+    }
+  }, [activeId, activeTerminalId, closeActivePane, handleClose]);
 
   const shortcutHandlers = useMemo<ShortcutHandlers>(
     () => ({
@@ -1205,9 +1275,14 @@ export default function App() {
       "tab.selectByIndex": (e) => selectByIndex(parseInt(e.key, 10) - 1),
       "pane.splitRight": () => splitActivePaneInActiveTab("row"),
       "pane.splitDown": () => splitActivePaneInActiveTab("col"),
-      "pane.focusNext": () => focusNextPaneInTab(activeId, 1),
-      "pane.focusPrev": () => focusNextPaneInTab(activeId, -1),
+      "pane.focusNext": () => {
+        if (activeTerminalId != null) focusNextPaneInTab(activeTerminalId, 1);
+      },
+      "pane.focusPrev": () => {
+        if (activeTerminalId != null) focusNextPaneInTab(activeTerminalId, -1);
+      },
       "pane.source": toggleSourceControl,
+      "terminal.toggle": toggleTerminalDrawer,
       "search.focus": () => searchInlineRef.current?.focus(),
       "ai.toggle": togglePanelAndFocus,
       "ai.askSelection": askFromSelection,
@@ -1231,6 +1306,8 @@ export default function App() {
       selectByIndex,
       splitActivePaneInActiveTab,
       focusNextPaneInTab,
+      activeTerminalId,
+      toggleTerminalDrawer,
       toggleSourceControl,
       togglePanelAndFocus,
       askFromSelection,
@@ -1301,6 +1378,7 @@ export default function App() {
     return registerRunInTerminal(
       (command: string, options?: RunInTerminalOptions) => {
         const { leafId } = newTerminalTabWithLeaf(options?.cwd);
+        setTerminalDrawerOpen(true);
         pendingTerminalWritesRef.current.set(leafId, {
           command,
           immediate: options?.immediate === true,
@@ -1399,7 +1477,7 @@ export default function App() {
 
   useEffect(() => {
     const findCwd = () => {
-      const active = tabs.find((x) => x.id === activeId);
+      const active = tabs.find((x) => x.id === activeTerminalId);
       if (active?.kind === "terminal") {
         return findLeafCwd(active.paneTree, active.activeLeafId) ?? active.cwd ?? null;
       }
@@ -1415,18 +1493,18 @@ export default function App() {
     setLive({
       getCwd: findCwd,
       getTerminalContext: () => {
-        const t = tabs.find((x) => x.id === activeId);
+        const t = tabs.find((x) => x.id === activeTerminalId);
         if (t?.kind !== "terminal") return null;
         if (t.private) return null;
         const buf = terminalRefs.current.get(t.activeLeafId)?.getBuffer(300);
         return buf ? redactSensitive(buf) : null;
       },
       isActiveTerminalPrivate: () => {
-        const t = tabs.find((x) => x.id === activeId);
+        const t = tabs.find((x) => x.id === activeTerminalId);
         return t?.kind === "terminal" && t.private === true;
       },
       injectIntoActivePty: (text) => {
-        const t = tabs.find((x) => x.id === activeId);
+        const t = tabs.find((x) => x.id === activeTerminalId);
         if (t?.kind !== "terminal") return false;
         const term = terminalRefs.current.get(t.activeLeafId);
         if (!term) return false;
@@ -1444,7 +1522,16 @@ export default function App() {
         return true;
       },
     });
-  }, [setLive, activeId, tabs, explorerRoot, launchCwd, home, openPreviewTab]);
+  }, [
+    setLive,
+    activeId,
+    activeTerminalId,
+    tabs,
+    explorerRoot,
+    launchCwd,
+    home,
+    openPreviewTab,
+  ]);
 
   const workspaceSurface = (
     <div
@@ -1453,23 +1540,7 @@ export default function App() {
       id={WORKSPACE_PANEL_ID}
       aria-labelledby={tabTriggerId(activeId)}
     >
-      <div
-        className={cn(
-          "absolute inset-0 px-3 pt-2 pb-2",
-          !isTerminalTab && "invisible pointer-events-none",
-        )}
-        aria-hidden={!isTerminalTab}
-      >
-        <TerminalStack
-          tabs={tabs}
-          activeId={activeId}
-          registerHandle={registerTerminalHandle}
-          onSearchReady={handleSearchReady}
-          onCwd={handleTerminalCwd}
-          onExit={handleLeafExit}
-          onFocusLeaf={handleFocusLeaf}
-        />
-      </div>
+      {/* Terminal moved to the bottom drawer (#61); see terminalDrawer below. */}
       <div
         className={cn(
           "absolute inset-0 flex flex-col px-3 pt-2 pb-2",
@@ -1611,6 +1682,74 @@ export default function App() {
       >
         <ProjectBoardStack tabs={tabs} activeId={activeId} />
       </div>
+      {!activeTab ? (
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 px-6 text-center text-muted-foreground">
+          <span className="text-[13px] font-medium">No file open</span>
+          <span className="text-[11.5px]">
+            Open a file from the explorer, or toggle the terminal with Cmd/Ctrl+J.
+          </span>
+        </div>
+      ) : null}
+    </div>
+  );
+
+  // Terminal bottom drawer (#61): the terminal moved out of the main tab
+  // surface into a collapsible bottom panel with its own tab strip.
+  const terminalDrawer = (
+    <div className="flex h-full min-h-0 flex-col border-t border-border/60 bg-background">
+      <div className="flex h-8 shrink-0 items-center gap-1 border-b border-border/50 px-2">
+        <span className="shrink-0 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/80">
+          Terminal
+        </span>
+        <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
+          {tabs
+            .filter((t) => t.kind === "terminal")
+            .map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                onClick={() => setActiveTerminalId(t.id)}
+                className={cn(
+                  "shrink-0 rounded px-2 py-0.5 text-[11px] transition-colors",
+                  t.id === activeTerminalId
+                    ? "bg-accent text-foreground"
+                    : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
+                )}
+              >
+                {t.kind === "terminal" && t.private ? "private" : t.title || "shell"}
+              </button>
+            ))}
+        </div>
+        <button
+          type="button"
+          onClick={openNewTab}
+          title="New terminal"
+          aria-label="New terminal"
+          className="flex size-6 shrink-0 items-center justify-center rounded text-[15px] leading-none text-muted-foreground hover:bg-accent hover:text-foreground"
+        >
+          +
+        </button>
+        <button
+          type="button"
+          onClick={() => setTerminalDrawerOpen(false)}
+          title="Hide terminal (Cmd/Ctrl+J)"
+          aria-label="Hide terminal"
+          className="flex size-6 shrink-0 items-center justify-center rounded text-[13px] leading-none text-muted-foreground hover:bg-accent hover:text-foreground"
+        >
+          ✕
+        </button>
+      </div>
+      <div className="relative min-h-0 flex-1 px-2 py-1.5">
+        <TerminalStack
+          tabs={tabs}
+          activeId={activeTerminalId ?? -1}
+          registerHandle={registerTerminalHandle}
+          onSearchReady={handleSearchReady}
+          onCwd={handleTerminalCwd}
+          onExit={handleLeafExit}
+          onFocusLeaf={handleFocusLeaf}
+        />
+      </div>
     </div>
   );
 
@@ -1638,7 +1777,7 @@ export default function App() {
             Skip to AI assistant
           </a>
           <Header
-            tabs={tabs}
+            tabs={mainTabs}
             activeId={activeId}
             onSelect={setActiveId}
             onNew={openNewTab}
@@ -1735,11 +1874,55 @@ export default function App() {
               </ResizablePanel>
               <ResizableHandle withHandle />
               <ResizablePanel id="workspace" defaultSize="78%" minSize="30%">
-                <div className="flex h-full min-h-0 flex-col">
-                  <div className="relative min-h-0 flex-1">
-                    {workspaceSurface}
-                  </div>
-                </div>
+                <ResizablePanelGroup
+                  orientation="vertical"
+                  className="h-full min-h-0"
+                >
+                  <ResizablePanel id="workspace-main" minSize="20%">
+                    <div className="relative h-full min-h-0">
+                      {workspaceSurface}
+                    </div>
+                  </ResizablePanel>
+                  <ResizableHandle withHandle />
+                  <ResizablePanel
+                    id="terminal-drawer"
+                    panelRef={terminalDrawerRef}
+                    defaultSize={
+                      terminalDrawerOpen
+                        ? `${clampTerminalDrawerHeight(terminalDrawerHeightRef.current)}px`
+                        : "0px"
+                    }
+                    minSize={`${TERMINAL_DRAWER_MIN_HEIGHT}px`}
+                    collapsible
+                    collapsedSize={0}
+                    onResize={(size) => {
+                      const px = size.inPixels;
+                      if (px > 0 && px < TERMINAL_DRAWER_MIN_HEIGHT) {
+                        terminalDrawerRef.current?.resize(
+                          `${TERMINAL_DRAWER_MIN_HEIGHT}px`,
+                        );
+                        return;
+                      }
+                      if (px > 0) {
+                        terminalDrawerHeightRef.current =
+                          clampTerminalDrawerHeight(px);
+                        try {
+                          window.localStorage.setItem(
+                            TERMINAL_DRAWER_HEIGHT_STORAGE_KEY,
+                            String(terminalDrawerHeightRef.current),
+                          );
+                        } catch {
+                          // storage may fail in private mode
+                        }
+                        if (!terminalDrawerOpen) setTerminalDrawerOpen(true);
+                      } else if (terminalDrawerOpen) {
+                        setTerminalDrawerOpen(false);
+                      }
+                    }}
+                  >
+                    {terminalDrawer}
+                  </ResizablePanel>
+                </ResizablePanelGroup>
               </ResizablePanel>
               <ResizableHandle withHandle />
               <ResizablePanel
