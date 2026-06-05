@@ -49,6 +49,9 @@ export function BranchSwitcher({
   const [activeIndex, setActiveIndex] = useState(0);
   const listboxId = useId();
   const inputRef = useRef<HTMLInputElement>(null);
+  // Synchronous in-flight latch — `busy` state lags a render, so two
+  // activations in the same tick could both pass a state-based guard.
+  const inFlightRef = useRef(false);
 
   const loadBranches = useCallback(async () => {
     setLoading(true);
@@ -81,12 +84,22 @@ export function BranchSwitcher({
     setActiveIndex((i) => (i >= rowCount ? Math.max(0, rowCount - 1) : i));
   }, [rowCount]);
 
+  // Keep the active option in view during arrow-key navigation.
+  useEffect(() => {
+    if (!open) return;
+    document
+      .getElementById(`${listboxId}-opt-${activeIndex}`)
+      ?.scrollIntoView({ block: "nearest" });
+  }, [activeIndex, open, listboxId]);
+
   const checkout = useCallback(
     async (name: string) => {
-      if (busy || name === currentBranch) {
+      if (inFlightRef.current) return;
+      if (name === currentBranch) {
         setOpen(false);
         return;
       }
+      inFlightRef.current = true;
       setBusy(true);
       setError(null);
       try {
@@ -97,15 +110,17 @@ export function BranchSwitcher({
         setError(normalizeError(e));
       } finally {
         setBusy(false);
+        inFlightRef.current = false;
       }
     },
-    [busy, currentBranch, repoRoot, onSwitched],
+    [currentBranch, repoRoot, onSwitched],
   );
 
   const createBranch = useCallback(
     async (name: string) => {
       const trimmed = name.trim();
-      if (busy || !trimmed) return;
+      if (inFlightRef.current || !trimmed) return;
+      inFlightRef.current = true;
       setBusy(true);
       setError(null);
       try {
@@ -116,9 +131,10 @@ export function BranchSwitcher({
         setError(normalizeError(e));
       } finally {
         setBusy(false);
+        inFlightRef.current = false;
       }
     },
-    [busy, repoRoot, onSwitched],
+    [repoRoot, onSwitched],
   );
 
   const activateRow = useCallback(
@@ -147,7 +163,11 @@ export function BranchSwitcher({
       <PopoverTrigger asChild>
         <button
           type="button"
-          aria-label={`Current branch: ${currentBranch}. Switch branch`}
+          aria-label={
+            isDetached
+              ? "Detached HEAD. Switch branch"
+              : `Current branch: ${currentBranch}. Switch branch`
+          }
           className="flex max-w-44 shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
         >
           <HugeiconsIcon icon={GitBranchIcon} size={12} strokeWidth={2} />
@@ -286,7 +306,7 @@ export function BranchSwitcher({
             </li>
           )}
 
-          {!loading && filtered.length === 0 && !showCreate && (
+          {!loading && !error && filtered.length === 0 && !showCreate && (
             <li className="px-2.5 py-2 text-[12px] text-muted-foreground">
               No branches found.
             </li>

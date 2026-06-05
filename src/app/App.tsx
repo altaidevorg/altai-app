@@ -1157,12 +1157,13 @@ export default function App() {
   // After a branch switch the working tree changed under us: refresh git
   // status and reload open editors (reload() is a no-op on dirty buffers, so
   // unsaved edits are preserved).
+  const refreshSourceControl = sourceControl.refresh;
   const handleBranchSwitched = useCallback(() => {
-    void sourceControl.refresh({ remote: "never" });
+    void refreshSourceControl({ remote: "never" });
     for (const t of tabsRef.current) {
       if (t.kind === "editor") editorRefs.current.get(t.id)?.reload();
     }
-  }, [sourceControl]);
+  }, [refreshSourceControl]);
 
   const openGitGraphFromContext = useCallback(async () => {
     const known = sourceControl.hasRepo ? sourceControl.repo : null;

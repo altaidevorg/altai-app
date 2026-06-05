@@ -1053,18 +1053,32 @@ pub fn branches(
     Ok(branches)
 }
 
-/// Reject names that could be misread as flags or are obviously invalid.
-/// (git itself forbids most bad refnames; this guards the `-flag` case.)
+/// Reject names that aren't valid git refnames before we ever spawn git, so
+/// bad input fails cleanly rather than relying on git's downstream rejection.
+/// Mirrors the relevant subset of `git check-ref-format` (no flag injection,
+/// no path traversal, no ref-special characters).
 fn validate_branch_name(name: &str) -> Result<&str> {
     let trimmed = name.trim();
-    if trimmed.is_empty() || trimmed.starts_with('-') {
+    let invalid = trimmed.is_empty()
+        || trimmed.starts_with('-')
+        || trimmed.starts_with('/')
+        || trimmed.starts_with('.')
+        || trimmed.ends_with('/')
+        || trimmed.contains("..")
+        || trimmed.contains("@{")
+        || trimmed.chars().any(|c| {
+            c.is_control() || matches!(c, ' ' | '~' | '^' | ':' | '?' | '*' | '[' | '\\')
+        });
+    if invalid {
         return Err(GitError::command("branch", "invalid branch name"));
     }
     Ok(trimmed)
 }
 
-/// Switch the working tree to an existing local branch. Fails (surfacing
-/// git's own message) if the switch would overwrite uncommitted changes.
+/// Switch the working tree to an existing local branch. Uses `git switch`
+/// (git ≥ 2.23, our floor) rather than `git checkout` so a name is never
+/// ambiguously interpreted as a pathspec. Fails — surfacing git's own
+/// message — if the switch would overwrite uncommitted changes.
 pub fn checkout_branch(
     registry: &WorkspaceRegistry,
     repo_root: &str,
@@ -1077,10 +1091,10 @@ pub fn checkout_branch(
     let output = run_git(
         &repo_root.workspace,
         Some(&repo_root.git_path),
-        ["checkout", name.as_str()],
+        ["switch", name.as_str()],
         DEFAULT_TIMEOUT_SECS,
     )?;
-    ensure_success(&output, "git checkout failed")
+    ensure_success(&output, "git switch failed")
 }
 
 /// Create a new branch from the current HEAD and switch to it.
@@ -1096,10 +1110,10 @@ pub fn create_branch(
     let output = run_git(
         &repo_root.workspace,
         Some(&repo_root.git_path),
-        ["checkout", "-b", name.as_str()],
+        ["switch", "-c", name.as_str()],
         DEFAULT_TIMEOUT_SECS,
     )?;
-    ensure_success(&output, "git checkout -b failed")
+    ensure_success(&output, "git switch -c failed")
 }
 
 // Clones can pull large histories over a slow link — give them far more
