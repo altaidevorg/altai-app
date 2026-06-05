@@ -210,6 +210,11 @@ fn permission_mode_to_shell_mode(mode: Option<&str>) -> Option<ShellPolicyMode> 
 /// One running IsanAgent instance — its own channel + agent node + bus routers.
 struct Instance {
     channel: Arc<TauriChannel>,
+    /// Fires the bus router's shutdown so its task exits and drops `agent_node`.
+    /// Needed because `agent_node` holds `bus_tx` clones (execution-job manager,
+    /// subagent harness), so `channel.stop()` alone can't make `bus_rx.recv()`
+    /// return `None` — the task would otherwise leak on teardown.
+    shutdown: tokio::sync::oneshot::Sender<()>,
 }
 
 /// Runtime state managed by Tauri. Instead of a single runtime, holds a
@@ -338,28 +343,27 @@ async fn ensure_instance(
     }
 
     // Tear down instances of other workspaces (the UI uses one at a time).
-    // Remove them under the lock, but defer the async cancel/stop until the
-    // lock is released.
-    let stale_channels: Vec<Arc<TauriChannel>> = {
+    // Remove them under the lock, but defer the async teardown until the lock
+    // is released. Firing `shutdown` stops the bus-router task (so `agent_node`
+    // drops and the `bus_tx` cycle unwinds); `stop()` then closes the channel.
+    let stale: Vec<Instance> = {
         let mut instances = runtime.instances.lock().await;
-        let stale: Vec<RuntimeFingerprint> = instances
+        let keys: Vec<RuntimeFingerprint> = instances
             .keys()
             .filter(|k| k.workspace_root != workspace_root)
             .cloned()
             .collect();
-        stale
-            .into_iter()
-            .filter_map(|k| instances.remove(&k).map(|inst| inst.channel))
-            .collect()
+        keys.into_iter().filter_map(|k| instances.remove(&k)).collect()
     };
     runtime
         .memory_by_workspace
         .lock()
         .await
         .retain(|k, _| k == &workspace_root);
-    for channel in stale_channels {
-        let _ = channel.cancel(String::new()).await;
-        let _ = channel.stop().await;
+    for inst in stale {
+        let _ = inst.shutdown.send(());
+        let _ = inst.channel.cancel(String::new()).await;
+        let _ = inst.channel.stop().await;
     }
 
     // Build the (heavy) instance WITHOUT holding the instances lock.
@@ -369,7 +373,7 @@ async fn ensure_instance(
     } else {
         Some(workspace_root.as_str())
     };
-    let channel = build_instance(
+    let (channel, shutdown) = build_instance(
         runtime.app.clone(),
         memory_node,
         provider_name,
@@ -383,11 +387,12 @@ async fn ensure_instance(
     .await?;
 
     // Re-acquire to insert. If a concurrent call built the same config while we
-    // were building, keep theirs and tear down our now-duplicate channel.
+    // were building, keep theirs and tear down our now-duplicate instance.
     let mut instances = runtime.instances.lock().await;
     if let Some(inst) = instances.get(&fp) {
         let winner = inst.channel.clone();
         drop(instances);
+        let _ = shutdown.send(());
         let _ = channel.stop().await;
         return Ok(winner);
     }
@@ -395,6 +400,7 @@ async fn ensure_instance(
         fp,
         Instance {
             channel: channel.clone(),
+            shutdown,
         },
     );
     Ok(channel)
@@ -498,7 +504,7 @@ async fn build_instance(
     base_url_override: Option<&str>,
     workspace_root: Option<&str>,
     permission_mode: Option<&str>,
-) -> Result<Arc<TauriChannel>, String> {
+) -> Result<(Arc<TauriChannel>, tokio::sync::oneshot::Sender<()>), String> {
     // Each instance gets its own channel with a unique bootstrap chat_id;
     // actual routing is by per-message chat_id.
     let channel = Arc::new(TauriChannel::new(
@@ -899,8 +905,18 @@ async fn build_instance(
     // Bus router: forward inbound → agent, outbound → channel. (Telemetry is
     // emitted by the outbound router below, not here — see note in the loop.)
     let channel_for_outbound = channel.clone();
+    // Shutdown trigger: `agent_node` (moved into this task) holds `bus_tx`
+    // clones, so `channel.stop()` can't drop the last sender. On teardown we
+    // fire `shutdown_tx`; the task breaks, drops `agent_node`, and the cycle
+    // unwinds (its `global_outbound_tx` clones drop, ending the outbound task).
+    let (shutdown_tx, mut shutdown_rx) = tokio::sync::oneshot::channel::<()>();
     async_runtime::spawn(async move {
-        while let Some(msg) = bus_rx.recv().await {
+        loop {
+            let msg = tokio::select! {
+                m = bus_rx.recv() => m,
+                _ = &mut shutdown_rx => break,
+            };
+            let Some(msg) = msg else { break };
             match msg {
                 BusMessage::Inbound(inbound) => {
                     let _ = agent_node.send_packet(BusMessage::Inbound(inbound)).await;
@@ -989,7 +1005,7 @@ async fn build_instance(
         },
     );
 
-    Ok(channel)
+    Ok((channel, shutdown_tx))
 }
 
 #[cfg(test)]
