@@ -452,6 +452,13 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(
                 aria-activedescendant={
                   selectedPath ? treeItemDomId(selectedPath) : undefined
                 }
+                onFocus={() => {
+                  if (!selectedPath && entryPaths.length > 0) {
+                    const first = entryPaths[0];
+                    setSelectedPath(first);
+                    requestAnimationFrame(() => scrollEntryIntoView(first));
+                  }
+                }}
                 onKeyDown={handleKeyDown}
                 className="min-h-0 min-w-0 flex-1 outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-primary/30"
               >

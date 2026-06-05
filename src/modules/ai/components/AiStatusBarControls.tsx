@@ -483,7 +483,6 @@ export function ModelDropdown() {
                     favorite={favoriteIds.includes(m.id)}
                     showProviderIcon={activeProvider === null}
                     onPick={() => pickModel(m)}
-                    onActivate={() => setActiveIndex(i)}
                     onToggleFavorite={() => void toggleFavoriteModel(m.id)}
                   />
                 ))
@@ -606,7 +605,6 @@ function ModelRow({
   favorite,
   showProviderIcon,
   onPick,
-  onActivate,
   onToggleFavorite,
 }: {
   model: ModelInfo;
@@ -616,7 +614,6 @@ function ModelRow({
   favorite: boolean;
   showProviderIcon: boolean;
   onPick: () => void;
-  onActivate: () => void;
   onToggleFavorite: () => void;
 }) {
   // role="option" container is focus-managed by the combobox via
@@ -629,14 +626,13 @@ function ModelRow({
       aria-selected={selected}
       data-active={active || undefined}
       tabIndex={-1}
-      onMouseEnter={onActivate}
       className={cn(
         "group mx-1 my-0.5 flex items-center gap-2 rounded-md px-2 py-1.5",
         selected
           ? "bg-accent/60 text-foreground"
           : active
             ? "bg-accent/40 text-foreground"
-            : "text-foreground/85",
+            : "text-foreground/85 hover:bg-accent/40 hover:text-foreground",
         !hasKey && "opacity-60",
       )}
     >

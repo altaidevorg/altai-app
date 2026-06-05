@@ -731,6 +731,8 @@ export function GitHistoryPane({
                         query={activeSearch}
                         active={openAnchor?.sha === commit.sha}
                         focused={activeSha === commit.sha}
+                        posInSet={virtualRow.index + 1}
+                        setSize={filtered.length}
                         graphRow={graphByCommit.get(commit.sha) ?? null}
                         maxLaneCount={maxLaneCount}
                         gridTemplate={gridTemplate}
@@ -839,6 +841,9 @@ type CommitRowProps = {
   query: string;
   active: boolean;
   focused: boolean;
+  /** 1-based position within the (virtualized) list, for screen-reader "X of Y". */
+  posInSet: number;
+  setSize: number;
   graphRow: GraphRow | null;
   maxLaneCount: number;
   gridTemplate: string;
@@ -850,6 +855,8 @@ const CommitRow = memo(function CommitRow({
   query,
   active,
   focused,
+  posInSet,
+  setSize,
   graphRow,
   maxLaneCount,
   gridTemplate,
@@ -864,6 +871,8 @@ const CommitRow = memo(function CommitRow({
       id={commitRowDomId(commit.sha)}
       role="option"
       aria-selected={focused}
+      aria-setsize={setSize}
+      aria-posinset={posInSet}
       tabIndex={-1}
       aria-label={commitAriaLabel(commit)}
       onClick={(event) => onClick(commit.sha, event)}
