@@ -1154,6 +1154,16 @@ export default function App() {
     cycleSidebarView("source-control");
   }, [cycleSidebarView]);
 
+  // After a branch switch the working tree changed under us: refresh git
+  // status and reload open editors (reload() is a no-op on dirty buffers, so
+  // unsaved edits are preserved).
+  const handleBranchSwitched = useCallback(() => {
+    void sourceControl.refresh({ remote: "never" });
+    for (const t of tabsRef.current) {
+      if (t.kind === "editor") editorRefs.current.get(t.id)?.reload();
+    }
+  }, [sourceControl]);
+
   const openGitGraphFromContext = useCallback(async () => {
     const known = sourceControl.hasRepo ? sourceControl.repo : null;
     if (known) {
@@ -1968,6 +1978,18 @@ export default function App() {
             privateActive={activeTerminalTab?.private === true}
             terminalOpen={terminalDrawerOpen}
             onToggleTerminal={toggleTerminalDrawer}
+            branch={
+              sourceControl.hasRepo && sourceControl.repo
+                ? {
+                    repoRoot: sourceControl.repo.repoRoot,
+                    name:
+                      sourceControl.status?.branch ??
+                      sourceControl.repo.branch,
+                    isDetached: sourceControl.repo.isDetached,
+                  }
+                : null
+            }
+            onBranchSwitched={handleBranchSwitched}
           />
 
           {hasComposer ? (
