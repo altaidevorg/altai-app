@@ -143,6 +143,8 @@ function FailoverBlock({ keys }: { keys: KeysMap }) {
     () => MODELS.find((m) => m.id === fallbackModelId) ?? null,
     [fallbackModelId],
   );
+  const currentMissingKey =
+    !!current && providerNeedsKey(current.provider) && !keys[current.provider];
   const grouped = useMemo(() => {
     const map = new Map<ProviderId, (typeof MODELS)[number][]>();
     for (const m of MODELS) {
@@ -243,6 +245,12 @@ function FailoverBlock({ keys }: { keys: KeysMap }) {
             </DropdownMenuContent>
           </DropdownMenu>
         </FieldRow>
+        {currentMissingKey && current ? (
+          <span className="text-[10.5px] text-amber-500">
+            No API key configured for {getProvider(current.provider).label}. Add
+            one above — failover to this model won't work until you do.
+          </span>
+        ) : null}
       </div>
     </div>
   );
