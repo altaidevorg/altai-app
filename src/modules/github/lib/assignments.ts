@@ -1,4 +1,5 @@
 import { LazyStore } from "@tauri-apps/plugin-store";
+import { z } from "zod";
 
 /** What an agent run was assigned to work on. */
 export type AssignmentSource =
@@ -26,13 +27,54 @@ export interface Assignment {
   updatedAt: number;
 }
 
+const assignmentSourceSchema = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("issue"),
+    owner: z.string(),
+    repo: z.string(),
+    number: z.number(),
+    url: z.string(),
+  }),
+  z.object({
+    kind: z.literal("pr"),
+    owner: z.string(),
+    repo: z.string(),
+    number: z.number(),
+    url: z.string(),
+  }),
+  z.object({ kind: z.literal("todo"), todoId: z.string() }),
+]);
+
+const assignmentSchema = z.object({
+  id: z.string(),
+  source: assignmentSourceSchema,
+  sessionId: z.string(),
+  title: z.string(),
+  status: z.enum([
+    "dispatching",
+    "running",
+    "awaiting-approval",
+    "done",
+    "failed",
+    "cancelled",
+  ]),
+  createdAt: z.number(),
+  updatedAt: z.number(),
+}) satisfies z.ZodType<Assignment>;
+
 const STORE_PATH = "altai-assignments.json";
 const KEY = "assignments";
 const store = new LazyStore(STORE_PATH, { defaults: {}, autoSave: 200 });
 
 export async function loadAssignments(): Promise<Assignment[]> {
-  const list = await store.get<Assignment[]>(KEY);
-  return Array.isArray(list) ? list : [];
+  const list = await store.get<unknown>(KEY);
+  if (!Array.isArray(list)) return [];
+  // Keep only entries that satisfy the schema — a corrupt or partially-written
+  // store yields an empty list rather than poisoning downstream consumers.
+  return list.flatMap((entry) => {
+    const parsed = assignmentSchema.safeParse(entry);
+    return parsed.success ? [parsed.data] : [];
+  });
 }
 
 export async function saveAssignments(list: Assignment[]): Promise<void> {

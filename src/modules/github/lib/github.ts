@@ -1,5 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
-import { currentWorkspaceEnv } from "@/modules/workspace";
+import { native } from "@/modules/ai/lib/native";
 
 export type GitHubUser = {
   login: string;
@@ -29,12 +28,6 @@ export type GitPushResult = {
   pushed: boolean;
 };
 
-type RawHttpResponse = {
-  status: number;
-  headers: Record<string, string>;
-  body: number[];
-};
-
 function decodeBody(body: number[]): string {
   return new TextDecoder().decode(new Uint8Array(body));
 }
@@ -46,17 +39,21 @@ function decodeBody(body: number[]): string {
  */
 export const github = {
   /** Step 1 of connect — request a device + user code. */
-  deviceStart: () => invoke<DeviceCode>("github_device_start"),
+  deviceStart: (): Promise<DeviceCode> => native.githubDeviceStart(),
 
   /** Step 2 — block until the user authorizes, then persist token + identity. */
-  pollToken: (deviceCode: string, interval: number, expiresIn: number) =>
-    invoke<GitHubUser>("github_poll_token", { deviceCode, interval, expiresIn }),
+  pollToken: (
+    deviceCode: string,
+    interval: number,
+    expiresIn: number,
+  ): Promise<GitHubUser> =>
+    native.githubPollToken(deviceCode, interval, expiresIn),
 
   /** Connected identity, or null if not connected / token invalid. */
-  status: () => invoke<GitHubUser | null>("github_status"),
+  status: (): Promise<GitHubUser | null> => native.githubStatus(),
 
   /** Forget the stored token. */
-  disconnect: () => invoke<void>("github_disconnect"),
+  disconnect: (): Promise<void> => native.githubDisconnect(),
 
   /** Create a repo under the user (or an org). */
   createRepo: (args: {
@@ -64,21 +61,11 @@ export const github = {
     private: boolean;
     org?: string | null;
     description?: string | null;
-  }) =>
-    invoke<CreatedRepo>("github_create_repo", {
-      name: args.name,
-      private: args.private,
-      org: args.org ?? null,
-      description: args.description ?? null,
-    }),
+  }): Promise<CreatedRepo> => native.githubCreateRepo(args),
 
   /** Wire up origin and push the current branch (Publish to GitHub). */
-  publish: (repoRoot: string, remoteUrl: string) =>
-    invoke<GitPushResult>("git_publish", {
-      repoRoot,
-      remoteUrl,
-      workspace: currentWorkspaceEnv(),
-    }),
+  publish: (repoRoot: string, remoteUrl: string): Promise<GitPushResult> =>
+    native.gitPublish(repoRoot, remoteUrl),
 
   /**
    * Authenticated GitHub REST call. `path` begins with `/` (appended to
@@ -93,11 +80,7 @@ export const github = {
       body === undefined
         ? null
         : Array.from(new TextEncoder().encode(JSON.stringify(body)));
-    const resp = await invoke<RawHttpResponse>("github_api_request", {
-      method,
-      path,
-      body: encoded,
-    });
+    const resp = await native.githubApiRequest(method, path, encoded);
     const text = decodeBody(resp.body);
     if (resp.status < 200 || resp.status >= 300) {
       let message = `GitHub API error (HTTP ${resp.status})`;

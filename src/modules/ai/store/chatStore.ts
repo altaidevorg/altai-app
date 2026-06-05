@@ -27,6 +27,7 @@ import {
   type SessionMeta,
 } from "../lib/sessions";
 import { pushRecentModel } from "../lib/modelPrefs";
+import { appendBackgroundMessage } from "../lib/backgroundTranscript";
 import { effectivePermissionMode, setDefaultModel } from "@/modules/settings/store";
 
 type Live = {
@@ -918,12 +919,10 @@ export async function dispatchToSession(
 
   // Persist the seed as the session's opening message (so "Open transcript"
   // shows context) without routing it through the focused chat's thread.
-  const seedMessage: UIMessage = {
-    id: `native-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-    role: "user",
-    parts: [{ type: "text", text }],
-  };
-  void saveMessages(chatId, [seedMessage]);
+  // Route it through the SAME per-chat queue as later background appends so the
+  // seed serializes with them — a fire-and-forget write here could race the
+  // first background append and get clobbered.
+  appendBackgroundMessage(chatId, "user", text);
 
   const envBlock = buildEnvBlock(store.live);
   const payload = envBlock ? `${envBlock}\n\n${text}` : text;

@@ -19,6 +19,7 @@ import {
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { relativeTime } from "../lib/items";
 
 type GitHubRepo = {
   full_name: string;
@@ -67,32 +68,6 @@ const LANG_COLORS: Record<string, string> = {
 function langColor(lang: string | null): string {
   if (!lang) return "#8b949e";
   return LANG_COLORS[lang] ?? "#8b949e";
-}
-
-/** Compact "updated 3d ago" relative time for an ISO timestamp. */
-function relativeTime(iso: string): string {
-  const then = new Date(iso).getTime();
-  if (Number.isNaN(then)) return "";
-  const diffSec = Math.max(0, Math.round((Date.now() - then) / 1000));
-  if (diffSec < 60) return "just now";
-  const units: [number, string][] = [
-    [60, "m"],
-    [3600, "h"],
-    [86400, "d"],
-    [604800, "w"],
-    [2592000, "mo"],
-    [31536000, "y"],
-  ];
-  let label = "y";
-  let value = diffSec;
-  for (let i = units.length - 1; i >= 0; i--) {
-    if (diffSec >= units[i][0]) {
-      value = Math.floor(diffSec / units[i][0]);
-      label = units[i][1];
-      break;
-    }
-  }
-  return `${value}${label} ago`;
 }
 
 const CONTENT_CLASS =
