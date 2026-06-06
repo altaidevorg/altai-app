@@ -49,7 +49,6 @@ import {
   type GitHistorySearchHandle,
 } from "@/modules/git-history";
 import { GitHubItemsStack, ProjectBoardStack } from "@/modules/github";
-import { DatabaseStack } from "@/modules/database";
 import { getLaunchDir } from "@/lib/launchDir";
 import { useZoom } from "@/lib/useZoom";
 import { FileExplorer, type FileExplorerHandle } from "@/modules/explorer";
@@ -695,7 +694,6 @@ export default function App() {
   const isGitHistoryTab = activeTab?.kind === "git-history";
   const isGitHubItemsTab = activeTab?.kind === "github-items";
   const isProjectBoardTab = activeTab?.kind === "project-board";
-  const isDatabaseTab = activeTab?.kind === "database";
 
   // When an AI diff is approved (write_file applied to disk), reload any
   // open editor tabs for that path so the user sees the new content. We
@@ -1723,15 +1721,6 @@ export default function App() {
         aria-hidden={!isProjectBoardTab}
       >
         <ProjectBoardStack tabs={tabs} activeId={activeId} />
-      </div>
-      <div
-        className={cn(
-          "absolute inset-0",
-          !isDatabaseTab && "invisible pointer-events-none",
-        )}
-        aria-hidden={!isDatabaseTab}
-      >
-        <DatabaseStack tabs={tabs} activeId={activeId} />
       </div>
       {!activeTab ? (
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 px-6 text-center text-muted-foreground">
