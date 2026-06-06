@@ -47,6 +47,14 @@
     "category": "DeveloperTool",
     "shortDescription": "Open Agentic Development Environment",
     "longDescription": "ALTAI \u2014 open agentic development environment powered by ALTAI.",
+    "linux": {
+      "deb": {
+        "desktopTemplate": "desktop-entry.desktop"
+      },
+      "rpm": {
+        "desktopTemplate": "desktop-entry.desktop"
+      }
+    },
     "fileAssociations": [
       {
         "ext": ["py", "js", "ts", "tsx", "jsx", "md", "json", "yaml", "yml", "toml", "rs", "go", "java", "cpp", "c", "h", "txt"],
@@ -69,6 +77,10 @@
           "name": "new-chat",
           "short": "n",
           "description": "Start a new chat"
+        },
+        {
+          "name": "new-window",
+          "description": "Open a new ALTAI window"
         },
         {
           "name": "workspace",

@@ -1,3 +1,4 @@
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open } from "@tauri-apps/plugin-dialog";
 import { LazyStore } from "@tauri-apps/plugin-store";
 import { create } from "zustand";
@@ -20,6 +21,28 @@ const store = new LazyStore(STORE_PATH, { defaults: {}, autoSave: 200 });
 
 function prependRecent(recents: string[], path: string): string[] {
   return [path, ...recents.filter((p) => p !== path)].slice(0, RECENTS_CAP);
+}
+
+/**
+ * Only the primary window (`main`) reopens the persisted workspace. Windows
+ * spawned via "New Window" (label `main-<uuid>`) start on the welcome screen so
+ * the user can pick a different folder. See the `os_menu` Rust backend.
+ */
+function isPrimaryWindow(): boolean {
+  try {
+    return getCurrentWindow().label === "main";
+  } catch {
+    return true; // non-Tauri context — behave as the primary window.
+  }
+}
+
+/**
+ * Mirror the recents into the native OS menu (macOS Dock / Windows Jump List)
+ * so they're reachable by right-clicking the app icon. Best-effort: the command
+ * is a no-op on Linux and absent outside Tauri.
+ */
+function pushRecentFolders(folders: string[]): void {
+  void native.setRecentFolders(folders).catch(() => {});
 }
 
 type State = {
@@ -65,17 +88,23 @@ export const useWorkspaceFolderStore = create<State>((set, get) => ({
   },
   hydrate: async () => {
     if (get().hydrated) return;
-    const saved = (await store.get<string>(KEY_FOLDER)) ?? null;
     const recents = (await store.get<string[]>(KEY_RECENTS)) ?? [];
+    const recentList = Array.isArray(recents) ? recents : [];
+    // New windows start on the welcome screen; only `main` reopens the folder.
+    const saved = isPrimaryWindow()
+      ? ((await store.get<string>(KEY_FOLDER)) ?? null)
+      : null;
     set({
       folder: saved,
-      recents: Array.isArray(recents) ? recents : [],
+      recents: recentList,
       hydrated: true,
     });
+    pushRecentFolders(recentList);
   },
   setFolder: (path) => {
     const recents = prependRecent(get().recents, path);
     set({ folder: path, recents });
+    pushRecentFolders(recents);
     // Force an immediate write (not the autoSave debounce) so the last folder
     // survives even if the app is closed right after selecting it.
     void (async () => {
@@ -113,6 +142,7 @@ export const useWorkspaceFolderStore = create<State>((set, get) => ({
   removeRecent: (path) => {
     const recents = get().recents.filter((p) => p !== path);
     set({ recents });
+    pushRecentFolders(recents);
     void (async () => {
       await store.set(KEY_RECENTS, recents);
       await store.save();
