@@ -7,6 +7,7 @@ pub mod net;
 pub mod notebook;
 pub mod proc;
 pub mod pty;
+pub mod os_integration;
 pub mod secrets;
 pub mod shell;
 pub mod webview;

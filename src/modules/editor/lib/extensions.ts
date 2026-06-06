@@ -22,7 +22,7 @@ export const minimapCompartment = new Compartment();
 export function minimapExtension(): Extension {
   return [
     gitChangesField,
-    showMinimap.compute(["doc", "selection", gitChangesField], (state) => ({
+    showMinimap.compute(["doc", "selection", gitChangesField], (state: EditorState) => ({
       create: () => ({ dom: document.createElement("div") }),
       displayText: "blocks",
       showOverlay: "mouse-over",

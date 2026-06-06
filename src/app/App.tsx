@@ -49,7 +49,7 @@ import {
   type GitHistorySearchHandle,
 } from "@/modules/git-history";
 import { GitHubItemsStack, ProjectBoardStack } from "@/modules/github";
-import { getLaunchDir } from "@/lib/launchDir";
+import { getInitialLaunches, getLaunchDir, type LaunchPayload } from "@/lib/launchDir";
 import { useZoom } from "@/lib/useZoom";
 import {
   FileExplorer,
@@ -542,6 +542,97 @@ export default function App() {
       openaiCompatibleModelId.trim().length > 0);
   const hasComposer = hasAnyKey(apiKeys) || hasLocalModel;
 
+  const handleAttachFileToAgent = useCallback(
+    (path: string) => {
+      if (!hasComposer) {
+        void openSettingsWindow("models");
+        return;
+      }
+      // Dispatch a window event the composer listens for. Same pattern as
+      // selections — keeps file-explorer decoupled from the AI module.
+      window.dispatchEvent(
+        new CustomEvent<string>("altai:ai-attach-file", { detail: path }),
+      );
+      openMini();
+      focusInput(null);
+    },
+    [hasComposer, openMini, focusInput],
+  );
+
+  const handleLaunch = useCallback(
+    (payload: LaunchPayload) => {
+      if (payload.type === "folder") {
+        const path = payload.paths[0];
+        if (path) {
+          useWorkspaceFolderStore.getState().setFolder(path);
+        }
+      } else if (payload.type === "file" || payload.type === "multi_file") {
+        payload.paths.forEach((path) => {
+          openFileTab(path, true);
+        });
+
+        if (payload.action === "explain") {
+          const path = payload.paths[0];
+          if (path) {
+            handleAttachFileToAgent(path);
+            // Small delay to let the AI panel open and attach the file.
+            setTimeout(() => {
+              window.dispatchEvent(
+                new CustomEvent<string>("altai:ai-set-input", {
+                  detail: "Explain this file",
+                }),
+              );
+            }, 200);
+          }
+        } else if (payload.action === "refactor") {
+          const path = payload.paths[0];
+          if (path) {
+            handleAttachFileToAgent(path);
+            setTimeout(() => {
+              window.dispatchEvent(
+                new CustomEvent<string>("altai:ai-set-input", {
+                  detail: "Refactor this file",
+                }),
+              );
+            }, 200);
+          }
+        } else if (payload.action === "ask-project") {
+          const path = payload.paths[0];
+          if (path) {
+            setTimeout(() => {
+              window.dispatchEvent(
+                new CustomEvent<string>("altai:ai-set-input", {
+                  detail: "Tell me about this project",
+                }),
+              );
+            }, 500); // More delay for workspace indexing
+          }
+        }
+      }
+    },
+    [openFileTab, handleAttachFileToAgent],
+  );
+
+  useEffect(() => {
+    // Process initial launches (from CLI or file assoc at startup)
+    const initial = getInitialLaunches();
+    for (const l of initial) {
+      // Small delay to let the rest of the app hydrate/mount
+      setTimeout(() => handleLaunch(l), 100);
+    }
+
+    // Listen for subsequent launches (single-instance events)
+    const unlistenPromise = getCurrentWebviewWindow().listen<LaunchPayload>(
+      "altai:launch",
+      (event) => {
+        handleLaunch(event.payload);
+      },
+    );
+    return () => {
+      void unlistenPromise.then((un) => un());
+    };
+  }, [handleLaunch]);
+
   const [keysLoaded, setKeysLoaded] = useState(false);
   useEffect(() => {
     let alive = true;
@@ -864,23 +955,6 @@ export default function App() {
   }, [miniOpen, openMini, closeMini, focusInput]);
 
   const attachSelection = useChatStore((s) => s.attachSelection);
-
-  const handleAttachFileToAgent = useCallback(
-    (path: string) => {
-      if (!hasComposer) {
-        void openSettingsWindow("models");
-        return;
-      }
-      // Dispatch a window event the composer listens for. Same pattern as
-      // selections — keeps file-explorer decoupled from the AI module.
-      window.dispatchEvent(
-        new CustomEvent<string>("altai:ai-attach-file", { detail: path }),
-      );
-      openMini();
-      focusInput(null);
-    },
-    [hasComposer, openMini, focusInput],
-  );
 
   useEffect(() => {
     const panel = agentSidebarRef.current;

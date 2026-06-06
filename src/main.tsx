@@ -7,7 +7,7 @@ import "./styles/globals.css";
 
 import ReactDOM from "react-dom/client";
 import App from "./app/App";
-import { initLaunchDir } from "./lib/launchDir";
+import { initPendingLaunches } from "./lib/launchDir";
 import { USE_CUSTOM_WINDOW_CONTROLS } from "./lib/platform";
 import { WorkspaceGate } from "./modules/workspace/WorkspaceGate";
 
@@ -16,7 +16,7 @@ if (USE_CUSTOM_WINDOW_CONTROLS) {
 }
 
 // Seed before first paint so default tab mounts at target cwd (no flicker).
-await initLaunchDir();
+await initPendingLaunches();
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <WorkspaceGate>

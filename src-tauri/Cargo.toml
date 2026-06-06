@@ -56,11 +56,15 @@ rusqlite = { version = "0.38", features = ["bundled"] }
 # (altaidevorg/isanagent#58) — an immutable rev, not a mutable branch ref.
 # Revert to altaidevorg/main once that PR merges.
 isanagent = { git = "https://github.com/efecnc/isanagent.git", rev = "f8533f3d57456ca3fd5a4cfcbe0e0cc1f573eefb" }
+tauri-plugin-single-instance = "2"
+tauri-plugin-cli = "2"
+tauri-plugin-deep-link = "2"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
 
 [target.'cfg(target_os = "windows")'.dependencies]
+windows-registry = "0.5"
 keyring = { version = "3.6", default-features = false, features = ["windows-native"] }
 windows-sys = { version = "0.59", features = [
 	"Win32_Foundation",
