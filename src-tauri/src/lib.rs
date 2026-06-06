@@ -164,12 +164,12 @@ pub fn run() {
     let _ = modules::os_integration::register_context_menus();
 
     tauri::Builder::default()
-        .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+        .plugin(tauri_plugin_single_instance::init(|app, args, cwd| {
             if let Some(main) = app.get_webview_window("main") {
                 let _ = main.set_focus();
                 let _ = main.unminimize();
             }
-            handle_launch_args(app, args);
+            handle_launch_args(app, args, Some(&cwd));
         }))
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_cli::init())
