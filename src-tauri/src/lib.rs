@@ -102,19 +102,21 @@ fn collect_launch_payloads(args: Vec<String>, cwd: Option<&str>) -> Vec<LaunchPa
 fn handle_launch_args(app: &tauri::AppHandle, args: Vec<String>, cwd: Option<&str>) {
     let payloads = collect_launch_payloads(args, cwd);
     for payload in payloads {
-        // Deliver to the primary window specifically — with multiple windows
-        // open, a broadcast would make every window switch to the launched
-        // folder/file. Fall back to a broadcast if `main` is gone.
+        // When `main` is already up, deliver straight to it (targeting the
+        // primary window so extra windows don't all switch folders) and do NOT
+        // queue: a queued payload would be drained by the next "New Window" on
+        // mount, hijacking its welcome screen. Only queue when no window exists
+        // yet (cold start / startup race), for the first window to pick up.
         match app.get_webview_window("main") {
             Some(main) => {
                 let _ = main.emit("altai:launch", &payload);
             }
             None => {
                 let _ = app.emit("altai:launch", &payload);
+                let state = app.state::<PendingLaunch>();
+                state.0.lock().unwrap().push(payload);
             }
         }
-        let state = app.state::<PendingLaunch>();
-        state.0.lock().unwrap().push(payload);
     }
 }
 

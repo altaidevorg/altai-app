@@ -75,30 +75,54 @@ fn build_jump_list(exe: &str, recents: &[String]) -> windows::core::Result<()> {
             // and a mismatch would make the list silently never appear.
 
             let mut _max_slots: u32 = 0;
-            // The removed-items array must be read to honor user deletions; for
-            // our small static set we don't re-filter against it.
-            let _removed: IObjectArray = list.BeginList(&mut _max_slots)?;
+            let removed: IObjectArray = list.BeginList(&mut _max_slots)?;
+
+            // Windows forbids re-adding entries the user removed from the list in
+            // the same session — doing so makes AddUserTasks/AppendCategory or
+            // CommitList fail and the list stops updating entirely. Collect the
+            // removed entries' arguments (each is an IShellLink) and skip them.
+            let mut removed_args: Vec<String> = Vec::new();
+            if let Ok(count) = removed.GetCount() {
+                for i in 0..count {
+                    if let Ok(link) = removed.GetAt::<IShellLinkW>(i) {
+                        let mut buf = [0u16; 1024];
+                        if link.GetArguments(&mut buf).is_ok() {
+                            let end = buf.iter().position(|&c| c == 0).unwrap_or(buf.len());
+                            removed_args.push(String::from_utf16_lossy(&buf[..end]));
+                        }
+                    }
+                }
+            }
 
             // Tasks: "New Window".
-            let tasks: IObjectCollection =
-                CoCreateInstance(&EnumerableObjectCollection, None, CLSCTX_INPROC_SERVER)?;
-            tasks.AddObject(&make_link("--new-window", "New Window")?)?;
-            list.AddUserTasks(&tasks.cast::<IObjectArray>()?)?;
+            if !removed_args.iter().any(|a| a == "--new-window") {
+                let tasks: IObjectCollection =
+                    CoCreateInstance(&EnumerableObjectCollection, None, CLSCTX_INPROC_SERVER)?;
+                tasks.AddObject(&make_link("--new-window", "New Window")?)?;
+                list.AddUserTasks(&tasks.cast::<IObjectArray>()?)?;
+            }
 
             // Custom "Recent Folders" category.
             if !recents.is_empty() {
                 let col: IObjectCollection =
                     CoCreateInstance(&EnumerableObjectCollection, None, CLSCTX_INPROC_SERVER)?;
+                let mut added_any = false;
                 for path in recents {
+                    // Quote the path so spaces survive argument parsing.
+                    let args = format!("\"{path}\"");
+                    if removed_args.iter().any(|a| *a == args) {
+                        continue;
+                    }
                     let name = std::path::Path::new(path)
                         .file_name()
                         .and_then(|s| s.to_str())
                         .unwrap_or(path.as_str());
-                    // Quote the path so spaces survive argument parsing.
-                    let link = make_link(&format!("\"{path}\""), name)?;
-                    col.AddObject(&link)?;
+                    col.AddObject(&make_link(&args, name)?)?;
+                    added_any = true;
                 }
-                list.AppendCategory(w!("Recent Folders"), &col.cast::<IObjectArray>()?)?;
+                if added_any {
+                    list.AppendCategory(w!("Recent Folders"), &col.cast::<IObjectArray>()?)?;
+                }
             }
 
             list.CommitList()?;
