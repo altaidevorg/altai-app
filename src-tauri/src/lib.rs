@@ -88,8 +88,8 @@ fn collect_launch_payloads(args: Vec<String>) -> Vec<LaunchPayload> {
     payloads
 }
 
-fn handle_launch_args(app: &tauri::AppHandle, args: Vec<String>) {
-    let payloads = collect_launch_payloads(args);
+fn handle_launch_args(app: &tauri::AppHandle, args: Vec<String>, cwd: Option<&str>) {
+    let payloads = collect_launch_payloads(args, cwd);
     for payload in payloads {
         let _ = app.emit("altai:launch", &payload);
         let state = app.state::<PendingLaunch>();
@@ -99,7 +99,7 @@ fn handle_launch_args(app: &tauri::AppHandle, args: Vec<String>) {
 
 fn parse_initial_launch(state: &PendingLaunch) {
     let args = std::env::args().collect();
-    let payloads = collect_launch_payloads(args);
+    let payloads = collect_launch_payloads(args, None);
     let mut pending = state.0.lock().expect("PendingLaunch mutex poisoned");
     pending.extend(payloads);
 }
