@@ -46,9 +46,53 @@
     },
     "category": "DeveloperTool",
     "shortDescription": "Open Agentic Development Environment",
-    "longDescription": "ALTAI \u2014 open agentic development environment powered by ALTAI."
+    "longDescription": "ALTAI \u2014 open agentic development environment powered by ALTAI.",
+    "fileAssociations": [
+      {
+        "ext": ["py", "js", "ts", "tsx", "jsx", "md", "json", "yaml", "yml", "toml", "rs", "go", "java", "cpp", "c", "h", "txt"],
+        "name": "ALTAI Source File",
+        "role": "Editor"
+      }
+    ]
   },
   "plugins": {
+    "cli": {
+      "description": "ALTAI CLI",
+      "args": [
+        {
+          "name": "paths",
+          "description": "Files or folders to open",
+          "multiple": true,
+          "index": 1
+        },
+        {
+          "name": "new-chat",
+          "short": "n",
+          "description": "Start a new chat"
+        },
+        {
+          "name": "workspace",
+          "short": "w",
+          "description": "Open a workspace directory",
+          "takesValue": true
+        },
+        {
+          "name": "explain",
+          "description": "Explain the selected file"
+        },
+        {
+          "name": "refactor",
+          "description": "Refactor the selected file"
+        },
+        {
+          "name": "ask-project",
+          "description": "Ask Altai App about this project"
+        }
+      ]
+    },
+    "deepLink": {
+      "schemes": ["altai"]
+    },
     "updater": {
       "endpoints": []
     }

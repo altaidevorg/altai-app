@@ -5,32 +5,103 @@ use modules::{
     fs, git, github, lsp_install, net, notebook, proc, pty, secrets, shell, webview, workspace,
 };
 use altai::agent::commands as agent_commands;
+use serde::{Deserialize, Serialize};
 use std::sync::Mutex;
 use tauri::{Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_window_state::StateFlags;
 
-/// Drained on first read so HMR / re-mounts can't replay the launch dir.
-#[derive(Default)]
-struct LaunchDir(Mutex<Option<String>>);
-
-#[tauri::command]
-fn get_launch_dir(state: State<'_, LaunchDir>) -> Option<String> {
-    state.0.lock().expect("LaunchDir mutex poisoned").take()
+#[derive(Clone, Serialize, Deserialize, Debug)]
+struct LaunchPayload {
+    #[serde(rename = "type")]
+    kind: String,
+    paths: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    action: Option<String>,
 }
 
-fn parse_launch_dir() -> Option<String> {
-    for arg in std::env::args().skip(1) {
+/// Drained on first read so HMR / re-mounts can't replay the launch dir.
+#[derive(Default)]
+struct PendingLaunch(Mutex<Vec<LaunchPayload>>);
+
+#[tauri::command]
+fn get_pending_launches(state: State<'_, PendingLaunch>) -> Vec<LaunchPayload> {
+    let mut pending = state.0.lock().expect("PendingLaunch mutex poisoned");
+    std::mem::take(&mut *pending)
+}
+
+fn collect_launch_payloads(args: Vec<String>) -> Vec<LaunchPayload> {
+    let mut files = Vec::new();
+    let mut folders = Vec::new();
+    let mut action = None;
+
+    for arg in args.into_iter().skip(1) {
+        if arg == "--explain" {
+            action = Some("explain".to_string());
+            continue;
+        }
+        if arg == "--refactor" {
+            action = Some("refactor".to_string());
+            continue;
+        }
+        if arg == "--ask-project" {
+            action = Some("ask-project".to_string());
+            continue;
+        }
         if arg.starts_with('-') {
             continue;
         }
-        let Ok(canon) = std::fs::canonicalize(&arg) else { continue };
-        if !canon.is_dir() {
+        let Ok(canon) = std::fs::canonicalize(&arg) else {
             continue;
-        }
+        };
         let s = canon.to_string_lossy();
-        return Some(s.strip_prefix(r"\\?\").unwrap_or(&s).to_string());
+        let path = s.strip_prefix(r"\\?\").unwrap_or(&s).to_string();
+
+        if canon.is_dir() {
+            folders.push(path);
+        } else if canon.is_file() {
+            files.push(path);
+        }
     }
-    None
+
+    let mut payloads = Vec::new();
+
+    if !folders.is_empty() {
+        payloads.push(LaunchPayload {
+            kind: "folder".to_string(),
+            paths: folders,
+            action: action.clone(),
+        });
+    }
+
+    if !files.is_empty() {
+        payloads.push(LaunchPayload {
+            kind: if files.len() > 1 {
+                "multi_file".to_string()
+            } else {
+                "file".to_string()
+            },
+            paths: files,
+            action,
+        });
+    }
+
+    payloads
+}
+
+fn handle_launch_args(app: &tauri::AppHandle, args: Vec<String>) {
+    let payloads = collect_launch_payloads(args);
+    for payload in payloads {
+        let _ = app.emit("altai:launch", &payload);
+        let state = app.state::<PendingLaunch>();
+        state.0.lock().unwrap().push(payload);
+    }
+}
+
+fn parse_initial_launch(state: &PendingLaunch) {
+    let args = std::env::args().collect();
+    let payloads = collect_launch_payloads(args);
+    let mut pending = state.0.lock().expect("PendingLaunch mutex poisoned");
+    pending.extend(payloads);
 }
 
 #[tauri::command]
@@ -90,8 +161,18 @@ async fn open_settings_window(app: tauri::AppHandle, tab: Option<String>) -> Res
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     workspace::init_launch_cwd();
+    let _ = modules::os_integration::register_context_menus();
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+            if let Some(main) = app.get_webview_window("main") {
+                let _ = main.set_focus();
+                let _ = main.unminimize();
+            }
+            handle_launch_args(app, args);
+        }))
+        .plugin(tauri_plugin_deep_link::init())
+        .plugin(tauri_plugin_cli::init())
         .plugin(tauri_plugin_process::init())
         // TODO: Re-enable updater once ALTAI has its own update endpoint
         // .plugin(tauri_plugin_updater::Builder::new().build())
@@ -124,9 +205,14 @@ pub fn run() {
             workspace::bootstrap_registry(&registry);
             registry
         })
-        .manage(LaunchDir(Mutex::new(parse_launch_dir())))
+        .manage({
+            let state = PendingLaunch::default();
+            parse_initial_launch(&state);
+            state
+        })
         .setup(|app| {
             altai::agent::runtime::init(app.handle().clone())?;
+            // We use workspaceFallbackPath in frontend which depends on this
             workspace::grant_startup_asset_scope(app.handle());
             Ok(())
         })
@@ -190,7 +276,7 @@ pub fn run() {
             workspace::wsl_home,
             workspace::workspace_authorize,
             workspace::workspace_current_dir,
-            get_launch_dir,
+            get_pending_launches,
             open_settings_window,
             // ALTAI — native child-webview tabs
             webview::webview_create,
@@ -231,4 +317,59 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use tempfile::tempdir;
+
+    #[test]
+    fn test_collect_launch_payloads() {
+        let dir = tempdir().unwrap();
+        let folder_path = dir.path().join("test_folder");
+        fs::create_dir(&folder_path).unwrap();
+        let file_path = dir.path().join("test_file.txt");
+        fs::write(&file_path, "test").unwrap();
+
+        let args = vec![
+            "altai".to_string(),
+            folder_path.to_string_lossy().to_string(),
+            file_path.to_string_lossy().to_string(),
+        ];
+
+        let payloads = collect_launch_payloads(args);
+        // Canonicalization might fail in some CI environments if paths don't exist,
+        // but here we created them.
+        assert_eq!(payloads.len(), 2);
+
+        let folder_payload = payloads.iter().find(|p| p.kind == "folder").unwrap();
+        assert_eq!(folder_payload.paths.len(), 1);
+        assert!(folder_payload.paths[0].replace("\\\\", "/").contains("test_folder"));
+
+        let file_payload = payloads.iter().find(|p| p.kind == "file").unwrap();
+        assert_eq!(file_payload.paths.len(), 1);
+        assert!(file_payload.paths[0].replace("\\\\", "/").contains("test_file.txt"));
+    }
+
+    #[test]
+    fn test_collect_multi_file_payloads() {
+        let dir = tempdir().unwrap();
+        let file1 = dir.path().join("file1.txt");
+        let file2 = dir.path().join("file2.txt");
+        fs::write(&file1, "1").unwrap();
+        fs::write(&file2, "2").unwrap();
+
+        let args = vec![
+            "altai".to_string(),
+            file1.to_string_lossy().to_string(),
+            file2.to_string_lossy().to_string(),
+        ];
+
+        let payloads = collect_launch_payloads(args);
+        assert_eq!(payloads.len(), 1);
+        assert_eq!(payloads[0].kind, "multi_file");
+        assert_eq!(payloads[0].paths.len(), 2);
+    }
 }
