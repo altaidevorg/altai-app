@@ -29,7 +29,7 @@ fn get_pending_launches(state: State<'_, PendingLaunch>) -> Vec<LaunchPayload> {
     std::mem::take(&mut *pending)
 }
 
-fn collect_launch_payloads(args: Vec<String>) -> Vec<LaunchPayload> {
+fn collect_launch_payloads(args: Vec<String>, cwd: Option<&str>) -> Vec<LaunchPayload> {
     let mut files = Vec::new();
     let mut folders = Vec::new();
     let mut action = None;
@@ -50,7 +50,17 @@ fn collect_launch_payloads(args: Vec<String>) -> Vec<LaunchPayload> {
         if arg.starts_with('-') {
             continue;
         }
-        let Ok(canon) = std::fs::canonicalize(&arg) else {
+        // Resolve relative args against the caller-provided cwd (the requesting
+        // process's directory for single-instance launches), not this process's.
+        let candidate = std::path::Path::new(&arg);
+        let resolved = if candidate.is_absolute() {
+            candidate.to_path_buf()
+        } else if let Some(base) = cwd {
+            std::path::Path::new(base).join(candidate)
+        } else {
+            candidate.to_path_buf()
+        };
+        let Ok(canon) = std::fs::canonicalize(&resolved) else {
             continue;
         };
         let s = canon.to_string_lossy();
@@ -339,7 +349,7 @@ mod tests {
             file_path.to_string_lossy().to_string(),
         ];
 
-        let payloads = collect_launch_payloads(args);
+        let payloads = collect_launch_payloads(args, None);
         // Canonicalization might fail in some CI environments if paths don't exist,
         // but here we created them.
         assert_eq!(payloads.len(), 2);
@@ -367,7 +377,7 @@ mod tests {
             file2.to_string_lossy().to_string(),
         ];
 
-        let payloads = collect_launch_payloads(args);
+        let payloads = collect_launch_payloads(args, None);
         assert_eq!(payloads.len(), 1);
         assert_eq!(payloads[0].kind, "multi_file");
         assert_eq!(payloads[0].paths.len(), 2);
