@@ -49,7 +49,7 @@ import {
   type GitHistorySearchHandle,
 } from "@/modules/git-history";
 import { GitHubItemsStack, ProjectBoardStack } from "@/modules/github";
-import { DatabaseConnectionsPanel, DatabaseStack } from "@/modules/database";
+import { DatabaseStack } from "@/modules/database";
 import { getLaunchDir } from "@/lib/launchDir";
 import { useZoom } from "@/lib/useZoom";
 import { FileExplorer, type FileExplorerHandle } from "@/modules/explorer";
@@ -212,12 +212,7 @@ function readAgentSidebarWidth(): number {
 function readSidebarView(): SidebarViewId {
   try {
     const stored = window.localStorage.getItem(SIDEBAR_VIEW_STORAGE_KEY);
-    if (
-      stored === "explorer" ||
-      stored === "source-control" ||
-      stored === "database"
-    )
-      return stored;
+    if (stored === "explorer" || stored === "source-control") return stored;
   } catch {
     // ignore
   }
@@ -255,7 +250,6 @@ export default function App() {
     closeAiDiffTab,
     openGitDiffTab,
     openCommitHistoryTab,
-    openDatabaseTab,
     openGitHubItemsTab,
     openProjectBoardTab,
     openCommitFileDiffTab,
@@ -912,6 +906,23 @@ export default function App() {
       panel.collapse();
     }
   }, [terminalDrawerOpen]);
+
+  // Auto-hide the terminal drawer once the last terminal tab is closed. The
+  // ref guard means we only close after terminals existed (never on the
+  // initial empty state), so reopening still works.
+  const hadTerminalRef = useRef(false);
+  useEffect(() => {
+    const count = tabs.reduce(
+      (n, t) => (t.kind === "terminal" ? n + 1 : n),
+      0,
+    );
+    if (count > 0) {
+      hadTerminalRef.current = true;
+    } else if (hadTerminalRef.current) {
+      hadTerminalRef.current = false;
+      setTerminalDrawerOpen(false);
+    }
+  }, [tabs]);
 
   // One-time guard for stale dev-server state: if the persisted/ref width is
   // below the current min (e.g. after AGENT_SIDEBAR_MIN_WIDTH was bumped while
@@ -1868,7 +1879,7 @@ export default function App() {
                         onAttachToAgent={handleAttachFileToAgent}
                         onOpenMarkdownPreview={openMarkdownPreview}
                       />
-                    ) : sidebarView === "source-control" ? (
+                    ) : (
                       <SourceControlPanel
                         open
                         sourceControl={sourceControl}
@@ -1877,11 +1888,6 @@ export default function App() {
                         onOpenGitHubItems={openGitHubItemsFromContext}
                         onOpenProjects={openProjectBoardFromContext}
                         onBranchSwitched={handleBranchSwitched}
-                      />
-                    ) : (
-                      <DatabaseConnectionsPanel
-                        open
-                        onConnected={openDatabaseTab}
                       />
                     )}
                   </div>
