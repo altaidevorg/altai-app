@@ -6,11 +6,21 @@ on:
 
 jobs:
   rust:
-    runs-on: ubuntu-22.04
+    name: rust (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # Compile-check on every target so the platform-gated native code
+        # (macOS Dock menu / Windows Jump List) is verified on PRs, not just at
+        # release time. The full clippy + test pass runs on Linux only to keep
+        # CI fast.
+        os: [ubuntu-22.04, windows-latest, macos-14]
     steps:
       - uses: actions/checkout@v4
 
       - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
         # Tauri 2 needs webkit2gtk-4.1 + the ayatana appindicator. Mirrors the
         # canonical set from release.yml — keep these in sync.
         run: |
@@ -33,10 +43,15 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri -> target
+          key: ${{ matrix.os }}
 
       - run: cargo check --manifest-path src-tauri/Cargo.toml
-      - run: cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings
-      - run: cargo test --manifest-path src-tauri/Cargo.toml
+
+      - name: Clippy + tests (Linux only)
+        if: runner.os == 'Linux'
+        run: |
+          cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings
+          cargo test --manifest-path src-tauri/Cargo.toml
 
   frontend:
     runs-on: ubuntu-latest

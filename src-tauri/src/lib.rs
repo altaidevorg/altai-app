@@ -2,7 +2,8 @@ mod modules;
 mod altai;
 
 use modules::{
-    fs, git, github, lsp_install, net, notebook, proc, pty, secrets, shell, webview, workspace,
+    fs, git, github, lsp_install, net, notebook, os_menu, proc, pty, secrets, shell, webview,
+    workspace,
 };
 use altai::agent::commands as agent_commands;
 use serde::{Deserialize, Serialize};
@@ -101,7 +102,17 @@ fn collect_launch_payloads(args: Vec<String>, cwd: Option<&str>) -> Vec<LaunchPa
 fn handle_launch_args(app: &tauri::AppHandle, args: Vec<String>, cwd: Option<&str>) {
     let payloads = collect_launch_payloads(args, cwd);
     for payload in payloads {
-        let _ = app.emit("altai:launch", &payload);
+        // Deliver to the primary window specifically — with multiple windows
+        // open, a broadcast would make every window switch to the launched
+        // folder/file. Fall back to a broadcast if `main` is gone.
+        match app.get_webview_window("main") {
+            Some(main) => {
+                let _ = main.emit("altai:launch", &payload);
+            }
+            None => {
+                let _ = app.emit("altai:launch", &payload);
+            }
+        }
         let state = app.state::<PendingLaunch>();
         state.0.lock().unwrap().push(payload);
     }
@@ -175,6 +186,17 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, args, cwd| {
+            // A `--new-window` relaunch (from the Dock/Jump List/.desktop action
+            // or `altai --new-window`) opens a fresh window instead of focusing
+            // the existing one. Any folder/file args alongside it are still
+            // honored (delivered to the primary window by handle_launch_args).
+            if args.iter().any(|a| a == "--new-window") {
+                os_menu::spawn_new_window(app);
+                let rest: Vec<String> =
+                    args.into_iter().filter(|a| a != "--new-window").collect();
+                handle_launch_args(app, rest, Some(&cwd));
+                return;
+            }
             if let Some(main) = app.get_webview_window("main") {
                 let _ = main.set_focus();
                 let _ = main.unminimize();
@@ -220,10 +242,14 @@ pub fn run() {
             parse_initial_launch(&state);
             state
         })
+        .manage(os_menu::RecentFolders::default())
         .setup(|app| {
             altai::agent::runtime::init(app.handle().clone())?;
             // We use workspaceFallbackPath in frontend which depends on this
             workspace::grant_startup_asset_scope(app.handle());
+            // Build the Dock/Jump List menu (recents fill in once the frontend
+            // mirrors them via set_recent_folders).
+            os_menu::init(app.handle());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -291,6 +317,9 @@ pub fn run() {
             workspace::workspace_current_dir,
             get_pending_launches,
             open_settings_window,
+            // ALTAI — OS taskbar/Dock menu: new window + recent folders
+            os_menu::open_new_window,
+            os_menu::set_recent_folders,
             // ALTAI — native child-webview tabs
             webview::webview_create,
             webview::webview_set_bounds,
