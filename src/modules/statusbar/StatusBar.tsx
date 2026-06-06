@@ -3,7 +3,12 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { IncognitoIcon } from "@hugeicons/core-free-icons";
+import { fmtShortcut, MOD_KEY } from "@/lib/platform";
+import { cn } from "@/lib/utils";
+import {
+  ComputerTerminal02Icon,
+  IncognitoIcon,
+} from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { CwdBreadcrumb } from "./CwdBreadcrumb";
 import { WorkspaceEnvSelector } from "./WorkspaceEnvSelector";
@@ -16,6 +21,8 @@ type Props = {
   onCd: (path: string) => void;
   onWorkspaceChange: (env: WorkspaceEnv) => void;
   privateActive: boolean;
+  terminalOpen: boolean;
+  onToggleTerminal: () => void;
 };
 
 export function StatusBar({
@@ -25,6 +32,8 @@ export function StatusBar({
   onCd,
   onWorkspaceChange,
   privateActive,
+  terminalOpen,
+  onToggleTerminal,
 }: Props) {
   return (
     <footer className="flex h-8 shrink-0 items-center justify-between gap-3 border-t border-border/60 bg-card/60 px-3 text-[11px]">
@@ -45,6 +54,35 @@ export function StatusBar({
             </TooltipContent>
           </Tooltip>
         ) : null}
+      </div>
+      <div className="flex shrink-0 items-center gap-1">
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              onClick={onToggleTerminal}
+              aria-label="Toggle terminal"
+              aria-pressed={terminalOpen}
+              className={cn(
+                "flex items-center gap-1 rounded px-1.5 py-0.5 transition-colors hover:bg-accent",
+                terminalOpen
+                  ? "text-foreground"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              <HugeiconsIcon
+                icon={ComputerTerminal02Icon}
+                size={13}
+                strokeWidth={2}
+              />
+              <span>Terminal</span>
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="top" className="text-[11px]">
+            {terminalOpen ? "Hide" : "Show"} terminal (
+            {fmtShortcut(MOD_KEY, "J")})
+          </TooltipContent>
+        </Tooltip>
       </div>
     </footer>
   );

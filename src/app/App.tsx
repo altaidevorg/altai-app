@@ -97,6 +97,7 @@ import { StatusBar } from "@/modules/statusbar";
 import {
   MAX_PANES_PER_TAB,
   tabTriggerId,
+  type TerminalTab,
   useTabs,
   useWorkspaceCwd,
   WORKSPACE_PANEL_ID,
@@ -108,6 +109,7 @@ import {
   hasLeaf,
   leafIds,
   respawnSession,
+  TerminalPanelHeader,
   TerminalStack,
   type TerminalPaneHandle,
 } from "@/modules/terminal";
@@ -1705,65 +1707,24 @@ export default function App() {
 
   // Terminal bottom drawer (#61): the terminal moved out of the main tab
   // surface into a collapsible bottom panel with its own tab strip.
+  const terminalTabs = tabs.filter(
+    (t): t is TerminalTab => t.kind === "terminal",
+  );
   const terminalDrawer = (
     <div className="flex h-full min-h-0 flex-col border-t border-border/60 bg-background">
-      <div className="flex h-8 shrink-0 items-center gap-1 border-b border-border/50 px-2">
-        <span className="shrink-0 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/80">
-          Terminal
-        </span>
-        <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
-          {tabs
-            .filter((t) => t.kind === "terminal")
-            .map((t) => (
-              <div
-                key={t.id}
-                className={cn(
-                  "group/term flex shrink-0 items-center gap-0.5 rounded pl-2 pr-1 text-[11px] transition-colors",
-                  t.id === activeTerminalId
-                    ? "bg-accent text-foreground"
-                    : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
-                )}
-              >
-                <button
-                  type="button"
-                  onClick={() => setActiveTerminalId(t.id)}
-                  className="py-0.5"
-                >
-                  {t.kind === "terminal" && t.private
-                    ? "private"
-                    : t.title || "shell"}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleClose(t.id)}
-                  title="Close terminal"
-                  aria-label="Close terminal"
-                  className="rounded px-0.5 text-muted-foreground/60 opacity-0 transition-opacity hover:text-foreground focus-visible:opacity-100 group-hover/term:opacity-100"
-                >
-                  ✕
-                </button>
-              </div>
-            ))}
-        </div>
-        <button
-          type="button"
-          onClick={openNewTab}
-          title="New terminal"
-          aria-label="New terminal"
-          className="flex size-6 shrink-0 items-center justify-center rounded text-[15px] leading-none text-muted-foreground hover:bg-accent hover:text-foreground"
-        >
-          +
-        </button>
-        <button
-          type="button"
-          onClick={() => setTerminalDrawerOpen(false)}
-          title="Hide terminal (Cmd/Ctrl+J)"
-          aria-label="Hide terminal"
-          className="flex size-6 shrink-0 items-center justify-center rounded text-[13px] leading-none text-muted-foreground hover:bg-accent hover:text-foreground"
-        >
-          ✕
-        </button>
-      </div>
+      <TerminalPanelHeader
+        terminals={terminalTabs}
+        activeId={activeTerminalId}
+        onSelect={setActiveTerminalId}
+        onClose={handleClose}
+        onNew={openNewTab}
+        onSplit={() => splitActivePaneInActiveTab("row")}
+        canSplit={
+          activeTerminalTab !== null &&
+          leafIds(activeTerminalTab.paneTree).length < MAX_PANES_PER_TAB
+        }
+        onHide={() => setTerminalDrawerOpen(false)}
+      />
       <div className="relative min-h-0 flex-1 px-2 py-1.5">
         <TerminalStack
           tabs={tabs}
@@ -2005,6 +1966,8 @@ export default function App() {
             onCd={sendCd}
             onWorkspaceChange={switchWorkspace}
             privateActive={activeTerminalTab?.private === true}
+            terminalOpen={terminalDrawerOpen}
+            onToggleTerminal={toggleTerminalDrawer}
           />
 
           {hasComposer ? (
