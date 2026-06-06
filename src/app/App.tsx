@@ -51,7 +51,11 @@ import {
 import { GitHubItemsStack, ProjectBoardStack } from "@/modules/github";
 import { getLaunchDir } from "@/lib/launchDir";
 import { useZoom } from "@/lib/useZoom";
-import { FileExplorer, type FileExplorerHandle } from "@/modules/explorer";
+import {
+  FileExplorer,
+  type FileExplorerHandle,
+  buildGitDecorations,
+} from "@/modules/explorer";
 import {
   Header,
   type SearchInlineHandle,
@@ -1166,6 +1170,10 @@ export default function App() {
     ? sourceControlContextPath
     : badgeContextPath;
   const sourceControl = useSourceControl(sourceControlPath, true);
+  const gitDecorations = useMemo(
+    () => buildGitDecorations(sourceControl.status),
+    [sourceControl.status],
+  );
 
   const toggleSourceControl = useCallback(() => {
     cycleSidebarView("source-control");
@@ -1835,7 +1843,6 @@ export default function App() {
                   <SidebarRail
                     activeView={sidebarView}
                     onSelectView={persistSidebarView}
-                    changedCount={sourceControl.changedCount}
                   />
                   {workspaceFolder ? (
                     <div className="group/ws flex items-center gap-1 border-b border-border/60 px-2 py-1.5">
@@ -1861,6 +1868,7 @@ export default function App() {
                       <FileExplorer
                         ref={explorerRef}
                         rootPath={explorerRoot}
+                        gitDecorations={gitDecorations}
                         onOpenFile={handleOpenFile}
                         onPathRenamed={handlePathRenamed}
                         onPathDeleted={handlePathDeleted}
