@@ -9,6 +9,7 @@ import {
   type RepoSlug,
 } from "@/modules/github/lib/items";
 import {
+  ArrowDown01Icon,
   ArrowReloadHorizontalIcon,
   ArrowRight01Icon,
   Comment01Icon,
@@ -153,7 +154,7 @@ export function ItemListView({
               onChange={(e) => setLabelFilter(e.target.value)}
               aria-label="Filter by label"
               className={cn(
-                "h-7 max-w-[9rem] cursor-pointer appearance-none rounded-lg border bg-background/60 pl-6 pr-2 text-[11px] text-foreground transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
+                "h-7 max-w-[9rem] cursor-pointer appearance-none rounded-lg border bg-background/60 pl-6 pr-6 text-[11px] text-foreground transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
                 labelFilter === "all"
                   ? "border-border/60"
                   : "border-ring/40 text-foreground",
@@ -166,6 +167,12 @@ export function ItemListView({
                 </option>
               ))}
             </select>
+            <HugeiconsIcon
+              icon={ArrowDown01Icon}
+              size={12}
+              strokeWidth={1.85}
+              className="pointer-events-none absolute right-1.5 top-1/2 -translate-y-1/2 text-muted-foreground/50"
+            />
           </div>
         ) : null}
         <div className="relative ml-auto min-w-0 flex-1">
