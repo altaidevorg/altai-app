@@ -52,6 +52,10 @@ function pushRecentFolders(folders: string[]): void {
  */
 async function folderIsAccessible(path: string): Promise<boolean> {
   try {
+    // Authorize first: fs access for paths outside the default scope must go
+    // through workspace authorization, else stat fails for a perfectly valid
+    // folder. A missing path makes authorize/stat throw → treated as gone.
+    await native.workspaceAuthorize(path);
     return (await native.stat(path)).kind === "dir";
   } catch {
     return false;
