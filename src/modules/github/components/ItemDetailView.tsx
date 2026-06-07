@@ -290,7 +290,7 @@ export function ItemDetailView({ slug, kind, number, onBack, onMutated }: Props)
           ) : null}
 
           {/* Comment composer */}
-          <div className="flex flex-col gap-2 rounded-xl border border-border/50 bg-card/30 p-2 pb-2">
+          <div className="flex flex-col gap-2 rounded-xl border border-border/50 bg-card/30 p-2 pb-2 transition-colors focus-within:border-ring/50 focus-within:ring-1 focus-within:ring-ring">
             <Textarea
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
