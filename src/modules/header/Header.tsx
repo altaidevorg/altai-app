@@ -186,6 +186,7 @@ export function Header({
               size="icon-sm"
               className="shrink-0 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-50"
               title="Split editor"
+              aria-label="Split editor"
               disabled={!canSplit}
             >
               <HugeiconsIcon icon={GridViewIcon} size={16} strokeWidth={1.75} />

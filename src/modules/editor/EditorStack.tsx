@@ -242,7 +242,7 @@ export function EditorStack({
   // into a new group on the right (row) / bottom (col), like dragging it to
   // that edge. Keyed on the signal's nonce so it fires once per click; the
   // ≥2-tabs guard mirrors `canSplit` (a lone tab has nothing to split off).
-  const lastSplitNonceRef = useRef(0);
+  const lastSplitNonceRef = useRef(splitSignal?.n ?? 0);
   useEffect(() => {
     const sig = splitSignal;
     if (!sig || sig.n === 0 || sig.n === lastSplitNonceRef.current) return;
