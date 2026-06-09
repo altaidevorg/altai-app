@@ -225,7 +225,7 @@ export const EditorPane = forwardRef<EditorPaneHandle, Props>(
       });
       ro.observe(el);
       return () => ro.disconnect();
-    }, []);
+    }, [doc.status]);
 
     useEffect(() => {
       const view = cmRef.current?.view;
