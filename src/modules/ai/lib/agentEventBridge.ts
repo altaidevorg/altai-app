@@ -3,7 +3,9 @@ import { plural } from "@/lib/utils";
 import { useChatStore } from "../store/chatStore";
 import { useAgentRunsStore } from "../store/agentRunsStore";
 import { useTodosStore } from "../store/todoStore";
+import { usePreferencesStore } from "@/modules/settings/preferences";
 import { appendBackgroundMessage } from "./backgroundTranscript";
+import { pruneOldToolOutputs } from "./compaction";
 import type { Todo, TodoStatus } from "./todos";
 import { z } from "zod";
 
@@ -123,6 +125,30 @@ export type AgentEvent =
     }
   | { type: "notebook_output"; notebook_id: string; cell_index: number; output: unknown }
   | { type: "experiment_result"; experiment_id: string; metrics: unknown; artifacts: string[] };
+
+/**
+ * Apply the TS-side prune pass to the focused chat's transcript if the user
+ * has it enabled. Pulled out of the `done` handler so the side effect is
+ * obvious and easy to skip during tests. Reads prefs + store live so a
+ * Settings change takes effect on the next turn boundary.
+ */
+function maybePruneOldToolOutputs(): void {
+  const prefs = usePreferencesStore.getState();
+  if (!prefs.compactionPrune) return;
+  const store = useChatStore.getState();
+  if (!store.activeSessionId) return;
+  const next = pruneOldToolOutputs(
+    store.nativeMessages,
+    prefs.compactionPruneRecencyTokens,
+  );
+  if (next !== store.nativeMessages) {
+    // Direct setState so the persistence subscription (chatStore.ts) picks
+    // up the new array reference and writes the pruned thread to disk. The
+    // `loadedMessagesRefs` guard there won't trip because this is a freshly
+    // mapped array, not a hydrated one.
+    useChatStore.setState({ nativeMessages: next });
+  }
+}
 
 /**
  * Initialize the agent event bridge.
@@ -292,6 +318,12 @@ export async function initAgentEventBridge(): Promise<UnlistenFn> {
       case "done":
         store.patchAgentMeta({ status: "idle", step: null });
         store.closeAssistantTurn();
+        // TS-side prune pass: collapse old tool outputs to a marker when the
+        // recency budget is exceeded. Display/persistence only — the model's
+        // own context is managed by the runtime's native compaction. Runs at
+        // most once per turn (right when the turn finishes) and only on the
+        // focused chat (background runs persist via appendBackgroundMessage).
+        maybePruneOldToolOutputs();
         break;
 
       case "error":

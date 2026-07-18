@@ -30,6 +30,19 @@ fn get_pending_launches(state: State<'_, PendingLaunch>) -> Vec<LaunchPayload> {
     std::mem::take(&mut *pending)
 }
 
+/// Read a process env var as a boolean flag. Returns `true` when the var is
+/// set to `"1"`, `"true"`, `"yes"`, or `"on"` (case-insensitive); `false`
+/// otherwise (including when unset). Used by the frontend to honor
+/// `ALTAI_DISABLE_AUTOCOMPACT` / `ALTAI_DISABLE_PRUNE` overrides that
+/// Vite's `import.meta.env` can't see.
+#[tauri::command]
+fn env_get_flag(name: String) -> bool {
+    matches!(
+        std::env::var(&name).ok().as_deref().map(str::to_ascii_lowercase).as_deref(),
+        Some("1") | Some("true") | Some("yes") | Some("on")
+    )
+}
+
 fn collect_launch_payloads(args: Vec<String>, cwd: Option<&str>) -> Vec<LaunchPayload> {
     let mut files = Vec::new();
     let mut folders = Vec::new();
@@ -275,6 +288,8 @@ pub fn run() {
             fs::grep::fs_glob,
             fs::watch::fs_watch_start,
             fs::watch::fs_watch_stop,
+            fs::isanagentignore::fs_get_isanagentignore,
+            fs::isanagentignore::fs_set_isanagentignore,
             git::commands::git_resolve_repo,
             git::commands::git_panel_snapshot,
             git::commands::git_status,
@@ -318,6 +333,7 @@ pub fn run() {
             workspace::workspace_authorize,
             workspace::workspace_current_dir,
             get_pending_launches,
+            env_get_flag,
             open_settings_window,
             // ALTAI — OS taskbar/Dock menu: new window + recent folders
             os_menu::open_new_window,
@@ -354,6 +370,8 @@ pub fn run() {
             agent_commands::agent_send,
             agent_commands::agent_approve,
             agent_commands::agent_cancel,
+            agent_commands::agent_list_sessions,
+            agent_commands::agent_get_session_messages,
             agent_commands::agent_fetch_paper,
             agent_commands::checkpoint_list,
             agent_commands::checkpoint_restore,

@@ -1,4 +1,9 @@
-import { CheckListIcon, File01Icon, SparklesIcon } from "@hugeicons/core-free-icons";
+import {
+  Archive02Icon,
+  CheckListIcon,
+  File01Icon,
+  SparklesIcon,
+} from "@hugeicons/core-free-icons";
 import { usePlanStore } from "../store/planStore";
 import { useChatStore } from "../store/chatStore";
 
@@ -23,6 +28,11 @@ const INIT_PROMPT = `Scan this workspace and produce ALTAI.md at the workspace r
 - Paths to entry points.
 
 Use grep/glob/list_directory/read_file to explore. Cap ALTAI.md under 200 lines. Use write_file to create it (will go through normal approval).`;
+
+/** Prompt that triggers a between-turns compaction via the registered
+ *  `compact_context` tool. Aliases (`smol`, `condense`) route here too. */
+const COMPACT_PROMPT =
+  "Run the compact_context tool now to summarize our conversation history so far, keeping the most recent turns intact. Do not ask for confirmation — compact immediately.";
 
 export type SlashCommandMeta = {
   name: string;
@@ -49,6 +59,12 @@ export const SLASH_COMMANDS: Record<string, SlashCommandMeta> = {
     invocation: "/paper",
     label: "Import arXiv paper",
     icon: File01Icon,
+  },
+  compact: {
+    name: "compact",
+    invocation: "/compact",
+    label: "Compact context",
+    icon: Archive02Icon,
   },
 };
 
@@ -92,7 +108,33 @@ export function tryRunSlashCommand(input: string): SlashOutcome {
       useChatStore.getState().setPaperImportOpen(true);
       return { kind: "handled" };
     }
+    case "compact":
+    case "smol":
+    case "condense": {
+      return {
+        kind: "send-prompt",
+        prompt: COMPACT_PROMPT,
+        commandName: "compact",
+      };
+    }
     default:
       return { kind: "none" };
   }
+}
+
+/**
+ * Fire a manual `/compact` directly (no input prefill, no Enter required).
+ * Resolves the slash command into its prompt and sends it through the normal
+ * chat send path so the model invokes the registered `compact_context` tool
+ * and the transcript shows the tool card. Safe to call from any UI surface
+ * (status-bar button, Settings tab CTA). No-op when no chat is active.
+ */
+export async function runCompactNow(): Promise<void> {
+  const outcome = tryRunSlashCommand("/compact");
+  if (outcome.kind !== "send-prompt") return;
+  const marker = outcome.commandName
+    ? `<altai-command name="${outcome.commandName}" />\n\n`
+    : "";
+  const { sendMessage } = await import("../store/chatStore");
+  await sendMessage(`${marker}${outcome.prompt}`);
 }

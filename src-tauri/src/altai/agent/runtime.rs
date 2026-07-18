@@ -26,6 +26,48 @@ use isanagent::NodeHandle;
 
 use super::tauri_channel::{map_telemetry_to_event, telemetry_chat_id, TauriChannel};
 
+/// Context-condensing (compaction) configuration received from the JS layer
+/// (camelCase IPC) and threaded into the isanagent `AgentLogicParams`. The
+/// `auto == false` case is encoded by forcing `threshold_tokens` to
+/// `usize::MAX`, which keeps manual `/compact` working while disabling the
+/// between-turns auto trigger.
+///
+/// Field names match the camelCase wire format (`#[serde(rename_all =
+/// "camelCase")]` → `thresholdTokens`, `tailTurns`).
+#[derive(Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct CompactionArg {
+    pub auto: bool,
+    pub threshold_tokens: usize,
+    pub tail_turns: usize,
+}
+
+impl CompactionArg {
+    /// Resolve the user-facing compaction knobs into the three values
+    /// `AgentLogicParams` actually consumes. `short_term_threshold_turns`
+    /// is kept at the isanagent crate default (20) since the public API
+    /// doesn't expose a per-call override for it.
+    fn to_logic_params(&self) -> (usize, usize, usize) {
+        // (max_recent_summaries, short_term_threshold_turns, short_term_threshold_tokens)
+        let max_recent_summaries = self.tail_turns;
+        let short_term_threshold_turns = 20;
+        // Floor at 8k so a typo (e.g. 0) can't wedge the loop into compacting
+        // every turn; when auto is off, MAX effectively disables the trigger.
+        let short_term_threshold_tokens = if self.auto {
+            self.threshold_tokens.max(8_000)
+        } else {
+            usize::MAX
+        };
+        (max_recent_summaries, short_term_threshold_turns, short_term_threshold_tokens)
+    }
+
+    /// Compact tuple used in the runtime fingerprint so a compaction-pref
+    /// change rebuilds the instance on next send.
+    fn fingerprint_tuple(&self) -> (bool, usize, usize) {
+        (self.auto, self.threshold_tokens, self.tail_turns)
+    }
+}
+
 /// Serializable agent event surface sent to the frontend.
 /// Stabilize this enum — every change is a breaking downstream contract.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -181,6 +223,12 @@ struct RuntimeFingerprint {
     /// it is part of the fingerprint. Without this, flipping the UI permission toggle would route
     /// to the already-built instance and silently keep the old shell gate.
     permission_mode: String,
+    /// Compaction config tuple `(auto, threshold_tokens, tail_turns)`. Baked
+    /// into `AgentLogic` at construction (isanagent owns the live context),
+    /// so a Settings change must rebuild the instance. `None` keeps the
+    /// isanagent crate's built-in defaults (used by call sites that haven't
+    /// been threaded yet).
+    compaction: Option<(bool, usize, usize)>,
 }
 
 /// Map the ALTAI UI permission mode to an IsanAgent shell-policy mode for interactive sessions.
@@ -244,6 +292,7 @@ pub fn init(app: AppHandle) -> Result<(), Box<dyn std::error::Error>> {
 }
 
 /// Build the config fingerprint + its resolved workspace root.
+#[allow(clippy::too_many_arguments)]
 fn make_fingerprint(
     provider_name: &str,
     api_key: &str,
@@ -252,6 +301,7 @@ fn make_fingerprint(
     base_url_override: Option<&str>,
     workspace_path: Option<&str>,
     permission_mode: Option<&str>,
+    compaction: Option<&CompactionArg>,
 ) -> RuntimeFingerprint {
     let workspace_root = workspace_path
         .map(|p| format!("{}/.isanagent", p.trim_end_matches('/')))
@@ -264,6 +314,7 @@ fn make_fingerprint(
         persona: persona_instructions.unwrap_or("").to_string(),
         workspace_root,
         permission_mode: permission_mode.unwrap_or("").to_string(),
+        compaction: compaction.map(|c| c.fingerprint_tuple()),
     }
 }
 
@@ -314,6 +365,7 @@ async fn ensure_instance(
     base_url_override: Option<&str>,
     workspace_path: Option<&str>,
     permission_mode: Option<&str>,
+    compaction: Option<&CompactionArg>,
 ) -> Result<Arc<TauriChannel>, String> {
     let fp = make_fingerprint(
         provider_name,
@@ -323,6 +375,7 @@ async fn ensure_instance(
         base_url_override,
         workspace_path,
         permission_mode,
+        compaction,
     );
     let workspace_root = fp.workspace_root.clone();
 
@@ -383,6 +436,7 @@ async fn ensure_instance(
         base_url_override,
         workspace_root_opt,
         permission_mode,
+        compaction,
     )
     .await?;
 
@@ -417,6 +471,7 @@ pub async fn route_send(
     base_url_override: Option<&str>,
     workspace_path: Option<&str>,
     permission_mode: Option<&str>,
+    compaction: Option<&CompactionArg>,
     fallback: Option<isanagent::agent::FallbackProviderSpec>,
     message: String,
     images: Vec<String>,
@@ -431,6 +486,7 @@ pub async fn route_send(
         base_url_override,
         workspace_path,
         permission_mode,
+        compaction,
     )
     .await?;
 
@@ -480,6 +536,118 @@ pub async fn route_cancel(runtime: &AgentRuntime, chat_id: String) -> Result<(),
     Ok(())
 }
 
+
+
+/// One chat session as known to the backend memory DB (the source of truth for
+/// what conversations have actually happened in this workspace). Returned to
+/// the frontend so it can reconcile its own `altai-ai-sessions.json` list and
+/// surface chats that were closed (dropped from the frontend store) but still
+/// live in the agent memory.
+///
+/// Mirrors `RootThreadListItem` from the isanagent crate, flattened to JSON-
+/// friendly camelCase via `#[serde(rename_all = "camelCase")]`.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionInfo {
+    /// Bare chat id, e.g. `s-mrqa417u-hb75wq` (the `tauri:` channel prefix and
+    /// trailing colon are stripped from the stored `messages.thread_id`).
+    pub id: String,
+    /// Latest activity timestamp, epoch milliseconds (UTC). `0` if unknown.
+    pub updated_at: i64,
+    /// First user message preview (runtime prefix stripped), used as the title.
+    pub title: String,
+}
+
+/// List all chat sessions persisted in this workspace's backend memory DB.
+///
+/// Queries the shared per-workspace memory actor via the isanagent crate's
+/// `ListRootThreadsForChannelWithPreviews` message — the same store the agent
+/// itself uses for history — so the frontend's chat history list reflects what
+/// the backend actually knows, not just what survived in the ephemeral
+/// `altai-ai-sessions.json`. This is the reconciliation path that makes closed
+/// chats reappear in history (Claude Code / Cursor behavior): the backend DB is
+/// the durable source of truth.
+pub async fn list_sessions(
+    runtime: &AgentRuntime,
+    workspace_path: Option<&str>,
+) -> Result<Vec<SessionInfo>, String> {
+    let workspace_root = workspace_path
+        .map(|p| format!("{}/.isanagent", p.trim_end_matches('/')))
+        .unwrap_or_default();
+    let memory_node = ensure_memory(runtime, &workspace_root).await?;
+
+    // Ask the memory actor for all root threads on this channel (`tauri:*`).
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    let reply = isanagent::memory::SharedReply::new(tx);
+    memory_node
+        .send_packet(isanagent::memory::MemoryMessage::ListRootThreadsForChannelWithPreviews {
+            channel: "tauri".to_string(),
+            limit: 200,
+            reply,
+        })
+        .await
+        .map_err(|e| format!("Failed to query memory actor: {}", e))?;
+
+    let rows = rx
+        .await
+        .map_err(|_| "Memory actor closed before replying".to_string())?
+        .map_err(|e| format!("Memory actor error: {}", e))?;
+
+    // Strip the `tauri:<chat_id>:` envelope → bare chat id.
+    let sessions = rows
+        .into_iter()
+        .map(|r| {
+            let bare_id = r
+                .thread_id
+                .trim_end_matches(':')
+                .split(':')
+                .nth(1)
+                .unwrap_or(&r.thread_id)
+                .to_string();
+            SessionInfo {
+                id: bare_id,
+                updated_at: r.last_activity_ms,
+                title: r.preview,
+            }
+        })
+        .collect();
+    Ok(sessions)
+}
+
+/// Load the full message history for one chat session from the backend memory DB.
+///
+/// Returns the raw stored messages (OpenAI-style role/content/tool_calls) so the
+/// frontend can hydrate a reopened chat with its actual conversation — including
+/// chats that were closed and only survived in the durable backend store. This is
+/// the counterpart to [`list_sessions`]: `list_sessions` recovers the *list*,
+/// this recovers the *contents*.
+pub async fn get_session_messages(
+    runtime: &AgentRuntime,
+    workspace_path: Option<&str>,
+    chat_id: &str,
+) -> Result<Vec<isanagent::utils::ChatMessage>, String> {
+    let workspace_root = workspace_path
+        .map(|p| format!("{}/.isanagent", p.trim_end_matches('/')))
+        .unwrap_or_default();
+    let memory_node = ensure_memory(runtime, &workspace_root).await?;
+
+    // Reconstruct the backend thread_id envelope: `tauri:<chat_id>:`.
+    let thread_id = format!("tauri:{}:", chat_id);
+
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    let reply = isanagent::memory::SharedReply::new(tx);
+    memory_node
+        .send_packet(isanagent::memory::MemoryMessage::GetContext {
+            thread_id,
+            reply,
+        })
+        .await
+        .map_err(|e| format!("Failed to query memory actor: {}", e))?;
+
+    rx.await
+        .map_err(|_| "Memory actor closed before replying".to_string())?
+}
+
 /// Warm up (or ensure) the instance for a config. Kept for the `agent_start`
 /// command; dispatch now happens through `route_send`.
 #[allow(clippy::too_many_arguments)]
@@ -492,6 +660,7 @@ pub async fn start_agent(
     base_url_override: Option<&str>,
     workspace_path: Option<&str>,
     permission_mode: Option<&str>,
+    compaction: Option<&CompactionArg>,
 ) -> Result<(), String> {
     ensure_instance(
         runtime,
@@ -502,6 +671,7 @@ pub async fn start_agent(
         base_url_override,
         workspace_path,
         permission_mode,
+        compaction,
     )
     .await
     .map(|_| ())
@@ -530,6 +700,7 @@ async fn build_instance(
     base_url_override: Option<&str>,
     workspace_root: Option<&str>,
     permission_mode: Option<&str>,
+    compaction: Option<&CompactionArg>,
 ) -> Result<(Arc<TauriChannel>, tokio::sync::oneshot::Sender<()>), String> {
     // Each instance gets its own channel with a unique bootstrap chat_id;
     // actual routing is by per-message chat_id.
@@ -566,7 +737,17 @@ async fn build_instance(
     // Tools
     let mut tools = ToolRegistry::new();
     let restrict = workspace.config.restrict_to_workspace.unwrap_or(true);
-    let sandbox_dir = workspace.sandbox_dir.clone();
+    // Sandbox root is the selected project folder (the parent of `.isanagent`),
+    // matching the industry-standard pattern used by Claude Code, Codex CLI, and
+    // Cline: the agent operates on the project root, NOT a nested
+    // `.isanagent/workspace` subfolder. `workspace.sandbox_dir` resolves to that
+    // nested folder (isanagent crate default), so we override it here. We fall
+    // back to the crate default only when the parent can't be resolved (e.g. the
+    // `~/.isanagent` default with no project selected).
+    let sandbox_dir = workspace_dir
+        .parent()
+        .map(|p| p.to_path_buf())
+        .unwrap_or_else(|| workspace.sandbox_dir.clone());
 
     tools.register(Box::new(ReadFileTool {
         workspace_dir: sandbox_dir.clone(),
@@ -848,6 +1029,14 @@ async fn build_instance(
 
     let max_iterations = workspace.config.resolved_max_iterations().unwrap_or(50);
     let max_tool_output_chars = workspace.config.resolved_max_tool_output_chars().unwrap_or(3000);
+    // Resolve compaction knobs. The user-facing prefs (auto/thresholdTokens/
+    // tailTurns) flow in from JS; when absent we keep the isanagent crate's
+    // built-in defaults so direct CLI/canonical callers aren't affected.
+    let (max_recent_summaries, short_term_threshold_turns, short_term_threshold_tokens) =
+        match compaction {
+            Some(c) => c.to_logic_params(),
+            None => (5, 20, 100_000),
+        };
     // Start from the on-disk shell policy, then let the active UI permission mode override the
     // interactive gate so the toolbar toggle actually governs code-exec/destructive-shell. The
     // mode is baked into `AgentLogic` here, which is why it is part of the instance fingerprint.
@@ -876,9 +1065,9 @@ async fn build_instance(
         system_prompt,
         max_iterations,
         max_tool_output_chars,
-        max_recent_summaries: 5,
-        short_term_threshold_turns: 20,
-        short_term_threshold_tokens: 100000,
+        max_recent_summaries,
+        short_term_threshold_turns,
+        short_term_threshold_tokens,
         outbound_tx: global_outbound_tx.clone(),
         logger_tx: isanagent::logging::create_logger_channel(256).0,
         clarification_hub,
@@ -1025,5 +1214,59 @@ mod permission_mode_tests {
         // Unknown / empty must not downgrade to Allow — leave the on-disk default.
         assert_eq!(permission_mode_to_shell_mode(Some("nonsense")), None);
         assert_eq!(permission_mode_to_shell_mode(None), None);
+    }
+}
+
+#[cfg(test)]
+mod compaction_tests {
+    use super::*;
+
+    #[test]
+    fn auto_on_passes_threshold_and_tail() {
+        let c = CompactionArg {
+            auto: true,
+            threshold_tokens: 50_000,
+            tail_turns: 7,
+        };
+        let (tail, turns, tokens) = c.to_logic_params();
+        assert_eq!(tail, 7);
+        assert_eq!(turns, 20); // crate default, not user-configurable
+        assert_eq!(tokens, 50_000);
+    }
+
+    #[test]
+    fn auto_on_floors_threshold_at_8k() {
+        // A typo of 0 (or below 8k) must not wedge the loop into compacting
+        // every turn.
+        let c = CompactionArg {
+            auto: true,
+            threshold_tokens: 0,
+            tail_turns: 5,
+        };
+        let (_, _, tokens) = c.to_logic_params();
+        assert_eq!(tokens, 8_000);
+    }
+
+    #[test]
+    fn auto_off_disables_via_max_threshold() {
+        // auto=false → MAX threshold so the between-turns trigger never fires.
+        // Manual /compact still works (it's a direct tool invocation).
+        let c = CompactionArg {
+            auto: false,
+            threshold_tokens: 50_000,
+            tail_turns: 5,
+        };
+        let (_, _, tokens) = c.to_logic_params();
+        assert_eq!(tokens, usize::MAX);
+    }
+
+    #[test]
+    fn fingerprint_tuple_round_trips_fields() {
+        let c = CompactionArg {
+            auto: false,
+            threshold_tokens: 12_345,
+            tail_turns: 9,
+        };
+        assert_eq!(c.fingerprint_tuple(), (false, 12_345, 9));
     }
 }

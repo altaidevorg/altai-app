@@ -1,6 +1,7 @@
 use ignore::WalkBuilder;
 use serde::Serialize;
 
+use super::isanagentignore::IGNORE_FILENAME;
 use super::to_canon;
 use crate::modules::workspace::{resolve_path, WorkspaceEnv};
 
@@ -77,6 +78,7 @@ pub fn fs_search(
         .ignore(true)
         .parents(true)
         .follow_links(false)
+        .add_custom_ignore_filename(IGNORE_FILENAME)
         .filter_entry(|dent| {
             // Prune known-heavy dirs even when no .gitignore is present (e.g.
             // searching from $HOME).
@@ -172,6 +174,7 @@ pub fn fs_list_files(
         .git_exclude(true)
         .ignore(true)
         .parents(true)
+        .add_custom_ignore_filename(IGNORE_FILENAME)
         .follow_links(false)
         .max_depth(Some(depth))
         .filter_entry(|dent| {

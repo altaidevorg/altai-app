@@ -9,6 +9,7 @@ use ignore::{WalkBuilder, WalkState};
 use serde::Serialize;
 
 use super::to_canon;
+use super::isanagentignore::IGNORE_FILENAME;
 use crate::modules::workspace::{resolve_path, WorkspaceEnv};
 
 const FILE_SIZE_CAP: u64 = 5 * 1024 * 1024;
@@ -80,6 +81,7 @@ pub fn fs_grep(
         .ignore(true)
         .parents(true)
         .follow_links(false)
+        .add_custom_ignore_filename(IGNORE_FILENAME)
         .build_parallel();
 
     let hits: Arc<Mutex<Vec<GrepHit>>> = Arc::new(Mutex::new(Vec::new()));
@@ -209,6 +211,7 @@ pub fn fs_glob(
         .ignore(true)
         .parents(true)
         .follow_links(false)
+        .add_custom_ignore_filename(IGNORE_FILENAME)
         .build();
 
     let mut hits: Vec<GlobHit> = Vec::new();

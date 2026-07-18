@@ -68,6 +68,30 @@ export const PERMISSION_MODE_DESCRIPTIONS: Record<PermissionMode, string> = {
     "Auto-approve everything, including shell commands. Use only in sandboxed environments.",
 };
 
+/**
+ * Context-condensing (compaction) preferences. Maps to the isanagent
+ * engine's knobs where possible; the prune recency window is TS-side only.
+ * Mirrors https://kilo.ai/docs/customize/context/context-condensing.
+ */
+export type CompactionPrefs = {
+  /** Master switch for the auto-compaction engine. */
+  compactionAuto: boolean;
+  /** Optional auto-compact threshold as a % of the model's context window.
+   *  When set, takes precedence over `compactionThresholdTokens`. */
+  compactionThresholdPercent: number | null;
+  /** Auto-compact threshold in tokens (used when percent is unset). */
+  compactionThresholdTokens: number;
+  /** Number of most-recent turns kept verbatim after a compaction
+   *  (isanagent's `max_recent_summaries`). */
+  compactionTailTurns: number;
+  /** Gate the TS-side prune pass that collapses old tool outputs in the
+   *  displayed/persisted transcript (display-only; doesn't touch the
+   *  model's own context). */
+  compactionPrune: boolean;
+  /** Recency window (tokens) the TS-side prune keeps verbatim. */
+  compactionPruneRecencyTokens: number;
+};
+
 export type Preferences = {
   theme: ThemePref;
   defaultModelId: ModelId;
@@ -90,6 +114,7 @@ export type Preferences = {
   openaiCompatibleContextLimit: number;
   favoriteModelIds: string[];
   recentModelIds: string[];
+  hiddenModelIds: string[];
   vimMode: boolean;
   minimapEnabled: boolean;
   /** User template the AI follows when generating commit messages. Empty = Conventional Commits. */
@@ -116,6 +141,13 @@ export type Preferences = {
   approvalAnnounceAssertive: boolean;
   terminalScreenReader: boolean;
   showSkipLinks: boolean;
+  // Context condensing (compaction)
+  compactionAuto: boolean;
+  compactionThresholdPercent: number | null;
+  compactionThresholdTokens: number;
+  compactionTailTurns: number;
+  compactionPrune: boolean;
+  compactionPruneRecencyTokens: number;
 };
 
 const STORE_PATH = "altai-settings.json";
@@ -137,6 +169,7 @@ const KEY_OPENAI_COMPAT_MODEL_ID = "openaiCompatibleModelId";
 const KEY_OPENAI_COMPAT_CONTEXT_LIMIT = "openaiCompatibleContextLimit";
 const KEY_FAVORITE_MODELS = "favoriteModelIds";
 const KEY_RECENT_MODELS = "recentModelIds";
+const KEY_HIDDEN_MODELS = "hiddenModelIds";
 const KEY_VIM_MODE = "vimMode";
 const KEY_MINIMAP = "minimapEnabled";
 const KEY_COMMIT_TEMPLATE = "commitMessageTemplate";
@@ -162,6 +195,12 @@ const KEY_A11Y_CHAT_ANNOUNCE = "a11yChatAnnounce";
 const KEY_A11Y_APPROVAL_ASSERTIVE = "a11yApprovalAnnounceAssertive";
 const KEY_A11Y_TERMINAL_SR = "a11yTerminalScreenReader";
 const KEY_A11Y_SKIP_LINKS = "a11yShowSkipLinks";
+const KEY_COMPACTION_AUTO = "compactionAuto";
+const KEY_COMPACTION_THRESHOLD_PERCENT = "compactionThresholdPercent";
+const KEY_COMPACTION_THRESHOLD_TOKENS = "compactionThresholdTokens";
+const KEY_COMPACTION_TAIL_TURNS = "compactionTailTurns";
+const KEY_COMPACTION_PRUNE = "compactionPrune";
+const KEY_COMPACTION_PRUNE_RECENCY_TOKENS = "compactionPruneRecencyTokens";
 
 export const TERMINAL_FONT_SIZE_DEFAULT = 14;
 export const TERMINAL_FONT_SIZE_MIN = 8;
@@ -197,6 +236,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   openaiCompatibleContextLimit: 128_000,
   favoriteModelIds: [],
   recentModelIds: [],
+  hiddenModelIds: [],
   vimMode: false,
   minimapEnabled: true,
   commitMessageTemplate: "",
@@ -222,6 +262,13 @@ export const DEFAULT_PREFERENCES: Preferences = {
   approvalAnnounceAssertive: true,
   terminalScreenReader: true,
   showSkipLinks: false,
+  // Context-condensing defaults (mirror the isanagent crate's built-ins).
+  compactionAuto: true,
+  compactionThresholdPercent: null,
+  compactionThresholdTokens: 100_000,
+  compactionTailTurns: 5,
+  compactionPrune: true,
+  compactionPruneRecencyTokens: 40_000,
 };
 
 const store = new LazyStore(STORE_PATH, { defaults: {}, autoSave: 200 });
@@ -238,12 +285,32 @@ async function writePref<T>(key: string, value: T): Promise<void> {
   await emit(PREFS_CHANGED_EVENT, { key, value });
 }
 
+/** Read an env-var boolean flag from the Rust process. Best-effort: returns
+ *  `false` when the IPC layer is unavailable (e.g. outside Tauri / unit
+ *  tests) so callers can treat env overrides as opt-in only. */
+async function readEnvFlag(name: string): Promise<boolean> {
+  try {
+    const { invoke } = await import("@tauri-apps/api/core");
+    return await invoke<boolean>("env_get_flag", { name });
+  } catch {
+    return false;
+  }
+}
+
 export async function loadPreferences(): Promise<Preferences> {
   // Single IPC roundtrip — fetching keys individually fans out to one
   // `plugin:store|get` per setting and is the dominant boot cost.
   const entries = await store.entries();
   const map = new Map<string, unknown>(entries);
   const get = <T>(k: string): T | undefined => map.get(k) as T | undefined;
+
+  // Env overrides (Kilo parity). Read once at boot; the user's saved pref is
+  // ignored when the corresponding env var forces a value.
+  const [disableAutoCompact, disablePrune] = await Promise.all([
+    readEnvFlag("ALTAI_DISABLE_AUTOCOMPACT"),
+    readEnvFlag("ALTAI_DISABLE_PRUNE"),
+  ]);
+
   return {
     theme: get<ThemePref>(KEY_THEME) ?? DEFAULT_PREFERENCES.theme,
     defaultModelId:
@@ -288,6 +355,8 @@ export async function loadPreferences(): Promise<Preferences> {
       DEFAULT_PREFERENCES.favoriteModelIds,
     recentModelIds:
       get<string[]>(KEY_RECENT_MODELS) ?? DEFAULT_PREFERENCES.recentModelIds,
+    hiddenModelIds:
+      get<string[]>(KEY_HIDDEN_MODELS) ?? DEFAULT_PREFERENCES.hiddenModelIds,
     vimMode: get<boolean>(KEY_VIM_MODE) ?? DEFAULT_PREFERENCES.vimMode,
     minimapEnabled:
       get<boolean>(KEY_MINIMAP) ?? DEFAULT_PREFERENCES.minimapEnabled,
@@ -356,6 +425,24 @@ export async function loadPreferences(): Promise<Preferences> {
     showSkipLinks:
       get<boolean>(KEY_A11Y_SKIP_LINKS) ??
       DEFAULT_PREFERENCES.showSkipLinks,
+    compactionAuto: disableAutoCompact
+      ? false
+      : (get<boolean>(KEY_COMPACTION_AUTO) ?? DEFAULT_PREFERENCES.compactionAuto),
+    compactionThresholdPercent:
+      get<number | null>(KEY_COMPACTION_THRESHOLD_PERCENT) ??
+      DEFAULT_PREFERENCES.compactionThresholdPercent,
+    compactionThresholdTokens:
+      get<number>(KEY_COMPACTION_THRESHOLD_TOKENS) ??
+      DEFAULT_PREFERENCES.compactionThresholdTokens,
+    compactionTailTurns:
+      get<number>(KEY_COMPACTION_TAIL_TURNS) ??
+      DEFAULT_PREFERENCES.compactionTailTurns,
+    compactionPrune: disablePrune
+      ? false
+      : (get<boolean>(KEY_COMPACTION_PRUNE) ?? DEFAULT_PREFERENCES.compactionPrune),
+    compactionPruneRecencyTokens:
+      get<number>(KEY_COMPACTION_PRUNE_RECENCY_TOKENS) ??
+      DEFAULT_PREFERENCES.compactionPruneRecencyTokens,
   };
 }
 
@@ -436,6 +523,10 @@ export async function setFavoriteModelIds(value: string[]): Promise<void> {
 
 export async function setRecentModelIds(value: string[]): Promise<void> {
   await writePref(KEY_RECENT_MODELS, value);
+}
+
+export async function setHiddenModelIds(value: string[]): Promise<void> {
+  await writePref(KEY_HIDDEN_MODELS, value);
 }
 
 export async function setVimMode(value: boolean): Promise<void> {
@@ -575,6 +666,49 @@ export async function setShowSkipLinks(value: boolean): Promise<void> {
   await writePref(KEY_A11Y_SKIP_LINKS, value);
 }
 
+// --- Context-condensing (compaction) setters ---
+
+export async function setCompactionAuto(value: boolean): Promise<void> {
+  await writePref(KEY_COMPACTION_AUTO, value);
+}
+
+export async function setCompactionThresholdPercent(
+  value: number | null,
+): Promise<void> {
+  const sanitized =
+    value == null || !Number.isFinite(value)
+      ? null
+      : Math.max(1, Math.min(100, Math.round(value)));
+  await writePref(KEY_COMPACTION_THRESHOLD_PERCENT, sanitized);
+}
+
+export async function setCompactionThresholdTokens(value: number): Promise<void> {
+  const clamped = Number.isFinite(value)
+    ? Math.max(1_000, Math.round(value))
+    : DEFAULT_PREFERENCES.compactionThresholdTokens;
+  await writePref(KEY_COMPACTION_THRESHOLD_TOKENS, clamped);
+}
+
+export async function setCompactionTailTurns(value: number): Promise<void> {
+  const clamped = Number.isFinite(value)
+    ? Math.max(0, Math.min(50, Math.round(value)))
+    : DEFAULT_PREFERENCES.compactionTailTurns;
+  await writePref(KEY_COMPACTION_TAIL_TURNS, clamped);
+}
+
+export async function setCompactionPrune(value: boolean): Promise<void> {
+  await writePref(KEY_COMPACTION_PRUNE, value);
+}
+
+export async function setCompactionPruneRecencyTokens(
+  value: number,
+): Promise<void> {
+  const clamped = Number.isFinite(value)
+    ? Math.max(1_000, Math.round(value))
+    : DEFAULT_PREFERENCES.compactionPruneRecencyTokens;
+  await writePref(KEY_COMPACTION_PRUNE_RECENCY_TOKENS, clamped);
+}
+
 /** Reset all accessibility prefs to defaults.
  *  Writes every key in memory first, then saves once and broadcasts each
  *  change — avoids the 9× serialized write that calling each setter would
@@ -625,6 +759,7 @@ export async function onPreferencesChange(
     [KEY_OPENAI_COMPAT_CONTEXT_LIMIT]: "openaiCompatibleContextLimit",
     [KEY_FAVORITE_MODELS]: "favoriteModelIds",
     [KEY_RECENT_MODELS]: "recentModelIds",
+    [KEY_HIDDEN_MODELS]: "hiddenModelIds",
     [KEY_VIM_MODE]: "vimMode",
     [KEY_MINIMAP]: "minimapEnabled",
     [KEY_COMMIT_TEMPLATE]: "commitMessageTemplate",
@@ -649,6 +784,12 @@ export async function onPreferencesChange(
     [KEY_A11Y_APPROVAL_ASSERTIVE]: "approvalAnnounceAssertive",
     [KEY_A11Y_TERMINAL_SR]: "terminalScreenReader",
     [KEY_A11Y_SKIP_LINKS]: "showSkipLinks",
+    [KEY_COMPACTION_AUTO]: "compactionAuto",
+    [KEY_COMPACTION_THRESHOLD_PERCENT]: "compactionThresholdPercent",
+    [KEY_COMPACTION_THRESHOLD_TOKENS]: "compactionThresholdTokens",
+    [KEY_COMPACTION_TAIL_TURNS]: "compactionTailTurns",
+    [KEY_COMPACTION_PRUNE]: "compactionPrune",
+    [KEY_COMPACTION_PRUNE_RECENCY_TOKENS]: "compactionPruneRecencyTokens",
   };
   // Same-process writes still fire onChange immediately; cross-window writes
   // arrive via the Tauri event emitted by writePref().

@@ -1,4 +1,4 @@
-use super::runtime::{self, AgentRuntime};
+use super::runtime::{self, AgentRuntime, CompactionArg};
 use serde::Deserialize;
 use tauri::State;
 
@@ -40,6 +40,7 @@ pub async fn agent_start(
     base_url: Option<String>,
     workspace_path: Option<String>,
     permission_mode: Option<String>,
+    compaction: Option<CompactionArg>,
 ) -> Result<(), String> {
     let pname = provider_name.unwrap_or_else(|| "gemini".to_string());
     let key = api_key.unwrap_or_default();
@@ -66,7 +67,18 @@ pub async fn agent_start(
         .map(str::trim)
         .filter(|s| !s.is_empty());
 
-    runtime::start_agent(&state, &pname, &key, &model, persona, base, workspace, permission).await
+    runtime::start_agent(
+        &state,
+        &pname,
+        &key,
+        &model,
+        persona,
+        base,
+        workspace,
+        permission,
+        compaction.as_ref(),
+    )
+    .await
 }
 
 /// Send a user message, routing it to the runtime instance that owns this
@@ -92,6 +104,7 @@ pub async fn agent_send(
     workspace_path: Option<String>,
     permission_mode: Option<String>,
     fallback: Option<FallbackArg>,
+    compaction: Option<CompactionArg>,
 ) -> Result<(), String> {
     let pname = provider_name.unwrap_or_else(|| "gemini".to_string());
     let key = api_key.unwrap_or_default();
@@ -116,6 +129,7 @@ pub async fn agent_send(
         base,
         workspace,
         permission,
+        compaction.as_ref(),
         fb,
         message,
         images.unwrap_or_default(),
@@ -148,6 +162,53 @@ pub async fn agent_cancel(
     chat_id: Option<String>,
 ) -> Result<(), String> {
     runtime::route_cancel(&state, chat_id.unwrap_or_default()).await
+}
+
+
+/// List all chat sessions persisted in the active workspace's backend memory DB.
+///
+/// This is the reconciliation source for the frontend chat-history list: it
+/// returns every conversation the agent actually ran (keyed by `tauri:<chat_id>:`),
+/// including chats that were closed and dropped from the ephemeral
+/// `altai-ai-sessions.json`. The frontend merges these in on hydration so closed
+/// chats reappear in history — matching Claude Code / Cursor, where the durable
+/// backend store is the source of truth.
+#[tauri::command]
+pub async fn agent_list_sessions(
+    state: State<'_, AgentRuntime>,
+    workspace_path: Option<String>,
+) -> Result<Vec<runtime::SessionInfo>, String> {
+    let ws = workspace_path
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+    runtime::list_sessions(&state, ws).await
+}
+
+/// Load the full message history for a single chat from the backend memory DB.
+///
+/// Counterpart to `agent_list_sessions`: recovers the *contents* of a session so
+/// a reopened (previously-closed) chat renders its real conversation instead of
+/// an empty thread. Returns raw OpenAI-style messages; the frontend maps them to
+/// its UIMessage shape.
+#[tauri::command]
+pub async fn agent_get_session_messages(
+    state: State<'_, AgentRuntime>,
+    chat_id: String,
+    workspace_path: Option<String>,
+) -> Result<Vec<serde_json::Value>, String> {
+    let ws = workspace_path
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+    let messages = runtime::get_session_messages(&state, ws, &chat_id).await?;
+    // ChatMessage is serde::Serialize in the isanagent crate; map to Value here so
+    // the Tauri IPC layer serializes plain JSON objects (stable across versions).
+    messages
+        .into_iter()
+        .map(serde_json::to_value)
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| format!("Failed to serialize messages: {}", e))
 }
 
 /// Fetch paper metadata directly from the arXiv Atom API.

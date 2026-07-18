@@ -12,7 +12,9 @@ import { openSettingsWindow } from "@/modules/settings/openSettingsWindow";
 import {
   Add01Icon,
   AiBookIcon,
+  AiBrain01Icon,
   AppleIcon,
+  Archive02Icon,
   ArrowDown01Icon,
   ArrowUpIcon,
   BrainIcon,
@@ -44,6 +46,8 @@ import { motion } from "motion/react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   getModel,
+  getModelContextLimit,
+  isModelAvailable,
   MODELS,
   providerNeedsKey,
   PROVIDERS,
@@ -54,6 +58,7 @@ import {
 } from "../config";
 import { ACCEPTED_FILES, useComposer } from "../lib/composer";
 import { toggleFavoriteModel } from "../lib/modelPrefs";
+import { runCompactNow } from "../lib/slashCommands";
 import { useChatStore } from "../store/chatStore";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 
@@ -66,6 +71,8 @@ const PROVIDER_ICON = {
   groq: FlashIcon,
   deepseek: DeepseekIcon,
   mistral: Hexagon01Icon,
+  zai: AiBrain01Icon,
+  "zai-coding-plan": AiBrain01Icon,
   openrouter: GlobeIcon,
   "openai-compatible": PlugIcon,
   lmstudio: ComputerIcon,
@@ -161,6 +168,10 @@ export function AiStatusBarControls() {
 
       <ModelDropdown />
 
+      <ContextMeter />
+
+      <CompactNowButton />
+
       <span className="mx-1 h-8 w-px bg-border" aria-hidden />
       <Button
         onClick={closePanel}
@@ -224,6 +235,8 @@ export function ModelDropdown() {
   const setSelected = useChatStore((s) => s.setSelectedModelId);
   const favoriteIds = usePreferencesStore((s) => s.favoriteModelIds);
   const recentIds = usePreferencesStore((s) => s.recentModelIds);
+  const hiddenIds = usePreferencesStore((s) => s.hiddenModelIds);
+  const hiddenSet = useMemo(() => new Set(hiddenIds), [hiddenIds]);
   const current = getModel(selected);
   const [search, setSearch] = useState("");
   const [activeProvider, setActiveProvider] = useState<ProviderId | null>(null);
@@ -250,7 +263,9 @@ export function ModelDropdown() {
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    let pool: readonly ModelInfo[] = MODELS;
+    let pool: readonly ModelInfo[] = MODELS.filter((m) =>
+      isModelAvailable(m, hasKeyFor, hiddenSet),
+    );
     if (tab === "favorites") {
       pool = pool.filter((m) => favoriteIds.includes(m.id));
     } else if (tab === "recent") {
@@ -274,9 +289,16 @@ export function ModelDropdown() {
       );
     }
     return pool;
-  }, [activeProvider, favoriteIds, recentIds, search, tab]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeProvider, apiKeys, favoriteIds, hiddenSet, recentIds, search, tab]);
 
   const ProviderIcon = PROVIDER_ICON[current.provider] ?? ChatGptIcon;
+
+  const anyAvailable = useMemo(
+    () => MODELS.some((m) => isModelAvailable(m, hasKeyFor, hiddenSet)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [apiKeys, hiddenSet],
+  );
 
   // Reset the highlight to the top whenever the result set changes.
   useEffect(() => {
@@ -465,12 +487,14 @@ export function ModelDropdown() {
             ) : null}
             <div id={MODEL_LISTBOX_ID} role="listbox" aria-label="Models">
               {filtered.length === 0 ? (
-                <div className="flex items-center justify-center px-4 py-10 text-xs text-muted-foreground/70">
-                  {tab === "favorites"
-                    ? "No favorites yet — star a model to pin it here."
-                    : tab === "recent"
-                      ? "No recently-used models."
-                      : "No models match."}
+                <div className="flex items-center justify-center px-4 py-10 text-center text-xs text-muted-foreground/70">
+                  {!anyAvailable
+                    ? "No models available — add an API key in Settings."
+                    : tab === "favorites"
+                      ? "No favorites yet — star a model to pin it here."
+                      : tab === "recent"
+                        ? "No recently-used models."
+                        : "No models match."}
                 </div>
               ) : (
                 filtered.map((m, i) => (
@@ -774,5 +798,100 @@ function IconBtn({
     >
       {children}
     </Button>
+  );
+}
+
+/**
+ * Manual "Compact now" affordance. Fires `/compact` directly (no input
+ * prefill, no Enter required) — surfaces the between-turns context-condense
+ * tool from a single click. Kept compact so it fits the status-bar row
+ * alongside the model dropdown and the context meter.
+ */
+function CompactNowButton() {
+  const busy = useChatStore((s) => s.agentMeta.status) !== "idle";
+  const [running, setRunning] = useState(false);
+  const active = useChatStore((s) => s.activeSessionId);
+
+  const onClick = async () => {
+    if (busy || running || !active) return;
+    setRunning(true);
+    try {
+      await runCompactNow();
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  return (
+    <IconBtn
+      title="Compact context (run /compact now)"
+      onClick={() => void onClick()}
+      disabled={busy || running || !active}
+    >
+      <HugeiconsIcon icon={Archive02Icon} size={13} strokeWidth={1.75} />
+    </IconBtn>
+  );
+}
+
+/**
+ * Context-usage meter: input tokens vs the active model's context window.
+ * Shows `XX%` with a colored dot — green/amber/red by threshold. When usage
+ * crosses the auto-compact threshold (or 90% when unset) and auto-compact is
+ * on, an "auto-compacting" tooltip hints the next turn will compact. When
+ * auto is off and usage is high, the dot pulses to draw the user to the
+ * adjacent "Compact now" button.
+ */
+function ContextMeter() {
+  const selected = useChatStore((s) => s.selectedModelId);
+  const inputTokens = useChatStore((s) => s.agentMeta.tokens.inputTokens);
+  const compactionAuto = usePreferencesStore((s) => s.compactionAuto);
+  const thresholdPct = usePreferencesStore((s) => s.compactionThresholdPercent);
+
+  const { pct, danger, warn } = useMemo(() => {
+    const limit = getModelContextLimit(selected);
+    const ratio = limit > 0 ? Math.min(1, inputTokens / limit) : 0;
+    const t = (thresholdPct ?? 90) / 100;
+    return {
+      pct: Math.round(ratio * 100),
+      danger: ratio >= t,
+      warn: ratio >= Math.max(0.7, t - 0.1),
+    };
+  }, [selected, inputTokens, thresholdPct]);
+
+  if (inputTokens <= 0) return null;
+
+  const dotClass = danger
+    ? "bg-destructive"
+    : warn
+      ? "bg-amber-500"
+      : "bg-emerald-500";
+
+  const tooltip = danger
+    ? compactionAuto
+      ? `Context high (${pct}%) — will auto-compact on the next turn`
+      : `Context high (${pct}%) — click the archive icon to compact now`
+    : `Context usage: ${pct}%`;
+
+  return (
+    <button
+      type="button"
+      onClick={() => void openSettingsWindow("context")}
+      title={tooltip}
+      aria-label={tooltip}
+      className={cn(
+        "flex h-7 items-center gap-1 rounded-md px-1.5 text-[11px] tabular-nums transition-colors",
+        "text-muted-foreground hover:bg-accent hover:text-foreground",
+      )}
+    >
+      <span
+        className={cn(
+          "size-1.5 shrink-0 rounded-full",
+          dotClass,
+          danger && !compactionAuto && "animate-pulse",
+        )}
+        aria-hidden
+      />
+      <span>{pct}%</span>
+    </button>
   );
 }

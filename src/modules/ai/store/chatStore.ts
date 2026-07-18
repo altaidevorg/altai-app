@@ -14,6 +14,7 @@ import { useAgentsStore } from "./agentsStore";
 import { useTodosStore } from "./todoStore";
 import type { AgentUsage } from "../lib/provider";
 import {
+  resolveCompactionSpec,
   resolveFallbackSpec,
   resolveIsanAgentTarget,
 } from "../lib/isanagentTarget";
@@ -23,8 +24,10 @@ import {
   deriveTitle,
   loadAll,
   loadMessages,
+  mergeBackendSessions,
   newSessionId,
   saveActiveId,
+  saveDeletedIds,
   saveMessages,
   saveSessionsList,
   type SessionMeta,
@@ -226,6 +229,10 @@ const pendingPersist = new Map<
 // Message arrays freshly hydrated from disk. The persistence subscription
 // skips these once — re-writing a thread we just read back is pure waste.
 const loadedMessagesRefs = new WeakSet<UIMessage[]>();
+
+// Sessions the user permanently deleted. Kept out of the history list and
+// used to suppress backend recovery so a deleted chat doesn't resurrect.
+const deletedSessionIds = new Set<string>();
 
 // Fingerprint of the runtime config we last successfully started. Lets us skip
 // the per-message `agent_start` IPC when nothing changed (the Rust side no-ops
@@ -535,34 +542,65 @@ export const useChatStore = create<StoreState>((set, get) => ({
 
   hydrateSessions: async () => {
     if (get().sessionsHydrated) return;
-    const { sessions } = await loadAll();
+    let { sessions, activeId, deletedIds } = await loadAll();
+    deletedSessionIds.clear();
+    for (const id of deletedIds) deletedSessionIds.add(id);
 
-    // Reuse the most recent untitled "New chat" session if one exists from
-    // the previous run — no point stacking empty placeholder sessions every
-    // launch. Otherwise prepend a fresh one.
-    const reusable = sessions[0]?.title === "New chat" ? sessions[0] : null;
+    // Reconcile with the backend memory DB — the durable source of truth.
+    // Chats that were closed (dropped from this ephemeral store) but still
+    // exist in the agent's history are recovered here so they reappear in the
+    // chat-history list (Claude Code / Cursor behavior). Best-effort:
+    // a backend error must not block hydration. Permanently-deleted ids are
+    // suppressed so they don't come back.
+    const { merged, recoveredIds } = await mergeBackendSessions(
+      sessions,
+      [...deletedSessionIds],
+    );
+    sessions = merged;
+    if (recoveredIds.length > 0) {
+      void saveSessionsList(merged);
+    }
+
+    // Pick the session to land on after restart. Prefer the last-used one
+    // (persisted activeId) if it still exists, so the user returns to their
+    // most recent conversation instead of an empty "New chat". Else reuse the
+    // most recent untitled "New chat" (no point stacking empty placeholders
+    // every launch), else create a fresh one.
+    let active =
+      (activeId ? sessions.find((s) => s.id === activeId) : undefined) ?? null;
+    if (!active && sessions[0]?.title === "New chat") {
+      active = sessions[0];
+    }
     let nextSessions: SessionMeta[];
-    let freshId: string;
-    if (reusable) {
+    if (active) {
       nextSessions = sessions;
-      freshId = reusable.id;
     } else {
-      freshId = newSessionId();
-      const fresh: SessionMeta = {
-        id: freshId,
+      active = {
+        id: newSessionId(),
         title: "New chat",
         createdAt: Date.now(),
         updatedAt: Date.now(),
       };
-      nextSessions = [fresh, ...sessions];
+      nextSessions = [active, ...sessions];
       void saveSessionsList(nextSessions);
     }
-    void saveActiveId(freshId);
+    const activeSessionId = active.id;
+    void saveActiveId(activeSessionId);
 
     set({
       sessions: nextSessions,
-      activeSessionId: freshId,
+      activeSessionId,
       sessionsHydrated: true,
+    });
+
+    // Restore the active session's thread so the conversation reappears on
+    // reopen instead of an empty transcript. Guarded so a manual switch that
+    // lands elsewhere before this resolves wins (same shape as switchSession).
+    void loadMessages(activeSessionId).then((m) => {
+      if (get().activeSessionId !== activeSessionId) return;
+      const loaded = m ?? [];
+      loadedMessagesRefs.add(loaded);
+      set({ nativeMessages: loaded });
     });
   },
 
@@ -651,6 +689,10 @@ export const useChatStore = create<StoreState>((set, get) => ({
     }
     void deleteSessionData(id);
     void useTodosStore.getState().clearSession(id);
+    // Permanent delete: blocklist the id so the backend recovery pass on the
+    // next launch doesn't resurrect this chat from the durable memory DB.
+    deletedSessionIds.add(id);
+    void saveDeletedIds([...deletedSessionIds]);
 
     if (remaining.length === 0) {
       const fresh: SessionMeta = {
@@ -822,10 +864,25 @@ async function sendViaIsanAgent(
     openaiCompatibleModelId: prefs.openaiCompatibleModelId,
   });
 
+  // Context-condensing config. Threshold percent → tokens via the active
+  // model's context window (percent wins when set). Threaded end-to-end so
+  // a Settings change rebuilds the runtime on next send (the Rust side
+  // fingerprints it).
+  const compaction = resolveCompactionSpec(
+    {
+      compactionAuto: prefs.compactionAuto,
+      compactionThresholdPercent: prefs.compactionThresholdPercent,
+      compactionThresholdTokens: prefs.compactionThresholdTokens,
+      compactionTailTurns: prefs.compactionTailTurns,
+    },
+    store.selectedModelId,
+    prefs.openaiCompatibleContextLimit,
+  );
+
   // Only (re)start the runtime when the target config actually changes —
   // avoids a redundant IPC round-trip on every message. Mirrors the fields
   // the Rust runtime fingerprints (provider, key, model, base URL, persona,
-  // workspace root).
+  // workspace root, permission mode, compaction).
   const startFingerprint = JSON.stringify([
     providerName,
     apiKey,
@@ -834,6 +891,9 @@ async function sendViaIsanAgent(
     instructions ?? "",
     workspacePath ?? "",
     permissionMode,
+    compaction.auto,
+    compaction.thresholdTokens,
+    compaction.tailTurns,
   ]);
   if (startFingerprint !== lastStartFingerprint) {
     try {
@@ -845,6 +905,7 @@ async function sendViaIsanAgent(
         baseUrl,
         workspacePath,
         permissionMode,
+        compaction,
       });
       lastStartFingerprint = startFingerprint;
     } catch (e) {
@@ -883,6 +944,7 @@ async function sendViaIsanAgent(
       workspacePath,
       permissionMode,
       fallback,
+      compaction,
     });
     return true;
   } catch (e) {
@@ -924,6 +986,16 @@ export async function dispatchToSession(
   // The config routes this chat to its own runtime instance — so this
   // background run can be on a different model than the focused chat (or other
   // assignments) and run concurrently without tearing anything down.
+  const compaction = resolveCompactionSpec(
+    {
+      compactionAuto: prefs.compactionAuto,
+      compactionThresholdPercent: prefs.compactionThresholdPercent,
+      compactionThresholdTokens: prefs.compactionThresholdTokens,
+      compactionTailTurns: prefs.compactionTailTurns,
+    },
+    store.selectedModelId,
+    prefs.openaiCompatibleContextLimit,
+  );
   const config = {
     providerName,
     apiKey,
@@ -931,6 +1003,10 @@ export async function dispatchToSession(
     instructions,
     baseUrl,
     workspacePath,
+    permissionMode: effectivePermissionMode(
+      prefs.permissionMode,
+      prefs.bypassPermissionsEnabled,
+    ),
     // Configured failover model — same per-send failover policy as the focused
     // chat; null when none is set or it can't be resolved.
     fallback: resolveFallbackSpec(prefs.fallbackModelId, store.apiKeys, {
@@ -941,6 +1017,7 @@ export async function dispatchToSession(
       openaiCompatibleBaseURL: prefs.openaiCompatibleBaseURL,
       openaiCompatibleModelId: prefs.openaiCompatibleModelId,
     }),
+    compaction,
   };
 
   // Persist the seed as the session's opening message (so "Open transcript"
