@@ -1130,6 +1130,10 @@ async fn build_instance(
             wake_on_completion: workspace.config.subagent_wake_on_completion(),
             task_history_retention: workspace.config.subagent_task_history_retention(),
             bus_tx: Some(bus_tx.clone()),
+            // Semble Scout receives the selected project root, never the
+            // `.isanagent` state directory. Its search root is host-owned so
+            // an LLM cannot redirect the worker outside this workspace.
+            workspace_dir: sandbox_dir.clone(),
         })
     } else {
         None
