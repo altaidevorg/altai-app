@@ -386,7 +386,7 @@ pub fn agent_list_skills(
             Some(InstalledSkillInfo { name, description })
         })
         .collect::<Vec<_>>();
-    skills.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    skills.sort_by_key(|skill| skill.name.to_lowercase());
     Ok(skills)
 }
 

@@ -91,6 +91,64 @@ function toChatCompletionsUrl(baseUrl: string): string {
   return `${trimmed}/chat/completions`;
 }
 
+type ConfiguredLocalTarget = {
+  catalogId: string;
+  providerName: ProviderId;
+  modelName: string;
+  baseUrl: string;
+  apiKey: string;
+};
+
+/** Resolve catalog aliases and raw configured local-model ids through one table. */
+function resolveConfiguredLocalTarget(
+  modelId: string,
+  apiKeys: ProviderKeys,
+  inputs: TargetInputs,
+): ResolvedTarget | null {
+  const targets: ConfiguredLocalTarget[] = [
+    {
+      catalogId: "lmstudio-local",
+      providerName: "lmstudio",
+      modelName: inputs.lmstudioModelId.trim(),
+      baseUrl: inputs.lmstudioBaseURL,
+      apiKey: "",
+    },
+    {
+      catalogId: "mlx-local",
+      providerName: "mlx",
+      modelName: inputs.mlxModelId.trim(),
+      baseUrl: inputs.mlxBaseURL,
+      apiKey: "",
+    },
+    {
+      catalogId: "openai-compatible-custom",
+      providerName: "openai-compatible",
+      modelName: inputs.openaiCompatibleModelId.trim(),
+      baseUrl: inputs.openaiCompatibleBaseURL,
+      apiKey: apiKeys["openai-compatible"] ?? "",
+    },
+  ];
+  const target = targets.find(
+    (candidate) =>
+      modelId === candidate.catalogId ||
+      (!!candidate.modelName && modelId === candidate.modelName),
+  );
+  if (!target) return null;
+
+  const baseUrl = toChatCompletionsUrl(target.baseUrl);
+  if (!target.modelName || !baseUrl) return null;
+  return {
+    providerName: target.providerName,
+    apiKey: target.apiKey,
+    modelName: target.modelName,
+    baseUrl,
+  };
+}
+
+function isConfiguredLocalCatalogId(modelId: string): boolean {
+  return ["lmstudio-local", "mlx-local", "openai-compatible-custom"].includes(modelId);
+}
+
 /**
  * Resolve a single (provider, modelId) pair against keys + local-pref base URLs.
  * Returns `null` when the model id is unknown or a required key/pref is missing.
@@ -104,42 +162,12 @@ function resolveOne(
   apiKeys: ProviderKeys,
   inputs: TargetInputs,
 ): ResolvedTarget | null {
-  // Local / runtime catalog entries — must run before the generic MODELS path,
-  // otherwise we'd send the catalog id (e.g. "openai-compatible-custom") with
-  // an empty base URL and the runtime would silently fall back to Gemini.
-  if (modelId === "lmstudio-local") {
-    const modelName = inputs.lmstudioModelId.trim();
-    const baseUrl = toChatCompletionsUrl(inputs.lmstudioBaseURL);
-    if (!modelName || !baseUrl) return null;
-    return {
-      providerName: "lmstudio",
-      apiKey: "",
-      modelName,
-      baseUrl,
-    };
-  }
-  if (modelId === "mlx-local") {
-    const modelName = inputs.mlxModelId.trim();
-    const baseUrl = toChatCompletionsUrl(inputs.mlxBaseURL);
-    if (!modelName || !baseUrl) return null;
-    return {
-      providerName: "mlx",
-      apiKey: "",
-      modelName,
-      baseUrl,
-    };
-  }
-  if (modelId === "openai-compatible-custom") {
-    const modelName = inputs.openaiCompatibleModelId.trim();
-    const baseUrl = toChatCompletionsUrl(inputs.openaiCompatibleBaseURL);
-    if (!modelName || !baseUrl) return null;
-    return {
-      providerName: "openai-compatible",
-      apiKey: apiKeys["openai-compatible"] ?? "",
-      modelName,
-      baseUrl,
-    };
-  }
+  // Local/runtime catalog aliases must resolve before the generic catalog path;
+  // otherwise the runtime would receive an empty base URL. Raw configured ids
+  // use the same table, so fallback resolution cannot drift from the primary.
+  const localTarget = resolveConfiguredLocalTarget(modelId, apiKeys, inputs);
+  if (localTarget) return localTarget;
+  if (isConfiguredLocalCatalogId(modelId)) return null;
 
   // Cloud providers: model id must be a known MODELS entry.
   const model = MODELS.find((m) => m.id === modelId) as ModelInfo | undefined;
@@ -153,41 +181,6 @@ function resolveOne(
       apiKey: key,
       modelName: model.apiName ?? model.id,
       baseUrl: PROVIDER_BASE_URLS[provider] ?? "",
-    };
-  }
-
-  // Also accept a raw user-configured model id (e.g. from recent-models list).
-  if (modelId === inputs.lmstudioModelId && inputs.lmstudioModelId) {
-    const baseUrl = toChatCompletionsUrl(inputs.lmstudioBaseURL);
-    if (!baseUrl) return null;
-    return {
-      providerName: "lmstudio",
-      apiKey: "",
-      modelName: inputs.lmstudioModelId,
-      baseUrl,
-    };
-  }
-  if (modelId === inputs.mlxModelId && inputs.mlxModelId) {
-    const baseUrl = toChatCompletionsUrl(inputs.mlxBaseURL);
-    if (!baseUrl) return null;
-    return {
-      providerName: "mlx",
-      apiKey: "",
-      modelName: inputs.mlxModelId,
-      baseUrl,
-    };
-  }
-  if (
-    modelId === inputs.openaiCompatibleModelId &&
-    inputs.openaiCompatibleModelId
-  ) {
-    const baseUrl = toChatCompletionsUrl(inputs.openaiCompatibleBaseURL);
-    if (!baseUrl) return null;
-    return {
-      providerName: "openai-compatible",
-      apiKey: apiKeys["openai-compatible"] ?? "",
-      modelName: inputs.openaiCompatibleModelId,
-      baseUrl,
     };
   }
 

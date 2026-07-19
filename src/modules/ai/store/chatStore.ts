@@ -955,7 +955,12 @@ async function rewindAndResend(
       keepUserMessages,
       workspacePath,
     );
-  } catch {
+  } catch (cause) {
+    useChatStore.getState().addActivity({
+      label: "Failed to modify history",
+      detail: cause instanceof Error ? cause.message : String(cause),
+      tone: "error",
+    });
     return false;
   }
   const cut = cutThroughNthUser(

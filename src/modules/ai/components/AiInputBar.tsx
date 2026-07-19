@@ -264,6 +264,12 @@ export function AiInputBar() {
       if (diff.diffText.trim()) {
         c.addTextContext({ kind: "diff", name: "Working tree diff", text: diff.diffText });
       }
+    } catch (cause) {
+      useChatStore.getState().addActivity({
+        label: "Could not attach working-tree diff",
+        detail: cause instanceof Error ? cause.message : String(cause),
+        tone: "error",
+      });
     } finally {
       setContextOpen(false);
     }

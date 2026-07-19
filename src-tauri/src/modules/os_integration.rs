@@ -137,9 +137,9 @@ fn ensure_document_types(info_plist: &std::path::Path) -> Result<(), Box<dyn Err
         .ok_or("Info.plist root is not a dictionary")?;
 
     // Make sure CFBundleDocumentTypes exists and is an array.
-    if !dict
+    if dict
         .get("CFBundleDocumentTypes")
-        .map_or(false, |v| v.as_array().is_some())
+        .is_none_or(|v| v.as_array().is_none())
     {
         dict.insert(
             "CFBundleDocumentTypes".to_string(),
@@ -197,7 +197,7 @@ fn uti_list_includes(entry: &plist::Value, uti: &str) -> bool {
         None => return false,
     };
     arr.iter()
-        .any(|v| v.as_string().map_or(false, |s| s == uti))
+        .any(|v| v.as_string() == Some(uti))
 }
 
 #[cfg(target_os = "macos")]

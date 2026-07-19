@@ -131,7 +131,8 @@ async function loadMessagesFromBackend(id: string): Promise<UIMessage[] | null> 
       await store.set(messagesKey(id), ui);
     }
     return ui;
-  } catch {
+  } catch (cause) {
+    console.warn(`Failed to load messages from backend for session ${id}:`, cause);
     return null;
   }
 }
