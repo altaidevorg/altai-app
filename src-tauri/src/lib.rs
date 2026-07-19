@@ -1,11 +1,11 @@
-mod modules;
 mod altai;
+mod modules;
 
+use altai::agent::commands as agent_commands;
 use modules::{
-    fs, git, github, lsp_install, net, notebook, os_menu, proc, pty, secrets, shell, webview,
+    fs, git, github, lsp_install, mcp, net, notebook, os_menu, proc, pty, secrets, shell, webview,
     workspace,
 };
-use altai::agent::commands as agent_commands;
 use serde::{Deserialize, Serialize};
 use std::sync::Mutex;
 use tauri::{Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder};
@@ -28,6 +28,38 @@ struct PendingLaunch(Mutex<Vec<LaunchPayload>>);
 fn get_pending_launches(state: State<'_, PendingLaunch>) -> Vec<LaunchPayload> {
     let mut pending = state.0.lock().expect("PendingLaunch mutex poisoned");
     std::mem::take(&mut *pending)
+}
+
+/// Read a process env var as a boolean flag. Returns `true` when the var is
+/// set to `"1"`, `"true"`, `"yes"`, or `"on"` (case-insensitive); `false`
+/// otherwise (including when unset). Used by the frontend to honor
+/// `ALTAI_DISABLE_AUTOCOMPACT` / `ALTAI_DISABLE_PRUNE` overrides that
+/// Vite's `import.meta.env` can't see.
+#[tauri::command]
+fn env_get_flag(name: String) -> bool {
+    matches!(
+        std::env::var(&name)
+            .ok()
+            .as_deref()
+            .map(str::to_ascii_lowercase)
+            .as_deref(),
+        Some("1") | Some("true") | Some("yes") | Some("on")
+    )
+}
+
+/// Open a filesystem item with a user-selected application. This deliberately
+/// stays in the backend so the webview never gets broad process-launch access.
+#[tauri::command]
+fn open_with(path: String, application: String) -> Result<(), String> {
+    let application = application.trim();
+    if application.is_empty() {
+        return Err("An application name or executable is required.".to_string());
+    }
+
+    let path = std::fs::canonicalize(&path)
+        .map_err(|e| format!("Could not access the selected item: {e}"))?;
+    tauri_plugin_opener::open_path(path, Some(application))
+        .map_err(|e| format!("Could not open the item with {application}: {e}"))
 }
 
 fn collect_launch_payloads(args: Vec<String>, cwd: Option<&str>) -> Vec<LaunchPayload> {
@@ -194,8 +226,7 @@ pub fn run() {
             // honored (delivered to the primary window by handle_launch_args).
             if args.iter().any(|a| a == "--new-window") {
                 os_menu::spawn_new_window(app);
-                let rest: Vec<String> =
-                    args.into_iter().filter(|a| a != "--new-window").collect();
+                let rest: Vec<String> = args.into_iter().filter(|a| a != "--new-window").collect();
                 handle_launch_args(app, rest, Some(&cwd));
                 return;
             }
@@ -275,6 +306,8 @@ pub fn run() {
             fs::grep::fs_glob,
             fs::watch::fs_watch_start,
             fs::watch::fs_watch_stop,
+            fs::isanagentignore::fs_get_isanagentignore,
+            fs::isanagentignore::fs_set_isanagentignore,
             git::commands::git_resolve_repo,
             git::commands::git_panel_snapshot,
             git::commands::git_status,
@@ -318,6 +351,8 @@ pub fn run() {
             workspace::workspace_authorize,
             workspace::workspace_current_dir,
             get_pending_launches,
+            env_get_flag,
+            open_with,
             open_settings_window,
             // ALTAI — OS taskbar/Dock menu: new window + recent folders
             os_menu::open_new_window,
@@ -341,6 +376,10 @@ pub fn run() {
             proc::proc_kill,
             proc::proc_home_dir,
             proc::proc_which,
+            // ALTAI — MCP server configuration and agent tool bridge
+            mcp::mcp_get_servers,
+            mcp::mcp_save_servers,
+            mcp::mcp_probe_server,
             // ALTAI — managed LSP installer (Phase 1: rust-analyzer working;
             // TS/Python/Go stubbed until Phase 4 lands bundled Node + Go detect)
             lsp_install::lsp_registry_list,
@@ -354,10 +393,14 @@ pub fn run() {
             agent_commands::agent_send,
             agent_commands::agent_approve,
             agent_commands::agent_cancel,
+            agent_commands::agent_list_sessions,
+            agent_commands::agent_get_session_messages,
+            agent_commands::agent_truncate_after_user_message,
             agent_commands::agent_fetch_paper,
             agent_commands::checkpoint_list,
             agent_commands::checkpoint_restore,
             agent_commands::agent_install_skill,
+            agent_commands::agent_list_skills,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -390,11 +433,15 @@ mod tests {
 
         let folder_payload = payloads.iter().find(|p| p.kind == "folder").unwrap();
         assert_eq!(folder_payload.paths.len(), 1);
-        assert!(folder_payload.paths[0].replace("\\\\", "/").contains("test_folder"));
+        assert!(folder_payload.paths[0]
+            .replace("\\\\", "/")
+            .contains("test_folder"));
 
         let file_payload = payloads.iter().find(|p| p.kind == "file").unwrap();
         assert_eq!(file_payload.paths.len(), 1);
-        assert!(file_payload.paths[0].replace("\\\\", "/").contains("test_file.txt"));
+        assert!(file_payload.paths[0]
+            .replace("\\\\", "/")
+            .contains("test_file.txt"));
     }
 
     #[test]

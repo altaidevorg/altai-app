@@ -14,6 +14,7 @@ import { useAgentsStore } from "./agentsStore";
 import { useTodosStore } from "./todoStore";
 import type { AgentUsage } from "../lib/provider";
 import {
+  resolveCompactionSpec,
   resolveFallbackSpec,
   resolveIsanAgentTarget,
 } from "../lib/isanagentTarget";
@@ -23,15 +24,22 @@ import {
   deriveTitle,
   loadAll,
   loadMessages,
+  mergeBackendSessions,
   newSessionId,
   saveActiveId,
+  saveDeletedIds,
   saveMessages,
   saveSessionsList,
   type SessionMeta,
 } from "../lib/sessions";
 import { pushRecentModel } from "../lib/modelPrefs";
 import { appendBackgroundMessage } from "../lib/backgroundTranscript";
+import {
+  combineAgentInstructions,
+  readProjectInstructions,
+} from "../lib/projectInstructions";
 import { effectivePermissionMode, setDefaultModel } from "@/modules/settings/store";
+import type { AssignmentRunConfig } from "@/modules/github/lib/assignments";
 
 type Live = {
   getCwd: () => string | null;
@@ -60,10 +68,38 @@ export type SubagentTask = {
   agentName: string | null;
 };
 
+/** An action awaiting a user decision, mirrored from the native event stream. */
+export type PendingApproval = {
+  id: string;
+  action: string;
+  payload: unknown;
+};
+
+/** A compact, current-session audit trail for the task inspector. */
+export type AgentActivity = {
+  id: string;
+  label: string;
+  detail?: string;
+  kind?: "tool" | "research" | "mcp" | "execution" | "agent" | "approval" | "system";
+  tone?: "default" | "success" | "warning" | "error";
+  createdAt: number;
+};
+
+/** A file or result emitted by a runtime experiment, available to inspect. */
+export type AgentArtifact = {
+  id: string;
+  path: string;
+  experimentId: string;
+  createdAt: number;
+};
+
 export type AgentMeta = {
   status: AgentRunStatus;
   step: string | null;
   approvalsPending: number;
+  pendingApprovals: PendingApproval[];
+  activity: AgentActivity[];
+  artifacts: AgentArtifact[];
   error: string | null;
   tokens: AgentUsage;
   lastInputTokens: number;
@@ -82,6 +118,9 @@ const IDLE_META: AgentMeta = {
   status: "idle",
   step: null,
   approvalsPending: 0,
+  pendingApprovals: [],
+  activity: [],
+  artifacts: [],
   error: null,
   tokens: ZERO_USAGE,
   lastInputTokens: 0,
@@ -148,6 +187,12 @@ type StoreState = {
   addSubagentTask: (task: SubagentTask) => void;
   /** Drop a subagent task once it reaches a terminal state. */
   removeSubagentTask: (taskId: string) => void;
+  /** Mirror a native approval request so it can be actioned outside the transcript. */
+  addApproval: (approval: PendingApproval) => void;
+  removeApproval: (approvalId: string) => void;
+  /** Add a bounded item to the focused task's in-memory activity timeline. */
+  addActivity: (activity: Omit<AgentActivity, "id" | "createdAt">) => void;
+  addArtifacts: (input: { experimentId: string; paths: string[] }) => void;
 
   /** Messages from the IsanAgent runtime, rendered as UIMessage parts. */
   nativeMessages: UIMessage[];
@@ -227,6 +272,10 @@ const pendingPersist = new Map<
 // skips these once — re-writing a thread we just read back is pure waste.
 const loadedMessagesRefs = new WeakSet<UIMessage[]>();
 
+// Sessions the user permanently deleted. Kept out of the history list and
+// used to suppress backend recovery so a deleted chat doesn't resurrect.
+const deletedSessionIds = new Set<string>();
+
 // Fingerprint of the runtime config we last successfully started. Lets us skip
 // the per-message `agent_start` IPC when nothing changed (the Rust side no-ops
 // on an identical fingerprint anyway). Reset to null on any start/send failure
@@ -289,7 +338,30 @@ export const useChatStore = create<StoreState>((set, get) => ({
   setLive: (live) => set({ live }),
 
   respondToApproval: (approvalId, approved) => {
-    void native.agentApprove(approvalId, approved);
+    const approval = get().agentMeta.pendingApprovals.find(
+      (item) => item.id === approvalId,
+    );
+    get().removeApproval(approvalId);
+    get().addActivity({
+      label: approved ? "Approved action" : "Denied action",
+      detail: approval?.action,
+      tone: approved ? "success" : "warning",
+    });
+    void native.agentApprove(approvalId, approved).catch((cause) => {
+      if (approval) {
+        get().addApproval(approval);
+      }
+
+      get().addActivity({
+        label: "Approval response failed",
+        detail: cause instanceof Error ? cause.message : String(cause),
+        tone: "error",
+      });
+      get().patchAgentMeta({
+        status: "error",
+        error: cause instanceof Error ? cause.message : String(cause),
+      });
+    });
   },
 
   apiKeys: { ...EMPTY_PROVIDER_KEYS },
@@ -400,6 +472,70 @@ export const useChatStore = create<StoreState>((set, get) => ({
         ),
       },
     })),
+  addApproval: (approval) =>
+    set((s) => {
+      if (s.agentMeta.pendingApprovals.some((item) => item.id === approval.id)) {
+        return {};
+      }
+      const pendingApprovals = [...s.agentMeta.pendingApprovals, approval];
+      return {
+        agentMeta: {
+          ...s.agentMeta,
+          status: "awaiting-approval",
+          pendingApprovals,
+          approvalsPending: pendingApprovals.length,
+        },
+      };
+    }),
+  removeApproval: (approvalId) =>
+    set((s) => {
+      const pendingApprovals = s.agentMeta.pendingApprovals.filter(
+        (item) => item.id !== approvalId,
+      );
+      return {
+        agentMeta: {
+          ...s.agentMeta,
+          pendingApprovals,
+          approvalsPending: pendingApprovals.length,
+          status:
+            pendingApprovals.length === 0 && s.agentMeta.status === "awaiting-approval"
+              ? "thinking"
+              : s.agentMeta.status,
+        },
+      };
+    }),
+  addActivity: (activity) =>
+    set((s) => {
+      const next = [
+        ...s.agentMeta.activity,
+        {
+          ...activity,
+          id: `activity-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          createdAt: Date.now(),
+        },
+      ].slice(-80);
+      return { agentMeta: { ...s.agentMeta, activity: next } };
+    }),
+  addArtifacts: ({ experimentId, paths }) =>
+    set((s) => {
+      const existing = new Set(s.agentMeta.artifacts.map((item) => item.id));
+      const additions = paths
+        .filter((path) => path.trim().length > 0)
+        .map((path, index) => ({
+          id: `${experimentId}:${path}:${index}`,
+          path,
+          experimentId,
+          createdAt: Date.now(),
+        }))
+        .filter((item) => !existing.has(item.id));
+      if (!additions.length) return {};
+      return {
+        agentMeta: {
+          ...s.agentMeta,
+          artifacts: [...s.agentMeta.artifacts, ...additions].slice(-80),
+        },
+      };
+    }),
 
   nativeMessages: [],
   currentAssistantTurnId: null,
@@ -535,34 +671,65 @@ export const useChatStore = create<StoreState>((set, get) => ({
 
   hydrateSessions: async () => {
     if (get().sessionsHydrated) return;
-    const { sessions } = await loadAll();
+    let { sessions, activeId, deletedIds } = await loadAll();
+    deletedSessionIds.clear();
+    for (const id of deletedIds) deletedSessionIds.add(id);
 
-    // Reuse the most recent untitled "New chat" session if one exists from
-    // the previous run — no point stacking empty placeholder sessions every
-    // launch. Otherwise prepend a fresh one.
-    const reusable = sessions[0]?.title === "New chat" ? sessions[0] : null;
+    // Reconcile with the backend memory DB — the durable source of truth.
+    // Chats that were closed (dropped from this ephemeral store) but still
+    // exist in the agent's history are recovered here so they reappear in the
+    // chat-history list (Claude Code / Cursor behavior). Best-effort:
+    // a backend error must not block hydration. Permanently-deleted ids are
+    // suppressed so they don't come back.
+    const { merged, recoveredIds } = await mergeBackendSessions(
+      sessions,
+      [...deletedSessionIds],
+    );
+    sessions = merged;
+    if (recoveredIds.length > 0) {
+      void saveSessionsList(merged);
+    }
+
+    // Pick the session to land on after restart. Prefer the last-used one
+    // (persisted activeId) if it still exists, so the user returns to their
+    // most recent conversation instead of an empty "New chat". Else reuse the
+    // most recent untitled "New chat" (no point stacking empty placeholders
+    // every launch), else create a fresh one.
+    let active =
+      (activeId ? sessions.find((s) => s.id === activeId) : undefined) ?? null;
+    if (!active && sessions[0]?.title === "New chat") {
+      active = sessions[0];
+    }
     let nextSessions: SessionMeta[];
-    let freshId: string;
-    if (reusable) {
+    if (active) {
       nextSessions = sessions;
-      freshId = reusable.id;
     } else {
-      freshId = newSessionId();
-      const fresh: SessionMeta = {
-        id: freshId,
+      active = {
+        id: newSessionId(),
         title: "New chat",
         createdAt: Date.now(),
         updatedAt: Date.now(),
       };
-      nextSessions = [fresh, ...sessions];
+      nextSessions = [active, ...sessions];
       void saveSessionsList(nextSessions);
     }
-    void saveActiveId(freshId);
+    const activeSessionId = active.id;
+    void saveActiveId(activeSessionId);
 
     set({
       sessions: nextSessions,
-      activeSessionId: freshId,
+      activeSessionId,
       sessionsHydrated: true,
+    });
+
+    // Restore the active session's thread so the conversation reappears on
+    // reopen instead of an empty transcript. Guarded so a manual switch that
+    // lands elsewhere before this resolves wins (same shape as switchSession).
+    void loadMessages(activeSessionId).then((m) => {
+      if (get().activeSessionId !== activeSessionId) return;
+      const loaded = m ?? [];
+      loadedMessagesRefs.add(loaded);
+      set({ nativeMessages: loaded });
     });
   },
 
@@ -651,6 +818,10 @@ export const useChatStore = create<StoreState>((set, get) => ({
     }
     void deleteSessionData(id);
     void useTodosStore.getState().clearSession(id);
+    // Permanent delete: blocklist the id so the backend recovery pass on the
+    // next launch doesn't resurrect this chat from the durable memory DB.
+    deletedSessionIds.add(id);
+    void saveDeletedIds([...deletedSessionIds]);
 
     if (remaining.length === 0) {
       const fresh: SessionMeta = {
@@ -731,6 +902,131 @@ useChatStore.subscribe((state, prev) => {
   persistNativeMessages(id, state.nativeMessages);
 });
 
+/** Plain-text body of a user message (text parts joined). */
+function userMessageText(m: UIMessage): string {
+  return m.parts
+    .filter((p): p is { type: "text"; text: string } => p.type === "text")
+    .map((p) => p.text)
+    .join("\n")
+    .trim();
+}
+
+/**
+ * Keep the transcript through the `keep`-th user message (1-based, inclusive),
+ * drop everything after it. `keep <= 0` returns an empty thread. If the thread
+ * has fewer than `keep` user messages, returns the whole thread unchanged
+ * (matches the backend no-op). Mirrors `TruncateAfterUserMessage` so the
+ * frontend transcript stays in sync after a rewind.
+ */
+function cutThroughNthUser(messages: UIMessage[], keep: number): UIMessage[] {
+  if (keep <= 0) return [];
+  let seen = 0;
+  for (let i = 0; i < messages.length; i++) {
+    if (messages[i].role === "user") seen++;
+    if (seen >= keep) return messages.slice(0, i + 1);
+  }
+  return messages.slice();
+}
+
+/**
+ * Rewind the active chat to `keepUserMessages` user turns on the backend (the
+ * durable source of truth), mirror the trim on the frontend, then resend `text`
+ * as a fresh user turn. Powers conversation retry / edit — the backend owns the
+ * history, so the discard has to happen there before the resend.
+ *
+ * Returns sendMessage's result (false if dispatch failed). A failed backend
+ * rewind aborts without touching the frontend transcript.
+ */
+async function rewindAndResend(
+  sessionId: string,
+  keepUserMessages: number,
+  text: string,
+): Promise<boolean> {
+  const workspacePath = currentWorkspaceFolder() ?? undefined;
+  // Stop any in-flight run first so its events don't land on the trimmed thread.
+  try {
+    await native.agentCancel(sessionId);
+  } catch {
+    /* best-effort: an idle chat has nothing to cancel */
+  }
+  try {
+    await native.agentTruncateAfterUserMessage(
+      sessionId,
+      keepUserMessages,
+      workspacePath,
+    );
+  } catch (cause) {
+    useChatStore.getState().addActivity({
+      label: "Failed to modify history",
+      detail: cause instanceof Error ? cause.message : String(cause),
+      tone: "error",
+    });
+    return false;
+  }
+  const cut = cutThroughNthUser(
+    useChatStore.getState().nativeMessages,
+    keepUserMessages,
+  );
+  useChatStore.setState({
+    nativeMessages: cut,
+    currentAssistantTurnId: null,
+    pendingChoices: null,
+    agentMeta: IDLE_META,
+  });
+  // Force-flush so a crash before the debounce can't leave the frontend store
+  // holding the pre-rewind (longer) thread while the backend already rewound.
+  flushPersist(sessionId);
+  return sendMessage(text);
+}
+
+/**
+ * Regenerate the assistant's last response: rewind the active chat to just
+ * before its last user message and resend that message as a fresh turn.
+ */
+export async function retryLastMessage(): Promise<boolean> {
+  const { nativeMessages, activeSessionId } = useChatStore.getState();
+  if (!activeSessionId) return false;
+  let lastUserId: string | null = null;
+  let userCount = 0;
+  for (const m of nativeMessages) {
+    if (m.role === "user") {
+      userCount++;
+      lastUserId = m.id;
+    }
+  }
+  if (!lastUserId || userCount === 0) return false;
+  const lastUser = nativeMessages.find((m) => m.id === lastUserId);
+  const text = lastUser ? userMessageText(lastUser) : "";
+  if (!text.trim()) return false;
+  return rewindAndResend(activeSessionId, userCount - 1, text);
+}
+
+/**
+ * Edit a previous user message and resend: rewind to just before it, then send
+ * the edited text as a fresh user turn. Everything after the edited message
+ * (its old response and any later turns) is discarded.
+ */
+export async function editUserMessage(
+  messageId: string,
+  text: string,
+): Promise<boolean> {
+  const { nativeMessages, activeSessionId } = useChatStore.getState();
+  if (!activeSessionId) return false;
+  const trimmed = text.trim();
+  if (!trimmed) return false;
+  let userIndex = 0;
+  let found = false;
+  for (const m of nativeMessages) {
+    if (m.role === "user") userIndex++;
+    if (m.id === messageId) {
+      found = true;
+      break;
+    }
+  }
+  if (!found || userIndex === 0) return false;
+  return rewindAndResend(activeSessionId, userIndex - 1, trimmed);
+}
+
 export function getAgentMeta(): AgentMeta {
   return useChatStore.getState().agentMeta;
 }
@@ -774,7 +1070,8 @@ async function sendViaIsanAgent(
   // the user's selection — pick a model in the UI and IsanAgent now
   // actually targets it.
   const prefs = usePreferencesStore.getState();
-  const resolution = resolveIsanAgentTarget(store.selectedModelId, store.apiKeys, {
+  const selectedModelId = store.selectedModelId;
+  const resolution = resolveIsanAgentTarget(selectedModelId, store.apiKeys, {
     lmstudioBaseURL: prefs.lmstudioBaseURL,
     lmstudioModelId: prefs.lmstudioModelId,
     mlxBaseURL: prefs.mlxBaseURL,
@@ -794,12 +1091,15 @@ async function sendViaIsanAgent(
   // yet reapply — that needs a runtime restart and lives in a follow-up.
   const agentsState = useAgentsStore.getState();
   const activeAgent = agentsState.all().find((a) => a.id === agentsState.activeId);
-  const instructions = activeAgent?.instructions?.trim() || undefined;
 
   // IsanAgent roots its workspace (memory/sandbox/config) at
   // `<workspaceFolder>/.isanagent`. Passing it keeps each project's agent
   // state with the project instead of under ~/.isanagent.
   const workspacePath = currentWorkspaceFolder() ?? undefined;
+  const instructions = combineAgentInstructions(
+    activeAgent?.instructions?.trim() || undefined,
+    await readProjectInstructions(workspacePath),
+  );
 
   // The active permission mode gates code-exec / destructive-shell in the
   // runtime (maps to IsanAgent's shell policy). Mirror the switcher's guard:
@@ -822,10 +1122,25 @@ async function sendViaIsanAgent(
     openaiCompatibleModelId: prefs.openaiCompatibleModelId,
   });
 
+  // Context-condensing config. Threshold percent → tokens via the active
+  // model's context window (percent wins when set). Threaded end-to-end so
+  // a Settings change rebuilds the runtime on next send (the Rust side
+  // fingerprints it).
+  const compaction = resolveCompactionSpec(
+    {
+      compactionAuto: prefs.compactionAuto,
+      compactionThresholdPercent: prefs.compactionThresholdPercent,
+      compactionThresholdTokens: prefs.compactionThresholdTokens,
+      compactionTailTurns: prefs.compactionTailTurns,
+    },
+    selectedModelId,
+    prefs.openaiCompatibleContextLimit,
+  );
+
   // Only (re)start the runtime when the target config actually changes —
   // avoids a redundant IPC round-trip on every message. Mirrors the fields
   // the Rust runtime fingerprints (provider, key, model, base URL, persona,
-  // workspace root).
+  // workspace root, permission mode, compaction).
   const startFingerprint = JSON.stringify([
     providerName,
     apiKey,
@@ -834,6 +1149,9 @@ async function sendViaIsanAgent(
     instructions ?? "",
     workspacePath ?? "",
     permissionMode,
+    compaction.auto,
+    compaction.thresholdTokens,
+    compaction.tailTurns,
   ]);
   if (startFingerprint !== lastStartFingerprint) {
     try {
@@ -845,6 +1163,7 @@ async function sendViaIsanAgent(
         baseUrl,
         workspacePath,
         permissionMode,
+        compaction,
       });
       lastStartFingerprint = startFingerprint;
     } catch (e) {
@@ -857,6 +1176,7 @@ async function sendViaIsanAgent(
     }
   }
 
+  store.addActivity({ label: "Sent a task to ALTAI" });
   store.patchAgentMeta({ status: "thinking", step: "Sending to ALTAI..." });
 
   // Echo the clean user message locally (no env preamble in the transcript).
@@ -883,6 +1203,7 @@ async function sendViaIsanAgent(
       workspacePath,
       permissionMode,
       fallback,
+      compaction,
     });
     return true;
   } catch (e) {
@@ -890,6 +1211,11 @@ async function sendViaIsanAgent(
     // rejects (e.g. the runtime died between start and send). Drop the start
     // fingerprint so the next message re-initializes the runtime.
     lastStartFingerprint = null;
+    store.addActivity({
+      label: "Task could not be sent",
+      detail: e instanceof Error ? e.message : String(e),
+      tone: "error",
+    });
     store.patchAgentMeta({
       status: "error",
       error: e instanceof Error ? e.message : String(e),
@@ -902,10 +1228,12 @@ async function sendViaIsanAgent(
 export async function dispatchToSession(
   text: string,
   chatId: string,
+  runConfig?: AssignmentRunConfig,
 ): Promise<boolean> {
   const store = useChatStore.getState();
   const prefs = usePreferencesStore.getState();
-  const resolution = resolveIsanAgentTarget(store.selectedModelId, store.apiKeys, {
+  const selectedModelId = runConfig?.modelId ?? store.selectedModelId;
+  const resolution = resolveIsanAgentTarget(selectedModelId, store.apiKeys, {
     lmstudioBaseURL: prefs.lmstudioBaseURL,
     lmstudioModelId: prefs.lmstudioModelId,
     mlxBaseURL: prefs.mlxBaseURL,
@@ -917,13 +1245,26 @@ export async function dispatchToSession(
   const { providerName, apiKey, modelName, baseUrl } = resolution.target;
 
   const agentsState = useAgentsStore.getState();
-  const activeAgent = agentsState.all().find((a) => a.id === agentsState.activeId);
-  const instructions = activeAgent?.instructions?.trim() || undefined;
+  const activeAgent = agentsState.all().find((a) => a.id === (runConfig?.agentId ?? agentsState.activeId));
   const workspacePath = currentWorkspaceFolder() ?? undefined;
+  const instructions = combineAgentInstructions(
+    activeAgent?.instructions?.trim() || undefined,
+    await readProjectInstructions(workspacePath),
+  );
 
   // The config routes this chat to its own runtime instance — so this
   // background run can be on a different model than the focused chat (or other
   // assignments) and run concurrently without tearing anything down.
+  const compaction = resolveCompactionSpec(
+    {
+      compactionAuto: prefs.compactionAuto,
+      compactionThresholdPercent: prefs.compactionThresholdPercent,
+      compactionThresholdTokens: prefs.compactionThresholdTokens,
+      compactionTailTurns: prefs.compactionTailTurns,
+    },
+    selectedModelId,
+    prefs.openaiCompatibleContextLimit,
+  );
   const config = {
     providerName,
     apiKey,
@@ -931,6 +1272,10 @@ export async function dispatchToSession(
     instructions,
     baseUrl,
     workspacePath,
+    permissionMode: effectivePermissionMode(
+      runConfig?.permissionMode ?? prefs.permissionMode,
+      prefs.bypassPermissionsEnabled,
+    ),
     // Configured failover model — same per-send failover policy as the focused
     // chat; null when none is set or it can't be resolved.
     fallback: resolveFallbackSpec(prefs.fallbackModelId, store.apiKeys, {
@@ -941,6 +1286,7 @@ export async function dispatchToSession(
       openaiCompatibleBaseURL: prefs.openaiCompatibleBaseURL,
       openaiCompatibleModelId: prefs.openaiCompatibleModelId,
     }),
+    compaction,
   };
 
   // Persist the seed as the session's opening message (so "Open transcript"

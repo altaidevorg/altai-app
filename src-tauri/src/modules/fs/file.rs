@@ -6,6 +6,7 @@ use serde::Serialize;
 use tauri::Emitter;
 use tempfile::NamedTempFile;
 
+use super::isanagentignore;
 use crate::modules::workspace::{resolve_path, WorkspaceEnv};
 
 const MAX_READ_BYTES: u64 = 10 * 1024 * 1024; // 10 MB
@@ -44,9 +45,16 @@ pub struct FileStat {
 }
 
 #[tauri::command]
-pub fn fs_read_file(path: String, workspace: Option<WorkspaceEnv>) -> Result<ReadResult, String> {
+pub fn fs_read_file(
+    path: String,
+    workspace: Option<WorkspaceEnv>,
+    enforce_isanagentignore: Option<bool>,
+) -> Result<ReadResult, String> {
     let workspace = WorkspaceEnv::from_option(workspace);
     let p = resolve_path(&path, &workspace);
+    if enforce_isanagentignore.unwrap_or(false) && isanagentignore::is_ignored(&p, false) {
+        return Err(format!("blocked by .isanagentignore: {}", p.display()));
+    }
     let meta = std::fs::metadata(&p).map_err(|e| {
         log::debug!("fs_read_file stat({}) failed: {e}", p.display());
         e.to_string()
@@ -87,7 +95,7 @@ struct FileWrittenEvent {
 
 /// Atomic write via O_EXCL tempfile in the target's parent, then rename.
 /// The random suffix is what blocks pre-staged symlink attacks.
-fn write_atomic(target: &Path, content: &[u8]) -> std::io::Result<()> {
+pub(crate) fn write_atomic(target: &Path, content: &[u8]) -> std::io::Result<()> {
     let parent = target.parent().ok_or_else(|| {
         std::io::Error::new(std::io::ErrorKind::InvalidInput, "path has no parent")
     })?;
@@ -104,10 +112,14 @@ pub fn fs_write_file(
     content: String,
     workspace: Option<WorkspaceEnv>,
     source: Option<String>,
+    enforce_isanagentignore: Option<bool>,
     app: tauri::AppHandle,
 ) -> Result<(), String> {
     let workspace = WorkspaceEnv::from_option(workspace);
     let target = resolve_path(&path, &workspace);
+    if enforce_isanagentignore.unwrap_or(false) && isanagentignore::is_ignored(&target, false) {
+        return Err(format!("blocked by .isanagentignore: {}", target.display()));
+    }
 
     write_atomic(&target, content.as_bytes()).map_err(|e| {
         log::warn!("fs_write_file({}) failed: {e}", target.display());
@@ -138,9 +150,16 @@ pub fn fs_canonicalize(path: String, workspace: Option<WorkspaceEnv>) -> Result<
 }
 
 #[tauri::command]
-pub fn fs_stat(path: String, workspace: Option<WorkspaceEnv>) -> Result<FileStat, String> {
+pub fn fs_stat(
+    path: String,
+    workspace: Option<WorkspaceEnv>,
+    enforce_isanagentignore: Option<bool>,
+) -> Result<FileStat, String> {
     let workspace = WorkspaceEnv::from_option(workspace);
     let p = resolve_path(&path, &workspace);
+    if enforce_isanagentignore.unwrap_or(false) && isanagentignore::is_ignored(&p, false) {
+        return Err(format!("blocked by .isanagentignore: {}", p.display()));
+    }
     let meta = std::fs::metadata(&p).map_err(|e| e.to_string())?;
     let kind = if meta.is_dir() {
         StatKind::Dir

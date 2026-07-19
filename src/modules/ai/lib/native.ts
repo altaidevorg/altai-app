@@ -6,6 +6,25 @@ export type ReadResult =
   | { kind: "binary"; size: number }
   | { kind: "toolarge"; size: number; limit: number };
 
+export type BackendChatMessage = {
+  role: string;
+  content?: string | null;
+  name?: string | null;
+  tool_calls?: Array<{
+    id: string;
+    type: string;
+    function: { name: string; arguments: string };
+  }> | null;
+  tool_call_id?: string | null;
+  reasoning_content?: string | null;
+};
+
+export type BackendSessionInfo = {
+  id: string;
+  updatedAt: number;
+  title: string;
+};
+
 export type DirEntry = {
   name: string;
   kind: "file" | "dir" | "symlink";
@@ -42,6 +61,7 @@ export type GrepResponse = {
 
 export type GlobHit = { path: string; rel: string };
 export type GlobResponse = { hits: GlobHit[]; truncated: boolean };
+export type WorkspaceFilesResult = { files: string[]; truncated: boolean };
 
 export type GitRepoInfo = {
   repoRoot: string;
@@ -176,6 +196,8 @@ export type CheckpointInfo = {
   existed: boolean;
 };
 
+export type InstalledSkillInfo = { name: string; description: string | null };
+
 export const native = {
   workspaceCurrentDir: () => invoke<string>("workspace_current_dir"),
   /** Mirror the recent-folders list into the OS taskbar/Dock menu. */
@@ -186,31 +208,84 @@ export const native = {
       path,
       workspace: currentWorkspaceEnv(),
     }),
-  readFile: (path: string) =>
+  listWorkspaceFiles: (root: string) =>
+    invoke<WorkspaceFilesResult>("fs_list_files", {
+      root,
+      workspace: currentWorkspaceEnv(),
+    }),
+  readFile: (
+    path: string,
+    opts?: { enforceIsanagentignore?: boolean },
+  ) =>
     invoke<ReadResult>("fs_read_file", {
       path,
       workspace: currentWorkspaceEnv(),
+      enforceIsanagentignore: opts?.enforceIsanagentignore ?? false,
     }),
-  writeFile: (path: string, content: string) =>
+  writeFile: (
+    path: string,
+    content: string,
+    opts?: { enforceIsanagentignore?: boolean; source?: string },
+  ) =>
     invoke<void>("fs_write_file", {
       path,
       content,
       workspace: currentWorkspaceEnv(),
+      source: opts?.source ?? null,
+      enforceIsanagentignore: opts?.enforceIsanagentignore ?? false,
     }),
   canonicalize: (path: string) =>
     invoke<string>("fs_canonicalize", {
       path,
       workspace: currentWorkspaceEnv(),
     }),
-  stat: (path: string) =>
+  stat: (
+    path: string,
+    opts?: { enforceIsanagentignore?: boolean },
+  ) =>
     invoke<FileStat>("fs_stat", {
       path,
       workspace: currentWorkspaceEnv(),
+      enforceIsanagentignore: opts?.enforceIsanagentignore ?? false,
     }),
-  createFile: (path: string) =>
-    invoke<void>("fs_create_file", { path, workspace: currentWorkspaceEnv() }),
-  createDir: (path: string) =>
-    invoke<void>("fs_create_dir", { path, workspace: currentWorkspaceEnv() }),
+  createFile: (
+    path: string,
+    opts?: { enforceIsanagentignore?: boolean },
+  ) =>
+    invoke<void>("fs_create_file", {
+      path,
+      workspace: currentWorkspaceEnv(),
+      enforceIsanagentignore: opts?.enforceIsanagentignore ?? false,
+    }),
+  createDir: (
+    path: string,
+    opts?: { enforceIsanagentignore?: boolean },
+  ) =>
+    invoke<void>("fs_create_dir", {
+      path,
+      workspace: currentWorkspaceEnv(),
+      enforceIsanagentignore: opts?.enforceIsanagentignore ?? false,
+    }),
+  rename: (
+    from: string,
+    to: string,
+    opts?: { enforceIsanagentignore?: boolean },
+  ) =>
+    invoke<void>("fs_rename", {
+      from,
+      to,
+      workspace: currentWorkspaceEnv(),
+      enforceIsanagentignore: opts?.enforceIsanagentignore ?? false,
+    }),
+  delete: (
+    path: string,
+    opts?: { enforceIsanagentignore?: boolean },
+  ) =>
+    invoke<void>("fs_delete", {
+      path,
+      workspace: currentWorkspaceEnv(),
+      enforceIsanagentignore: opts?.enforceIsanagentignore ?? false,
+    }),
   // AI tooling never sees dot-prefixed entries regardless of the user's
   // explorer preference — keeps .git / .env / .ssh out of agent context.
   readDir: (path: string) =>
@@ -444,6 +519,13 @@ export const native = {
     workspacePath?: string;
     /// "ask" | "auto-edit" | "bypass" — gates code-exec/destructive-shell in the runtime.
     permissionMode?: string;
+    /// Context-condensing config. When omitted, the runtime keeps the
+    /// isanagent crate's built-in defaults.
+    compaction?: {
+      auto: boolean;
+      thresholdTokens: number;
+      tailTurns: number;
+    } | null;
   }) => invoke<void>("agent_start", params),
   agentSend: (
     message: string,
@@ -470,6 +552,13 @@ export const native = {
         apiKey: string;
         modelName: string;
       } | null;
+      /// Context-condensing config. When omitted, the runtime keeps the
+      /// isanagent crate's built-in defaults.
+      compaction?: {
+        auto: boolean;
+        thresholdTokens: number;
+        tailTurns: number;
+      } | null;
     },
   ) =>
     invoke<void>("agent_send", {
@@ -484,8 +573,49 @@ export const native = {
       workspacePath: config.workspacePath,
       permissionMode: config.permissionMode,
       fallback: config.fallback ?? null,
+      compaction: config.compaction ?? null,
     }),
   agentCancel: (chatId?: string) => invoke<void>("agent_cancel", { chatId }),
+  /**
+   * List every chat session the backend memory DB knows about for the active
+   * workspace — including chats that were closed and dropped from the ephemeral
+   * `altai-ai-sessions.json`. The frontend reconciles its history list against
+   * this on hydration so closed chats reappear (Claude Code / Cursor behavior:
+   * the durable backend store is the source of truth).
+   */
+  agentListSessions: (workspacePath?: string) =>
+    invoke<BackendSessionInfo[]>("agent_list_sessions", { workspacePath: workspacePath ?? null }),
+  /**
+   * Load the full message history for one chat from the backend memory DB.
+   * Returns raw OpenAI-style messages ({role, content, tool_calls, ...}); the
+   * caller maps them to UIMessage. Used to hydrate a reopened (previously-closed)
+   * chat so it renders its real conversation instead of an empty thread.
+   */
+  agentGetSessionMessages: (chatId: string, workspacePath?: string) =>
+    invoke<BackendChatMessage[]>("agent_get_session_messages", {
+      chatId,
+      workspacePath: workspacePath ?? null,
+    }),
+  /**
+   * Rewind a chat's backend history to the `keepUserMessages`-th user message
+   * (1-based): keep everything up to and including it, delete the rest. Returns
+   * the deleted row count. `keepUserMessages === 0` wipes the whole thread.
+   *
+   * Backs frontend conversation edit / retry / checkpoint-rollback — the
+   * durable history lives in the backend, so the rewind happens there.
+   */
+  agentTruncateAfterUserMessage: (
+    chatId: string,
+    keepUserMessages: number,
+    workspacePath?: string,
+  ) =>
+    invoke<number>("agent_truncate_after_user_message", {
+      chatId,
+      keepUserMessages,
+      workspacePath: workspacePath ?? null,
+    }),
+
+
   agentApprove: (approvalId: string, approved: boolean) =>
     invoke<void>("agent_approve", { approvalId, approved }),
   /** List pre-edit checkpoints (newest first) for one-step undo of agent edits. */
@@ -499,6 +629,8 @@ export const native = {
    */
   agentInstallSkill: (repoUrl: string, workspacePath?: string, skill?: string) =>
     invoke<string[]>("agent_install_skill", { workspacePath, repoUrl, skill }),
+  agentListSkills: (workspacePath?: string) =>
+    invoke<InstalledSkillInfo[]>("agent_list_skills", { workspacePath }),
   gitClone: (url: string, destParent: string) =>
     invoke<string>("git_clone", { url, destParent }),
   githubDeviceStart: () => invoke<GitHubDeviceCode>("github_device_start"),
@@ -529,5 +661,21 @@ export const native = {
       method,
       path,
       body,
+    }),
+  /**
+   * Read the workspace's `.isanagentignore` contents. Returns `null` when no
+   * file exists (distinct from an empty file).
+   */
+  getisanagentignore: (workspacePath?: string) =>
+    invoke<string | null>("fs_get_isanagentignore", {
+      workspacePath: workspacePath ?? null,
+      workspace: currentWorkspaceEnv(),
+    }),
+  /** Atomically write the workspace's `.isanagentignore`. */
+  setisanagentignore: (content: string, workspacePath?: string) =>
+    invoke<void>("fs_set_isanagentignore", {
+      workspacePath: workspacePath ?? null,
+      content,
+      workspace: currentWorkspaceEnv(),
     }),
 };

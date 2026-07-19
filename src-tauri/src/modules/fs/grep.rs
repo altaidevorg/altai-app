@@ -8,6 +8,7 @@ use grep_searcher::{BinaryDetection, SearcherBuilder};
 use ignore::{WalkBuilder, WalkState};
 use serde::Serialize;
 
+use super::isanagentignore::IGNORE_FILENAME;
 use super::to_canon;
 use crate::modules::workspace::{resolve_path, WorkspaceEnv};
 
@@ -80,6 +81,7 @@ pub fn fs_grep(
         .ignore(true)
         .parents(true)
         .follow_links(false)
+        .add_custom_ignore_filename(IGNORE_FILENAME)
         .build_parallel();
 
     let hits: Arc<Mutex<Vec<GrepHit>>> = Arc::new(Mutex::new(Vec::new()));
@@ -209,6 +211,7 @@ pub fn fs_glob(
         .ignore(true)
         .parents(true)
         .follow_links(false)
+        .add_custom_ignore_filename(IGNORE_FILENAME)
         .build();
 
     let mut hits: Vec<GlobHit> = Vec::new();

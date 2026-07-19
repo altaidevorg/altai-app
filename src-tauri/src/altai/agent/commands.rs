@@ -1,5 +1,5 @@
-use super::runtime::{self, AgentRuntime};
-use serde::Deserialize;
+use super::runtime::{self, AgentRuntime, CompactionArg};
+use serde::{Deserialize, Serialize};
 use tauri::State;
 
 /// Cross-provider failover spec sent from JS (camelCase) — the model the agent
@@ -40,6 +40,7 @@ pub async fn agent_start(
     base_url: Option<String>,
     workspace_path: Option<String>,
     permission_mode: Option<String>,
+    compaction: Option<CompactionArg>,
 ) -> Result<(), String> {
     let pname = provider_name.unwrap_or_else(|| "gemini".to_string());
     let key = api_key.unwrap_or_default();
@@ -48,10 +49,7 @@ pub async fn agent_start(
         .as_deref()
         .map(str::trim)
         .filter(|s| !s.is_empty());
-    let base = base_url
-        .as_deref()
-        .map(str::trim)
-        .filter(|s| !s.is_empty());
+    let base = base_url.as_deref().map(str::trim).filter(|s| !s.is_empty());
     // The user-selected workspace folder. IsanAgent roots its workspace at
     // `<folder>/.isanagent` so memory/sandbox/config live with the project,
     // not under `~/.isanagent`.
@@ -66,7 +64,18 @@ pub async fn agent_start(
         .map(str::trim)
         .filter(|s| !s.is_empty());
 
-    runtime::start_agent(&state, &pname, &key, &model, persona, base, workspace, permission).await
+    runtime::start_agent(
+        &state,
+        &pname,
+        &key,
+        &model,
+        persona,
+        base,
+        workspace,
+        permission,
+        compaction.as_ref(),
+    )
+    .await
 }
 
 /// Send a user message, routing it to the runtime instance that owns this
@@ -92,14 +101,24 @@ pub async fn agent_send(
     workspace_path: Option<String>,
     permission_mode: Option<String>,
     fallback: Option<FallbackArg>,
+    compaction: Option<CompactionArg>,
 ) -> Result<(), String> {
     let pname = provider_name.unwrap_or_else(|| "gemini".to_string());
     let key = api_key.unwrap_or_default();
     let model = model_name.unwrap_or_else(|| "gemini-2.5-flash".to_string());
-    let persona = instructions.as_deref().map(str::trim).filter(|s| !s.is_empty());
+    let persona = instructions
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
     let base = base_url.as_deref().map(str::trim).filter(|s| !s.is_empty());
-    let workspace = workspace_path.as_deref().map(str::trim).filter(|s| !s.is_empty());
-    let permission = permission_mode.as_deref().map(str::trim).filter(|s| !s.is_empty());
+    let workspace = workspace_path
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+    let permission = permission_mode
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
     let fb = fallback.map(|f| isanagent::agent::FallbackProviderSpec {
         provider_name: f.provider_name,
         base_url: f.base_url,
@@ -116,6 +135,7 @@ pub async fn agent_send(
         base,
         workspace,
         permission,
+        compaction.as_ref(),
         fb,
         message,
         images.unwrap_or_default(),
@@ -148,6 +168,74 @@ pub async fn agent_cancel(
     chat_id: Option<String>,
 ) -> Result<(), String> {
     runtime::route_cancel(&state, chat_id.unwrap_or_default()).await
+}
+
+/// List all chat sessions persisted in the active workspace's backend memory DB.
+///
+/// This is the reconciliation source for the frontend chat-history list: it
+/// returns every conversation the agent actually ran (keyed by `tauri:<chat_id>:`),
+/// including chats that were closed and dropped from the ephemeral
+/// `altai-ai-sessions.json`. The frontend merges these in on hydration so closed
+/// chats reappear in history — matching Claude Code / Cursor, where the durable
+/// backend store is the source of truth.
+#[tauri::command]
+pub async fn agent_list_sessions(
+    state: State<'_, AgentRuntime>,
+    workspace_path: Option<String>,
+) -> Result<Vec<runtime::SessionInfo>, String> {
+    let ws = workspace_path
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+    runtime::list_sessions(&state, ws).await
+}
+
+/// Load the full message history for a single chat from the backend memory DB.
+///
+/// Counterpart to `agent_list_sessions`: recovers the *contents* of a session so
+/// a reopened (previously-closed) chat renders its real conversation instead of
+/// an empty thread. Returns raw OpenAI-style messages; the frontend maps them to
+/// its UIMessage shape.
+#[tauri::command]
+pub async fn agent_get_session_messages(
+    state: State<'_, AgentRuntime>,
+    chat_id: String,
+    workspace_path: Option<String>,
+) -> Result<Vec<serde_json::Value>, String> {
+    let ws = workspace_path
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+    let messages = runtime::get_session_messages(&state, ws, &chat_id).await?;
+    // ChatMessage is serde::Serialize in the isanagent crate; map to Value here so
+    // the Tauri IPC layer serializes plain JSON objects (stable across versions).
+    messages
+        .into_iter()
+        .map(serde_json::to_value)
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| format!("Failed to serialize messages: {}", e))
+}
+
+/// Rewind a chat's backend history to the N-th user message.
+///
+/// Sends `TruncateAfterUserMessage` to the per-workspace memory actor: keep
+/// everything up to and including the `keep_user_messages`-th user-role message
+/// (1-based, insert order), delete the rest. Returns the number of deleted rows
+/// (`0` is a no-op; `keep_user_messages == 0` wipes the whole thread). This
+/// backs the frontend's conversation edit / retry / checkpoint-rollback — the
+/// durable history lives in the backend, so the rewind must too.
+#[tauri::command]
+pub async fn agent_truncate_after_user_message(
+    state: State<'_, AgentRuntime>,
+    chat_id: String,
+    keep_user_messages: usize,
+    workspace_path: Option<String>,
+) -> Result<usize, String> {
+    let ws = workspace_path
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+    runtime::truncate_after_user_message(&state, ws, &chat_id, keep_user_messages).await
 }
 
 /// Fetch paper metadata directly from the arXiv Atom API.
@@ -250,11 +338,69 @@ pub async fn agent_install_skill(
         .map(str::trim)
         .filter(|s| !s.is_empty())
         .map(|p| format!("{}/.isanagent", p.trim_end_matches('/')));
-    let workspace =
-        isanagent::workspace::IsanagentWorkspace::new(workspace_root.as_deref(), None)?;
+    let workspace = isanagent::workspace::IsanagentWorkspace::new(workspace_root.as_deref(), None)?;
     let mut registry = isanagent::skills::SkillRegistry::new(workspace.skills_path());
     let skill = skill.as_deref().map(str::trim).filter(|s| !s.is_empty());
     registry.install_skills_from_repo(repo, skill).await
+}
+
+/// A lightweight index of skills installed in this workspace. Skills remain
+/// owned and loaded by IsanAgent; this only gives ALTAI a safe UI catalogue.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InstalledSkillInfo {
+    pub name: String,
+    pub description: Option<String>,
+}
+
+#[tauri::command]
+pub fn agent_list_skills(
+    workspace_path: Option<String>,
+) -> Result<Vec<InstalledSkillInfo>, String> {
+    let workspace_root = workspace_path
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(|p| format!("{}/.isanagent", p.trim_end_matches('/')));
+    let workspace = isanagent::workspace::IsanagentWorkspace::new(workspace_root.as_deref(), None)?;
+    let path = workspace.skills_path();
+    let entries = match std::fs::read_dir(&path) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) => return Err(error.to_string()),
+    };
+    let mut skills = entries
+        .flatten()
+        .filter_map(|entry| {
+            let kind = entry.file_type().ok()?;
+            if !kind.is_dir() {
+                return None;
+            }
+            let name = entry.file_name().to_string_lossy().trim().to_string();
+            if name.is_empty() || name.starts_with('.') {
+                return None;
+            }
+            let description = std::fs::read_to_string(entry.path().join("SKILL.md"))
+                .ok()
+                .and_then(|text| skill_description(&text));
+            Some(InstalledSkillInfo { name, description })
+        })
+        .collect::<Vec<_>>();
+    skills.sort_by_key(|skill| skill.name.to_lowercase());
+    Ok(skills)
+}
+
+fn skill_description(text: &str) -> Option<String> {
+    for line in text.lines().take(40) {
+        let trimmed = line.trim();
+        if let Some(value) = trimmed.strip_prefix("description:") {
+            let value = value.trim().trim_matches(['\'', '"']);
+            if !value.is_empty() {
+                return Some(value.chars().take(180).collect());
+            }
+        }
+    }
+    None
 }
 
 fn extract_arxiv_id(url: &str) -> Option<String> {

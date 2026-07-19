@@ -21,6 +21,7 @@ use notify::{Event, RecommendedWatcher, RecursiveMode, Watcher};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, State};
 
+use super::isanagentignore;
 use crate::modules::workspace::{resolve_path, WorkspaceEnv};
 
 /// Quiet period used to coalesce bursts of filesystem events into a single
@@ -55,6 +56,20 @@ fn is_structural(kind: &EventKind) -> bool {
     )
 }
 
+/// True when every path in a structural `notify` event is covered by a
+/// `.isanagentignore` (so the user's editor tree should NOT refresh for it).
+/// Empty path lists fall through as "not all ignored" so we never swallow
+/// events we can't reason about.
+fn all_paths_ignored(event: &Event) -> bool {
+    if event.paths.is_empty() {
+        return false;
+    }
+    event
+        .paths
+        .iter()
+        .all(|p| isanagentignore::is_ignored(p, true))
+}
+
 /// Drains coalesced change ticks and emits one `fs://changed` per quiet burst.
 /// Exits when `rx`'s sender is dropped (i.e. the watcher was replaced/stopped).
 fn run_debounce_loop(app: AppHandle, root: String, rx: Receiver<()>) {
@@ -74,12 +89,7 @@ fn run_debounce_loop(app: AppHandle, root: String, rx: Receiver<()>) {
                 Err(RecvTimeoutError::Disconnected) => return,
             }
         }
-        let _ = app.emit(
-            "fs://changed",
-            FsChangedEvent {
-                root: root.clone(),
-            },
-        );
+        let _ = app.emit("fs://changed", FsChangedEvent { root: root.clone() });
     }
 }
 
@@ -99,7 +109,7 @@ pub fn fs_watch_start(
     let (tx, rx): (Sender<()>, Receiver<()>) = channel();
     let mut watcher = notify::recommended_watcher(move |res: notify::Result<Event>| {
         if let Ok(event) = res {
-            if is_structural(&event.kind) {
+            if is_structural(&event.kind) && !all_paths_ignored(&event) {
                 // Ignore send errors: a closed receiver just means the debounce
                 // thread has already exited (watcher being torn down).
                 let _ = tx.send(());
@@ -132,7 +142,11 @@ pub fn fs_watch_stop(state: State<'_, WatcherState>) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::modules::fs::isanagentignore;
     use notify::event::{CreateKind, DataChange, ModifyKind, RemoveKind, RenameMode};
+    use std::fs;
+    use std::path::PathBuf;
+    use tempfile::tempdir;
 
     #[test]
     fn create_and_remove_are_structural() {
@@ -158,6 +172,42 @@ mod tests {
         assert!(!is_structural(&EventKind::Access(
             notify::event::AccessKind::Read
         )));
+    }
+
+    #[test]
+    fn all_paths_ignored_true_when_every_path_matches_ignore() {
+        let dir = tempdir().unwrap();
+        fs::write(
+            dir.path().join(isanagentignore::IGNORE_FILENAME),
+            "secret*\n",
+        )
+        .unwrap();
+        isanagentignore::invalidate_all();
+        let event = Event::new(EventKind::Create(CreateKind::File));
+        let mut event = event;
+        event.paths = vec![dir.path().join("secret_a"), dir.path().join("secret_b")];
+        assert!(all_paths_ignored(&event));
+    }
+
+    #[test]
+    fn all_paths_ignored_false_when_any_path_is_outside_ignore() {
+        let dir = tempdir().unwrap();
+        fs::write(
+            dir.path().join(isanagentignore::IGNORE_FILENAME),
+            "secret*\n",
+        )
+        .unwrap();
+        isanagentignore::invalidate_all();
+        let mut event = Event::new(EventKind::Create(CreateKind::File));
+        event.paths = vec![dir.path().join("secret"), dir.path().join("readme")];
+        assert!(!all_paths_ignored(&event));
+    }
+
+    #[test]
+    fn all_paths_ignored_false_when_no_paths() {
+        let event = Event::new(EventKind::Create(CreateKind::File));
+        assert!(!all_paths_ignored(&event));
+        let _ = PathBuf::new(); // keep import used even if future edits drop it
     }
 
     /// End-to-end platform check: a real watcher on a temp dir must observe a

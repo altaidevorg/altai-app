@@ -25,6 +25,53 @@ use isanagent::workspace::{resolve_workspace_root, IsanagentWorkspace};
 use isanagent::NodeHandle;
 
 use super::tauri_channel::{map_telemetry_to_event, telemetry_chat_id, TauriChannel};
+use crate::modules::mcp;
+
+/// Context-condensing (compaction) configuration received from the JS layer
+/// (camelCase IPC) and threaded into the isanagent `AgentLogicParams`. The
+/// `auto == false` case is encoded by forcing `threshold_tokens` to
+/// `usize::MAX`, which keeps manual `/compact` working while disabling the
+/// between-turns auto trigger.
+///
+/// Field names match the camelCase wire format (`#[serde(rename_all =
+/// "camelCase")]` → `thresholdTokens`, `tailTurns`).
+#[derive(Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct CompactionArg {
+    pub auto: bool,
+    pub threshold_tokens: usize,
+    pub tail_turns: usize,
+}
+
+impl CompactionArg {
+    /// Resolve the user-facing compaction knobs into the three values
+    /// `AgentLogicParams` actually consumes. `short_term_threshold_turns`
+    /// is kept at the isanagent crate default (20) since the public API
+    /// doesn't expose a per-call override for it.
+    fn to_logic_params(&self) -> (usize, usize, usize) {
+        // (max_recent_summaries, short_term_threshold_turns, short_term_threshold_tokens)
+        let max_recent_summaries = self.tail_turns;
+        let short_term_threshold_turns = 20;
+        // Floor at 8k so a typo (e.g. 0) can't wedge the loop into compacting
+        // every turn; when auto is off, MAX effectively disables the trigger.
+        let short_term_threshold_tokens = if self.auto {
+            self.threshold_tokens.max(8_000)
+        } else {
+            usize::MAX
+        };
+        (
+            max_recent_summaries,
+            short_term_threshold_turns,
+            short_term_threshold_tokens,
+        )
+    }
+
+    /// Compact tuple used in the runtime fingerprint so a compaction-pref
+    /// change rebuilds the instance on next send.
+    fn fingerprint_tuple(&self) -> (bool, usize, usize) {
+        (self.auto, self.threshold_tokens, self.tail_turns)
+    }
+}
 
 /// Serializable agent event surface sent to the frontend.
 /// Stabilize this enum — every change is a breaking downstream contract.
@@ -181,6 +228,17 @@ struct RuntimeFingerprint {
     /// it is part of the fingerprint. Without this, flipping the UI permission toggle would route
     /// to the already-built instance and silently keep the old shell gate.
     permission_mode: String,
+    /// Compaction config tuple `(auto, threshold_tokens, tail_turns)`. Baked
+    /// into `AgentLogic` at construction (isanagent owns the live context),
+    /// so a Settings change must rebuild the instance. `None` keeps the
+    /// isanagent crate's built-in defaults (used by call sites that haven't
+    /// been threaded yet).
+    compaction: Option<(bool, usize, usize)>,
+    /// The raw workspace MCP configuration. MCP tools are discovered while an
+    /// instance is built, so this must participate in identity: saving a
+    /// server in Settings makes the next chat turn build an instance with the
+    /// new tools instead of silently reusing the old tool registry.
+    mcp_config: String,
 }
 
 /// Map the ALTAI UI permission mode to an IsanAgent shell-policy mode for interactive sessions.
@@ -198,10 +256,13 @@ struct RuntimeFingerprint {
 /// `Allow`.
 fn permission_mode_to_shell_mode(mode: Option<&str>) -> Option<ShellPolicyMode> {
     match mode.map(str::trim) {
-        Some("ask") | Some("ask_before_edit") | Some("ask-before-edit") | Some("auto-edit")
-        | Some("auto_edit") | Some("auto") | Some("edit_automatically") => {
-            Some(ShellPolicyMode::Ask)
-        }
+        Some("ask")
+        | Some("ask_before_edit")
+        | Some("ask-before-edit")
+        | Some("auto-edit")
+        | Some("auto_edit")
+        | Some("auto")
+        | Some("edit_automatically") => Some(ShellPolicyMode::Ask),
         Some("bypass") | Some("bypass_permissions") => Some(ShellPolicyMode::Allow),
         _ => None,
     }
@@ -244,6 +305,7 @@ pub fn init(app: AppHandle) -> Result<(), Box<dyn std::error::Error>> {
 }
 
 /// Build the config fingerprint + its resolved workspace root.
+#[allow(clippy::too_many_arguments)]
 fn make_fingerprint(
     provider_name: &str,
     api_key: &str,
@@ -252,10 +314,19 @@ fn make_fingerprint(
     base_url_override: Option<&str>,
     workspace_path: Option<&str>,
     permission_mode: Option<&str>,
+    compaction: Option<&CompactionArg>,
 ) -> RuntimeFingerprint {
     let workspace_root = workspace_path
         .map(|p| format!("{}/.isanagent", p.trim_end_matches('/')))
         .unwrap_or_default();
+    let mcp_config = {
+        let root = if workspace_root.is_empty() {
+            resolve_workspace_root(None)
+        } else {
+            std::path::PathBuf::from(&workspace_root)
+        };
+        std::fs::read_to_string(root.join("mcp.json")).unwrap_or_default()
+    };
     RuntimeFingerprint {
         provider_name: provider_name.to_string(),
         model_name: model_name.to_string(),
@@ -264,6 +335,8 @@ fn make_fingerprint(
         persona: persona_instructions.unwrap_or("").to_string(),
         workspace_root,
         permission_mode: permission_mode.unwrap_or("").to_string(),
+        compaction: compaction.map(|c| c.fingerprint_tuple()),
+        mcp_config,
     }
 }
 
@@ -314,6 +387,7 @@ async fn ensure_instance(
     base_url_override: Option<&str>,
     workspace_path: Option<&str>,
     permission_mode: Option<&str>,
+    compaction: Option<&CompactionArg>,
 ) -> Result<Arc<TauriChannel>, String> {
     let fp = make_fingerprint(
         provider_name,
@@ -323,6 +397,7 @@ async fn ensure_instance(
         base_url_override,
         workspace_path,
         permission_mode,
+        compaction,
     );
     let workspace_root = fp.workspace_root.clone();
 
@@ -353,7 +428,9 @@ async fn ensure_instance(
             .filter(|k| k.workspace_root != workspace_root)
             .cloned()
             .collect();
-        keys.into_iter().filter_map(|k| instances.remove(&k)).collect()
+        keys.into_iter()
+            .filter_map(|k| instances.remove(&k))
+            .collect()
     };
     runtime
         .memory_by_workspace
@@ -383,6 +460,7 @@ async fn ensure_instance(
         base_url_override,
         workspace_root_opt,
         permission_mode,
+        compaction,
     )
     .await?;
 
@@ -417,6 +495,7 @@ pub async fn route_send(
     base_url_override: Option<&str>,
     workspace_path: Option<&str>,
     permission_mode: Option<&str>,
+    compaction: Option<&CompactionArg>,
     fallback: Option<isanagent::agent::FallbackProviderSpec>,
     message: String,
     images: Vec<String>,
@@ -431,6 +510,7 @@ pub async fn route_send(
         base_url_override,
         workspace_path,
         permission_mode,
+        compaction,
     )
     .await?;
 
@@ -472,12 +552,163 @@ pub async fn route_cancel(runtime: &AgentRuntime, chat_id: String) -> Result<(),
     // cancel awaits don't block concurrent sends/cancels on the registry.
     let channels: Vec<Arc<TauriChannel>> = {
         let instances = runtime.instances.lock().await;
-        instances.values().map(|inst| inst.channel.clone()).collect()
+        instances
+            .values()
+            .map(|inst| inst.channel.clone())
+            .collect()
     };
     for channel in channels {
         let _ = channel.cancel(chat_id.clone()).await;
     }
     Ok(())
+}
+
+/// One chat session as known to the backend memory DB (the source of truth for
+/// what conversations have actually happened in this workspace). Returned to
+/// the frontend so it can reconcile its own `altai-ai-sessions.json` list and
+/// surface chats that were closed (dropped from the frontend store) but still
+/// live in the agent memory.
+///
+/// Mirrors `RootThreadListItem` from the isanagent crate, flattened to JSON-
+/// friendly camelCase via `#[serde(rename_all = "camelCase")]`.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionInfo {
+    /// Bare chat id, e.g. `s-mrqa417u-hb75wq` (the `tauri:` channel prefix and
+    /// trailing colon are stripped from the stored `messages.thread_id`).
+    pub id: String,
+    /// Latest activity timestamp, epoch milliseconds (UTC). `0` if unknown.
+    pub updated_at: i64,
+    /// First user message preview (runtime prefix stripped), used as the title.
+    pub title: String,
+}
+
+/// List all chat sessions persisted in this workspace's backend memory DB.
+///
+/// Queries the shared per-workspace memory actor via the isanagent crate's
+/// `ListRootThreadsForChannelWithPreviews` message — the same store the agent
+/// itself uses for history — so the frontend's chat history list reflects what
+/// the backend actually knows, not just what survived in the ephemeral
+/// `altai-ai-sessions.json`. This is the reconciliation path that makes closed
+/// chats reappear in history (Claude Code / Cursor behavior): the backend DB is
+/// the durable source of truth.
+pub async fn list_sessions(
+    runtime: &AgentRuntime,
+    workspace_path: Option<&str>,
+) -> Result<Vec<SessionInfo>, String> {
+    let workspace_root = workspace_path
+        .map(|p| format!("{}/.isanagent", p.trim_end_matches('/')))
+        .unwrap_or_default();
+    let memory_node = ensure_memory(runtime, &workspace_root).await?;
+
+    // Ask the memory actor for all root threads on this channel (`tauri:*`).
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    let reply = isanagent::memory::SharedReply::new(tx);
+    memory_node
+        .send_packet(
+            isanagent::memory::MemoryMessage::ListRootThreadsForChannelWithPreviews {
+                channel: "tauri".to_string(),
+                limit: 200,
+                reply,
+            },
+        )
+        .await
+        .map_err(|e| format!("Failed to query memory actor: {}", e))?;
+
+    let rows = rx
+        .await
+        .map_err(|_| "Memory actor closed before replying".to_string())?
+        .map_err(|e| format!("Memory actor error: {}", e))?;
+
+    // Strip the `tauri:<chat_id>:` envelope → bare chat id.
+    let sessions = rows
+        .into_iter()
+        .map(|r| {
+            let bare_id = r
+                .thread_id
+                .trim_end_matches(':')
+                .split(':')
+                .nth(1)
+                .unwrap_or(&r.thread_id)
+                .to_string();
+            SessionInfo {
+                id: bare_id,
+                updated_at: r.last_activity_ms,
+                title: r.preview,
+            }
+        })
+        .collect();
+    Ok(sessions)
+}
+
+/// Load the full message history for one chat session from the backend memory DB.
+///
+/// Returns the raw stored messages (OpenAI-style role/content/tool_calls) so the
+/// frontend can hydrate a reopened chat with its actual conversation — including
+/// chats that were closed and only survived in the durable backend store. This is
+/// the counterpart to [`list_sessions`]: `list_sessions` recovers the *list*,
+/// this recovers the *contents*.
+pub async fn get_session_messages(
+    runtime: &AgentRuntime,
+    workspace_path: Option<&str>,
+    chat_id: &str,
+) -> Result<Vec<isanagent::utils::ChatMessage>, String> {
+    let workspace_root = workspace_path
+        .map(|p| format!("{}/.isanagent", p.trim_end_matches('/')))
+        .unwrap_or_default();
+    let memory_node = ensure_memory(runtime, &workspace_root).await?;
+
+    // Reconstruct the backend thread_id envelope: `tauri:<chat_id>:`.
+    let thread_id = format!("tauri:{}:", chat_id);
+
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    let reply = isanagent::memory::SharedReply::new(tx);
+    memory_node
+        .send_packet(isanagent::memory::MemoryMessage::GetContext { thread_id, reply })
+        .await
+        .map_err(|e| format!("Failed to query memory actor: {}", e))?;
+
+    rx.await
+        .map_err(|_| "Memory actor closed before replying".to_string())?
+}
+
+/// Rewind a chat's backend history to the N-th user message.
+///
+/// Sends `TruncateAfterUserMessage` to the per-workspace memory actor: keep
+/// everything up to and including the `keep_user_messages`-th user-role row
+/// (1-based, insert order), delete the rest. Returns the number of deleted
+/// rows. `keep_user_messages == 0` wipes the whole thread.
+///
+/// This is the primitive powering frontend conversation edit / retry /
+/// checkpoint-rollback — the backend owns the durable history, so the rewind
+/// has to happen here. Tool-result cache rows for dropped tool_call_ids and
+/// the thread's reflection/summary are cleared in the same transaction.
+pub async fn truncate_after_user_message(
+    runtime: &AgentRuntime,
+    workspace_path: Option<&str>,
+    chat_id: &str,
+    keep_user_messages: usize,
+) -> Result<usize, String> {
+    let workspace_root = workspace_path
+        .map(|p| format!("{}/.isanagent", p.trim_end_matches('/')))
+        .unwrap_or_default();
+    let memory_node = ensure_memory(runtime, &workspace_root).await?;
+
+    let thread_id = format!("tauri:{}:", chat_id);
+
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    let reply = isanagent::memory::SharedReply::new(tx);
+    memory_node
+        .send_packet(isanagent::memory::MemoryMessage::TruncateAfterUserMessage {
+            thread_id,
+            keep_user_messages,
+            reply,
+        })
+        .await
+        .map_err(|e| format!("Failed to rewind memory actor: {}", e))?;
+
+    rx.await
+        .map_err(|_| "Memory actor closed before replying".to_string())?
 }
 
 /// Warm up (or ensure) the instance for a config. Kept for the `agent_start`
@@ -492,6 +723,7 @@ pub async fn start_agent(
     base_url_override: Option<&str>,
     workspace_path: Option<&str>,
     permission_mode: Option<&str>,
+    compaction: Option<&CompactionArg>,
 ) -> Result<(), String> {
     ensure_instance(
         runtime,
@@ -502,6 +734,7 @@ pub async fn start_agent(
         base_url_override,
         workspace_path,
         permission_mode,
+        compaction,
     )
     .await
     .map(|_| ())
@@ -530,6 +763,7 @@ async fn build_instance(
     base_url_override: Option<&str>,
     workspace_root: Option<&str>,
     permission_mode: Option<&str>,
+    compaction: Option<&CompactionArg>,
 ) -> Result<(Arc<TauriChannel>, tokio::sync::oneshot::Sender<()>), String> {
     // Each instance gets its own channel with a unique bootstrap chat_id;
     // actual routing is by per-message chat_id.
@@ -545,10 +779,8 @@ async fn build_instance(
         let _ = std::fs::create_dir_all(workspace_dir.join(".system_generated"));
     }
 
-    let workspace =
-        IsanagentWorkspace::new(workspace_root, None).map_err(|e| {
-            format!("Failed to load IsanAgent workspace: {}", e)
-        })?;
+    let workspace = IsanagentWorkspace::new(workspace_root, None)
+        .map_err(|e| format!("Failed to load IsanAgent workspace: {}", e))?;
 
     // Memory (SQLite) is the shared per-workspace actor passed in by
     // `ensure_instance` — one actor per project, reused across this
@@ -566,7 +798,17 @@ async fn build_instance(
     // Tools
     let mut tools = ToolRegistry::new();
     let restrict = workspace.config.restrict_to_workspace.unwrap_or(true);
-    let sandbox_dir = workspace.sandbox_dir.clone();
+    // Sandbox root is the selected project folder (the parent of `.isanagent`),
+    // matching the industry-standard pattern used by Claude Code, Codex CLI, and
+    // Cline: the agent operates on the project root, NOT a nested
+    // `.isanagent/workspace` subfolder. `workspace.sandbox_dir` resolves to that
+    // nested folder (isanagent crate default), so we override it here. We fall
+    // back to the crate default only when the parent can't be resolved (e.g. the
+    // `~/.isanagent` default with no project selected).
+    let sandbox_dir = workspace_dir
+        .parent()
+        .map(|p| p.to_path_buf())
+        .unwrap_or_else(|| workspace.sandbox_dir.clone());
 
     tools.register(Box::new(ReadFileTool {
         workspace_dir: sandbox_dir.clone(),
@@ -623,9 +865,9 @@ async fn build_instance(
         if isanagent::checkpoint::store().is_none() {
             match app.path().app_data_dir() {
                 Ok(data_dir) => isanagent::checkpoint::init(data_dir.join("checkpoints"), None),
-                Err(e) => log::warn!(
-                    "checkpoint: app data dir unavailable ({e}); edit undo disabled"
-                ),
+                Err(e) => {
+                    log::warn!("checkpoint: app data dir unavailable ({e}); edit undo disabled")
+                }
             }
         }
         // Register the tool on every runtime build (each gets a fresh
@@ -660,6 +902,32 @@ async fn build_instance(
         memory_node: memory_node.clone(),
     }));
 
+    // User-configured MCP servers. Each successful server advertises its
+    // tools through `tools/list`; those tools are registered like ALTAI's
+    // built-ins and therefore participate in the model's native tool-calling
+    // loop. One unavailable optional server must never prevent the agent from
+    // starting, so failures are logged and visible from the MCP settings card.
+    match mcp::load_servers(&sandbox_dir) {
+        Ok(servers) => {
+            for server in servers.into_iter().filter(|server| server.enabled) {
+                match mcp::connect_server(&server, &sandbox_dir).await {
+                    Ok(mcp_tools) => {
+                        log::info!(
+                            "MCP '{}' connected with {} tools",
+                            server.name,
+                            mcp_tools.len()
+                        );
+                        for tool in mcp_tools {
+                            tools.register(Box::new(tool));
+                        }
+                    }
+                    Err(error) => log::warn!("MCP '{}' unavailable: {error}", server.name),
+                }
+            }
+        }
+        Err(error) => log::warn!("MCP configuration skipped: {error}"),
+    }
+
     // Compaction overhaul (upstream isanagent — altaidevorg/isanagent#39). The agent can
     // now schedule a between-turns context compaction via `compact_context`
     // and re-fetch a tool result that fell out of the live context via
@@ -692,51 +960,74 @@ async fn build_instance(
         ));
         let inflight_sync = Arc::new(isanagent::execution::InflightSyncRegistry::new());
 
-        tools.register(Box::new(isanagent::tools::execution::ExecutionSessionCreateTool {
-            harness: harness.clone(),
-        }));
+        tools.register(Box::new(
+            isanagent::tools::execution::ExecutionSessionCreateTool {
+                harness: harness.clone(),
+            },
+        ));
         tools.register(Box::new(isanagent::tools::execution::ExecutionRunTool {
             harness: harness.clone(),
             outbound_tx: global_outbound_tx.clone(),
             jobs: Some(execution_jobs.clone()),
             inflight: Some(inflight_sync.clone()),
         }));
-        tools.register(Box::new(isanagent::tools::execution::ExecutionRunBackgroundTool {
-            harness: harness.clone(),
-            jobs: execution_jobs.clone(),
-        }));
-        tools.register(Box::new(isanagent::tools::execution::ExecutionJobStatusTool {
-            jobs: execution_jobs.clone(),
-        }));
-        tools.register(Box::new(isanagent::tools::execution::ExecutionJobResultTool {
-            jobs: execution_jobs.clone(),
-            max_tool_output_chars: workspace.config.resolved_max_tool_output_chars().unwrap_or(3000),
-        }));
-        tools.register(Box::new(isanagent::tools::execution::ExecutionJobListTool {
-            jobs: execution_jobs.clone(),
-        }));
-        tools.register(Box::new(isanagent::tools::execution::ExecutionJobCancelTool {
-            jobs: execution_jobs.clone(),
-        }));
-        tools.register(Box::new(isanagent::tools::execution::ExecutionArtifactListTool {
-            harness: harness.clone(),
-        }));
-        tools.register(Box::new(isanagent::tools::execution::ExecutionEnvInfoTool {
-            harness: harness.clone(),
-        }));
-        tools.register(Box::new(isanagent::tools::execution::ExecutionSessionCloseTool {
-            harness: harness.clone(),
-        }));
+        tools.register(Box::new(
+            isanagent::tools::execution::ExecutionRunBackgroundTool {
+                harness: harness.clone(),
+                jobs: execution_jobs.clone(),
+            },
+        ));
+        tools.register(Box::new(
+            isanagent::tools::execution::ExecutionJobStatusTool {
+                jobs: execution_jobs.clone(),
+            },
+        ));
+        tools.register(Box::new(
+            isanagent::tools::execution::ExecutionJobResultTool {
+                jobs: execution_jobs.clone(),
+                max_tool_output_chars: workspace
+                    .config
+                    .resolved_max_tool_output_chars()
+                    .unwrap_or(3000),
+            },
+        ));
+        tools.register(Box::new(
+            isanagent::tools::execution::ExecutionJobListTool {
+                jobs: execution_jobs.clone(),
+            },
+        ));
+        tools.register(Box::new(
+            isanagent::tools::execution::ExecutionJobCancelTool {
+                jobs: execution_jobs.clone(),
+            },
+        ));
+        tools.register(Box::new(
+            isanagent::tools::execution::ExecutionArtifactListTool {
+                harness: harness.clone(),
+            },
+        ));
+        tools.register(Box::new(
+            isanagent::tools::execution::ExecutionEnvInfoTool {
+                harness: harness.clone(),
+            },
+        ));
+        tools.register(Box::new(
+            isanagent::tools::execution::ExecutionSessionCloseTool {
+                harness: harness.clone(),
+            },
+        ));
         tools.register(Box::new(isanagent::tools::execution::ExecutionCancelTool {
             harness: harness.clone(),
         }));
 
         // Read background-job stdout/stderr line-by-line — lets the agent
         // inspect a long-running job's logs without fetching the full result.
-        tools.register(Box::new(isanagent::tools::execution::ExecutionReadLogTool {
-            jobs: execution_jobs.clone(),
-            harness: harness.clone(),
-        }));
+        tools.register(Box::new(
+            isanagent::tools::execution::ExecutionReadLogTool {
+                jobs: execution_jobs.clone(),
+                harness: harness.clone(),
+            },
+        ));
 
         // (The colab_mcp extra-tool-call proxy was removed upstream in
         // isanagent #47 "Colab CLI" — ColabMcpToolCallTool /
@@ -758,15 +1049,16 @@ async fn build_instance(
         // Gemini's OpenAI-compatible chat-completions endpoint. The runtime
         // POSTs to `base_url` as-is (no path appended), so this must be the
         // *full* endpoint — `…/v1beta` alone would 404.
-        let default = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
-            .to_string();
+        let default =
+            "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions".to_string();
         if let Some(ref cfg) = workspace.config.provider {
             cfg.resolved_base_url().unwrap_or(default)
         } else {
             default
         }
     };
-    let llm_provider = provider::create_provider(provider_name, &resolved_base_url, api_key, model_name);
+    let llm_provider =
+        provider::create_provider(provider_name, &resolved_base_url, api_key, model_name);
 
     // System prompt
     let mut system_prompt = workspace.compile_system_prompt();
@@ -831,10 +1123,7 @@ async fn build_instance(
             cancel_children_on_parent_cancel: workspace
                 .config
                 .subagent_cancel_children_on_parent_cancel(),
-            allowed_tools: workspace
-                .config
-                .subagent_allowed_tools_set()
-                .map(Arc::new),
+            allowed_tools: workspace.config.subagent_allowed_tools_set().map(Arc::new),
             max_tasks: workspace.config.subagent_max_tasks(),
             max_wait_secs: workspace.config.subagent_max_wait_secs(),
             agent_registry: Some(agent_registry),
@@ -847,7 +1136,18 @@ async fn build_instance(
     };
 
     let max_iterations = workspace.config.resolved_max_iterations().unwrap_or(50);
-    let max_tool_output_chars = workspace.config.resolved_max_tool_output_chars().unwrap_or(3000);
+    let max_tool_output_chars = workspace
+        .config
+        .resolved_max_tool_output_chars()
+        .unwrap_or(3000);
+    // Resolve compaction knobs. The user-facing prefs (auto/thresholdTokens/
+    // tailTurns) flow in from JS; when absent we keep the isanagent crate's
+    // built-in defaults so direct CLI/canonical callers aren't affected.
+    let (max_recent_summaries, short_term_threshold_turns, short_term_threshold_tokens) =
+        match compaction {
+            Some(c) => c.to_logic_params(),
+            None => (5, 20, 100_000),
+        };
     // Start from the on-disk shell policy, then let the active UI permission mode override the
     // interactive gate so the toolbar toggle actually governs code-exec/destructive-shell. The
     // mode is baked into `AgentLogic` here, which is why it is part of the instance fingerprint.
@@ -870,15 +1170,16 @@ async fn build_instance(
     let agent_logic = AgentLogic::new(AgentLogicParams {
         name: "altai-agent".to_string(),
         provider: llm_provider,
+        provider_credentials: isanagent::provider::ProviderCredentials::empty(),
         session_manager,
         tools,
         skills,
         system_prompt,
         max_iterations,
         max_tool_output_chars,
-        max_recent_summaries: 5,
-        short_term_threshold_turns: 20,
-        short_term_threshold_tokens: 100000,
+        max_recent_summaries,
+        short_term_threshold_turns,
+        short_term_threshold_tokens,
         outbound_tx: global_outbound_tx.clone(),
         logger_tx: isanagent::logging::create_logger_channel(256).0,
         clarification_hub,
@@ -894,7 +1195,10 @@ async fn build_instance(
     let agent_node = NodeHandle::<BusMessage>::new(agent_logic, 100, 3, Duration::from_millis(50));
 
     // Start the TauriChannel
-    channel.start(bus_tx.clone()).await.map_err(|e| format!("TauriChannel start failed: {}", e))?;
+    channel
+        .start(bus_tx.clone())
+        .await
+        .map_err(|e| format!("TauriChannel start failed: {}", e))?;
 
     // Bus router: forward inbound → agent, outbound → channel. (Telemetry is
     // emitted by the outbound router below, not here — see note in the loop.)
@@ -926,9 +1230,7 @@ async fn build_instance(
                 // here would be dead code today and a double-emit footgun if
                 // anything later routed telemetry to this channel.
                 BusMessage::Cancel(chat_id) => {
-                    let _ = agent_node
-                        .send_packet(BusMessage::Cancel(chat_id))
-                        .await;
+                    let _ = agent_node.send_packet(BusMessage::Cancel(chat_id)).await;
                 }
                 _ => {}
             }
@@ -1025,5 +1327,59 @@ mod permission_mode_tests {
         // Unknown / empty must not downgrade to Allow — leave the on-disk default.
         assert_eq!(permission_mode_to_shell_mode(Some("nonsense")), None);
         assert_eq!(permission_mode_to_shell_mode(None), None);
+    }
+}
+
+#[cfg(test)]
+mod compaction_tests {
+    use super::*;
+
+    #[test]
+    fn auto_on_passes_threshold_and_tail() {
+        let c = CompactionArg {
+            auto: true,
+            threshold_tokens: 50_000,
+            tail_turns: 7,
+        };
+        let (tail, turns, tokens) = c.to_logic_params();
+        assert_eq!(tail, 7);
+        assert_eq!(turns, 20); // crate default, not user-configurable
+        assert_eq!(tokens, 50_000);
+    }
+
+    #[test]
+    fn auto_on_floors_threshold_at_8k() {
+        // A typo of 0 (or below 8k) must not wedge the loop into compacting
+        // every turn.
+        let c = CompactionArg {
+            auto: true,
+            threshold_tokens: 0,
+            tail_turns: 5,
+        };
+        let (_, _, tokens) = c.to_logic_params();
+        assert_eq!(tokens, 8_000);
+    }
+
+    #[test]
+    fn auto_off_disables_via_max_threshold() {
+        // auto=false → MAX threshold so the between-turns trigger never fires.
+        // Manual /compact still works (it's a direct tool invocation).
+        let c = CompactionArg {
+            auto: false,
+            threshold_tokens: 50_000,
+            tail_turns: 5,
+        };
+        let (_, _, tokens) = c.to_logic_params();
+        assert_eq!(tokens, usize::MAX);
+    }
+
+    #[test]
+    fn fingerprint_tuple_round_trips_fields() {
+        let c = CompactionArg {
+            auto: false,
+            threshold_tokens: 12_345,
+            tail_turns: 9,
+        };
+        assert_eq!(c.fingerprint_tuple(), (false, 12_345, 9));
     }
 }

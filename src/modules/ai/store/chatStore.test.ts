@@ -7,12 +7,18 @@ import type { UIMessage } from "ai";
 const loadMessagesMock = vi.fn<(id: string) => Promise<UIMessage[] | null>>();
 
 vi.mock("../lib/sessions", () => ({
-  loadAll: vi.fn(async () => ({ sessions: [], activeId: null })),
+  loadAll: vi.fn(async () => ({
+    sessions: [],
+    activeId: null,
+    deletedIds: [],
+  })),
   loadMessages: (id: string) => loadMessagesMock(id),
   saveMessages: vi.fn(async () => {}),
   saveSessionsList: vi.fn(async () => {}),
   saveActiveId: vi.fn(async () => {}),
+  saveDeletedIds: vi.fn(async () => {}),
   deleteSessionData: vi.fn(async () => {}),
+  mergeBackendSessions: vi.fn(async () => ({ merged: [], recoveredIds: [] })),
   newSessionId: () => `s-${Math.random().toString(36).slice(2, 8)}`,
   deriveTitle: () => "New chat",
 }));
