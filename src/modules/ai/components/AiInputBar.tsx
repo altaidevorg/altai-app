@@ -386,7 +386,7 @@ export function AiInputBar() {
                   "block w-full max-h-44 min-h-[24px] resize-none bg-transparent",
                   // Right padding reserves space for the absolutely-positioned
                   // send/stop button so long text never slides under it.
-                  "pr-16 text-[13px] leading-5 text-foreground outline-none",
+                  "pr-20 text-[13px] leading-5 text-foreground outline-none",
                   "placeholder:text-muted-foreground/55",
                   "disabled:cursor-not-allowed",
                 )}
@@ -458,7 +458,7 @@ export function AiInputBar() {
 
         {/* Controls retain their icons as visual cues, but each one is now
             named so the composer is understandable without hover tooltips. */}
-        <div className="flex items-center gap-0.5 overflow-x-auto px-1.5 pb-1 pt-0.5">
+        <div className="flex items-center gap-0.5 overflow-x-auto px-1.5 pb-1 pt-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           <ToolbarButton
             label="Attach"
             title="Attach file or image"
