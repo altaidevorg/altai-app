@@ -51,7 +51,7 @@ tar = "0.4"
 # İsanAgent — embedded as Rust crate (direct API, no sidecar)
 # Temporarily pinned to the IsanAgent edit-approval PR. Revert to
 # altaidevorg/main at the merged immutable revision once #62 lands.
-isanagent = { git = "https://github.com/efecnc/isanagent.git", rev = "0c76789ab54b299fd24f9c3364a8369b0a6f4ada" }
+isanagent = { git = "https://github.com/efecnc/isanagent.git", rev = "640754c5cafc234797c180f13fb8d37eddcc53c9" }
 tauri-plugin-single-instance = "2"
 tauri-plugin-cli = "2"
 tauri-plugin-deep-link = "2"
