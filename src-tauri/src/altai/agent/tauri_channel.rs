@@ -7,6 +7,7 @@ use tauri::{AppHandle, Emitter};
 use tokio::sync::mpsc::Sender;
 use tokio::sync::Mutex;
 
+use super::commands::DocumentArg;
 use super::runtime::Event;
 
 /// A Tauri-native channel that bridges IsanAgent's bus system to the
@@ -42,16 +43,26 @@ impl TauriChannel {
         &self,
         content: String,
         image_urls: Vec<String>,
+        documents: Vec<DocumentArg>,
         chat_id: String,
     ) -> Result<(), String> {
         let guard = self.bus_tx.lock().await;
         let tx = guard.as_ref().ok_or("TauriChannel not started")?;
-        let attachments = image_urls
+        let mut attachments: Vec<_> = image_urls
             .into_iter()
             .map(|url| isanagent::utils::ContentPart::ImageUrl {
                 image_url: isanagent::utils::ImageUrl { url, detail: None },
             })
             .collect();
+        attachments.extend(documents.into_iter().map(|document| {
+            isanagent::utils::ContentPart::Document {
+                document: isanagent::utils::Document {
+                    data: document.data,
+                    media_type: document.media_type,
+                    name: document.name,
+                },
+            }
+        }));
         let chat_id = if chat_id.is_empty() {
             self.chat_id.clone()
         } else {
@@ -154,6 +165,7 @@ pub fn map_telemetry_to_event(telemetry: &isanagent::bus::TelemetryEvent) -> Opt
             ..
         } => Some(Event::ToolCallEnd {
             id: tool_call_id.clone().unwrap_or_else(|| tool_name.clone()),
+            name: tool_name.clone(),
             output: serde_json::Value::String(result.clone()),
             // isanagent sets `is_error` accurately for both in-band tool
             // failures (e.g. `edit_file` "old_text not found") and non-zero
@@ -480,8 +492,15 @@ mod tests {
     fn tool_result_maps_to_tool_call_end() {
         let e = map_telemetry_to_event(&te_tool_result()).unwrap();
         assert_eq!(event_type(&e), "tool_call_end");
-        if let Event::ToolCallEnd { id, output, error } = e {
+        if let Event::ToolCallEnd {
+            id,
+            name,
+            output,
+            error,
+        } = e
+        {
             assert_eq!(id, "tc1");
+            assert_eq!(name, "read_file");
             assert_eq!(output, serde_json::Value::String("hello".into()));
             // is_error: false → no error, output carried normally.
             assert!(error.is_none());

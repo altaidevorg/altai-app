@@ -277,7 +277,7 @@ export function AiChatView({
             onStop={() => void stop?.()}
           />
         ))}
-        {/* Live tool state belongs to the conversation it describes, rather
+         {/* Live tool state belongs to the conversation it describes, rather
             than floating above the composer. */}
         <div className="flex items-center px-1">
           <AgentStatusPill hideError />
