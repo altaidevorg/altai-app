@@ -146,7 +146,6 @@ export function AiSidePanel({
         ) : null}
         {tasksOpen ? <TaskRunsPanel onClose={() => setTasksOpen(false)} /> : null}
       </div>
-      {!historyOpen && !inspectorOpen && !tasksOpen && <RuntimeStatusRow />}
       {!historyOpen && !inspectorOpen && !tasksOpen &&
         (hasComposer ? (
           <AiInputBar />
@@ -159,24 +158,6 @@ export function AiSidePanel({
         onClose={() => setReviewOpen(false)}
       />
     </aside>
-  );
-}
-
-/**
- * Slim live-status row that sits between the transcript and the input bar.
- * Shows the agent's current step / approval state so the user always knows
- * what's happening without it cluttering the conversation. Kilo-Code places
- * the equivalent indicator here rather than inside the chat scroll.
- */
-function RuntimeStatusRow() {
-  const agentStatus = useChatStore((s) => s.agentMeta.status);
-  // Only render the row when there's something to say — when idle it
-  // collapses away so the input bar hugs the transcript.
-  if (agentStatus === "idle") return null;
-  return (
-    <div className="flex shrink-0 items-center gap-1.5 px-3 pb-0.5 pt-1">
-      <AgentStatusPill hideError />
-    </div>
   );
 }
 
