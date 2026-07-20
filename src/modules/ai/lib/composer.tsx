@@ -220,6 +220,7 @@ export function AiComposerProvider({ children }: ProviderProps) {
           id, name, kind: "text", mediaType: "application/pdf",
           text: result.content, size: result.content.length,
         }]);
+        useChatStore.getState().openMini();
         useChatStore.getState().focusInput();
         return;
       }
@@ -243,7 +244,9 @@ export function AiComposerProvider({ children }: ProviderProps) {
         };
         return [...prev, att];
       });
-      // Open the AI panel & focus the input so the user sees the chip.
+      // Open the AI panel before focusing: on narrow windows it is an overlay,
+      // so focusing a hidden composer made “Attach to Agent” look unresponsive.
+      useChatStore.getState().openMini();
       useChatStore.getState().focusInput();
     } catch (e) {
       console.error("attachFileByPath failed:", e);
@@ -290,6 +293,7 @@ export function AiComposerProvider({ children }: ProviderProps) {
       next[existing] = attachment;
       return next;
     });
+    useChatStore.getState().openMini();
     useChatStore.getState().focusInput();
   };
 
