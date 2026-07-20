@@ -1,6 +1,7 @@
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverAnchor } from "@/components/ui/popover";
 import { Spinner } from "@/components/ui/spinner";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import {
   ArrowUpIcon,
@@ -363,40 +364,42 @@ export function AiInputBar() {
                   Its accessible label is also exposed as a hover title. */}
               <div className="absolute right-3 top-2.5">
                 {c.isBusy ? (
-                  <Button
-                    type="button"
-                    size="icon-xs"
-                    onClick={c.stop}
-                    className={cn(
-                      "rounded-md p-0 transition-colors",
-                      "bg-foreground/10 text-foreground hover:bg-foreground/15",
-                    )}
-                    aria-label="Stop"
-                    title="Stop"
-                  >
-                    <span className="block size-2 rounded-[2px] bg-foreground" />
-                  </Button>
+                  <HoverTooltip label="Stop">
+                    <Button
+                      type="button"
+                      size="icon-xs"
+                      onClick={c.stop}
+                      className={cn(
+                        "rounded-md p-0 transition-colors",
+                        "bg-foreground/10 text-foreground hover:bg-foreground/15",
+                      )}
+                      aria-label="Stop"
+                    >
+                      <span className="block size-2 rounded-[2px] bg-foreground" />
+                    </Button>
+                  </HoverTooltip>
                 ) : (
-                  <Button
-                    type="button"
-                    size="icon-xs"
-                    onClick={c.submit}
-                    disabled={!c.canSend}
-                    className={cn(
-                      "rounded-md p-0 transition-all",
-                      c.canSend
-                        ? "bg-foreground text-background hover:bg-foreground/90 active:scale-95"
-                        : "bg-foreground/10 text-foreground/35",
-                    )}
-                    aria-label="Send"
-                    title="Send (Enter)"
-                  >
-                    <HugeiconsIcon
-                      icon={ArrowUpIcon}
-                      size={12}
-                      strokeWidth={2.25}
-                    />
-                  </Button>
+                  <HoverTooltip label="Send (Enter)">
+                    <Button
+                      type="button"
+                      size="icon-xs"
+                      onClick={c.submit}
+                      disabled={!c.canSend}
+                      className={cn(
+                        "rounded-md p-0 transition-all",
+                        c.canSend
+                          ? "bg-foreground text-background hover:bg-foreground/90 active:scale-95"
+                          : "bg-foreground/10 text-foreground/35",
+                      )}
+                      aria-label="Send"
+                    >
+                      <HugeiconsIcon
+                        icon={ArrowUpIcon}
+                        size={12}
+                        strokeWidth={2.25}
+                      />
+                    </Button>
+                  </HoverTooltip>
                 )}
               </div>
             </div>
@@ -438,7 +441,9 @@ export function AiInputBar() {
             <HugeiconsIcon icon={Search01Icon} size={14} strokeWidth={1.75} />
           </ToolbarIcon>
 
-          <PermissionModeSwitcher variant="toolbar-icon" />
+          <HoverTooltip label="Permission mode">
+            <PermissionModeSwitcher variant="toolbar-icon" />
+          </HoverTooltip>
           {agentPickerEnabled && <AgentSwitcher variant="toolbar" />}
           <ModelDropdown />
 
@@ -513,21 +518,44 @@ function ToolbarIcon({
   children: React.ReactNode;
 }) {
   return (
-    <Button
-      type="button"
-      variant="ghost"
-      size="icon"
-      title={title}
-      aria-label={title}
-      onClick={onClick}
-      disabled={disabled}
-      className={cn(
-        "size-6 shrink-0 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground",
-        className,
-      )}
-    >
-      {children}
-    </Button>
+    <HoverTooltip label={title}>
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon"
+        aria-label={title}
+        onClick={onClick}
+        disabled={disabled}
+        className={cn(
+          "size-6 shrink-0 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground",
+          className,
+        )}
+      >
+        {children}
+      </Button>
+    </HoverTooltip>
+  );
+}
+
+/** Opens only while a pointer is over the control, never on click or focus. */
+function HoverTooltip({ label, children }: { label: string; children: React.ReactNode }) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <Tooltip open={open} onOpenChange={() => undefined}>
+      <TooltipTrigger asChild>
+        <span
+          className="inline-flex shrink-0"
+          onPointerEnter={() => setOpen(true)}
+          onPointerLeave={() => setOpen(false)}
+        >
+          {children}
+        </span>
+      </TooltipTrigger>
+      <TooltipContent side="top" sideOffset={6} className="text-[11px]">
+        {label}
+      </TooltipContent>
+    </Tooltip>
   );
 }
 
