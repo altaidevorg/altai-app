@@ -115,13 +115,14 @@ export function AiSidePanel({
         onToggleTasks={() => setTasksOpen((o) => !o)}
         reviewOpen={reviewOpen}
         onToggleReview={() => setReviewOpen((o) => !o)}
+        onNewChat={() => setHistoryOpen(false)}
       />
       <div className="relative grid min-h-0 flex-1 grid-cols-1 @[48rem]:grid-cols-[13.5rem_minmax(0,1fr)] @[76rem]:grid-cols-[13.5rem_minmax(0,1fr)_18rem]">
         <nav
           aria-label="Chat sessions"
           className="hidden min-h-0 border-r border-border/50 bg-muted/[0.16] @[48rem]:flex"
         >
-          <ChatHistoryPanel onClose={() => undefined} />
+          <ChatHistoryPanel onClose={() => setHistoryOpen(false)} />
         </nav>
 
         <main className="relative flex min-h-0 min-w-0 flex-col bg-background/30">
@@ -145,7 +146,6 @@ export function AiSidePanel({
         ) : null}
         {tasksOpen ? <TaskRunsPanel onClose={() => setTasksOpen(false)} /> : null}
       </div>
-      {!historyOpen && !inspectorOpen && !tasksOpen && <RuntimeStatusRow />}
       {!historyOpen && !inspectorOpen && !tasksOpen &&
         (hasComposer ? (
           <AiInputBar />
@@ -158,24 +158,6 @@ export function AiSidePanel({
         onClose={() => setReviewOpen(false)}
       />
     </aside>
-  );
-}
-
-/**
- * Slim live-status row that sits between the transcript and the input bar.
- * Shows the agent's current step / approval state so the user always knows
- * what's happening without it cluttering the conversation. Kilo-Code places
- * the equivalent indicator here rather than inside the chat scroll.
- */
-function RuntimeStatusRow() {
-  const agentStatus = useChatStore((s) => s.agentMeta.status);
-  // Only render the row when there's something to say — when idle it
-  // collapses away so the input bar hugs the transcript.
-  if (agentStatus === "idle") return null;
-  return (
-    <div className="flex shrink-0 items-center gap-1.5 px-3 pb-0.5 pt-1">
-      <AgentStatusPill hideError />
-    </div>
   );
 }
 
@@ -195,6 +177,7 @@ function WorkspaceTopbar({
   onToggleTasks,
   reviewOpen,
   onToggleReview,
+  onNewChat,
 }: {
   onClose: () => void;
   historyOpen: boolean;
@@ -205,113 +188,190 @@ function WorkspaceTopbar({
   onToggleTasks: () => void;
   reviewOpen: boolean;
   onToggleReview: () => void;
+  onNewChat: () => void;
 }) {
   const activeId = useChatStore((s) => s.activeSessionId);
   const sessions = useChatStore((s) => s.sessions);
   const newSession = useChatStore((s) => s.newSession);
+  const switchSession = useChatStore((s) => s.switchSession);
+  const reorderSessions = useChatStore((s) => s.reorderSessions);
+  const deleteSession = useChatStore((s) => s.deleteSession);
   const active = sessions.find((s) => s.id === activeId);
-  const agentMeta = useChatStore((s) => s.agentMeta);
-  const activeAgentId = useAgentsStore((s) => s.activeId);
-  const agents = useAgentsStore.getState().all();
-  const activeAgent = agents.find((agent) => agent.id === activeAgentId);
-  const planActive = usePlanStore((s) => s.active);
   const title = active?.title || "New chat";
+  const [draggedId, setDraggedId] = useState<string | null>(null);
+  const [dropTargetId, setDropTargetId] = useState<string | null>(null);
+
+  const closeTab = (id: string) => {
+    const index = sessions.findIndex((session) => session.id === id);
+    const next = sessions[index + 1] ?? sessions[index - 1];
+    const wasActive = id === activeId;
+    deleteSession(id);
+    if (wasActive && next) switchSession(next.id);
+  };
 
   return (
-    <div className="flex h-11 shrink-0 items-center gap-1.5 border-b border-border/50 bg-card/90 px-2.5 backdrop-blur">
-      <button
-        type="button"
-        onClick={() => newSession()}
-        title="New chat"
-        aria-label="New chat"
-        className="inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground"
-      >
-        <HugeiconsIcon icon={Add01Icon} size={14} strokeWidth={1.75} />
-      </button>
-      <button
-        type="button"
-        onClick={onToggleHistory}
-        title={historyOpen ? "Back to task" : "Chat sessions"}
-        aria-label={historyOpen ? "Back to task" : "Chat sessions"}
-        aria-pressed={historyOpen}
-        className={cn(
-          "inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground @[48rem]:hidden",
-          historyOpen && "bg-foreground/[0.09] text-foreground",
-        )}
-      >
-        <HugeiconsIcon icon={Clock01Icon} size={14} strokeWidth={1.75} />
-      </button>
-      <div className="min-w-0 flex-1">
-        <div className="truncate text-[12px] font-medium text-foreground/90">
+    <div className="shrink-0 border-b border-border/50 bg-card/90 backdrop-blur">
+      <div className="flex h-11 items-center gap-1.5 px-2.5">
+        <button
+          type="button"
+          onClick={() => {
+            newSession();
+            onNewChat();
+          }}
+          title="New chat"
+          aria-label="New chat"
+          className="inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground"
+        >
+          <HugeiconsIcon icon={Add01Icon} size={14} strokeWidth={1.75} />
+        </button>
+        <button
+          type="button"
+          onClick={onToggleHistory}
+          title={historyOpen ? "Back to task" : "Chat sessions"}
+          aria-label={historyOpen ? "Back to task" : "Chat sessions"}
+          aria-pressed={historyOpen}
+          className={cn(
+            "inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground @[48rem]:hidden",
+            historyOpen && "bg-foreground/[0.09] text-foreground",
+          )}
+        >
+          <HugeiconsIcon icon={Clock01Icon} size={14} strokeWidth={1.75} />
+        </button>
+        <div className="min-w-0 flex-1 truncate text-[12px] font-medium text-foreground/90">
           {historyOpen ? "Chat sessions" : title}
         </div>
-        {!historyOpen ? (
-          <div className="mt-0.5 flex items-center gap-1.5 truncate text-[10px] text-muted-foreground">
-            <span className="truncate">{activeAgent?.name ?? "Agent"}</span>
-            <span aria-hidden="true">·</span>
-            <span>{planActive ? "Plan" : "Build"}</span>
-            {agentMeta.status !== "idle" ? (
-              <>
-                <span aria-hidden="true">·</span>
-                <span className="truncate">{agentMeta.step ?? "Working"}</span>
-              </>
-            ) : null}
-          </div>
+        {!historyOpen && activeId ? (
+          <TodoSummaryChip sessionId={activeId} />
         ) : null}
+        <button
+          type="button"
+          onClick={onToggleReview}
+          title={reviewOpen ? "Close change review" : "Review changes"}
+          aria-label={reviewOpen ? "Close change review" : "Review changes"}
+          aria-pressed={reviewOpen}
+          className={cn(
+            "inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground",
+            reviewOpen && "bg-foreground/[0.09] text-foreground",
+          )}
+        >
+          <HugeiconsIcon icon={FileEditIcon} size={14} strokeWidth={1.75} />
+        </button>
+        <button
+          type="button"
+          onClick={onToggleInspector}
+          title={inspectorOpen ? "Close run inspector" : "Open run inspector"}
+          aria-label={inspectorOpen ? "Close run inspector" : "Open run inspector"}
+          aria-pressed={inspectorOpen}
+          className={cn(
+            "inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground @[76rem]:hidden",
+            inspectorOpen
+              ? "bg-foreground/[0.09] text-foreground"
+              : "",
+          )}
+        >
+          <HugeiconsIcon icon={SparklesIcon} size={14} strokeWidth={1.75} />
+        </button>
+        <button
+          type="button"
+          onClick={onToggleTasks}
+          title={tasksOpen ? "Close background tasks" : "Background tasks"}
+          aria-label={tasksOpen ? "Close background tasks" : "Background tasks"}
+          aria-pressed={tasksOpen}
+          className={cn(
+            "inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground",
+            tasksOpen && "bg-foreground/[0.09] text-foreground",
+          )}
+        >
+          <HugeiconsIcon icon={Notebook01Icon} size={14} strokeWidth={1.75} />
+        </button>
+        <button
+          type="button"
+          onClick={onClose}
+          title="Close panel"
+          aria-label="Close panel"
+          className="inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground"
+        >
+          <HugeiconsIcon icon={Cancel01Icon} size={13} strokeWidth={1.75} />
+        </button>
       </div>
-      {!historyOpen && activeId ? (
-        <TodoSummaryChip sessionId={activeId} />
+      {!historyOpen ? (
+        <div
+          role="tablist"
+          aria-label="Chat sessions"
+          className="flex h-8 items-center gap-1 overflow-x-auto border-t border-border/40 px-2.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        >
+          {sessions.map((session) => {
+            const activeTab = session.id === activeId;
+            const label = session.title || "New chat";
+            return (
+              <div
+                key={session.id}
+                draggable
+                onDragStart={(event) => {
+                  event.dataTransfer.effectAllowed = "move";
+                  event.dataTransfer.setData("application/altai-chat-tab", session.id);
+                  setDraggedId(session.id);
+                }}
+                onDragEnd={() => {
+                  setDraggedId(null);
+                  setDropTargetId(null);
+                }}
+                onDragOver={(event) => {
+                  if (!draggedId || draggedId === session.id) return;
+                  event.preventDefault();
+                  event.dataTransfer.dropEffect = "move";
+                  setDropTargetId(session.id);
+                }}
+                onDragLeave={() => {
+                  if (dropTargetId === session.id) setDropTargetId(null);
+                }}
+                onDrop={(event) => {
+                  event.preventDefault();
+                  const id = event.dataTransfer.getData("application/altai-chat-tab");
+                  if (!id || id === session.id) return;
+                  const bounds = event.currentTarget.getBoundingClientRect();
+                  reorderSessions(id, session.id, event.clientX > bounds.left + bounds.width / 2);
+                  setDraggedId(null);
+                  setDropTargetId(null);
+                }}
+                className={cn(
+                  "group flex h-6 max-w-40 shrink-0 cursor-grab items-center rounded-md pr-0.5 text-[10.5px] transition-colors active:cursor-grabbing",
+                  activeTab
+                    ? "bg-foreground/[0.09] font-medium text-foreground"
+                    : "text-muted-foreground hover:bg-foreground/[0.06] hover:text-foreground",
+                  draggedId === session.id && "opacity-45",
+                  dropTargetId === session.id && "ring-1 ring-foreground/35",
+                )}
+              >
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={activeTab}
+                  title={label}
+                  onClick={() => switchSession(session.id)}
+                  className="min-w-0 truncate px-2 text-left outline-none"
+                >
+                  {label}
+                </button>
+                <button
+                  type="button"
+                  title={`Close ${label}`}
+                  aria-label={`Close ${label}`}
+                  onClick={() => closeTab(session.id)}
+                  className={cn(
+                    "flex size-4 shrink-0 items-center justify-center rounded-sm text-muted-foreground outline-none transition-opacity hover:bg-foreground/[0.1] hover:text-foreground focus:opacity-100",
+                    activeTab
+                      ? "opacity-70"
+                      : "opacity-0 group-hover:opacity-70 group-focus-within:opacity-70",
+                  )}
+                >
+                  <HugeiconsIcon icon={Cancel01Icon} size={10} strokeWidth={2} />
+                </button>
+              </div>
+            );
+          })}
+        </div>
       ) : null}
-      <button
-        type="button"
-        onClick={onToggleReview}
-        title={reviewOpen ? "Close change review" : "Review changes"}
-        aria-label={reviewOpen ? "Close change review" : "Review changes"}
-        aria-pressed={reviewOpen}
-        className={cn(
-          "inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground",
-          reviewOpen && "bg-foreground/[0.09] text-foreground",
-        )}
-      >
-        <HugeiconsIcon icon={FileEditIcon} size={14} strokeWidth={1.75} />
-      </button>
-      <button
-        type="button"
-        onClick={onToggleInspector}
-        title={inspectorOpen ? "Close run inspector" : "Open run inspector"}
-        aria-label={inspectorOpen ? "Close run inspector" : "Open run inspector"}
-        aria-pressed={inspectorOpen}
-        className={cn(
-          "inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground @[76rem]:hidden",
-          inspectorOpen
-            ? "bg-foreground/[0.09] text-foreground"
-            : "",
-        )}
-      >
-        <HugeiconsIcon icon={SparklesIcon} size={14} strokeWidth={1.75} />
-      </button>
-      <button
-        type="button"
-        onClick={onToggleTasks}
-        title={tasksOpen ? "Close background tasks" : "Background tasks"}
-        aria-label={tasksOpen ? "Close background tasks" : "Background tasks"}
-        aria-pressed={tasksOpen}
-        className={cn(
-          "inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground",
-          tasksOpen && "bg-foreground/[0.09] text-foreground",
-        )}
-      >
-        <HugeiconsIcon icon={Notebook01Icon} size={14} strokeWidth={1.75} />
-      </button>
-      <button
-        type="button"
-        onClick={onClose}
-        title="Close panel"
-        aria-label="Close panel"
-        className="inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground"
-      >
-        <HugeiconsIcon icon={Cancel01Icon} size={13} strokeWidth={1.75} />
-      </button>
     </div>
   );
 }
