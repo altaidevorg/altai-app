@@ -37,6 +37,7 @@ import { AgentStatusPill } from "./AgentStatusPill";
 import { ChatHistoryPanel } from "./ChatHistoryPanel";
 import { PlanDiffReview } from "./PlanDiffReview";
 import { NotificationInboxPanel } from "./NotificationInboxPanel";
+import { AutomationsPanel } from "./AutomationsPanel";
 import { TaskRunsPanel } from "./TaskRunsPanel";
 import { TodoSummaryChip } from "./TodoStrip";
 
@@ -94,6 +95,7 @@ export function AiSidePanel({
   const [inspectorOpen, setInspectorOpen] = useState(false);
   const [tasksOpen, setTasksOpen] = useState(false);
   const [inboxOpen, setInboxOpen] = useState(false);
+  const [automationsOpen, setAutomationsOpen] = useState(false);
   const [reviewOpen, setReviewOpen] = useState(false);
 
   useEffect(() => {
@@ -119,6 +121,8 @@ export function AiSidePanel({
         onToggleTasks={() => setTasksOpen((o) => !o)}
         inboxOpen={inboxOpen}
         onToggleInbox={() => setInboxOpen((open) => !open)}
+        automationsOpen={automationsOpen}
+        onToggleAutomations={() => setAutomationsOpen((open) => !open)}
         reviewOpen={reviewOpen}
         onToggleReview={() => setReviewOpen((o) => !o)}
       />
@@ -153,9 +157,12 @@ export function AiSidePanel({
         {inboxOpen ? (
           <NotificationInboxPanel onClose={() => setInboxOpen(false)} />
         ) : null}
+        {automationsOpen ? (
+          <AutomationsPanel onClose={() => setAutomationsOpen(false)} />
+        ) : null}
       </div>
-      {!historyOpen && !inspectorOpen && !tasksOpen && !inboxOpen && <RuntimeStatusRow />}
-      {!historyOpen && !inspectorOpen && !tasksOpen && !inboxOpen &&
+      {!historyOpen && !inspectorOpen && !tasksOpen && !inboxOpen && !automationsOpen && <RuntimeStatusRow />}
+      {!historyOpen && !inspectorOpen && !tasksOpen && !inboxOpen && !automationsOpen &&
         (hasComposer ? (
           <AiInputBar />
         ) : (
@@ -204,6 +211,8 @@ function WorkspaceTopbar({
   onToggleTasks,
   inboxOpen,
   onToggleInbox,
+  automationsOpen,
+  onToggleAutomations,
   reviewOpen,
   onToggleReview,
 }: {
@@ -216,6 +225,8 @@ function WorkspaceTopbar({
   onToggleTasks: () => void;
   inboxOpen: boolean;
   onToggleInbox: () => void;
+  automationsOpen: boolean;
+  onToggleAutomations: () => void;
   reviewOpen: boolean;
   onToggleReview: () => void;
 }) {
@@ -232,6 +243,19 @@ function WorkspaceTopbar({
 
   return (
     <div className="flex h-11 shrink-0 items-center gap-1.5 border-b border-border/50 bg-card/90 px-2.5 backdrop-blur">
+      <button
+        type="button"
+        onClick={onToggleAutomations}
+        title={automationsOpen ? "Close automations" : "Open automations"}
+        aria-label={automationsOpen ? "Close automations" : "Open automations"}
+        aria-pressed={automationsOpen}
+        className={cn(
+          "inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground",
+          automationsOpen && "bg-foreground/[0.09] text-foreground",
+        )}
+      >
+        <HugeiconsIcon icon={Clock01Icon} size={14} strokeWidth={1.75} />
+      </button>
       <button
         type="button"
         onClick={() => newSession()}
