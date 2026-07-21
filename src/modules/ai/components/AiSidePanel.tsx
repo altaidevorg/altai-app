@@ -120,7 +120,6 @@ export function AiSidePanel({
     >
       <WorkspaceTopbar
         onClose={onClose}
-        onSelectSession={() => setActiveSurface(null)}
         historyOpen={historyOpen}
         onToggleHistory={() => toggleSurface("history")}
         inspectorOpen={inspectorOpen}
@@ -149,28 +148,33 @@ export function AiSidePanel({
           {historyOpen ? (
             <ChatHistoryPanel onClose={() => setActiveSurface(null)} />
           ) : sessionId ? (
-            <Body />
+            <>
+              <ChatTabStrip onSelect={() => setActiveSurface(null)} />
+              <div className="relative flex min-h-0 flex-1">
+                <Body />
+                {automationsOpen ? (
+                  <AutomationsPanel onClose={() => setActiveSurface(null)} />
+                ) : null}
+                {tasksOpen ? <TaskRunsPanel onClose={() => setActiveSurface(null)} /> : null}
+                {inboxOpen ? (
+                  <NotificationInboxPanel onClose={() => setActiveSurface(null)} />
+                ) : null}
+                {inspectorOpen ? (
+                  <div className="absolute inset-0 z-20 flex bg-background/92 backdrop-blur-sm @[76rem]:hidden">
+                    <RunInspector className="flex w-full" onClose={() => setActiveSurface(null)} />
+                  </div>
+                ) : null}
+              </div>
+            </>
           ) : (
             <div className="flex flex-1 items-center justify-center text-[11px] text-muted-foreground">
               Loading sessions…
             </div>
           )}
-          {automationsOpen ? (
-            <AutomationsPanel onClose={() => setActiveSurface(null)} />
-          ) : null}
         </main>
 
         <RunInspector className="hidden @[76rem]:flex" />
 
-        {inspectorOpen ? (
-          <div className="absolute inset-0 z-20 flex bg-background/92 backdrop-blur-sm @[76rem]:hidden">
-            <RunInspector className="flex w-full" onClose={() => setActiveSurface(null)} />
-          </div>
-        ) : null}
-        {tasksOpen ? <TaskRunsPanel onClose={() => setActiveSurface(null)} /> : null}
-        {inboxOpen ? (
-          <NotificationInboxPanel onClose={() => setActiveSurface(null)} />
-        ) : null}
       </div>
       {!historyOpen && !inspectorOpen && !tasksOpen && !inboxOpen && !automationsOpen && <RuntimeStatusRow />}
       {!historyOpen && !inspectorOpen && !tasksOpen && !inboxOpen && !automationsOpen &&
@@ -207,6 +211,69 @@ function RuntimeStatusRow() {
 }
 
 /**
+ * Conversation tabs are a stable navigation layer, separate from workspace
+ * actions and session history. Keeping the trailing new-chat action here
+ * matches the mental model used by coding-agent chat editors: tabs switch
+ * context; the header opens auxiliary surfaces.
+ */
+function ChatTabStrip({ onSelect }: { onSelect: () => void }) {
+  const activeId = useChatStore((s) => s.activeSessionId);
+  const sessions = useChatStore((s) => s.sessions);
+  const switchSession = useChatStore((s) => s.switchSession);
+  const newSession = useChatStore((s) => s.newSession);
+
+  const select = (id: string) => {
+    switchSession(id);
+    onSelect();
+  };
+
+  const create = () => {
+    newSession();
+    onSelect();
+  };
+
+  return (
+    <div className="flex h-9 shrink-0 items-center gap-1 border-b border-border/50 bg-card/75 px-2">
+      <div
+        role="tablist"
+        aria-label="Open chats"
+        className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto"
+      >
+        {sessions.map((session) => (
+          <button
+            key={session.id}
+            id={`altai-chat-tab-${session.id}`}
+            type="button"
+            role="tab"
+            aria-controls="altai-active-chat"
+            aria-selected={session.id === activeId}
+            onClick={() => select(session.id)}
+            title={session.title || "New chat"}
+            className={cn(
+              "max-w-40 shrink-0 truncate rounded-md px-2 py-1 text-[10.5px] transition-colors",
+              session.id === activeId
+                ? "bg-foreground/[0.1] font-medium text-foreground"
+                : "text-muted-foreground hover:bg-foreground/[0.06] hover:text-foreground",
+            )}
+          >
+            {session.title || "New chat"}
+          </button>
+        ))}
+      </div>
+      <button
+        type="button"
+        onClick={create}
+        title="New chat"
+        aria-label="New chat"
+        className="inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground"
+      >
+        <HugeiconsIcon icon={Add01Icon} size={14} strokeWidth={1.75} />
+      </button>
+    </div>
+  );
+}
+
+/**
  * The workspace topbar keeps the task context visible instead of treating the
  * chat as an isolated message list. The permanent session navigator and run
  * inspector appear when the panel is wide enough; buttons open those surfaces
@@ -214,7 +281,6 @@ function RuntimeStatusRow() {
  */
 function WorkspaceTopbar({
   onClose,
-  onSelectSession,
   historyOpen,
   onToggleHistory,
   inspectorOpen,
@@ -229,7 +295,6 @@ function WorkspaceTopbar({
   onToggleReview,
 }: {
   onClose: () => void;
-  onSelectSession: () => void;
   historyOpen: boolean;
   onToggleHistory: () => void;
   inspectorOpen: boolean;
@@ -245,54 +310,16 @@ function WorkspaceTopbar({
 }) {
   const activeId = useChatStore((s) => s.activeSessionId);
   const sessions = useChatStore((s) => s.sessions);
-  const newSession = useChatStore((s) => s.newSession);
-  const switchSession = useChatStore((s) => s.switchSession);
-
-  const selectSession = (id: string) => {
-    switchSession(id);
-    onSelectSession();
-  };
-
-  const createSession = () => {
-    newSession();
-    onSelectSession();
-  };
+  const active = sessions.find((s) => s.id === activeId);
+  const agentMeta = useChatStore((s) => s.agentMeta);
+  const activeAgentId = useAgentsStore((s) => s.activeId);
+  const agents = useAgentsStore.getState().all();
+  const activeAgent = agents.find((agent) => agent.id === activeAgentId);
+  const planActive = usePlanStore((s) => s.active);
+  const title = active?.title || "New chat";
 
   return (
     <div className="flex h-11 shrink-0 items-center gap-1.5 border-b border-border/50 bg-card/90 px-2.5 backdrop-blur">
-      <div
-        role="tablist"
-        aria-label="Open chats"
-        className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto py-1"
-      >
-        {sessions.map((session) => (
-          <button
-            key={session.id}
-            type="button"
-            role="tab"
-            aria-selected={session.id === activeId}
-            onClick={() => selectSession(session.id)}
-            title={session.title || "New chat"}
-            className={cn(
-              "max-w-36 shrink-0 truncate rounded-md px-2 py-1 text-[10.5px] transition-colors",
-              session.id === activeId
-                ? "bg-foreground/[0.1] font-medium text-foreground"
-                : "text-muted-foreground hover:bg-foreground/[0.06] hover:text-foreground",
-            )}
-          >
-            {session.title || "New chat"}
-          </button>
-        ))}
-      </div>
-      <button
-        type="button"
-        onClick={createSession}
-        title="New chat"
-        aria-label="New chat"
-        className="inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground"
-      >
-        <HugeiconsIcon icon={Add01Icon} size={14} strokeWidth={1.75} />
-      </button>
       <button
         type="button"
         onClick={onToggleHistory}
@@ -306,6 +333,24 @@ function WorkspaceTopbar({
       >
         <HugeiconsIcon icon={Clock01Icon} size={14} strokeWidth={1.75} />
       </button>
+      <div className="min-w-0 flex-1">
+        <div className="truncate text-[12px] font-medium text-foreground/90">
+          {historyOpen ? "Chat sessions" : title}
+        </div>
+        {!historyOpen ? (
+          <div className="mt-0.5 flex items-center gap-1.5 truncate text-[10px] text-muted-foreground">
+            <span className="truncate">{activeAgent?.name ?? "Agent"}</span>
+            <span aria-hidden="true">·</span>
+            <span>{planActive ? "Plan" : "Build"}</span>
+            {agentMeta.status !== "idle" ? (
+              <>
+                <span aria-hidden="true">·</span>
+                <span className="truncate">{agentMeta.step ?? "Working"}</span>
+              </>
+            ) : null}
+          </div>
+        ) : null}
+      </div>
       {!historyOpen && activeId ? (
         <TodoSummaryChip sessionId={activeId} />
       ) : null}
@@ -877,6 +922,7 @@ function Body() {
 
   return (
     <div
+      id="altai-active-chat"
       role="tabpanel"
       aria-label="Active chat session"
       tabIndex={-1}
