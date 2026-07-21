@@ -5,6 +5,7 @@ import {
   AbsoluteIcon,
   Add01Icon,
   BookSearchIcon,
+  CalendarSyncIcon,
   Cancel01Icon,
   Clock01Icon,
   CodeIcon,
@@ -144,6 +145,9 @@ export function AiSidePanel({
               Loading sessions…
             </div>
           )}
+          {automationsOpen ? (
+            <AutomationsPanel onClose={() => setAutomationsOpen(false)} />
+          ) : null}
         </main>
 
         <RunInspector className="hidden @[76rem]:flex" />
@@ -156,9 +160,6 @@ export function AiSidePanel({
         {tasksOpen ? <TaskRunsPanel onClose={() => setTasksOpen(false)} /> : null}
         {inboxOpen ? (
           <NotificationInboxPanel onClose={() => setInboxOpen(false)} />
-        ) : null}
-        {automationsOpen ? (
-          <AutomationsPanel onClose={() => setAutomationsOpen(false)} />
         ) : null}
       </div>
       {!historyOpen && !inspectorOpen && !tasksOpen && !inboxOpen && !automationsOpen && <RuntimeStatusRow />}
@@ -243,19 +244,6 @@ function WorkspaceTopbar({
 
   return (
     <div className="flex h-11 shrink-0 items-center gap-1.5 border-b border-border/50 bg-card/90 px-2.5 backdrop-blur">
-      <button
-        type="button"
-        onClick={onToggleAutomations}
-        title={automationsOpen ? "Close automations" : "Open automations"}
-        aria-label={automationsOpen ? "Close automations" : "Open automations"}
-        aria-pressed={automationsOpen}
-        className={cn(
-          "inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground",
-          automationsOpen && "bg-foreground/[0.09] text-foreground",
-        )}
-      >
-        <HugeiconsIcon icon={Clock01Icon} size={14} strokeWidth={1.75} />
-      </button>
       <button
         type="button"
         onClick={() => newSession()}
@@ -352,6 +340,19 @@ function WorkspaceTopbar({
         )}
       >
         <HugeiconsIcon icon={Notification01Icon} size={14} strokeWidth={1.75} />
+      </button>
+      <button
+        type="button"
+        onClick={onToggleAutomations}
+        title={automationsOpen ? "Close automations" : "Open automations"}
+        aria-label={automationsOpen ? "Close automations" : "Open automations"}
+        aria-pressed={automationsOpen}
+        className={cn(
+          "inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground",
+          automationsOpen && "bg-foreground/[0.09] text-foreground",
+        )}
+      >
+        <HugeiconsIcon icon={CalendarSyncIcon} size={14} strokeWidth={1.75} />
       </button>
       <button
         type="button"
