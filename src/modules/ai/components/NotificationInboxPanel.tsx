@@ -569,6 +569,7 @@ function TicketCard({
                 onChange={(event) => setResponse(event.target.value)}
                 disabled={busy}
                 placeholder="Reply to resume this task…"
+                aria-label="Response to clarification ticket"
                 rows={2}
                 maxLength={10_000}
                 className="w-full resize-y rounded-md border border-amber-500/25 bg-background/65 px-2 py-1.5 text-[10.5px] leading-relaxed outline-none placeholder:text-muted-foreground/70 focus:border-amber-500/55 disabled:opacity-50"
