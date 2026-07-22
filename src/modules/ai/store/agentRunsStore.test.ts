@@ -105,6 +105,46 @@ describe("agentRunsStore lifecycle admission", () => {
     });
   });
 
+  it("rebuilds after restart and rejects live/replay overlap or out-of-order delivery", () => {
+    const ingest = useAgentRunsStore.getState().ingest;
+    expect(
+      ingest("chat-1", {
+        ...event(1, { type: "run_started" }),
+        replay: true,
+      }),
+    ).toBe(true);
+    expect(
+      ingest("chat-1", event(2, { type: "thinking", content: "live" })),
+    ).toBe(true);
+    expect(
+      ingest("chat-1", {
+        ...event(2, { type: "thinking", content: "overlap" }),
+        replay: true,
+      }),
+    ).toBe(false);
+    expect(
+      ingest("chat-1", {
+        ...event(1, { type: "thinking", content: "out of order" }),
+        replay: true,
+      }),
+    ).toBe(false);
+    expect(
+      ingest("chat-1", {
+        ...event(3, {
+          type: "run_terminated",
+          outcome: { kind: "completed" },
+        }),
+        replay: true,
+      }),
+    ).toBe(true);
+    expect(useAgentRunsStore.getState().runs["chat-1"]).toMatchObject({
+      runId: "run-1",
+      lastSeq: 3,
+      completed: true,
+      outcome: { kind: "completed" },
+    });
+  });
+
   it("marks only the exact live run as cancelling and waits for termination", () => {
     const store = useAgentRunsStore.getState();
     store.ingest("chat-1", event(1, { type: "run_started" }));

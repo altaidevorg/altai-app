@@ -28,6 +28,7 @@ use isanagent::workspace::{resolve_workspace_root, IsanagentWorkspace};
 use isanagent::{NodeHandle, Supervisor, SupervisorPolicy};
 
 use super::commands::DocumentArg;
+use super::event_journal::{AppendStatus, EventJournal, JournalEvent};
 use super::tauri_channel::{
     map_lifecycle_to_event, map_telemetry_to_event, telemetry_chat_id, TauriChannel,
 };
@@ -254,6 +255,7 @@ struct AgentEventEnvelope<'a> {
     run_id: Option<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     seq: Option<u64>,
+    timestamp_ms: u64,
     chat_id: &'a str,
     event: &'a Event,
 }
@@ -684,25 +686,52 @@ pub(crate) fn rollback_run_admission(
 
 pub(crate) fn emit_event(
     app: &AppHandle,
+    journal: &EventJournal,
     chat_id: &str,
     event: &Event,
     run: Option<(String, u64)>,
-) {
+) -> Result<(), String> {
     let (run_id, seq) = match run.as_ref() {
         Some((run_id, seq)) => (Some(run_id.as_str()), Some(*seq)),
         None => (None, None),
     };
-    let _ = app.emit(
+    let timestamp_ms = if let Some((run_id, seq)) = run.as_ref() {
+        let payload = serde_json::to_value(event)
+            .map_err(|error| format!("Failed to serialize run event: {error}"))?;
+        let kind = payload
+            .get("type")
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_owned)
+            .ok_or_else(|| "Run event is missing its type discriminant".to_string())?;
+        let journal_event = JournalEvent::now(1, run_id, *seq, chat_id, kind, payload);
+        let recorded_at_ms = journal_event.recorded_at_ms;
+        let status = if matches!(event, Event::RunTerminated { .. }) {
+            journal.append_terminal(&journal_event)
+        } else {
+            journal.append(&journal_event)
+        }
+        .map_err(|error| format!("Failed to persist run event: {error}"))?;
+        debug_assert!(matches!(
+            status,
+            AppendStatus::Appended | AppendStatus::Duplicate
+        ));
+        recorded_at_ms
+    } else {
+        now_epoch_ms()
+    };
+    app.emit(
         "agent://event",
         &AgentEventEnvelope {
             version: 1,
             scope: if run.is_some() { "run" } else { "system" },
             run_id,
             seq,
+            timestamp_ms,
             chat_id,
             event,
         },
-    );
+    )
+    .map_err(|error| format!("Failed to emit agent event: {error}"))
 }
 
 pub(crate) fn next_run_event(
@@ -944,6 +973,7 @@ struct WorkspaceServices {
     logger: WorkspaceLogger,
     dispatcher: Arc<WorkspaceDispatcher>,
     cron: WorkspaceCron,
+    event_journal: Arc<EventJournal>,
 }
 
 struct WorkspaceIngress {
@@ -1102,6 +1132,10 @@ pub struct AgentRuntime {
     /// One service record per workspace root. Provider/persona instances share
     /// this record instead of reconstructing workspace-owned state.
     workspace_services_by_root: tokio::sync::Mutex<HashMap<String, Arc<WorkspaceServices>>>,
+    /// Journals are independently available to the renderer recovery command.
+    /// Keeping this registry separate prevents replay from starting cron,
+    /// logging, memory, provider, or tool services as a side effect.
+    event_journals_by_root: tokio::sync::Mutex<HashMap<String, Arc<EventJournal>>>,
     /// Last successfully delivered model/persona runtime for each workspace
     /// chat. This is only an ownership record today; A2's dispatcher will use
     /// it to route synthetic work and ticket resumes to exactly one instance.
@@ -1114,6 +1148,7 @@ pub fn init(app: AppHandle) -> Result<(), Box<dyn std::error::Error>> {
         app: app.clone(),
         instances: tokio::sync::Mutex::new(HashMap::new()),
         workspace_services_by_root: tokio::sync::Mutex::new(HashMap::new()),
+        event_journals_by_root: tokio::sync::Mutex::new(HashMap::new()),
         chat_owner_by_workspace: tokio::sync::Mutex::new(HashMap::new()),
         run_coordinator: Arc::new(StdMutex::new(RunCoordinator::default())),
     });
@@ -1159,6 +1194,30 @@ fn make_fingerprint(
     }
 }
 
+/// Open only the durable lifecycle journal for a workspace. Replay deliberately
+/// uses this narrower constructor so recovery cannot wake cron or an agent.
+async fn ensure_event_journal(
+    runtime: &AgentRuntime,
+    workspace_root: &str,
+) -> Result<Arc<EventJournal>, String> {
+    let mut guard = runtime.event_journals_by_root.lock().await;
+    if let Some(existing) = guard.get(workspace_root) {
+        return Ok(existing.clone());
+    }
+    let workspace = if workspace_root.is_empty() {
+        None
+    } else {
+        Some(workspace_root)
+    };
+    let dir = resolve_workspace_root(workspace);
+    let journal = Arc::new(
+        EventJournal::open(dir.join(".system_generated").join("agent_events.db"))
+            .map_err(|error| format!("Failed to initialize agent event journal: {error}"))?,
+    );
+    guard.insert(workspace_root.to_string(), journal.clone());
+    Ok(journal)
+}
+
 /// Get-or-create workspace-owned services (`""` = the default IsanAgent
 /// workspace). This is intentionally the only constructor for shared
 /// workspace state.
@@ -1191,6 +1250,7 @@ async fn ensure_workspace_services(
         1,
         Duration::from_millis(5),
     );
+    let event_journal = ensure_event_journal(runtime, workspace_root).await?;
     let (logger_handle, logger_rx) =
         isanagent::logging::create_logger_channel(isanagent::logging::LOGGER_QUEUE_CAPACITY);
     let logger_factory = {
@@ -1269,6 +1329,7 @@ async fn ensure_workspace_services(
             node: cron_node,
             forwarder: cron_forwarder,
         },
+        event_journal,
     });
     guard.insert(workspace_root.to_string(), services.clone());
     Ok(services)
@@ -1410,6 +1471,7 @@ async fn ensure_instance(
         services.clarification_hub.clone(),
         services.logger.handle.clone(),
         services.cron.node.clone(),
+        services.event_journal.clone(),
         runtime.run_coordinator.clone(),
         provider_name,
         api_key,
@@ -1670,6 +1732,89 @@ pub struct SendAck {
     pub chat_id: String,
     pub run_id: String,
     pub queued: bool,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReplayCursor {
+    pub chat_id: String,
+    pub run_id: Option<String>,
+    pub after_seq: u64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReplayedAgentEvent {
+    version: u32,
+    scope: &'static str,
+    run_id: String,
+    seq: u64,
+    timestamp_ms: u64,
+    chat_id: String,
+    event: serde_json::Value,
+    replay: bool,
+}
+
+/// Read-only recovery path for renderer lifecycle state. This never touches an
+/// agent bus, provider, prompt, or tool registry: it only projects already
+/// committed SQLite rows back into the same frontend event envelope.
+pub async fn replay_events(
+    runtime: &AgentRuntime,
+    workspace_path: &str,
+    cursors: Vec<ReplayCursor>,
+) -> Result<Vec<ReplayedAgentEvent>, String> {
+    if cursors.len() > 200 {
+        return Err("At most 200 chat replay cursors are accepted".to_string());
+    }
+    let workspace_root = format!("{}/.isanagent", workspace_path.trim_end_matches('/'));
+    let journal = ensure_event_journal(runtime, &workspace_root).await?;
+    let mut seen_chats = HashSet::new();
+    let mut replay = Vec::new();
+    for cursor in cursors {
+        let chat_id = validate_tauri_chat_id(&cursor.chat_id)?.to_owned();
+        if !seen_chats.insert(chat_id.clone()) {
+            return Err(format!("Duplicate replay cursor for chat {chat_id}"));
+        }
+        let acknowledged_run_id = cursor
+            .run_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|run_id| !run_id.is_empty());
+        if acknowledged_run_id.is_none() && cursor.after_seq != 0 {
+            return Err(format!(
+                "Replay cursor for chat {chat_id} has a sequence without a run ID"
+            ));
+        }
+        let events = journal
+            .replay_latest(&chat_id, acknowledged_run_id, cursor.after_seq)
+            .map_err(|error| format!("Failed to replay chat {chat_id}: {error}"))?;
+        for event in events {
+            let payload_kind = event
+                .payload
+                .get("type")
+                .and_then(serde_json::Value::as_str)
+                .ok_or_else(|| {
+                    format!("Journal event {}:{} has no type", event.run_id, event.seq)
+                })?;
+            if payload_kind != event.kind {
+                return Err(format!(
+                    "Journal event {}:{} has mismatched kind",
+                    event.run_id, event.seq
+                ));
+            }
+            replay.push(ReplayedAgentEvent {
+                version: event.version,
+                scope: "run",
+                run_id: event.run_id,
+                seq: event.seq,
+                timestamp_ms: event.recorded_at_ms,
+                chat_id: event.chat_id,
+                event: event.payload,
+                replay: true,
+            });
+        }
+    }
+    Ok(replay)
 }
 
 /// Cancel the single runtime instance holding this chat's coordinator lease.
@@ -2720,6 +2865,7 @@ async fn build_instance(
     clarification_hub: Arc<ClarificationHub>,
     logger_handle: isanagent::logging::LoggerHandle,
     cron_node: NodeHandle<String>,
+    event_journal: Arc<EventJournal>,
     run_coordinator: SharedRunCoordinator,
     provider_name: &str,
     api_key: &str,
@@ -2748,6 +2894,7 @@ async fn build_instance(
         uuid::Uuid::new_v4().to_string(),
         owner_id.clone(),
         run_coordinator.clone(),
+        event_journal.clone(),
     ));
 
     // Resolve workspace — `<selected-folder>/.isanagent`, or `~/.isanagent`.
@@ -3424,6 +3571,7 @@ async fn build_instance(
     // dropped — the UI saw no tool calls or thinking between "Sending to
     // ALTAI…" and the final answer.
     let app_for_outbound = app.clone();
+    let journal_for_outbound = event_journal.clone();
     let coordinator_for_outbound = run_coordinator.clone();
     let owner_for_outbound = owner_id.clone();
     let outbound_router = async_runtime::spawn(async move {
@@ -3479,7 +3627,15 @@ async fn build_instance(
                             );
                         }
                     }
-                    emit_event(&app_for_outbound, &chat_id, &event, run);
+                    if let Err(error) = emit_event(
+                        &app_for_outbound,
+                        &journal_for_outbound,
+                        &chat_id,
+                        &event,
+                        run,
+                    ) {
+                        log::error!("Could not deliver outbound event for chat {chat_id}: {error}");
+                    }
                 }
                 BusMessage::Telemetry(ref telemetry) => {
                     if let Some(event) = map_telemetry_to_event(telemetry) {
@@ -3491,7 +3647,17 @@ async fn build_instance(
                                 .next(chat_id, &owner_for_outbound)
                                 .ok()
                         };
-                        emit_event(&app_for_outbound, chat_id, &event, run);
+                        if let Err(error) = emit_event(
+                            &app_for_outbound,
+                            &journal_for_outbound,
+                            chat_id,
+                            &event,
+                            run,
+                        ) {
+                            log::error!(
+                                "Could not deliver telemetry event for chat {chat_id}: {error}"
+                            );
+                        }
                     }
                 }
                 BusMessage::RunLifecycle(lifecycle) => {
@@ -3507,7 +3673,17 @@ async fn build_instance(
                             );
                             match transition {
                                 Ok(run) => {
-                                    emit_event(&app_for_outbound, &chat_id, &event, Some(run));
+                                    if let Err(error) = emit_event(
+                                        &app_for_outbound,
+                                        &journal_for_outbound,
+                                        &chat_id,
+                                        &event,
+                                        Some(run),
+                                    ) {
+                                        log::error!(
+                                            "Could not deliver run_started for chat {chat_id}: {error}"
+                                        );
+                                    }
                                 }
                                 Err(error) => log::warn!(
                                     "Dropped invalid run_started transition for chat {chat_id}: {error:?}"
@@ -3521,7 +3697,17 @@ async fn build_instance(
                                 .next_for_run(&chat_id, &run_id, &owner_for_outbound);
                             match transition {
                                 Ok(run) => {
-                                    emit_event(&app_for_outbound, &chat_id, &event, Some(run));
+                                    if let Err(error) = emit_event(
+                                        &app_for_outbound,
+                                        &journal_for_outbound,
+                                        &chat_id,
+                                        &event,
+                                        Some(run),
+                                    ) {
+                                        log::error!(
+                                            "Could not deliver run_warning for chat {chat_id}: {error}"
+                                        );
+                                    }
                                 }
                                 Err(error) => log::warn!(
                                     "Dropped invalid run_warning transition for chat {chat_id}: {error:?}"
@@ -3535,7 +3721,17 @@ async fn build_instance(
                                 .terminated(&chat_id, &run_id, &owner_for_outbound);
                             match transition {
                                 Ok(run) => {
-                                    emit_event(&app_for_outbound, &chat_id, &event, Some(run));
+                                    if let Err(error) = emit_event(
+                                        &app_for_outbound,
+                                        &journal_for_outbound,
+                                        &chat_id,
+                                        &event,
+                                        Some(run),
+                                    ) {
+                                        log::error!(
+                                            "Could not deliver run_terminated for chat {chat_id}: {error}"
+                                        );
+                                    }
                                 }
                                 Err(error) => log::warn!(
                                     "Dropped invalid run_terminated transition for chat {chat_id}: {error:?}"
@@ -3552,15 +3748,18 @@ async fn build_instance(
     // Emit ready event under the runtime's bootstrap chat_id. It does not match
     // any ALTAI chat tab, so the frontend filters it out — it exists only as a
     // lifecycle signal, not a message to render in a user's chat.
-    emit_event(
+    if let Err(error) = emit_event(
         &app,
+        &event_journal,
         channel.chat_id(),
         &Event::AgentMessage {
             content: "IsanAgent runtime initialized.".to_string(),
             role: "system".to_string(),
         },
         None,
-    );
+    ) {
+        log::warn!("Could not emit runtime initialization event: {error}");
+    }
 
     Ok((channel, bus_tx, shutdown_tx, bus_router, outbound_router))
 }
@@ -3772,6 +3971,7 @@ mod run_event_tests {
             scope: "run",
             run_id: Some("run-1"),
             seq: Some(1),
+            timestamp_ms: 42,
             chat_id: "chat-a",
             event: &event,
         };
@@ -3780,6 +3980,7 @@ mod run_event_tests {
         assert_eq!(value["scope"], "run");
         assert_eq!(value["runId"], "run-1");
         assert_eq!(value["seq"], 1);
+        assert_eq!(value["timestampMs"], 42);
         assert_eq!(value["chatId"], "chat-a");
         assert_eq!(value["event"]["type"], "run_started");
     }

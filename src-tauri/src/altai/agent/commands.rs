@@ -206,6 +206,20 @@ pub async fn agent_send(
     .await
 }
 
+/// Replay only already-persisted lifecycle envelopes after the renderer's
+/// last accepted sequence. The workspace must be one the host has authorized;
+/// replay never dispatches an inbound message or starts agent work.
+#[tauri::command]
+pub async fn agent_replay_events(
+    state: State<'_, AgentRuntime>,
+    registry: State<'_, WorkspaceRegistry>,
+    workspace_path: Option<String>,
+    cursors: Vec<runtime::ReplayCursor>,
+) -> Result<Vec<runtime::ReplayedAgentEvent>, String> {
+    let workspace = authorized_inbox_workspace(workspace_path.as_deref(), &registry)?;
+    runtime::replay_events(&state, &workspace, cursors).await
+}
+
 /// Approve or deny an agent action.
 ///
 /// Note: code-exec / destructive-shell approvals do NOT flow through this command. The runtime
