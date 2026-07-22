@@ -233,7 +233,7 @@ impl EventJournal {
 
         if let Some(existing) = find_event(&transaction, &event.run_id, seq)? {
             if existing == StoredEvent::from_input(event, terminal, &payload_json) {
-                transaction.commit()?;
+                transaction.rollback()?;
                 return Ok(AppendStatus::Duplicate);
             }
             if terminal && run_has_terminal(&transaction, &event.run_id)? {
@@ -723,6 +723,37 @@ mod tests {
                 ..
             })
         ));
+    }
+
+    #[test]
+    fn identical_duplicate_rolls_back_without_mutating_event_or_summary() {
+        let journal = EventJournal::open_in_memory().expect("journal");
+        let first = event(1, "run_started", serde_json::json!({ "run_id": "run-1" }));
+        journal.append(&first).expect("first");
+        let events_before = journal.fetch_after("run-1", 0, 10).expect("events before");
+        let summary_before = journal
+            .run_summary("run-1")
+            .expect("summary before")
+            .expect("run summary before");
+
+        let mut duplicate = first;
+        duplicate.recorded_at_ms += 1;
+        assert_eq!(
+            journal.append(&duplicate).expect("duplicate"),
+            AppendStatus::Duplicate
+        );
+
+        assert_eq!(
+            journal.fetch_after("run-1", 0, 10).expect("events after"),
+            events_before
+        );
+        assert_eq!(
+            journal
+                .run_summary("run-1")
+                .expect("summary after")
+                .expect("run summary after"),
+            summary_before
+        );
     }
 
     #[test]
