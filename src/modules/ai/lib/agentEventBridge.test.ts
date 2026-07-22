@@ -148,6 +148,49 @@ describe("durable event replay", () => {
       completed: true,
     });
   });
+
+  it("lets no legacy lifecycle shape mutate state, tokens, or retryability", () => {
+    ingestAgentEventEnvelope(
+      envelope({ type: "run_started", run_id: "run-1" }),
+    );
+    ingestAgentEventEnvelope(
+      envelope(
+        {
+          type: "usage",
+          prompt_tokens: 13,
+          completion_tokens: 5,
+          total_tokens: 18,
+          cache_read_tokens: 3,
+          cache_creation_tokens: 0,
+        },
+        { seq: 2 },
+      ),
+    );
+    ingestAgentEventEnvelope(
+      envelope(
+        {
+          type: "run_terminated",
+          run_id: "run-1",
+          outcome: {
+            kind: "failed",
+            failure: "provider_retries_exhausted",
+            retryable: true,
+          },
+        },
+        { seq: 3 },
+      ),
+    );
+
+    const runBefore = useAgentRunsStore.getState().runs["chat-1"];
+    const metaBefore = useChatStore.getState().agentMeta;
+    ingestAgentEventEnvelope({ type: "done", reason: "completed" });
+    ingestAgentEventEnvelope({ type: "error", message: "replacement" });
+
+    expect(useAgentRunsStore.getState().runs["chat-1"]).toEqual(runBefore);
+    expect(useChatStore.getState().agentMeta).toEqual(metaBefore);
+    expect(isRetryableRunOutcome(runBefore.outcome)).toBe(true);
+    expect(runBefore.tokens).toEqual({ input: 13, output: 5, cached: 3 });
+  });
 });
 
 describe("isRetryableRunOutcome", () => {
@@ -283,5 +326,6 @@ describe("parseAgentEventPayload", () => {
       }),
     ).toMatchObject({ legacy: true });
     expect(parseAgentEventPayload({ type: "done", reason: "no" })).toBeNull();
+    expect(parseAgentEventPayload({ type: "error", message: "no" })).toBeNull();
   });
 });

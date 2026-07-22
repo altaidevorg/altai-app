@@ -82,6 +82,8 @@ describe("agentRunsStore lifecycle admission", () => {
     expect(useAgentRunsStore.getState().runs["chat-1"]).toMatchObject({
       completed: false,
       lastResult: "done-ish",
+      outcome: null,
+      failures: [],
     });
   });
 
