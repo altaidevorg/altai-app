@@ -522,7 +522,7 @@ export function parseAgentEventPayload(payload: unknown): ParsedAgentEvent | nul
 
 /**
  * Apply the TS-side prune pass to the focused chat's transcript if the user
- * has it enabled. Pulled out of the `done` handler so the side effect is
+ * has it enabled. Pulled out of the `run_terminated` handler so the side effect is
  * obvious and easy to skip during tests. Reads prefs + store live so a
  * Settings change takes effect on the next turn boundary.
  */

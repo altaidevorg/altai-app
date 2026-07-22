@@ -4602,7 +4602,7 @@ mod compaction_tests {
     #[test]
     fn auto_off_disables_via_max_threshold() {
         // auto=false → MAX threshold so the between-turns trigger never fires.
-        // Manual /compact still works (it's a direct tool invocation).
+        // Manual /compact still works (it is a direct backend FIFO command).
         let c = CompactionArg {
             auto: false,
             threshold_tokens: 50_000,
