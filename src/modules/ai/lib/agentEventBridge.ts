@@ -1,4 +1,5 @@
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { invoke } from "@tauri-apps/api/core";
 import { plural } from "@/lib/utils";
 import { useChatStore } from "../store/chatStore";
 import { useAgentRunsStore } from "../store/agentRunsStore";
@@ -8,6 +9,7 @@ import { appendBackgroundMessage } from "./backgroundTranscript";
 import { pruneOldToolOutputs } from "./compaction";
 import type { Todo, TodoStatus } from "./todos";
 import { parseMcpToolName, type McpToolInfo } from "@/modules/mcp/toolName";
+import { currentWorkspaceFolder } from "@/modules/workspace/folder";
 import { z } from "zod";
 
 /**
@@ -221,17 +223,21 @@ export type VersionedAgentEventEnvelope = {
   scope: "run" | "system";
   runId?: string;
   seq?: number;
+  timestampMs?: number;
   chatId: string;
   event: AgentEvent;
+  replay?: boolean;
 };
 
 export type ParsedAgentEvent = AgentEvent & {
   chat_id?: string;
   run_id?: string;
   seq?: number;
+  timestamp_ms?: number;
   version?: 1;
   scope?: "run" | "system";
   legacy?: boolean;
+  replay?: boolean;
 };
 
 const AGENT_EVENT_TYPES = new Set<AgentEvent["type"]>([
@@ -458,13 +464,22 @@ export function parseAgentEventPayload(payload: unknown): ParsedAgentEvent | nul
   if ("version" in value && value.version !== 1) return null;
 
   if (value.version === 1) {
-    const { scope, runId, seq, chatId, event } = value;
+    const { scope, runId, seq, timestampMs, chatId, event, replay } = value;
     if (
       (scope !== "run" && scope !== "system") ||
       typeof chatId !== "string" ||
       !chatId.trim() ||
       !event ||
       typeof event !== "object"
+    ) {
+      return null;
+    }
+    if (
+      (timestampMs !== undefined &&
+        (typeof timestampMs !== "number" ||
+          !Number.isSafeInteger(timestampMs) ||
+          timestampMs < 0)) ||
+      (replay !== undefined && replay !== true)
     ) {
       return null;
     }
@@ -507,8 +522,10 @@ export function parseAgentEventPayload(payload: unknown): ParsedAgentEvent | nul
       chat_id: chatId,
       run_id: runId,
       seq,
+      timestamp_ms: timestampMs,
       version: 1,
       scope,
+      replay: replay === true,
     } as ParsedAgentEvent;
   }
 
@@ -549,6 +566,40 @@ function maybePruneOldToolOutputs(): void {
   }
 }
 
+async function waitForSessionHydration(): Promise<void> {
+  if (useChatStore.getState().sessionsHydrated) return;
+  await new Promise<void>((resolve) => {
+    const unsubscribe = useChatStore.subscribe((state) => {
+      if (!state.sessionsHydrated) return;
+      unsubscribe();
+      resolve();
+    });
+  });
+}
+
+async function replayPersistedAgentEvents(): Promise<void> {
+  const workspacePath = currentWorkspaceFolder();
+  if (!workspacePath) return;
+  const chat = useChatStore.getState();
+  const runs = useAgentRunsStore.getState().runs;
+  const cursors = chat.sessions.map((session) => {
+    const run = runs[session.id];
+    return {
+      chatId: session.id,
+      runId: run?.runId ?? null,
+      afterSeq: run?.lastSeq ?? 0,
+    };
+  });
+  if (cursors.length === 0) return;
+  const events = await invoke<unknown[]>("agent_replay_events", {
+    workspacePath,
+    cursors,
+  });
+  for (const event of events) {
+    applyAgentEventPayload(event, true);
+  }
+}
+
 /**
  * Initialize the agent event bridge.
  *
@@ -556,10 +607,27 @@ function maybePruneOldToolOutputs(): void {
  * events to the appropriate Zustand stores. Call once during app setup.
  */
 export async function initAgentEventBridge(): Promise<UnlistenFn> {
-  return listen<unknown>("agent://event", (event) => {
-    const payload = parseAgentEventPayload(event.payload);
-    if (!payload) return;
-    const store = useChatStore.getState();
+  const unlisten = await listen<unknown>("agent://event", (event) => {
+    applyAgentEventPayload(event.payload, false);
+  });
+  await waitForSessionHydration();
+  try {
+    await replayPersistedAgentEvents();
+  } catch (error) {
+    useChatStore.getState().addActivity({
+      label: "Run recovery unavailable",
+      detail: error instanceof Error ? error.message : String(error),
+      kind: "agent",
+      tone: "warning",
+    });
+  }
+  return unlisten;
+}
+
+export function applyAgentEventPayload(raw: unknown, replay: boolean): void {
+  const payload = parseAgentEventPayload(raw);
+  if (!payload) return;
+  const store = useChatStore.getState();
     // Feed the per-chat_id run registry FIRST, before the active-session drop
     // below — this is the only sink that sees background (non-focused) runs, so
     // a project board can track every dispatched agent. Must stay above the
@@ -573,6 +641,7 @@ export async function initAgentEventBridge(): Promise<UnlistenFn> {
     // transcript" replays the result, not just the seed. The focused chat
     // persists itself via nativeMessages, so skip it here.
     if (
+      !replay &&
       payload.type === "agent_message" &&
       payload.role === "assistant" &&
       payload.chat_id &&
@@ -580,15 +649,21 @@ export async function initAgentEventBridge(): Promise<UnlistenFn> {
     ) {
       appendBackgroundMessage(payload.chat_id, "assistant", payload.content);
     }
-    if (payload.type === "clarification" && payload.chat_id) {
+  if (payload.type === "clarification" && payload.chat_id) {
       store.setPendingClarificationForSession(payload.chat_id, {
         choices: payload.choices,
         editDiff: payload.edit_diff ?? null,
       });
-      if (payload.chat_id !== store.activeSessionId) {
-        appendBackgroundMessage(payload.chat_id, "assistant", payload.content);
-      }
+      if (!replay && payload.chat_id !== store.activeSessionId) {
+      appendBackgroundMessage(payload.chat_id, "assistant", payload.content);
     }
+  }
+  // A terminal run cannot still be waiting for an answer. This also prevents
+  // a full restart replay from resurrecting a clarification that was resolved
+  // earlier in the same run.
+  if (payload.type === "run_terminated" && payload.chat_id) {
+    store.setPendingClarificationForSession(payload.chat_id, null);
+  }
     if (
       payload.type === "notification_created" ||
       payload.type === "notification_updated" ||
@@ -605,7 +680,7 @@ export async function initAgentEventBridge(): Promise<UnlistenFn> {
     // screen, so a still-streaming or autonomous turn from another chat (and
     // the runtime's bootstrap "initialized" message) never leaks into it.
     if (payload.chat_id && payload.chat_id !== store.activeSessionId) return;
-    switch (payload.type) {
+  switch (payload.type) {
       case "run_started":
         if (store.agentMeta.status !== "cancelling") {
           store.patchAgentMeta({ status: "thinking", step: null, error: null });
@@ -639,14 +714,16 @@ export async function initAgentEventBridge(): Promise<UnlistenFn> {
           status: error ? "error" : "idle",
           step: null,
           error,
+          pendingApprovals: [],
+          approvalsPending: 0,
         });
         store.closeAssistantTurn();
-        maybePruneOldToolOutputs();
+        if (!replay) maybePruneOldToolOutputs();
         break;
       }
 
       case "agent_message":
-        store.appendNativeMessage(payload.content, payload.role);
+        if (!replay) store.appendNativeMessage(payload.content, payload.role);
         // Assistant prose is content, not a lifecycle signal. Only the
         // matching run_terminated event may transition a run to terminal.
         break;
@@ -670,7 +747,9 @@ export async function initAgentEventBridge(): Promise<UnlistenFn> {
             kind: activityKindForTool(payload.name),
           });
         }
-        store.startNativeToolCall(payload.id, payload.name, payload.input);
+        if (!replay) {
+          store.startNativeToolCall(payload.id, payload.name, payload.input);
+        }
         if (payload.name === "todo_write") {
           ingestTodoWrite(payload.input, store.activeSessionId);
         }
@@ -691,7 +770,9 @@ export async function initAgentEventBridge(): Promise<UnlistenFn> {
           kind: mcp ? "mcp" : activityKindForTool(payload.name),
           tone: payload.error ? "error" : "success",
         });
-        store.endNativeToolCall(payload.id, payload.output, payload.error);
+        if (!replay) {
+          store.endNativeToolCall(payload.id, payload.output, payload.error);
+        }
         }
         break;
 
@@ -705,7 +786,7 @@ export async function initAgentEventBridge(): Promise<UnlistenFn> {
         // The agent is asking the user something. Render the question as an
         // assistant message and expose any preset choices as clickable chips;
         // the turn yields back to the user (idle) until they reply.
-        store.appendNativeMessage(payload.content, "assistant");
+        if (!replay) store.appendNativeMessage(payload.content, "assistant");
         if (!payload.chat_id) {
           store.setPendingChoices(payload.choices);
           store.setPendingEditDiff(payload.edit_diff ?? null);
@@ -899,6 +980,5 @@ export async function initAgentEventBridge(): Promise<UnlistenFn> {
           new CustomEvent("altai:experiment-result", { detail: payload }),
         );
         break;
-    }
-  });
+  }
 }

@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
+  applyAgentEventPayload,
   isRetryableRunOutcome,
   parseAgentEventPayload,
 } from "./agentEventBridge";
+import { useChatStore } from "../store/chatStore";
+import { useAgentRunsStore } from "../store/agentRunsStore";
 
 const envelope = (event: unknown, overrides: Record<string, unknown> = {}) => ({
   version: 1,
@@ -68,6 +71,30 @@ describe("parseAgentEventPayload", () => {
       type: "run_warning",
       warning: { reason: { kind: "no_progress", turns: 6 } },
     });
+  });
+
+  it("accepts replay metadata without weakening lifecycle validation", () => {
+    expect(
+      parseAgentEventPayload(
+        envelope(
+          { type: "run_started", run_id: "run-1" },
+          { replay: true, timestampMs: 1_700_000_000_000 },
+        ),
+      ),
+    ).toMatchObject({
+      type: "run_started",
+      run_id: "run-1",
+      replay: true,
+      timestamp_ms: 1_700_000_000_000,
+    });
+    expect(
+      parseAgentEventPayload(
+        envelope(
+          { type: "run_started", run_id: "other-run" },
+          { replay: true, timestampMs: 1_700_000_000_000 },
+        ),
+      ),
+    ).toBeNull();
   });
 
   it("rejects unknown versions even when they look legacy", () => {
@@ -147,5 +174,86 @@ describe("parseAgentEventPayload", () => {
       }),
     ).toMatchObject({ legacy: true });
     expect(parseAgentEventPayload({ type: "done", reason: "no" })).toBeNull();
+  });
+});
+
+describe("replay side-effect boundary", () => {
+  it("rebuilds lifecycle state without duplicating transcript or stale prompts", () => {
+    const before = useChatStore.getState();
+    useAgentRunsStore.setState({ runs: {} });
+    useChatStore.setState({
+      activeSessionId: "chat-1",
+      nativeMessages: [],
+      pendingClarificationsBySession: {},
+      pendingChoices: null,
+      pendingEditDiff: null,
+      agentMeta: {
+        ...before.agentMeta,
+        pendingApprovals: [],
+        approvalsPending: 0,
+      },
+    });
+
+    applyAgentEventPayload(
+      envelope({ type: "run_started", run_id: "run-1" }),
+      true,
+    );
+    applyAgentEventPayload(
+      envelope(
+        { type: "agent_message", role: "assistant", content: "durable text" },
+        { seq: 2, replay: true },
+      ),
+      true,
+    );
+    applyAgentEventPayload(
+      envelope(
+        {
+          type: "approval_request",
+          id: "approval-1",
+          action: "shell",
+          payload: {},
+        },
+        { seq: 3, replay: true },
+      ),
+      true,
+    );
+    applyAgentEventPayload(
+      envelope(
+        { type: "clarification", content: "Continue?", choices: ["Yes"] },
+        { seq: 4, replay: true },
+      ),
+      true,
+    );
+    applyAgentEventPayload(
+      envelope(
+        {
+          type: "run_terminated",
+          run_id: "run-1",
+          outcome: { kind: "completed" },
+        },
+        { seq: 5, replay: true },
+      ),
+      true,
+    );
+
+    const recovered = useChatStore.getState();
+    expect(recovered.nativeMessages).toEqual([]);
+    expect(recovered.pendingClarificationsBySession["chat-1"]).toBeUndefined();
+    expect(recovered.agentMeta.pendingApprovals).toEqual([]);
+    expect(useAgentRunsStore.getState().runs["chat-1"]).toMatchObject({
+      runId: "run-1",
+      lastSeq: 5,
+      completed: true,
+    });
+
+    useChatStore.setState({
+      activeSessionId: before.activeSessionId,
+      nativeMessages: before.nativeMessages,
+      pendingClarificationsBySession: before.pendingClarificationsBySession,
+      pendingChoices: before.pendingChoices,
+      pendingEditDiff: before.pendingEditDiff,
+      agentMeta: before.agentMeta,
+    });
+    useAgentRunsStore.setState({ runs: {} });
   });
 });

@@ -5,7 +5,7 @@ use std::path::Path;
 use std::sync::Mutex;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-const SCHEMA_VERSION: i64 = 1;
+const SCHEMA_VERSION: i64 = 2;
 const MAX_FETCH_LIMIT: usize = 1_000;
 
 const MIGRATION_V1: &str = r#"
@@ -39,6 +39,16 @@ CREATE TABLE IF NOT EXISTS agent_event_journal_runs (
         (terminal_seq IS NOT NULL AND terminal_kind IS NOT NULL AND terminal_payload_json IS NOT NULL)
     )
 );
+"#;
+
+// `recorded_at_ms` is presentation metadata and can collide within one
+// millisecond. A journal-assigned run order makes "latest run" deterministic
+// without relying on clocks or random run IDs.
+const MIGRATION_V2: &str = r#"
+ALTER TABLE agent_event_journal_runs ADD COLUMN run_order INTEGER;
+UPDATE agent_event_journal_runs SET run_order = rowid WHERE run_order IS NULL;
+CREATE UNIQUE INDEX agent_event_journal_runs_order
+    ON agent_event_journal_runs (run_order);
 "#;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -79,6 +89,9 @@ impl JournalEvent {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+// Kept as the journal's administrative query DTO; the runtime replay path
+// reads event rows directly, while journal tests and future diagnostics use it.
+#[cfg_attr(not(test), allow(dead_code))]
 pub struct RunJournalSummary {
     pub run_id: String,
     pub chat_id: String,
@@ -198,7 +211,7 @@ impl EventJournal {
     }
 
     #[cfg(test)]
-    fn open_in_memory() -> JournalResult<Self> {
+    pub(crate) fn open_in_memory() -> JournalResult<Self> {
         Self::from_connection(Connection::open_in_memory()?)
     }
 
@@ -248,8 +261,13 @@ impl EventJournal {
         }
 
         transaction.execute(
-            "INSERT INTO agent_event_journal_runs (run_id, chat_id, last_seq)
-             VALUES (?1, ?2, 0)
+            "INSERT INTO agent_event_journal_runs (run_id, chat_id, run_order, last_seq)
+             VALUES (
+                 ?1,
+                 ?2,
+                 (SELECT COALESCE(MAX(run_order), 0) + 1 FROM agent_event_journal_runs),
+                 0
+             )
              ON CONFLICT(run_id) DO NOTHING",
             params![event.run_id, event.chat_id],
         )?;
@@ -381,6 +399,7 @@ impl EventJournal {
         .collect()
     }
 
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn run_summary(&self, run_id: &str) -> JournalResult<Option<RunJournalSummary>> {
         if run_id.trim().is_empty() {
             return Err(JournalError::InvalidField("run_id"));
@@ -427,6 +446,59 @@ impl EventJournal {
                 },
             )
             .transpose()
+    }
+
+    /// Replay the latest run for one chat. If the caller still acknowledges
+    /// that run, only strictly newer sequences are returned. If the caller's
+    /// run is stale or absent (for example after an app restart), the latest
+    /// run is rebuilt from sequence zero.
+    pub fn replay_latest(
+        &self,
+        chat_id: &str,
+        acknowledged_run_id: Option<&str>,
+        after_seq: u64,
+    ) -> JournalResult<Vec<JournalEvent>> {
+        if chat_id.trim().is_empty() {
+            return Err(JournalError::InvalidField("chat_id"));
+        }
+        let latest_run_id = {
+            let connection = self
+                .connection
+                .lock()
+                .map_err(|_| JournalError::LockPoisoned)?;
+            connection
+                .query_row(
+                    "SELECT run_id
+                     FROM agent_event_journal_runs
+                     WHERE chat_id = ?1
+                     ORDER BY run_order DESC
+                     LIMIT 1",
+                    params![chat_id],
+                    |row| row.get::<_, String>(0),
+                )
+                .optional()?
+        };
+        let Some(latest_run_id) = latest_run_id else {
+            return Ok(Vec::new());
+        };
+        let mut cursor = if acknowledged_run_id == Some(latest_run_id.as_str()) {
+            after_seq
+        } else {
+            0
+        };
+        let mut replay = Vec::new();
+        loop {
+            let page = self.fetch_after(&latest_run_id, cursor, MAX_FETCH_LIMIT)?;
+            let page_len = page.len();
+            if let Some(last) = page.last() {
+                cursor = last.seq;
+            }
+            replay.extend(page);
+            if page_len < MAX_FETCH_LIMIT {
+                break;
+            }
+        }
+        Ok(replay)
     }
 
     #[cfg(test)]
@@ -543,6 +615,19 @@ fn migrate(connection: &mut Connection) -> JournalResult<()> {
             params![applied_at_ms],
         )?;
     }
+    if current < 2 {
+        let applied_at_ms = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis()
+            .min(i64::MAX as u128) as i64;
+        transaction.execute_batch(MIGRATION_V2)?;
+        transaction.execute(
+            "INSERT INTO agent_event_journal_migrations (version, applied_at_ms)
+             VALUES (2, ?1)",
+            params![applied_at_ms],
+        )?;
+    }
     transaction.commit()?;
     Ok(())
 }
@@ -594,7 +679,7 @@ mod tests {
         let temp = tempfile::tempdir().expect("tempdir");
         let path = temp.path().join("events.sqlite3");
         let journal = EventJournal::open(&path).expect("open journal");
-        assert_eq!(journal.schema_version().expect("schema version"), 1);
+        assert_eq!(journal.schema_version().expect("schema version"), 2);
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
@@ -613,7 +698,7 @@ mod tests {
                 .expect("reopen migrated journal")
                 .schema_version()
                 .expect("schema version"),
-            1
+            2
         );
 
         let future_path = temp.path().join("future.sqlite3");
@@ -635,7 +720,7 @@ mod tests {
     }
 
     #[test]
-    fn concurrent_first_open_applies_one_migration() {
+    fn concurrent_first_open_applies_each_migration_once() {
         let temp = tempfile::tempdir().expect("tempdir");
         let path = Arc::new(temp.path().join("concurrent-migration.sqlite3"));
         let barrier = Arc::new(Barrier::new(3));
@@ -653,14 +738,14 @@ mod tests {
         barrier.wait();
 
         for handle in handles {
-            assert_eq!(handle.join().expect("migration thread").expect("open"), 1);
+            assert_eq!(handle.join().expect("migration thread").expect("open"), 2);
         }
         assert_eq!(
             EventJournal::open(path.as_ref())
                 .expect("verify journal")
                 .schema_version()
                 .expect("schema version"),
-            1
+            2
         );
     }
 
@@ -793,6 +878,55 @@ mod tests {
             journal.append_terminal(&event(3, "run_terminated", Value::Null)),
             Err(JournalError::TerminalAlreadyCommitted { .. })
         ));
+    }
+
+    #[test]
+    fn replay_uses_acknowledged_sequence_or_rebuilds_the_latest_run() {
+        let journal = EventJournal::open_in_memory().expect("journal");
+        let old_start = event(1, "run_started", serde_json::json!({}));
+        journal.append(&old_start).expect("old start");
+        journal
+            .append_terminal(&event(
+                2,
+                "run_terminated",
+                serde_json::json!({ "outcome": { "kind": "completed" } }),
+            ))
+            .expect("old terminal");
+
+        let mut new_start = event(1, "run_started", serde_json::json!({ "run_id": "run-2" }));
+        new_start.run_id = "run-2".to_string();
+        journal.append(&new_start).expect("new start");
+        let mut new_thinking = event(2, "thinking", serde_json::json!({ "content": "work" }));
+        new_thinking.run_id = "run-2".to_string();
+        journal.append(&new_thinking).expect("new thinking");
+
+        let restart = journal
+            .replay_latest("chat-1", None, 0)
+            .expect("restart replay");
+        assert_eq!(
+            restart
+                .iter()
+                .map(|event| (event.run_id.as_str(), event.seq))
+                .collect::<Vec<_>>(),
+            vec![("run-2", 1), ("run-2", 2)]
+        );
+        let overlap = journal
+            .replay_latest("chat-1", Some("run-2"), 1)
+            .expect("overlap replay");
+        assert_eq!(
+            overlap.iter().map(|event| event.seq).collect::<Vec<_>>(),
+            vec![2]
+        );
+        let stale_cursor = journal
+            .replay_latest("chat-1", Some("run-1"), 2)
+            .expect("stale replay");
+        assert_eq!(
+            stale_cursor
+                .iter()
+                .map(|event| event.seq)
+                .collect::<Vec<_>>(),
+            vec![1, 2]
+        );
     }
 
     #[test]
