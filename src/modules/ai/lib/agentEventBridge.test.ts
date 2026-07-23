@@ -1,9 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  describeTerminalOutcomeAttention,
   ingestAgentEventEnvelope,
+  isRecoverableAttentionMessage,
+  isRecoverableRunOutcome,
   isRetryableRunOutcome,
   parseAgentEventPayload,
   replayRestoredAgentRuns,
+  resetBudgetSegmentAutoContinues,
 } from "./agentEventBridge";
 import { native } from "./native";
 import { useAgentRunsStore } from "../store/agentRunsStore";
@@ -212,6 +216,106 @@ describe("isRetryableRunOutcome", () => {
     ).toBe(false);
     expect(isRetryableRunOutcome({ kind: "stuck", reason: "doom_loop" })).toBe(false);
     expect(isRetryableRunOutcome(null)).toBe(false);
+  });
+});
+
+describe("recoverable terminal framing", () => {
+  beforeEach(() => {
+    resetBudgetSegmentAutoContinues("chat-1");
+    useAgentRunsStore.setState({ runs: {} });
+    useChatStore.setState({
+      activeSessionId: "chat-1",
+      nativeMessages: [],
+      agentMeta: {
+        status: "idle",
+        step: null,
+        approvalsPending: 0,
+        pendingApprovals: [],
+        activity: [],
+        artifacts: [],
+        error: null,
+        tokens: { inputTokens: 0, outputTokens: 0, cachedInputTokens: 0 },
+        lastInputTokens: 0,
+        lastCachedTokens: 0,
+        activeSubagents: [],
+      },
+    });
+  });
+
+  it("frames budget exhaustion as a pause, never a crash string", () => {
+    const attention = describeTerminalOutcomeAttention({
+      kind: "budget_exhausted",
+      budget: { iterations_used: 50, iterations_limit: 50 },
+    });
+    expect(attention).toBe(
+      "Run paused — Hit the turn limit after 50 steps",
+    );
+    expect(isRecoverableAttentionMessage(attention!)).toBe(true);
+    expect(
+      isRecoverableRunOutcome({
+        kind: "budget_exhausted",
+        budget: { iterations_used: 50, iterations_limit: 50 },
+      }),
+    ).toBe(true);
+  });
+
+  it("auto-continues budget exhaustion without setting an error banner", async () => {
+    const sendSpy = vi
+      .spyOn(await import("../store/chatStore"), "sendMessage")
+      .mockResolvedValue(true);
+
+    ingestAgentEventEnvelope(
+      envelope({ type: "run_started", run_id: "run-1" }),
+    );
+    ingestAgentEventEnvelope(
+      envelope(
+        {
+          type: "run_terminated",
+          run_id: "run-1",
+          outcome: {
+            kind: "budget_exhausted",
+            budget: { iterations_used: 50, iterations_limit: 50 },
+          },
+        },
+        { seq: 2 },
+      ),
+    );
+
+    expect(useChatStore.getState().agentMeta).toMatchObject({
+      status: "idle",
+      error: null,
+    });
+    expect(useAgentRunsStore.getState().runs["chat-1"]).toMatchObject({
+      status: "idle",
+      completed: true,
+      outcome: { kind: "budget_exhausted" },
+    });
+
+    await vi.waitFor(() => {
+      expect(sendSpy).toHaveBeenCalled();
+    });
+    sendSpy.mockRestore();
+  });
+
+  it("keeps stuck as an amber pause with idle status", () => {
+    ingestAgentEventEnvelope(
+      envelope({ type: "run_started", run_id: "run-1" }),
+    );
+    ingestAgentEventEnvelope(
+      envelope(
+        {
+          type: "run_terminated",
+          run_id: "run-1",
+          outcome: { kind: "stuck", reason: "Stopped: doom_loop" },
+        },
+        { seq: 2 },
+      ),
+    );
+
+    expect(useChatStore.getState().agentMeta).toMatchObject({
+      status: "idle",
+      error: "Run paused — doom_loop",
+    });
   });
 });
 

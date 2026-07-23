@@ -7,6 +7,7 @@ import {
 import { HugeiconsIcon } from "@hugeicons/react";
 import { AnimatePresence, motion } from "motion/react";
 import { toolLabel } from "@/components/ai-elements/tool";
+import { isRecoverableAttentionMessage } from "../lib/agentEventBridge";
 import { useChatStore, type AgentMeta } from "../store/chatStore";
 
 type Props = {
@@ -37,7 +38,13 @@ export function AgentStatusPill({
   const active =
     busy || meta.status !== "idle" || Boolean(meta.error) || subCount > 0;
   if (!active) return null;
-  if (hideError && meta.status === "error") return null;
+  if (
+    hideError &&
+    (meta.status === "error" ||
+      (meta.error != null && isRecoverableAttentionMessage(meta.error)))
+  ) {
+    return null;
+  }
 
   const { tone, icon, label } = describe(meta, subCount);
   const subLabel = subCount > 0 ? `${plural(subCount, "subagent")} running` : "";
@@ -118,6 +125,16 @@ function describe(meta: AgentMeta, subCount: number): {
         meta.approvalsPending > 1
           ? `${meta.approvalsPending} approvals needed`
           : "Approval needed",
+    };
+  }
+  if (meta.error && isRecoverableAttentionMessage(meta.error)) {
+    return {
+      tone:
+        "border-amber-500/40 bg-amber-500/10 text-amber-800 dark:text-amber-200 hover:bg-amber-500/15",
+      icon: (
+        <HugeiconsIcon icon={AlertCircleIcon} size={12} strokeWidth={1.75} />
+      ),
+      label: "Needs attention",
     };
   }
   if (meta.status === "error") {

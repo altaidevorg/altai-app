@@ -205,6 +205,43 @@ export function isRetryableRunOutcome(
   return outcome?.kind === "failed" && outcome.retryable;
 }
 
+/** Recoverable terminals — segment/stuck pauses, not provider crashes. */
+export function isRecoverableRunOutcome(
+  outcome: RunOutcome | null | undefined,
+): boolean {
+  return outcome?.kind === "stuck" || outcome?.kind === "budget_exhausted";
+}
+
+/** Chat alert / pill copy that must never render as “Something went wrong.” */
+export function isRecoverableAttentionMessage(message: string): boolean {
+  return message.startsWith("Run paused");
+}
+
+/**
+ * User-facing attention string for a terminal outcome, or null when the run
+ * ended cleanly. Stuck and budget exhaustion are framed as pauses.
+ */
+export function describeTerminalOutcomeAttention(
+  outcome: RunOutcome | null | undefined,
+): string | null {
+  if (!outcome || outcome.kind === "completed" || outcome.kind === "cancelled") {
+    return null;
+  }
+  if (outcome.kind === "failed") return outcome.failure;
+  if (outcome.kind === "stuck") {
+    return `Run paused — ${outcome.reason.replace(/^Stopped:\s*/i, "")}`;
+  }
+  return `Run paused — Hit the turn limit after ${outcome.budget.iterations_used} steps`;
+}
+
+export function continueStuckPrompt(): string {
+  return "Continue the previous task from where it stopped. Reuse the existing context, avoid repeating successful side effects, and make measurable progress before completing.";
+}
+
+export function continueBudgetSegmentPrompt(): string {
+  return "Continue the previous task from where it stopped. You have additional turns available now — pick up the unfinished work, reuse the existing context, avoid repeating successful side effects, and make measurable progress before completing.";
+}
+
 export function describeRunWarning(warning: RunBudgetWarning): string {
   switch (warning.reason.kind) {
     case "approaching_limit":
@@ -214,6 +251,40 @@ export function describeRunWarning(warning: RunBudgetWarning): string {
     case "no_progress":
       return `No measurable progress for ${warning.reason.turns} turns`;
   }
+}
+
+/** Soft cap so an unbounded task cannot auto-burn forever. */
+const MAX_BUDGET_SEGMENT_AUTO_CONTINUES = 20;
+const budgetSegmentAutoContinues = new Map<string, number>();
+
+export function resetBudgetSegmentAutoContinues(chatId: string): void {
+  budgetSegmentAutoContinues.delete(chatId);
+}
+
+/**
+ * Peer-agent behavior: LLM-turn exhaustion is a segment boundary, not a hard
+ * stop. Auto-start the next segment when the exhausted chat is focused.
+ * Returns true when a continue was scheduled (no crash banner needed).
+ */
+function scheduleBudgetSegmentAutoContinue(chatId: string): boolean {
+  const used = budgetSegmentAutoContinues.get(chatId) ?? 0;
+  if (used >= MAX_BUDGET_SEGMENT_AUTO_CONTINUES) return false;
+  if (useChatStore.getState().activeSessionId !== chatId) return false;
+
+  budgetSegmentAutoContinues.set(chatId, used + 1);
+  queueMicrotask(() => {
+    void import("../store/chatStore").then(({ sendMessage }) => {
+      const chat = useChatStore.getState();
+      if (chat.activeSessionId !== chatId) return;
+      if (chat.agentMeta.status !== "idle" && chat.agentMeta.status !== "error") {
+        return;
+      }
+      void sendMessage(continueBudgetSegmentPrompt(), undefined, undefined, {
+        budgetSegmentAutoContinue: true,
+      });
+    });
+  });
+  return true;
 }
 
 export type VersionedAgentEventEnvelope = {
@@ -641,21 +712,37 @@ export function ingestAgentEventEnvelope(
       }
 
       case "run_terminated": {
-        const error =
-          payload.outcome.kind === "failed"
-            ? payload.outcome.failure
-            : payload.outcome.kind === "stuck"
-              ? // Recoverable — RunRecoveryActions owns the Continue/Steer UI.
-                // Keep a short status string without the scary "Something went wrong" framing.
-                `Run paused — ${payload.outcome.reason.replace(/^Stopped:\s*/i, "")}`
-              : payload.outcome.kind === "budget_exhausted"
-                ? `Run budget exhausted after ${payload.outcome.budget.iterations_used} iterations`
-                : null;
+        const outcome = payload.outcome;
+        const chatId = payload.chat_id ?? store.activeSessionId;
+        const autoContinued =
+          outcome.kind === "budget_exhausted" &&
+          chatId != null &&
+          scheduleBudgetSegmentAutoContinue(chatId);
+
+        // Reset the auto-continue streak on any non-budget terminal so a later
+        // exhaustion starts a fresh allowance.
+        if (chatId && outcome.kind !== "budget_exhausted") {
+          resetBudgetSegmentAutoContinues(chatId);
+        }
+
+        const error = autoContinued
+          ? null
+          : describeTerminalOutcomeAttention(outcome);
         store.patchAgentMeta({
-          status: error ? "error" : "idle",
+          // Recoverable pauses stay idle so the topbar does not stick on "Working"
+          // / destructive error chrome. Provider failures keep status=error.
+          status: outcome.kind === "failed" ? "error" : "idle",
           step: null,
           error,
         });
+        if (autoContinued) {
+          store.addActivity({
+            label: "Turn limit reached",
+            detail: "Continuing automatically…",
+            kind: "agent",
+            tone: "default",
+          });
+        }
         store.closeAssistantTurn();
         maybePruneOldToolOutputs();
         break;
@@ -916,16 +1003,14 @@ function projectRecoveredRun(chatId: string): void {
   if (chat.activeSessionId !== chatId) return;
   const run = useAgentRunsStore.getState().runs[chatId];
   if (!run) return;
-  const error =
-    run.outcome?.kind === "failed"
-      ? run.outcome.failure
-      : run.outcome?.kind === "stuck"
-        ? `Run paused — ${run.outcome.reason.replace(/^Stopped:\s*/i, "")}`
-        : run.outcome?.kind === "budget_exhausted"
-          ? `Run budget exhausted after ${run.outcome.budget.iterations_used} iterations`
-          : null;
+  const error = describeTerminalOutcomeAttention(run.outcome);
   chat.patchAgentMeta({
-    status: run.status,
+    status:
+      run.completed && run.outcome?.kind === "failed"
+        ? "error"
+        : run.completed
+          ? "idle"
+          : run.status,
     step: run.step,
     error,
     tokens: {
