@@ -1,5 +1,5 @@
 import { Button } from "@/components/ui/button";
-import { Popover, PopoverAnchor, PopoverContent } from "@/components/ui/popover";
+import { Popover, PopoverAnchor, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Spinner } from "@/components/ui/spinner";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
@@ -318,8 +318,8 @@ export function AiInputBar() {
 
       <div
         className={cn(
-          "flex flex-col overflow-hidden rounded-2xl border border-border/60 bg-card/85 shadow-[0_-12px_32px_-24px_rgba(0,0,0,0.7)] backdrop-blur-xl",
-          "transition-[border-color,box-shadow,background-color] hover:border-border focus-within:border-foreground/40 focus-within:bg-card focus-within:shadow-[0_-16px_40px_-24px_rgba(0,0,0,0.8)]",
+          "flex flex-col overflow-hidden rounded-none border border-border/60 bg-transparent",
+          "transition-[border-color] hover:border-border focus-within:border-foreground/40",
           c.isBusy && "opacity-95",
         )}
       >
@@ -480,12 +480,16 @@ export function AiInputBar() {
           )}
         </Popover>
 
-        {c.isBusy && (
+        {(c.canSend || c.canSteer || c.canQueue) && (
           <div className="flex items-center gap-1.5 border-t border-border/40 px-2.5 py-1.5">
             <span className="min-w-0 flex-1 truncate text-[10px] text-muted-foreground">
               {c.isCancelling
                 ? "Cancellation requested — you can queue the next task"
-                : "Enter queues next · ⌘/Ctrl+Enter steers this run"}
+                : c.canSteer
+                  ? "Enter queues next · ⌘/Ctrl+Enter steers this run"
+                  : c.canQueue
+                    ? "Enter queues next · starts after the active run ends"
+                    : "Press Enter to send"}
             </span>
             {c.isRunning && (
               <Button
@@ -506,21 +510,23 @@ export function AiInputBar() {
                 Steer now
               </Button>
             )}
-            <Button
-              type="button"
-              variant="secondary"
-              size="sm"
-              onClick={c.queueNext}
-              disabled={!c.canQueue}
-              title="Start after the active run terminates"
-              className="h-6 px-2 text-[11px]"
-            >
-              Queue next
-            </Button>
+            {c.isBusy && (
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                onClick={c.queueNext}
+                disabled={!c.canQueue}
+                title="Start after the active run terminates"
+                className="h-6 px-2 text-[11px]"
+              >
+                Queue next
+              </Button>
+            )}
           </div>
         )}
 
-        <div className="flex items-center gap-0.5 overflow-x-auto border-t border-border/40 bg-muted/[0.14] px-2.5 pb-1.5 pt-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        <div className="flex items-center gap-0.5 overflow-x-auto border-t border-border/40 px-2.5 pb-1.5 pt-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           <ToolbarIcon
             title="Attach file or image"
             onClick={() => fileInputRef.current?.click()}
@@ -529,19 +535,23 @@ export function AiInputBar() {
           </ToolbarIcon>
 
           <Popover open={contextOpen} onOpenChange={setContextOpen}>
-            <PopoverAnchor asChild>
-              <ToolbarIcon
+            <PopoverTrigger asChild>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                aria-label="Add workspace context"
                 title="Add workspace context"
-                onClick={() => setContextOpen((open) => !open)}
+                className="size-6 shrink-0 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
               >
                 <HugeiconsIcon icon={CodeIcon} size={14} strokeWidth={1.75} />
-              </ToolbarIcon>
-            </PopoverAnchor>
+              </Button>
+            </PopoverTrigger>
             <PopoverContent side="top" align="start" sideOffset={6} className="w-56 p-1.5">
-              <ContextAction icon={File01Icon} label="Active file" detail="Attach the file open in the editor" disabled={!workspaceRoot || !useChatStore.getState().live.getActiveFile()} onClick={() => void attachActiveFile()} />
-              <ContextAction icon={Attachment01Icon} label="Workspace file map" detail="Attach a compact folder manifest" disabled={!workspaceRoot} onClick={() => void attachWorkspaceMap()} />
-              <ContextAction icon={TerminalIcon} label="Active terminal" detail="Attach the latest non-private output" disabled={!useChatStore.getState().live.getTerminalContext()} onClick={attachTerminalContext} />
-              <ContextAction icon={CodeIcon} label="Working tree diff" detail="Attach unstaged Git changes" disabled={!workspaceRoot} onClick={() => void attachWorkingDiff()} />
+              <ContextAction icon={File01Icon} label="Active file" detail="Attach the file open in the editor" disabled={!workspaceRoot || !useChatStore.getState().live.getActiveFile()} onClick={() => { setContextOpen(false); void attachActiveFile(); }} />
+              <ContextAction icon={Attachment01Icon} label="Workspace file map" detail="Attach a compact folder manifest" disabled={!workspaceRoot} onClick={() => { setContextOpen(false); void attachWorkspaceMap(); }} />
+              <ContextAction icon={TerminalIcon} label="Active terminal" detail="Attach the latest non-private output" disabled={!useChatStore.getState().live.getTerminalContext()} onClick={() => { setContextOpen(false); attachTerminalContext(); }} />
+              <ContextAction icon={CodeIcon} label="Working tree diff" detail="Attach unstaged Git changes" disabled={!workspaceRoot} onClick={() => { setContextOpen(false); void attachWorkingDiff(); }} />
             </PopoverContent>
           </Popover>
 
@@ -625,7 +635,7 @@ function ToolbarIcon({
   children,
 }: {
   title: string;
-  onClick: () => void;
+  onClick?: () => void;
   disabled?: boolean;
   className?: string;
   children: React.ReactNode;
@@ -652,18 +662,10 @@ function ToolbarIcon({
 
 /** Opens only while a pointer is over the control, never on click or focus. */
 function HoverTooltip({ label, children }: { label: string; children: React.ReactNode }) {
-  const [open, setOpen] = useState(false);
-
   return (
-    <Tooltip open={open} onOpenChange={() => undefined}>
+    <Tooltip delayDuration={350} disableHoverableContent>
       <TooltipTrigger asChild>
-        <span
-          className="inline-flex shrink-0"
-          onPointerEnter={() => setOpen(true)}
-          onPointerLeave={() => setOpen(false)}
-        >
-          {children}
-        </span>
+        <span className="inline-flex shrink-0">{children}</span>
       </TooltipTrigger>
       <TooltipContent side="top" sideOffset={6} className="text-[11px]">
         {label}

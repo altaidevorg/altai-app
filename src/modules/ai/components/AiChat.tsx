@@ -49,7 +49,6 @@ import type {
 } from "ai";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AiToolApproval } from "./AiToolApproval";
-import { AgentStatusPill } from "./AgentStatusPill";
 import {
   Message,
   MessageActions,
@@ -275,7 +274,7 @@ export function AiChatView({
 
   return (
     <Conversation className="overflow-x-hidden" aria-live={ariaLiveProp}>
-      <ConversationContent className="min-w-0 gap-5 p-3">
+      <ConversationContent className="min-w-0 gap-3 p-3">
         {messages.map((m, i) => (
           <RenderedMessage
             key={m.id}
@@ -292,11 +291,9 @@ export function AiChatView({
             onStop={() => void stop?.()}
           />
         ))}
-         {/* Live tool state belongs to the conversation it describes, rather
-            than floating above the composer. */}
-        <div className="flex items-center px-1">
-          <AgentStatusPill hideError />
-        </div>
+        {/* Status lives in RuntimeStatusRow below the transcript — keep an
+            empty wrapper out of the gap-flex list so idle chats don't show
+            a trailing blank slot between the last message and the composer. */}
         {error && (
           // role="alert" => assertive live region. Without this the chat
           // failure was silent to screen readers and the agent appeared
@@ -305,9 +302,18 @@ export function AiChatView({
           <div
             role="alert"
             aria-atomic="true"
-            className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive"
+            className={cn(
+              "rounded-md border px-3 py-2 text-xs",
+              error.message.startsWith("Run paused")
+                ? "border-amber-500/40 bg-amber-500/10 text-foreground"
+                : "border-destructive/40 bg-destructive/10 text-destructive",
+            )}
           >
-            <div className="font-medium">Something went wrong.</div>
+            <div className="font-medium">
+              {error.message.startsWith("Run paused")
+                ? "Run needs attention"
+                : "Something went wrong."}
+            </div>
             <div className="mt-0.5 leading-relaxed opacity-90">
               {error.message}
             </div>
@@ -465,15 +471,15 @@ const RenderedMessage = memo(function RenderedMessage({
               }}
               className="min-h-[3rem] w-full resize-y rounded-md bg-background/60 px-2 py-1.5 text-[12px] leading-relaxed outline-none ring-1 ring-border/60 focus:ring-foreground/30"
             />
+            <MessageActions className="justify-end gap-1">
+              <HoverActionButton title="Save" onClick={commitEdit} tone="primary">
+                Save
+              </HoverActionButton>
+              <HoverActionButton title="Cancel" onClick={cancelEdit}>
+                Cancel
+              </HoverActionButton>
+            </MessageActions>
           </MessageContent>
-          <MessageActions className="justify-end gap-1">
-            <HoverActionButton title="Save" onClick={commitEdit} tone="primary">
-              Save
-            </HoverActionButton>
-            <HoverActionButton title="Cancel" onClick={cancelEdit}>
-              Cancel
-            </HoverActionButton>
-          </MessageActions>
         </Message>
       );
     }
@@ -486,13 +492,12 @@ const RenderedMessage = memo(function RenderedMessage({
             <ContextChips chips={stripped.chips} />
           ) : null}
           {stripped.text ? (
-            <p className="whitespace-pre-wrap wrap-break-word">
+            <p className="whitespace-pre-wrap break-words">
               {stripped.text}
             </p>
           ) : null}
-        </MessageContent>
-        {stripped.text ? (
-          <MessageActions className="justify-end opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
+          {stripped.text ? (
+            <MessageActions className="justify-end opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
             <MessageCopyButton text={stripped.text} />
             <HoverActionButton title="Edit" onClick={startEdit}>
               <HugeiconsIcon icon={PencilEdit02Icon} size={11} strokeWidth={1.75} />
@@ -500,6 +505,7 @@ const RenderedMessage = memo(function RenderedMessage({
             </HoverActionButton>
           </MessageActions>
         ) : null}
+      </MessageContent>
       </Message>
     );
   }
@@ -511,7 +517,7 @@ const RenderedMessage = memo(function RenderedMessage({
   return (
     <Message from={message.role}>
       <MessageContent>
-        <div className="flex flex-col gap-3">
+        <div className="flex min-w-0 flex-col gap-3">
           {groups.map((g) => {
             if (g.kind === "reads") {
               return (
@@ -709,10 +715,10 @@ const ReadGroup = memo(function ReadGroup({ parts }: { parts: AnyPart[] }) {
   const preview = paths.map(basename).join(", ");
 
   return (
-    <Collapsible className="group/read overflow-hidden rounded-md border border-border/50 bg-card/50">
+    <Collapsible className="group/read min-w-0 max-w-full overflow-hidden rounded-md border border-border/50 bg-card/50">
       <CollapsibleTrigger
         className={cn(
-          "flex w-full items-center gap-2 px-2 py-1.5 text-left text-[12px]",
+          "flex w-full min-w-0 items-center gap-2 px-2 py-1.5 text-left text-[12px]",
           "transition-colors hover:bg-muted/50",
           "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
         )}
@@ -821,10 +827,10 @@ const WebGroup = memo(function WebGroup({
   const preview = summaries.slice(0, 3).join(", ");
 
   return (
-    <Collapsible className="group/web overflow-hidden rounded-md border border-border/50 bg-card/50">
+    <Collapsible className="group/web min-w-0 max-w-full overflow-hidden rounded-md border border-border/50 bg-card/50">
       <CollapsibleTrigger
         className={cn(
-          "flex w-full items-center gap-2 px-2 py-1.5 text-left text-[12px]",
+          "flex w-full min-w-0 items-center gap-2 px-2 py-1.5 text-left text-[12px]",
           "transition-colors hover:bg-muted/50",
           "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
         )}
@@ -915,10 +921,10 @@ const CommandGroup = memo(function CommandGroup({
   const preview = summaries.slice(0, 3).join(" · ");
 
   return (
-    <Collapsible className="group/cmd overflow-hidden rounded-md border border-border/50 bg-card/50">
+    <Collapsible className="group/cmd min-w-0 max-w-full overflow-hidden rounded-md border border-border/50 bg-card/50">
       <CollapsibleTrigger
         className={cn(
-          "flex w-full items-center gap-2 px-2 py-1.5 text-left text-[12px]",
+          "flex w-full min-w-0 items-center gap-2 px-2 py-1.5 text-left text-[12px]",
           "transition-colors hover:bg-muted/50",
           "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
         )}

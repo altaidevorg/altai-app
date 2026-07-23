@@ -30,6 +30,7 @@ import {
   buildNotificationInboxView,
   useNotificationStore,
 } from "../store/notificationStore";
+import { AuxiliarySurface, SurfaceIconAction } from "./AuxiliarySurface";
 
 type DismissTarget =
   | {
@@ -152,63 +153,42 @@ export function NotificationInboxPanel({ onClose }: { onClose: () => void }) {
 
   return (
     <>
-      <section
-        aria-label="Agent inbox"
-        className="absolute inset-0 z-30 flex flex-col bg-background/96 backdrop-blur-sm"
-      >
-        <header className="flex shrink-0 items-center gap-2 border-b border-border/50 px-3 py-2.5">
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-1.5">
-              <h2 className="text-[12px] font-semibold text-foreground">Inbox</h2>
-              {view.attentionCount ? (
-                <span className="rounded-full bg-amber-500/12 px-1.5 py-0.5 text-[9px] font-semibold text-amber-700 dark:text-amber-300">
-                  {view.attentionCount} need{view.attentionCount === 1 ? "s" : ""} attention
-                </span>
-              ) : (
-                <span className="rounded-full bg-emerald-500/10 px-1.5 py-0.5 text-[9px] font-medium text-emerald-700 dark:text-emerald-300">
-                  All clear
-                </span>
-              )}
-            </div>
-            <p className="mt-0.5 text-[10px] text-muted-foreground">
-              Keep track of agents without losing your place in chat.
-            </p>
-          </div>
-          <button
-            type="button"
+      <AuxiliarySurface
+        title="Inbox"
+        subtitle="Keep track of agents without losing your place in chat."
+        onClose={onClose}
+        actions={
+          <SurfaceIconAction
+            label="Refresh agent inbox"
             onClick={() => void refresh(workspacePath)}
             disabled={loading}
-            aria-label="Refresh agent inbox"
-            className="inline-flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground disabled:opacity-45"
           >
             {loading ? (
               <Spinner className="size-3.5" />
             ) : (
-              <HugeiconsIcon
-                icon={Refresh01Icon}
-                size={13}
-                strokeWidth={1.75}
-              />
+              <HugeiconsIcon icon={Refresh01Icon} size={13} strokeWidth={1.75} />
             )}
-          </button>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close agent inbox"
-            className="inline-flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground"
-          >
-            <HugeiconsIcon
-              icon={Cancel01Icon}
-              size={13}
-              strokeWidth={1.75}
-            />
-          </button>
-        </header>
+          </SurfaceIconAction>
+        }
+      >
+        {view.attentionCount ? (
+          <div className="flex shrink-0 items-center gap-1.5 border-b border-border/50 px-3 py-1.5">
+            <span className="rounded-full bg-amber-500/12 px-1.5 py-0.5 text-[9px] font-semibold text-amber-700 dark:text-amber-300">
+              {view.attentionCount} need{view.attentionCount === 1 ? "s" : ""} attention
+            </span>
+          </div>
+        ) : (
+          <div className="flex shrink-0 items-center gap-1.5 border-b border-border/50 px-3 py-1.5">
+            <span className="rounded-full bg-emerald-500/10 px-1.5 py-0.5 text-[9px] font-medium text-emerald-700 dark:text-emerald-300">
+              All clear
+            </span>
+          </div>
+        )}
 
         {error ? (
           <div
             role="alert"
-            className="mx-3 mt-3 flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/[0.06] px-2.5 py-2 text-[10.5px] text-destructive"
+            className="mx-3 mt-3 flex items-start gap-2 rounded-none border border-destructive/30 bg-destructive/[0.06] px-2.5 py-2 text-[10.5px] text-destructive"
           >
             <HugeiconsIcon
               icon={Alert02Icon}
@@ -419,7 +399,7 @@ export function NotificationInboxPanel({ onClose }: { onClose: () => void }) {
             </div>
           )}
         </div>
-      </section>
+      </AuxiliarySurface>
 
       <AlertDialog
         open={dismissTarget !== null}

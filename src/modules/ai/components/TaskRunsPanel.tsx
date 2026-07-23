@@ -14,6 +14,7 @@ import {
 import { Cancel01Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { FormEvent, useEffect, useMemo, useState } from "react";
+import { AuxiliarySurface } from "./AuxiliarySurface";
 
 const TERMINAL: AssignmentStatus[] = ["done", "failed", "cancelled"];
 
@@ -146,24 +147,12 @@ export function TaskRunsPanel({ onClose }: { onClose: () => void }) {
   }
 
   return (
-    <div className="absolute inset-0 z-30 flex flex-col bg-background/96 backdrop-blur-sm">
-      <div className="flex shrink-0 items-center gap-2 border-b border-border/50 px-3 py-2.5">
-        <div className="min-w-0 flex-1">
-          <h2 className="text-[12px] font-semibold text-foreground">Background tasks</h2>
-          <p className="mt-0.5 text-[10px] text-muted-foreground">
-            Runs stay separate from this chat and keep working while you continue here.
-          </p>
-        </div>
-        <button
-          type="button"
-          onClick={onClose}
-          className="inline-flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground"
-          aria-label="Close background tasks"
-        >
-          <HugeiconsIcon icon={Cancel01Icon} size={13} strokeWidth={1.75} />
-        </button>
-      </div>
-
+    <AuxiliarySurface
+      title="Background tasks"
+      subtitle="Runs stay separate from this chat and keep working while you continue here."
+      onClose={onClose}
+      bodyClassName="overflow-y-auto"
+    >
       <form onSubmit={start} className="shrink-0 border-b border-border/50 p-3">
         <label htmlFor="background-task-prompt" className="text-[10.5px] font-medium text-foreground">
           Start a task
@@ -291,7 +280,7 @@ export function TaskRunsPanel({ onClose }: { onClose: () => void }) {
           </div>
         )}
       </div>
-    </div>
+    </AuxiliarySurface>
   );
 }
 

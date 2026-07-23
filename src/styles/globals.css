@@ -438,3 +438,20 @@ html.a11y-strong-focus.dark,
 .dark.a11y-strong-focus {
   --ring: oklch(0.78 0.18 250);
 }
+
+/* Narrow chat panels: keep long shell commands / paths from blowing past
+ * the panel edge. Component-level min-w-0 helps, but unbroken monospace
+ * strings still need an anywhere-break as a backstop. */
+#altai-ai-panel,
+#altai-active-chat {
+  min-width: 0;
+}
+#altai-ai-panel pre,
+#altai-ai-panel code,
+#altai-active-chat pre,
+#altai-active-chat code,
+#altai-ai-panel .font-mono {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  max-width: 100%;
+}

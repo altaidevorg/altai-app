@@ -13,6 +13,7 @@ import { useEffect, useState } from "react";
 import { native, type CheckpointInfo } from "../lib/native";
 import { usePlanStore, type AppliedPlanEdit, type QueuedEdit } from "../store/planStore";
 import { useChatStore } from "../store/chatStore";
+import { AuxiliarySurface } from "./AuxiliarySurface";
 
 function basename(p: string): string {
   const i = Math.max(p.lastIndexOf("/"), p.lastIndexOf("\\"));
@@ -124,58 +125,46 @@ export function PlanDiffReview({
   };
 
   return (
-    <div className="absolute inset-0 z-10 flex flex-col bg-background/85 backdrop-blur-xl">
-      <div className="flex items-center justify-between border-b border-border/40 px-3 py-2">
-        <div className="flex flex-col">
-          <span className="text-[13px] font-semibold tracking-tight">
-            Change review
-          </span>
-          <span className="text-[10.5px] text-muted-foreground">
-            {queue.length
-              ? `${queue.length} pending change${queue.length === 1 ? "" : "s"}`
-              : historyCount
-                ? `${historyCount} restorable change${historyCount === 1 ? "" : "s"}`
-                : "No changes to review"}
-          </span>
-        </div>
-        <div className="flex items-center gap-1.5">
-          {queue.length ? <Button
-            type="button"
-            size="sm"
-            variant="ghost"
-            className="h-7 gap-1.5 text-[11px] hover:bg-destructive/10 hover:text-destructive"
-            onClick={() => clear()}
-            disabled={busy}
-          >
-            <HugeiconsIcon icon={Cancel01Icon} size={12} strokeWidth={2} />
-            Discard all
-          </Button> : null}
-          {queue.length ? <Button
-            type="button"
-            size="sm"
-            className="h-7 gap-1.5 text-[11px]"
-            onClick={onApply}
-            disabled={busy}
-          >
-            <HugeiconsIcon icon={Tick02Icon} size={12} strokeWidth={2} />
-            Apply {queue.length}
-          </Button> : null}
-          {onClose ? (
+    <AuxiliarySurface
+      title="Change review"
+      subtitle={
+        queue.length
+          ? `${queue.length} pending change${queue.length === 1 ? "" : "s"}`
+          : historyCount
+            ? `${historyCount} restorable change${historyCount === 1 ? "" : "s"}`
+            : "No changes to review"
+      }
+      onClose={onClose}
+      actions={
+        queue.length ? (
+          <div className="flex items-center gap-1.5">
             <Button
               type="button"
-              size="icon"
+              size="sm"
               variant="ghost"
-              className="size-7"
-              onClick={onClose}
-              aria-label="Close change review"
+              className="h-7 gap-1.5 text-[11px] hover:bg-destructive/10 hover:text-destructive"
+              onClick={() => clear()}
+              disabled={busy}
             >
-              <HugeiconsIcon icon={Cancel01Icon} size={13} strokeWidth={2} />
+              <HugeiconsIcon icon={Cancel01Icon} size={12} strokeWidth={2} />
+              Discard all
             </Button>
-          ) : null}
-        </div>
-      </div>
+            <Button
+              type="button"
+              size="sm"
+              className="h-7 gap-1.5 text-[11px]"
+              onClick={() => void onApply()}
+              disabled={busy}
+            >
+              <HugeiconsIcon icon={Tick02Icon} size={12} strokeWidth={2} />
+              Apply {queue.length}
+            </Button>
+          </div>
+        ) : undefined
+      }
+    >
       {feedback ? (
-        <div className="border-b border-border/40 bg-muted/25 px-3 py-1.5 text-[10.5px] text-muted-foreground">
+        <div className="border-b border-border/50 bg-muted/25 px-3 py-1.5 text-[10.5px] text-muted-foreground">
           {feedback}
         </div>
       ) : null}
@@ -201,9 +190,9 @@ export function PlanDiffReview({
           </ul>
         </section> : null}
         <ReviewHistory items={checkpoints} applied={applied} onCheckpointsChange={setCheckpoints} />
-        {!queue.length && !historyCount ? <div className="rounded-lg border border-dashed border-border/60 px-4 py-8 text-center text-[11px] leading-relaxed text-muted-foreground">When the agent proposes a plan or edits a file, it will appear here with a safe restore option.</div> : null}
+        {!queue.length && !historyCount ? <div className="rounded-none border border-dashed border-border/60 px-4 py-8 text-center text-[11px] leading-relaxed text-muted-foreground">When the agent proposes a plan or edits a file, it will appear here with a safe restore option.</div> : null}
       </div>
-    </div>
+    </AuxiliarySurface>
   );
 }
 

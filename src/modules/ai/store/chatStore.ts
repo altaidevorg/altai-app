@@ -136,7 +136,9 @@ function terminalOutcomeError(outcome: RunOutcome | null): string | null {
     return null;
   }
   if (outcome.kind === "failed") return outcome.failure;
-  if (outcome.kind === "stuck") return `Agent got stuck: ${outcome.reason}`;
+  if (outcome.kind === "stuck") {
+    return `Run paused — ${outcome.reason.replace(/^Stopped:\s*/i, "")}`;
+  }
   return `Run budget exhausted after ${outcome.budget.iterations_used} iterations`;
 }
 
@@ -406,6 +408,12 @@ export const useChatStore = create<StoreState>((set, get) => ({
       (item) => item.id === approvalId,
     );
     get().removeApproval(approvalId);
+    const sessionId = get().activeSessionId;
+    if (sessionId) {
+      // Approving/denying is an explicit acknowledgment — drop the sticky
+      // "needs attention" banner so it doesn't outlive the user's response.
+      useAgentRunsStore.getState().clearWarning(sessionId);
+    }
     get().addActivity({
       label: approved ? "Approved action" : "Denied action",
       detail: approval?.action,

@@ -23,6 +23,7 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import { type ReactElement, useEffect, useState } from "react";
 import type { AgentIconId } from "../lib/agents";
 import { EditApprovalCard } from "./EditApprovalCard";
+import { SurfaceHeader } from "./AuxiliarySurface";
 import {
   retryFailedRun,
   sendMessage,
@@ -175,21 +176,16 @@ export function AiSidePanel({
         onToggleInbox={() => toggleSurface("inbox")}
         automationsOpen={automationsOpen}
         onToggleAutomations={() => toggleSurface("automations")}
-        reviewOpen={reviewOpen}
-        onToggleReview={() => {
-          setActiveSurface(null);
-          setReviewOpen((open) => !open);
-        }}
       />
-      <div className="relative grid min-h-0 flex-1 grid-cols-1 @[48rem]:grid-cols-[13.5rem_minmax(0,1fr)] @[76rem]:grid-cols-[13.5rem_minmax(0,1fr)_18rem]">
+      <div className="relative grid min-h-0 flex-1 grid-cols-1 overflow-hidden @[48rem]:grid-cols-[13.5rem_minmax(0,1fr)] @[76rem]:grid-cols-[13.5rem_minmax(0,1fr)_18rem]">
         <nav
           aria-label="Chat sessions"
-          className="hidden min-h-0 border-r border-border/50 bg-muted/[0.16] @[48rem]:flex"
+          className="hidden min-h-0 w-full min-w-0 overflow-hidden border-r border-border/50 bg-muted/[0.16] @[48rem]:flex"
         >
           <ChatHistoryPanel onClose={() => undefined} />
         </nav>
 
-        <main className="relative flex min-h-0 min-w-0 flex-col bg-background/30">
+        <main className="relative flex min-h-0 min-w-0 flex-col overflow-hidden bg-background/30">
           {historyOpen ? (
             <ChatHistoryPanel onClose={() => setActiveSurface(null)} />
           ) : sessionId ? (
@@ -210,9 +206,16 @@ export function AiSidePanel({
                   <NotificationInboxPanel onClose={() => setActiveSurface(null)} />
                 ) : null}
                 {inspectorOpen ? (
-                  <div className="absolute inset-0 z-20 flex bg-background/92 backdrop-blur-sm @[76rem]:hidden">
+                  <div className="absolute inset-0 z-20 flex bg-background @[76rem]:hidden">
                     <RunInspector className="flex w-full" onClose={() => setActiveSurface(null)} />
                   </div>
+                ) : null}
+                {reviewOpen ? (
+                  <PlanDiffReview
+                    open
+                    autoOpen={false}
+                    onClose={() => setReviewOpen(false)}
+                  />
                 ) : null}
               </div>
             </>
@@ -223,21 +226,24 @@ export function AiSidePanel({
           )}
         </main>
 
-        <RunInspector className="hidden @[76rem]:flex" />
+        <RunInspector className="hidden w-full min-w-0 overflow-hidden @[76rem]:flex" />
 
       </div>
-      {!historyOpen && !inspectorOpen && !tasksOpen && !inboxOpen && !automationsOpen && <RuntimeStatusRow />}
-      {!historyOpen && !inspectorOpen && !tasksOpen && !inboxOpen && !automationsOpen &&
+      {!historyOpen && !inspectorOpen && !tasksOpen && !inboxOpen && !automationsOpen && !reviewOpen && (
+        <ChangeReviewBanner
+          onOpen={() => {
+            setActiveSurface(null);
+            setReviewOpen(true);
+          }}
+        />
+      )}
+      {!historyOpen && !inspectorOpen && !tasksOpen && !inboxOpen && !automationsOpen && !reviewOpen && <RuntimeStatusRow />}
+      {!historyOpen && !inspectorOpen && !tasksOpen && !inboxOpen && !automationsOpen && !reviewOpen &&
         (hasComposer ? (
           <AiInputBar />
         ) : (
           <AiInputBarConnect onAdd={() => void openSettingsWindow("models")} />
         ))}
-      <PlanDiffReview
-        open={reviewOpen}
-        autoOpen={!historyOpen && !inspectorOpen && !tasksOpen && !inboxOpen}
-        onClose={() => setReviewOpen(false)}
-      />
     </aside>
   );
 }
@@ -267,7 +273,7 @@ function RuntimeStatusRow() {
  */
 function IconTooltip({ label, children }: { label: string; children: ReactElement }) {
   return (
-    <Tooltip>
+    <Tooltip delayDuration={350} disableHoverableContent>
       <TooltipTrigger asChild>{children}</TooltipTrigger>
       <TooltipContent side="bottom" sideOffset={6} className="text-[10.5px]">
         {label}
@@ -363,9 +369,9 @@ function ChatTabStrip({
 
 /**
  * The workspace topbar keeps the task context visible instead of treating the
- * chat as an isolated message list. The permanent session navigator and run
- * inspector appear when the panel is wide enough; buttons open those surfaces
- * as overlays in compact layouts.
+ * chat as an isolated message list. Auxiliary surfaces (inspector, inbox,
+ * tasks, automations) open as overlays; change review opens from chat when
+ * pending edits appear.
  */
 function WorkspaceTopbar({
   onClose,
@@ -379,8 +385,6 @@ function WorkspaceTopbar({
   onToggleInbox,
   automationsOpen,
   onToggleAutomations,
-  reviewOpen,
-  onToggleReview,
 }: {
   onClose: () => void;
   historyOpen: boolean;
@@ -393,8 +397,6 @@ function WorkspaceTopbar({
   onToggleInbox: () => void;
   automationsOpen: boolean;
   onToggleAutomations: () => void;
-  reviewOpen: boolean;
-  onToggleReview: () => void;
 }) {
   const activeId = useChatStore((s) => s.activeSessionId);
   const sessions = useChatStore((s) => s.sessions);
@@ -443,20 +445,6 @@ function WorkspaceTopbar({
       {!historyOpen && activeId ? (
         <TodoSummaryChip sessionId={activeId} />
       ) : null}
-      <IconTooltip label={reviewOpen ? "Close change review" : "Review changes"}>
-        <button
-          type="button"
-          onClick={onToggleReview}
-          aria-label={reviewOpen ? "Close change review" : "Review changes"}
-          aria-pressed={reviewOpen}
-          className={cn(
-            "inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground",
-            reviewOpen && "bg-foreground/[0.09] text-foreground",
-          )}
-        >
-          <HugeiconsIcon icon={FileEditIcon} size={14} strokeWidth={1.75} />
-        </button>
-      </IconTooltip>
       <IconTooltip label={inspectorOpen ? "Close run inspector" : "Open run inspector"}>
         <button
           type="button"
@@ -581,33 +569,17 @@ function RunInspector({ className, onClose }: { className?: string; onClose?: ()
     <aside
       aria-label="Task inspector"
       className={cn(
-        "min-h-0 min-w-0 flex-col border-l border-border/50 bg-muted/[0.13]",
+        "flex min-h-0 min-w-0 flex-col border-l border-border/50 bg-background",
         className,
       )}
     >
-      <div className="flex shrink-0 items-center gap-2 border-b border-border/50 px-3 py-2.5">
-        <span className="flex size-5 items-center justify-center rounded-md bg-foreground/[0.06] text-foreground/80">
-          <HugeiconsIcon icon={SparklesIcon} size={12} strokeWidth={1.75} />
-        </span>
-        <div className="min-w-0 flex-1">
-          <div className="text-[11.5px] font-medium text-foreground">Task inspector</div>
-          <div className="truncate text-[10px] text-muted-foreground">
-            {meta.status === "idle" ? "Ready for the next task" : meta.step ?? "Agent is working"}
-          </div>
-        </div>
-        {onClose ? (
-          <IconTooltip label="Close run inspector">
-            <button
-              type="button"
-              onClick={onClose}
-              className="inline-flex size-6 items-center justify-center rounded-md text-muted-foreground hover:bg-foreground/[0.06] hover:text-foreground"
-              aria-label="Close run inspector"
-            >
-              <HugeiconsIcon icon={Cancel01Icon} size={12} strokeWidth={1.75} />
-            </button>
-          </IconTooltip>
-        ) : null}
-      </div>
+      <SurfaceHeader
+        title="Task inspector"
+        subtitle={
+          meta.status === "idle" ? "Ready for the next task" : meta.step ?? "Agent is working"
+        }
+        onClose={onClose}
+      />
 
       <div className="flex shrink-0 overflow-x-auto border-b border-border/50 px-1.5 py-1">
         {tabs.map((item) => (
@@ -823,8 +795,19 @@ function ChangesInspector({
   }
   return (
     <div className="space-y-2">
-      <div className="rounded-lg border border-amber-500/25 bg-amber-500/[0.06] p-2.5 text-[11px] leading-relaxed text-foreground">
-        {queue.length} proposed change{queue.length === 1 ? " is" : "s are"} waiting in plan review.
+      <div className="rounded-none border border-border/50 bg-muted/20 p-2.5 text-[11px] leading-relaxed text-foreground">
+        <div>
+          {queue.length} proposed change{queue.length === 1 ? " is" : "s are"} waiting for review.
+        </div>
+        <button
+          type="button"
+          onClick={() =>
+            window.dispatchEvent(new CustomEvent("altai:open-change-review"))
+          }
+          className="mt-2 rounded-md bg-foreground px-2 py-1 text-[10.5px] font-medium text-background"
+        >
+          Open change review
+        </button>
       </div>
       {queue.map((change) => {
         const beforeLines = change.originalContent.split("\n").length;
@@ -832,7 +815,7 @@ function ChangesInspector({
         const delta = afterLines - beforeLines;
         const name = change.path.split(/[/\\]/).pop() || change.path;
         return (
-          <div key={change.id} className="rounded-lg border border-border/50 bg-background/55 px-2.5 py-2">
+          <div key={change.id} className="rounded-none border border-border/50 bg-background/55 px-2.5 py-2">
             <div className="flex items-center gap-2">
               <HugeiconsIcon icon={FileEditIcon} size={12} strokeWidth={1.75} className="shrink-0 text-muted-foreground" />
               <span className="min-w-0 flex-1 truncate font-mono text-[10.5px] font-medium">{name}</span>
@@ -888,7 +871,7 @@ function ApprovalsInspector({
             <span className="size-1.5 animate-pulse rounded-full bg-amber-500" />
             <span className="min-w-0 flex-1 truncate text-[11px] font-medium">{approval.action}</span>
           </div>
-          <pre className="mt-2 max-h-24 overflow-auto rounded-md bg-background/70 p-2 font-mono text-[9.5px] leading-relaxed text-muted-foreground">
+          <pre className="mt-2 max-h-24 max-w-full min-w-0 overflow-x-auto whitespace-pre-wrap break-words rounded-md bg-background/70 p-2 font-mono text-[9.5px] leading-relaxed text-muted-foreground [overflow-wrap:anywhere]">
             {approvalPreview(approval.payload)}
           </pre>
           <div className="mt-2 flex justify-end gap-1.5">
@@ -1021,15 +1004,15 @@ function Body() {
       role="tabpanel"
       aria-label="Active chat session"
       tabIndex={-1}
-      className="flex min-h-0 flex-1 flex-col"
+      className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
     >
       <PlanModeStrip />
 
-      <div className="flex min-h-0 flex-1 flex-col">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
         {displayMessages.length === 0 ? (
           <EmptyState onPick={focusInput} />
         ) : (
-          <div className="flex min-h-0 flex-1 flex-col [&_.text-sm]:text-[12.5px] [&_p]:leading-relaxed">
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden [&_.text-sm]:text-[12.5px] [&_p]:leading-relaxed">
             <AiChatView
               messages={displayMessages}
               status={displayStatus}
@@ -1053,6 +1036,7 @@ function Body() {
 function RunRecoveryActions() {
   const sessionId = useChatStore((s) => s.activeSessionId);
   const focusInput = useChatStore((s) => s.focusInput);
+  const clearWarning = useAgentRunsStore((s) => s.clearWarning);
   const run = useAgentRunsStore((s) =>
     sessionId ? s.runs[sessionId] : undefined,
   );
@@ -1074,9 +1058,14 @@ function RunRecoveryActions() {
         ? `The run exhausted its ${outcome.budget.exhausted_limit?.replace(/_/g, " ") ?? "execution"} budget.`
         : "The provider request failed after its retry policy was exhausted.";
 
+  const dismissWarning = () => {
+    if (sessionId) clearWarning(sessionId);
+  };
+
   const continueRun = async () => {
     if (submitting) return;
     setSubmitting(true);
+    dismissWarning();
     try {
       await sendMessage(
         "Continue the previous task from where it stopped. Reuse the existing context, avoid repeating successful side effects, and make measurable progress before completing.",
@@ -1089,6 +1078,7 @@ function RunRecoveryActions() {
   const retryRun = async () => {
     if (submitting) return;
     setSubmitting(true);
+    dismissWarning();
     try {
       await retryFailedRun();
     } finally {
@@ -1131,13 +1121,14 @@ function RunRecoveryActions() {
         {warning || canContinue ? (
           <button
             type="button"
-            onClick={() =>
+            onClick={() => {
+              dismissWarning();
               focusInput(
                 warning
                   ? "Adjust the active run with this direction: "
                   : "Continue the previous run with this adjustment: ",
-              )
-            }
+              );
+            }}
             className="rounded-md border border-border/60 bg-background/60 px-2 py-1 text-[10.5px] font-medium text-foreground"
           >
             Steer
@@ -1146,10 +1137,22 @@ function RunRecoveryActions() {
         {warning ? (
           <button
             type="button"
-            onClick={stopAgent}
+            onClick={() => {
+              dismissWarning();
+              stopAgent();
+            }}
             className="rounded-md border border-border/60 bg-background/60 px-2 py-1 text-[10.5px] font-medium text-foreground"
           >
             Stop
+          </button>
+        ) : null}
+        {warning ? (
+          <button
+            type="button"
+            onClick={dismissWarning}
+            className="rounded-md border border-border/60 bg-background/60 px-2 py-1 text-[10.5px] font-medium text-foreground"
+          >
+            Dismiss
           </button>
         ) : null}
       </div>
@@ -1193,23 +1196,53 @@ function ClarificationChoices() {
   );
 }
 
+function ChangeReviewBanner({ onOpen }: { onOpen: () => void }) {
+  const queueLen = usePlanStore((s) => s.queue.length);
+  if (queueLen === 0) return null;
+  return (
+    <div className="flex shrink-0 items-center gap-2 border-t border-border/50 px-3 py-1.5">
+      <span className="min-w-0 flex-1 truncate text-[11px] text-muted-foreground">
+        {queueLen} change{queueLen === 1 ? "" : "s"} ready to review
+      </span>
+      <button
+        type="button"
+        onClick={onOpen}
+        className="rounded-md bg-foreground px-2 py-1 text-[10.5px] font-medium text-background"
+      >
+        Review
+      </button>
+    </div>
+  );
+}
+
 function PlanModeStrip() {
   const active = usePlanStore((s) => s.active);
   const queueLen = usePlanStore((s) => s.queue.length);
   const disable = usePlanStore((s) => s.disable);
   if (!active) return null;
   return (
-    <div className="flex shrink-0 items-center gap-2 border-b border-border/40 bg-amber-500/[0.06] px-3 py-1.5">
+    <div className="flex shrink-0 items-center gap-2 border-b border-border/50 px-3 py-1.5">
       <span className="size-1.5 shrink-0 rounded-full bg-amber-500" />
       <span className="text-[11px] font-medium text-foreground">Plan mode</span>
       <span className="text-[11px] text-muted-foreground">
         {queueLen > 0 ? `· ${queueLen} queued` : "· no edits queued"}
       </span>
       <span className="flex-1" />
+      {queueLen > 0 ? (
+        <button
+          type="button"
+          onClick={() =>
+            window.dispatchEvent(new CustomEvent("altai:open-change-review"))
+          }
+          className="rounded-md px-1.5 py-0.5 text-[10.5px] font-medium text-foreground transition-colors hover:bg-foreground/[0.06]"
+        >
+          Review
+        </button>
+      ) : null}
       <button
         type="button"
         onClick={() => disable()}
-        className="rounded px-1.5 py-0.5 text-[10.5px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+        className="rounded-md px-1.5 py-0.5 text-[10.5px] text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground"
       >
         Exit
       </button>

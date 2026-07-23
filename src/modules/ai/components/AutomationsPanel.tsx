@@ -1,10 +1,13 @@
 import { Spinner } from "@/components/ui/spinner";
 import { cn } from "@/lib/utils";
 import { useWorkspaceFolderStore } from "@/modules/workspace/folder";
+import { Refresh01Icon } from "@hugeicons/core-free-icons";
+import { HugeiconsIcon } from "@hugeicons/react";
 import { useEffect, useMemo, useState } from "react";
 import type { AgentAutomationInfo } from "../lib/native";
 import { useChatStore } from "../store/chatStore";
 import { useAutomationStore } from "../store/automationStore";
+import { AuxiliarySurface, SurfaceIconAction } from "./AuxiliarySurface";
 
 type ScheduleMode = "at" | "every";
 
@@ -95,36 +98,25 @@ export function AutomationsPanel({ onClose }: { onClose: () => void }) {
   };
 
   return (
-    <section
-      aria-label="Automations"
-      className="absolute inset-0 z-30 flex flex-col bg-background/96 backdrop-blur-sm"
-    >
-      <header className="flex shrink-0 items-center gap-2 border-b border-border/50 px-3 py-2.5">
-        <div className="min-w-0 flex-1">
-          <h2 className="text-[12px] font-semibold text-foreground">Automations</h2>
-          <p className="mt-0.5 text-[10px] text-muted-foreground">
-            Local schedules run in their owning chat.
-          </p>
-        </div>
-        <button
-          type="button"
+    <AuxiliarySurface
+      title="Automations"
+      subtitle="Local schedules run in their owning chat."
+      onClose={onClose}
+      actions={
+        <SurfaceIconAction
+          label="Refresh automations"
           onClick={() => void refresh(workspacePath)}
           disabled={loading}
-          aria-label="Refresh automations"
-          className="rounded-md px-2 py-1 text-[10px] text-muted-foreground hover:bg-foreground/[0.06] hover:text-foreground disabled:opacity-45"
         >
-          {loading ? <Spinner className="size-3" /> : "Refresh"}
-        </button>
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label="Close automations"
-          className="rounded-md px-2 py-1 text-[10px] text-muted-foreground hover:bg-foreground/[0.06] hover:text-foreground"
-        >
-          Close
-        </button>
-      </header>
-
+          {loading ? (
+            <Spinner className="size-3.5" />
+          ) : (
+            <HugeiconsIcon icon={Refresh01Icon} size={13} strokeWidth={1.75} />
+          )}
+        </SurfaceIconAction>
+      }
+      bodyClassName="overflow-y-auto"
+    >
       <form onSubmit={submit} className="shrink-0 space-y-2 border-b border-border/50 px-3 py-3">
         <div className="text-[10px] font-medium text-foreground">New automation</div>
         <textarea
@@ -243,6 +235,6 @@ export function AutomationsPanel({ onClose }: { onClose: () => void }) {
           </ul>
         )}
       </div>
-    </section>
+    </AuxiliarySurface>
   );
 }

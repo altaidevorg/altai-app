@@ -132,6 +132,7 @@ describe("agentRunsStore lifecycle admission", () => {
       status: "idle",
       completed: true,
       outcome: { kind: "cancelled" },
+      warning: null,
     });
   });
 

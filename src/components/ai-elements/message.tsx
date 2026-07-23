@@ -34,7 +34,7 @@ export type MessageProps = HTMLAttributes<HTMLDivElement> & {
 export const Message = ({ className, from, ...props }: MessageProps) => (
   <div
     className={cn(
-      "group flex w-full flex-col gap-2",
+      "group flex w-full min-w-0 max-w-full flex-col",
       from === "user"
         ? "is-user ml-auto max-w-[85%] items-end justify-end"
         : "is-assistant",
@@ -53,7 +53,7 @@ export const MessageContent = ({
 }: MessageContentProps) => (
   <div
     className={cn(
-      "flex w-fit min-w-0 max-w-full flex-col gap-2 overflow-hidden text-[12px] leading-relaxed",
+      "flex w-fit min-w-0 max-w-full flex-col gap-2 overflow-x-hidden text-[12px] leading-relaxed [overflow-wrap:anywhere] [word-break:break-word]",
       "group-[.is-user]:rounded-2xl group-[.is-user]:rounded-br-sm group-[.is-user]:bg-muted/70 group-[.is-user]:px-3 group-[.is-user]:py-2 group-[.is-user]:text-foreground",
       "group-[.is-assistant]:w-full group-[.is-assistant]:max-w-full group-[.is-assistant]:text-foreground",
       className,
@@ -337,7 +337,7 @@ export const MessageResponse = memo(
       <div aria-busy={streaming || undefined}>
         <Streamdown
           className={cn(
-            "size-full [&>*:first-child]:mt-0 [&>*:last-child]:mb-0",
+            "size-full min-w-0 max-w-full [overflow-wrap:anywhere] [word-break:break-word] [&>*:first-child]:mt-0 [&>*:last-child]:mb-0",
             className,
           )}
           components={streamdownComponents}

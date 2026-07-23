@@ -78,6 +78,21 @@ describe("composer run actions", () => {
     ).toBeNull();
   });
 
+  it("treats awaiting-approval as busy so drafts queue instead of sending", () => {
+    expect(
+      availability({
+        status: "awaiting-approval",
+        hasDraft: true,
+        runId: "run-1",
+      }),
+    ).toMatchObject({
+      isBusy: true,
+      canSend: false,
+      canSteer: false,
+      canQueue: true,
+    });
+  });
+
   it("disables every action without a draft or while acceptance is pending", () => {
     expect(availability({ hasDraft: false })).toMatchObject({
       canSend: false,

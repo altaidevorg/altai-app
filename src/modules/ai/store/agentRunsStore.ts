@@ -68,6 +68,7 @@ type State = {
   admitAccepted: (chatId: string, runId: string) => boolean;
   ingest: (chatId: string, ev: ParsedAgentEvent) => boolean;
   markCancelling: (chatId: string, runId: string) => boolean;
+  clearWarning: (chatId: string) => void;
   clear: (chatId: string) => void;
 };
 
@@ -134,6 +135,17 @@ export const useAgentRunsStore = create<State>((set) => ({
     });
     return accepted;
   },
+  clearWarning: (chatId) =>
+    set((s) => {
+      const current = s.runs[chatId];
+      if (!current?.warning) return s;
+      return {
+        runs: {
+          ...s.runs,
+          [chatId]: { ...current, warning: null },
+        },
+      };
+    }),
   clear: (chatId) =>
     set((s) => {
       if (!(chatId in s.runs)) return s;
@@ -295,6 +307,8 @@ function reduce(cur: RunState, ev: ParsedAgentEvent): RunState {
         step: null,
         completed: true,
         outcome: ev.outcome,
+        // Terminal outcomes supersede the live attention banner.
+        warning: null,
       };
     }
     default:

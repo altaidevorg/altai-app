@@ -102,9 +102,32 @@ const H6 = memo(function ChatH6({ className, children }: ElProps) {
 });
 
 /**
+ * Scrollable table wrapper so wide tables don't overflow the chat bubble.
+ */
+const Table = memo(function ChatTable({ className, children, ...rest }: ElProps) {
+  return (
+    <div className="min-w-0 max-w-full overflow-x-auto">
+      <table
+        className={cn(
+          "w-full min-w-0 table-fixed text-[11px] leading-snug [word-break:break-word] [overflow-wrap:anywhere]",
+          "[&_td]:break-words [&_td]:border [&_td]:border-border/40 [&_td]:px-2 [&_td]:py-1",
+          "[&_th]:break-words [&_th]:border [&_th]:border-border/40 [&_th]:px-2 [&_th]:py-1 [&_th]:font-medium",
+          className,
+        )}
+        {...rest}
+      >
+        {children}
+      </table>
+    </div>
+  );
+});
+const THead = memo(function ChatTHead({ className, children, ...rest }: ElProps) {
+  return <thead className={cn("bg-muted/40", className)} {...rest}>{children}</thead>;
+});
+
+/**
  * Component map merged with the code-block override in `MessageResponse`.
- * Only headings are remapped here — lists, tables, blockquotes, and links all
- * inherit Streamdown's sensible defaults (already themed to the app palette).
+ * Headings are remapped for chat scale; tables are scroll-wrapped to avoid overflow.
  */
 export const chatMarkdownComponents = {
   h1: H1,
@@ -113,4 +136,6 @@ export const chatMarkdownComponents = {
   h4: H4,
   h5: H5,
   h6: H6,
+  table: Table,
+  thead: THead,
 };

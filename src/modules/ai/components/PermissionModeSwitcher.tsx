@@ -13,6 +13,7 @@ import {
   effectivePermissionMode,
   PERMISSION_MODE_DESCRIPTIONS,
   PERMISSION_MODE_LABELS,
+  setBypassPermissionsEnabled,
   setPermissionMode,
   type PermissionMode,
 } from "@/modules/settings/store";
@@ -60,7 +61,12 @@ const MODE_COLORS: Record<
   },
 };
 
-const VISIBLE_MODES: readonly PermissionMode[] = ["ask", "auto-edit", "plan"];
+const VISIBLE_MODES: readonly PermissionMode[] = [
+  "ask",
+  "auto-edit",
+  "plan",
+  "bypass",
+];
 
 type Variant = "toolbar" | "toolbar-icon";
 
@@ -80,9 +86,16 @@ export function PermissionModeSwitcher({
   const activeColors = MODE_COLORS[effectiveMode];
   const isIconOnly = variant === "toolbar-icon";
 
-  const modes: readonly PermissionMode[] = bypassEnabled
-    ? [...VISIBLE_MODES, "bypass"]
-    : VISIBLE_MODES;
+  const selectMode = (next: PermissionMode) => {
+    void (async () => {
+      // Selecting bypass from the toolbar also unlocks the settings gate so
+      // the mode is actually effective (not silently downgraded to ask).
+      if (next === "bypass" && !bypassEnabled) {
+        await setBypassPermissionsEnabled(true);
+      }
+      await setPermissionMode(next);
+    })();
+  };
 
   return (
     <DropdownMenu>
@@ -129,7 +142,7 @@ export function PermissionModeSwitcher({
         <div className="px-2 pt-1.5 pb-1 text-[10px] font-medium tracking-wide text-muted-foreground uppercase">
           Permissions
         </div>
-        {modes.map((m) => {
+        {VISIBLE_MODES.map((m) => {
           const Icon = ICONS[m];
           const isActive = m === effectiveMode;
           const danger = m === "bypass";
@@ -137,7 +150,7 @@ export function PermissionModeSwitcher({
           return (
             <DropdownMenuItem
               key={m}
-              onSelect={() => void setPermissionMode(m)}
+              onSelect={() => selectMode(m)}
               className={cn(
                 "flex items-start gap-2 pr-2 text-[12px]",
                 isActive && "bg-accent/40",

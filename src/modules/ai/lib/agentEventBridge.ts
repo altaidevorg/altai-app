@@ -628,7 +628,9 @@ export function ingestAgentEventEnvelope(
           payload.outcome.kind === "failed"
             ? payload.outcome.failure
             : payload.outcome.kind === "stuck"
-              ? `Agent got stuck: ${payload.outcome.reason}`
+              ? // Recoverable — RunRecoveryActions owns the Continue/Steer UI.
+                // Keep a short status string without the scary "Something went wrong" framing.
+                `Run paused — ${payload.outcome.reason.replace(/^Stopped:\s*/i, "")}`
               : payload.outcome.kind === "budget_exhausted"
                 ? `Run budget exhausted after ${payload.outcome.budget.iterations_used} iterations`
                 : null;
@@ -895,7 +897,7 @@ function projectRecoveredRun(chatId: string): void {
     run.outcome?.kind === "failed"
       ? run.outcome.failure
       : run.outcome?.kind === "stuck"
-        ? `Agent got stuck: ${run.outcome.reason}`
+        ? `Run paused — ${run.outcome.reason.replace(/^Stopped:\s*/i, "")}`
         : run.outcome?.kind === "budget_exhausted"
           ? `Run budget exhausted after ${run.outcome.budget.iterations_used} iterations`
           : null;

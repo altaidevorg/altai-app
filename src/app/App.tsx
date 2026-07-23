@@ -1977,7 +1977,7 @@ export default function App() {
 
   const shell = (
     <ThemeProvider>
-      <TooltipProvider>
+      <TooltipProvider delayDuration={300} disableHoverableContent>
         <div className="relative flex h-screen flex-col overflow-hidden bg-background text-foreground">
           {/* Sr-only document title anchors the heading outline so screen
               reader users can H-navigate: h1 (global) → h2 (each Settings
@@ -2014,7 +2014,7 @@ export default function App() {
             canSplit={editorCanSplit}
             onOpenShortcuts={() => setShortcutsOpen(true)}
             onOpenSettings={() => void openSettingsWindow()}
-            onToggleAgentSidebar={miniOpen ? closeMini : openMini}
+            onToggleAgentSidebar={togglePanelAndFocus}
             agentSidebarActive={miniOpen}
             agentSidebarAvailable={true}
             searchTarget={searchTarget}
@@ -2100,10 +2100,10 @@ export default function App() {
               <ResizablePanel id="workspace" defaultSize="78%" minSize="30%">
                 <ResizablePanelGroup
                   orientation="vertical"
-                  className="h-full min-h-0"
+                  className="h-full min-h-0 overflow-hidden"
                 >
                   <ResizablePanel id="workspace-main" minSize="20%">
-                    <div className="relative h-full min-h-0">
+                    <div className="relative h-full min-h-0 overflow-hidden">
                       {workspaceSurface}
                     </div>
                   </ResizablePanel>
@@ -2158,24 +2158,26 @@ export default function App() {
                     : "0px"
                 }
                 minSize={`${AGENT_SIDEBAR_MIN_WIDTH}px`}
+                maxSize="70%"
                 groupResizeBehavior="preserve-pixel-size"
                 collapsible
                 collapsedSize={0}
                 onResize={(size) => {
                   const px = size.inPixels;
-                  // Treat the panel's actual size as the source of truth for the
-                  // open state. A viewport shrink can collapse the collapsible
-                  // panel to 0 on its own; mirroring that into the store keeps the
-                  // toggle button in sync instead of stuck "open" (#62).
-                  if (px > 0) {
+                  // Read from zustand directly to avoid stale closures (#62).
+                  const wasOpen = useChatStore.getState().mini.open;
+                  const collapsed =
+                    px <= 0 ||
+                    (agentSidebarRef.current?.isCollapsed() ?? false);
+                  if (!collapsed && px > 0) {
                     persistAgentSidebarWidth(px);
-                    if (!miniOpen) openMini();
-                  } else if (miniOpen) {
+                    if (!wasOpen) openMini();
+                  } else if (wasOpen) {
                     closeMini();
                   }
                 }}
               >
-                <div className="h-full min-h-0 border-l border-border/60">
+                <div className="h-full min-h-0 min-w-0 overflow-hidden border-l border-border/60">
                   <AiSidePanel
                     onClose={closeMini}
                     hasComposer={keysLoaded && hasComposer}
