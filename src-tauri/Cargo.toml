@@ -55,7 +55,7 @@ pdf-extract = "0.12"
 # Immutable merged baseline containing IsanAgent's run-scoped provider
 # configuration. Keep this pinned so builds cannot silently change the
 # provider-admission contract from a moving branch.
-isanagent = { git = "https://github.com/altaidevorg/isanagent.git", rev = "76c264e491c7152fb6aa1d0f864413722793c066" }
+isanagent = { git = "https://github.com/altaidevorg/isanagent.git", rev = "b22dd73ebd1dd06706406c2d95b32eed6d353699" }
 tauri-plugin-single-instance = "2"
 tauri-plugin-cli = "2"
 tauri-plugin-deep-link = "2"
