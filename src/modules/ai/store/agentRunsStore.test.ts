@@ -216,4 +216,46 @@ describe("agentRunsStore lifecycle admission", () => {
       outcome: { kind: "completed" },
     });
   });
+
+  it("keeps stuck and budget_exhausted idle instead of error", () => {
+    const ingest = useAgentRunsStore.getState().ingest;
+    ingest("chat-1", event(1, { type: "run_started" }));
+    expect(
+      ingest(
+        "chat-1",
+        event(2, {
+          type: "run_terminated",
+          outcome: {
+            kind: "budget_exhausted",
+            budget: { iterations_used: 50, iterations_limit: 50 },
+          },
+        }),
+      ),
+    ).toBe(true);
+    expect(useAgentRunsStore.getState().runs["chat-1"]).toMatchObject({
+      status: "idle",
+      completed: true,
+      outcome: { kind: "budget_exhausted" },
+    });
+
+    ingest("chat-2", event(1, { type: "run_started" }, "run-2"));
+    expect(
+      ingest(
+        "chat-2",
+        event(
+          2,
+          {
+            type: "run_terminated",
+            outcome: { kind: "stuck", reason: "repeated_root_cause" },
+          },
+          "run-2",
+        ),
+      ),
+    ).toBe(true);
+    expect(useAgentRunsStore.getState().runs["chat-2"]).toMatchObject({
+      status: "idle",
+      completed: true,
+      outcome: { kind: "stuck", reason: "repeated_root_cause" },
+    });
+  });
 });

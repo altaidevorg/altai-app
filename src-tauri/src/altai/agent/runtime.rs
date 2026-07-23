@@ -3669,7 +3669,9 @@ async fn build_instance(
         None
     };
 
-    let max_iterations = workspace.config.resolved_max_iterations().unwrap_or(50);
+    // Match isanagent onboarding default (999). Peer agents (Claude Code, Cursor,
+    // Codex) do not stop healthy work at a low turn ceiling; 50 felt like a crash.
+    let max_iterations = workspace.config.resolved_max_iterations().unwrap_or(999);
     let max_tool_output_chars = workspace
         .config
         .resolved_max_tool_output_chars()

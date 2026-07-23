@@ -41,7 +41,11 @@ import {
 import { effectivePermissionMode, setDefaultModel } from "@/modules/settings/store";
 import type { AssignmentRunConfig } from "@/modules/github/lib/assignments";
 import type { RunOutcome } from "../lib/agentEventBridge";
-import { dismissRunAttention } from "../lib/agentEventBridge";
+import {
+  describeTerminalOutcomeAttention,
+  dismissRunAttention,
+  resetBudgetSegmentAutoContinues,
+} from "../lib/agentEventBridge";
 import { useAgentRunsStore, type RunState } from "./agentRunsStore";
 
 type Live = {
@@ -132,23 +136,17 @@ const IDLE_META: AgentMeta = {
   activeSubagents: [],
 };
 
-function terminalOutcomeError(outcome: RunOutcome | null): string | null {
-  if (!outcome || outcome.kind === "completed" || outcome.kind === "cancelled") {
-    return null;
-  }
-  if (outcome.kind === "failed") return outcome.failure;
-  if (outcome.kind === "stuck") {
-    return `Run paused — ${outcome.reason.replace(/^Stopped:\s*/i, "")}`;
-  }
-  return `Run budget exhausted after ${outcome.budget.iterations_used} iterations`;
-}
-
 function agentMetaForRun(run: RunState | undefined): AgentMeta {
   if (!run) return IDLE_META;
-  const error = terminalOutcomeError(run.outcome);
+  const error = describeTerminalOutcomeAttention(run.outcome);
   return {
     ...IDLE_META,
-    status: run.completed ? (error ? "error" : "idle") : run.status,
+    status:
+      run.completed && run.outcome?.kind === "failed"
+        ? "error"
+        : run.completed
+          ? "idle"
+          : run.status,
     step: run.completed ? null : run.step,
     error,
     tokens: {
@@ -1249,11 +1247,17 @@ export async function sendMessage(
   text: string,
   images?: string[],
   documents?: { data: string; mediaType: string; name: string }[],
-  options?: { queue?: boolean },
+  options?: { queue?: boolean; budgetSegmentAutoContinue?: boolean },
 ): Promise<boolean> {
   const state = useChatStore.getState();
   const sessionId = state.activeSessionId;
   if (!sessionId) return false;
+
+  // A fresh user turn owns a new auto-continue allowance. Only the silent
+  // budget-segment auto-continue itself must preserve the streak counter.
+  if (!options?.budgetSegmentAutoContinue) {
+    resetBudgetSegmentAutoContinues(sessionId);
+  }
 
   // The ALTAI session id IS the runtime chat_id — keeps each tab's
   // conversation isolated and lets the event bridge route by chat.

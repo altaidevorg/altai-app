@@ -311,9 +311,12 @@ function reduce(cur: RunState, ev: ParsedAgentEvent): RunState {
     case "run_terminated": {
       const succeeded =
         ev.outcome.kind === "completed" || ev.outcome.kind === "cancelled";
+      const recoverable =
+        ev.outcome.kind === "stuck" || ev.outcome.kind === "budget_exhausted";
       return {
         ...cur,
-        status: succeeded ? "idle" : "error",
+        // Peer-agent framing: segment/stuck pauses are idle, not hard errors.
+        status: succeeded || recoverable ? "idle" : "error",
         step: null,
         completed: true,
         outcome: ev.outcome,
