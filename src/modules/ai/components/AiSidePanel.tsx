@@ -32,6 +32,8 @@ import {
 } from "../store/chatStore";
 import { useAgentRunsStore } from "../store/agentRunsStore";
 import {
+  continueBudgetSegmentPrompt,
+  continueStuckPrompt,
   describeRunWarning,
   dismissRunAttention,
   isRetryableRunOutcome,
@@ -238,7 +240,6 @@ export function AiSidePanel({
           }}
         />
       )}
-      {!historyOpen && !inspectorOpen && !tasksOpen && !inboxOpen && !automationsOpen && !reviewOpen && <RuntimeStatusRow />}
       {!historyOpen && !inspectorOpen && !tasksOpen && !inboxOpen && !automationsOpen && !reviewOpen &&
         (hasComposer ? (
           <AiInputBar />
@@ -246,24 +247,6 @@ export function AiSidePanel({
           <AiInputBarConnect onAdd={() => void openSettingsWindow("models")} />
         ))}
     </aside>
-  );
-}
-
-/**
- * Slim live-status row that sits between the transcript and the input bar.
- * Shows the agent's current step / approval state so the user always knows
- * what's happening without it cluttering the conversation. Kilo-Code places
- * the equivalent indicator here rather than inside the chat scroll.
- */
-function RuntimeStatusRow() {
-  const agentStatus = useChatStore((s) => s.agentMeta.status);
-  // Only render the row when there's something to say — when idle it
-  // collapses away so the input bar hugs the transcript.
-  if (agentStatus === "idle") return null;
-  return (
-    <div className="flex shrink-0 items-center gap-1.5 px-3 pb-0.5 pt-1">
-      <AgentStatusPill hideError />
-    </div>
   );
 }
 
@@ -1053,9 +1036,9 @@ function RunRecoveryActions() {
   const detail = warning
     ? `${describeRunWarning(warning)}. You can steer, stop, or dismiss — the run is still working.`
     : outcome?.kind === "stuck"
-      ? `The run stopped because it was ${outcome.reason.replace(/_/g, " ")}.`
+      ? `The run paused because it was ${outcome.reason.replace(/_/g, " ")}.`
       : outcome?.kind === "budget_exhausted"
-        ? `The run exhausted its ${outcome.budget.exhausted_limit?.replace(/_/g, " ") ?? "execution"} budget.`
+        ? `Hit the turn limit after ${outcome.budget.iterations_used} steps. Continue picks up where it left off.`
         : "The provider request failed after its retry policy was exhausted.";
 
   const dismissWarning = () => {
@@ -1068,7 +1051,9 @@ function RunRecoveryActions() {
     dismissWarning();
     try {
       await sendMessage(
-        "Continue the previous task from where it stopped. Reuse the existing context, avoid repeating successful side effects, and make measurable progress before completing.",
+        outcome?.kind === "budget_exhausted"
+          ? continueBudgetSegmentPrompt()
+          : continueStuckPrompt(),
       );
     } finally {
       setSubmitting(false);
@@ -1096,7 +1081,9 @@ function RunRecoveryActions() {
           ? "Possible repeated failure"
           : canRetry
             ? "Retry available"
-            : "Run stopped"}
+            : outcome?.kind === "budget_exhausted"
+              ? "Turn limit reached"
+              : "Run paused"}
       </div>
       <div className="mt-0.5 text-[10.5px] leading-relaxed text-muted-foreground">
         {detail}

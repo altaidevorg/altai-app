@@ -39,7 +39,10 @@ import {
   useChatStore,
 } from "../store/chatStore";
 import { useAgentRunsStore } from "../store/agentRunsStore";
-import { isRetryableRunOutcome } from "../lib/agentEventBridge";
+import {
+  isRecoverableAttentionMessage,
+  isRetryableRunOutcome,
+} from "../lib/agentEventBridge";
 import type {
   ChatStatus,
   DynamicToolUIPart,
@@ -49,6 +52,8 @@ import type {
 } from "ai";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AiToolApproval } from "./AiToolApproval";
+import { AgentStatusPill } from "./AgentStatusPill";
+import { ChatPathLink } from "./ChatPathLink";
 import {
   Message,
   MessageActions,
@@ -267,6 +272,8 @@ export function AiChatView({
             title="Ask ALTAI anything"
             description="Explain command output, fix errors, generate snippets, or run a task."
           />
+          {/* Live status stays inside the transcript viewport, not above the composer. */}
+          <AgentStatusPill hideError />
         </ConversationContent>
       </Conversation>
     );
@@ -291,9 +298,8 @@ export function AiChatView({
             onStop={() => void stop?.()}
           />
         ))}
-        {/* Status lives in RuntimeStatusRow below the transcript — keep an
-            empty wrapper out of the gap-flex list so idle chats don't show
-            a trailing blank slot between the last message and the composer. */}
+        {/* Agent working indicator — end of transcript, inside the chat scroll. */}
+        <AgentStatusPill hideError />
         {error && (
           // role="alert" => assertive live region. Without this the chat
           // failure was silent to screen readers and the agent appeared
@@ -304,13 +310,13 @@ export function AiChatView({
             aria-atomic="true"
             className={cn(
               "rounded-md border px-3 py-2 text-xs",
-              error.message.startsWith("Run paused")
+              isRecoverableAttentionMessage(error.message)
                 ? "border-amber-500/40 bg-amber-500/10 text-foreground"
                 : "border-destructive/40 bg-destructive/10 text-destructive",
             )}
           >
             <div className="font-medium">
-              {error.message.startsWith("Run paused")
+              {isRecoverableAttentionMessage(error.message)
                 ? "Run needs attention"
                 : "Something went wrong."}
             </div>
@@ -761,10 +767,16 @@ const ReadGroup = memo(function ReadGroup({ parts }: { parts: AnyPart[] }) {
                 strokeWidth={1.75}
                 className="shrink-0 opacity-60"
               />
-              <span className="truncate text-foreground">
+              <ChatPathLink
+                path={path}
+                className="truncate text-foreground hover:text-foreground"
+              >
                 {basename(path)}
-              </span>
-              <span className="truncate opacity-60">{path}</span>
+              </ChatPathLink>
+              <ChatPathLink
+                path={path}
+                className="truncate opacity-60 hover:opacity-100"
+              />
             </li>
           ))}
         </ul>
