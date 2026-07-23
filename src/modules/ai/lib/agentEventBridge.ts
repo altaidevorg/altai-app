@@ -78,6 +78,7 @@ function ingestTodoWrite(input: unknown, sessionId: string | null): void {
 export type AgentEvent =
   | { type: "run_started"; run_id: string }
   | { type: "run_warning"; run_id: string; warning: RunBudgetWarning }
+  | { type: "run_warning_cleared"; run_id: string }
   | { type: "run_terminated"; run_id: string; outcome: RunOutcome }
   | { type: "agent_message"; content: string; role: string }
   | { type: "tool_call_start"; id: string; name: string; input: unknown }
@@ -236,6 +237,7 @@ export type ParsedAgentEvent = AgentEvent & {
 const AGENT_EVENT_TYPES = new Set<AgentEvent["type"]>([
   "run_started",
   "run_warning",
+  "run_warning_cleared",
   "run_terminated",
   "agent_message",
   "tool_call_start",
@@ -308,6 +310,10 @@ const lifecycleEventSchema = z.discriminatedUnion("type", [
     type: z.literal("run_warning"),
     run_id: nonBlankString,
     warning: runBudgetWarningSchema,
+  }),
+  z.object({
+    type: z.literal("run_warning_cleared"),
+    run_id: nonBlankString,
   }),
   z.object({
     type: z.literal("run_terminated"),
@@ -489,6 +495,7 @@ export function parseAgentEventPayload(payload: unknown): ParsedAgentEvent | nul
       if (
         eventType === "run_started" ||
         eventType === "run_warning" ||
+        eventType === "run_warning_cleared" ||
         eventType === "run_terminated"
       ) {
         if (!lifecycle.success || lifecycle.data.run_id !== runId) return null;
@@ -619,6 +626,16 @@ export function ingestAgentEventEnvelope(
         });
         if (store.agentMeta.status !== "cancelling") {
           store.patchAgentMeta({ status: "thinking", step: warning });
+        }
+        break;
+      }
+
+      case "run_warning_cleared": {
+        if (
+          store.agentMeta.step &&
+          /repeated|no measurable progress|approaching its/i.test(store.agentMeta.step)
+        ) {
+          store.patchAgentMeta({ step: null });
         }
         break;
       }

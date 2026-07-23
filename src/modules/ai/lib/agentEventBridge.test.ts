@@ -249,6 +249,17 @@ describe("parseAgentEventPayload", () => {
     });
   });
 
+  it("accepts a typed warning_cleared lifecycle event", () => {
+    expect(
+      parseAgentEventPayload(
+        envelope({
+          type: "run_warning_cleared",
+          run_id: "run-1",
+        }),
+      ),
+    ).toMatchObject({ type: "run_warning_cleared", run_id: "run-1" });
+  });
+
   it("rejects unknown versions even when they look legacy", () => {
     expect(
       parseAgentEventPayload({

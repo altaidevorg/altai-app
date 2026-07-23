@@ -303,6 +303,11 @@ function reduce(cur: RunState, ev: ParsedAgentEvent): RunState {
         status: cur.status === "cancelling" ? "cancelling" : "thinking",
         warning: ev.warning,
       };
+    case "run_warning_cleared":
+      return {
+        ...cur,
+        warning: null,
+      };
     case "run_terminated": {
       const succeeded =
         ev.outcome.kind === "completed" || ev.outcome.kind === "cancelled";
