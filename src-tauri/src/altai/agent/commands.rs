@@ -206,48 +206,34 @@ pub async fn agent_send(
     .await
 }
 
-/// Replay only already-persisted lifecycle envelopes after the renderer's
-/// last accepted sequence. The workspace must be one the host has authorized;
-/// replay never dispatches an inbound message or starts agent work.
+/// Trigger one between-turns compaction directly on the owning backend FIFO.
+/// This never turns the request into a model prompt or a new reasoning run.
 #[tauri::command]
-pub async fn agent_replay_events(
+pub async fn agent_compact(
     state: State<'_, AgentRuntime>,
     registry: State<'_, WorkspaceRegistry>,
     workspace_path: Option<String>,
-    cursors: Vec<runtime::ReplayCursor>,
-) -> Result<Vec<runtime::ReplayedAgentEvent>, String> {
+    chat_id: String,
+    focus_instructions: Option<String>,
+) -> Result<runtime::ManualCompactionAck, String> {
     let workspace = authorized_inbox_workspace(workspace_path.as_deref(), &registry)?;
-    runtime::replay_events(&state, &workspace, cursors).await
+    runtime::route_manual_compaction(&state, &workspace, chat_id, focus_instructions).await
 }
 
-/// Atomically close process-abandoned runs before the renderer asks for
-/// read-only replay. Active coordinator leases are never classified as a
-/// restart, so a renderer refresh cannot terminate live work.
-#[tauri::command]
-pub async fn agent_recover_interrupted_runs(
-    state: State<'_, AgentRuntime>,
-    registry: State<'_, WorkspaceRegistry>,
-    workspace_path: Option<String>,
-    chat_ids: Vec<String>,
-) -> Result<Vec<runtime::RecoveredInterruptedRun>, String> {
-    let workspace = authorized_inbox_workspace(workspace_path.as_deref(), &registry)?;
-    runtime::recover_interrupted_runs(&state, &workspace, chat_ids).await
+fn unsupported_approval_result() -> Result<(), String> {
+    Err("ID-based approvals are unsupported; answer the active clarification in chat".to_string())
 }
 
-/// Approve or deny an agent action.
-///
-/// Note: code-exec / destructive-shell approvals do NOT flow through this command. The runtime
-/// gate (driven by the active permission mode via `agent_start`) raises an `ask_user`
-/// clarification, which surfaces to the UI as a `Clarification` event with approve/deny choices;
-/// replying resolves the pending wait. This ID-based command is retained for a future
-/// non-clarification approval surface and is intentionally a no-op today.
+/// Reject the legacy ID-based approval surface explicitly. Runtime permission
+/// gates use chat clarifications; returning success here would falsely tell the
+/// renderer that an action had been approved or denied.
 #[tauri::command]
 pub async fn agent_approve(
     _state: State<'_, AgentRuntime>,
     _approval_id: String,
     _approved: bool,
 ) -> Result<(), String> {
-    Ok(())
+    unsupported_approval_result()
 }
 
 /// Cancel one exact active run. The returned acknowledgement means the request
@@ -318,6 +304,42 @@ pub async fn agent_get_session_messages(
         .map(serde_json::to_value)
         .collect::<Result<Vec<_>, _>>()
         .map_err(|e| format!("Failed to serialize messages: {}", e))
+}
+
+/// Recover run-scoped events missed by a renderer reload/disconnect. The
+/// workspace is authorized before its journal is opened, and chat ownership
+/// is checked again against the durable run summary.
+#[tauri::command]
+pub async fn agent_replay_events(
+    state: State<'_, AgentRuntime>,
+    registry: State<'_, WorkspaceRegistry>,
+    workspace_path: Option<String>,
+    chat_id: String,
+    run_id: String,
+    after_seq: u64,
+    limit: Option<usize>,
+) -> Result<Vec<runtime::AgentReplayEventEnvelope>, String> {
+    let workspace = authorized_inbox_workspace(workspace_path.as_deref(), &registry)?;
+    runtime::replay_run_events(
+        &state,
+        &workspace,
+        &chat_id,
+        &run_id,
+        after_seq,
+        limit.unwrap_or(500),
+    )
+    .await
+}
+
+#[tauri::command]
+pub async fn agent_latest_run_replay_cursor(
+    state: State<'_, AgentRuntime>,
+    registry: State<'_, WorkspaceRegistry>,
+    workspace_path: Option<String>,
+    chat_id: String,
+) -> Result<Option<runtime::AgentRunReplayCursor>, String> {
+    let workspace = authorized_inbox_workspace(workspace_path.as_deref(), &registry)?;
+    runtime::latest_run_replay_cursor(&state, &workspace, &chat_id).await
 }
 
 /// Rewind a chat's backend history to the N-th user message.
@@ -906,5 +928,12 @@ mod tests {
         // The global checkpoint store is only init'd by the live runtime, never
         // in unit tests — so listing yields nothing rather than panicking.
         assert!(checkpoint_list().is_empty());
+    }
+
+    #[test]
+    fn id_based_approval_is_explicitly_unsupported() {
+        let error = unsupported_approval_result().expect_err("must reject false success");
+        assert!(error.contains("unsupported"));
+        assert!(error.contains("clarification"));
     }
 }

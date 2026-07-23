@@ -1,20 +1,196 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
-  applyAgentEventPayload,
+  ingestAgentEventEnvelope,
   isRetryableRunOutcome,
   parseAgentEventPayload,
+  replayRestoredAgentRuns,
 } from "./agentEventBridge";
-import { useChatStore } from "../store/chatStore";
+import { native } from "./native";
 import { useAgentRunsStore } from "../store/agentRunsStore";
+import { useChatStore } from "../store/chatStore";
 
 const envelope = (event: unknown, overrides: Record<string, unknown> = {}) => ({
-  version: 1,
-  scope: "run",
+  version: 1 as const,
+  scope: "run" as const,
   runId: "run-1",
   seq: 1,
   chatId: "chat-1",
   event,
   ...overrides,
+});
+
+describe("durable event replay", () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    useAgentRunsStore.setState({ runs: {} });
+    useChatStore.setState({ activeSessionId: "chat-1", nativeMessages: [] });
+  });
+
+  it("recovers a persisted-before-delivery run without replaying UI mutations", async () => {
+    vi.spyOn(native, "agentLatestRunReplayCursor").mockResolvedValue({
+      runId: "run-1",
+      lastSeq: 4,
+      terminalSeq: 4,
+    });
+    const replay = vi.spyOn(native, "agentReplayEvents").mockResolvedValue([
+      envelope({ type: "run_started", run_id: "run-1" }),
+      envelope(
+        { type: "tool_call_start", id: "tool-1", name: "test", input: {} },
+        { seq: 2 },
+      ),
+      envelope(
+        {
+          type: "tool_call_end",
+          id: "tool-1",
+          name: "test",
+          output: "passed",
+        },
+        { seq: 3 },
+      ),
+      envelope(
+        {
+          type: "run_terminated",
+          run_id: "run-1",
+          outcome: {
+            kind: "failed",
+            failure: "The previous app process ended before this run completed.",
+            retryable: false,
+          },
+        },
+        { seq: 4 },
+      ),
+    ]);
+
+    await replayRestoredAgentRuns("/workspace", ["chat-1"]);
+
+    expect(replay).toHaveBeenCalledWith(
+      "chat-1",
+      "run-1",
+      0,
+      "/workspace",
+    );
+    expect(useAgentRunsStore.getState().runs["chat-1"]).toMatchObject({
+      runId: "run-1",
+      lastSeq: 4,
+      completed: true,
+      outcome: { kind: "failed", retryable: false },
+      verifications: [{ id: "tool-1", status: "passed" }],
+    });
+    expect(useChatStore.getState().nativeMessages).toEqual([]);
+    expect(useChatStore.getState().agentMeta).toMatchObject({
+      status: "error",
+      error: "The previous app process ended before this run completed.",
+    });
+  });
+
+  it("makes duplicate, delayed-live, overlapping, and unfocused recovery harmless", async () => {
+    ingestAgentEventEnvelope(
+      envelope({ type: "run_started", run_id: "run-1" }),
+      "replay",
+    );
+    ingestAgentEventEnvelope(
+      envelope({ type: "thinking", content: "delayed" }, { seq: 3 }),
+      "replay",
+    );
+    expect(useAgentRunsStore.getState().runs["chat-1"].lastSeq).toBe(1);
+
+    vi.spyOn(native, "agentLatestRunReplayCursor").mockImplementation(
+      async (chatId) => ({
+        runId: chatId === "chat-1" ? "run-1" : "run-2",
+        lastSeq: 3,
+        terminalSeq: 3,
+      }),
+    );
+    vi.spyOn(native, "agentReplayEvents").mockImplementation(
+      async (chatId, runId, afterSeq) => [
+        ...(afterSeq === 0
+          ? [envelope({ type: "run_started", run_id: runId }, { chatId, runId })]
+          : []),
+        envelope(
+          { type: "thinking", content: "ordered" },
+          { chatId, runId, seq: 2 },
+        ),
+        envelope(
+          {
+            type: "run_terminated",
+            run_id: runId,
+            outcome: { kind: "completed" },
+          },
+          { chatId, runId, seq: 3 },
+        ),
+      ],
+    );
+
+    await Promise.all([
+      replayRestoredAgentRuns("/workspace", ["chat-1", "chat-2"]),
+      replayRestoredAgentRuns("/workspace", ["chat-1"]),
+    ]);
+    ingestAgentEventEnvelope(
+      envelope(
+        {
+          type: "run_terminated",
+          run_id: "run-1",
+          outcome: { kind: "completed" },
+        },
+        { seq: 3 },
+      ),
+      "replay",
+    );
+
+    expect(useAgentRunsStore.getState().runs["chat-1"]).toMatchObject({
+      runId: "run-1",
+      lastSeq: 3,
+      completed: true,
+    });
+    expect(useAgentRunsStore.getState().runs["chat-2"]).toMatchObject({
+      runId: "run-2",
+      lastSeq: 3,
+      completed: true,
+    });
+  });
+
+  it("lets no legacy lifecycle shape mutate state, tokens, or retryability", () => {
+    ingestAgentEventEnvelope(
+      envelope({ type: "run_started", run_id: "run-1" }),
+    );
+    ingestAgentEventEnvelope(
+      envelope(
+        {
+          type: "usage",
+          prompt_tokens: 13,
+          completion_tokens: 5,
+          total_tokens: 18,
+          cache_read_tokens: 3,
+          cache_creation_tokens: 0,
+        },
+        { seq: 2 },
+      ),
+    );
+    ingestAgentEventEnvelope(
+      envelope(
+        {
+          type: "run_terminated",
+          run_id: "run-1",
+          outcome: {
+            kind: "failed",
+            failure: "provider_retries_exhausted",
+            retryable: true,
+          },
+        },
+        { seq: 3 },
+      ),
+    );
+
+    const runBefore = useAgentRunsStore.getState().runs["chat-1"];
+    const metaBefore = useChatStore.getState().agentMeta;
+    ingestAgentEventEnvelope({ type: "done", reason: "completed" });
+    ingestAgentEventEnvelope({ type: "error", message: "replacement" });
+
+    expect(useAgentRunsStore.getState().runs["chat-1"]).toEqual(runBefore);
+    expect(useChatStore.getState().agentMeta).toEqual(metaBefore);
+    expect(isRetryableRunOutcome(runBefore.outcome)).toBe(true);
+    expect(runBefore.tokens).toEqual({ input: 13, output: 5, cached: 3 });
+  });
 });
 
 describe("isRetryableRunOutcome", () => {
@@ -71,30 +247,6 @@ describe("parseAgentEventPayload", () => {
       type: "run_warning",
       warning: { reason: { kind: "no_progress", turns: 6 } },
     });
-  });
-
-  it("accepts replay metadata without weakening lifecycle validation", () => {
-    expect(
-      parseAgentEventPayload(
-        envelope(
-          { type: "run_started", run_id: "run-1" },
-          { replay: true, timestampMs: 1_700_000_000_000 },
-        ),
-      ),
-    ).toMatchObject({
-      type: "run_started",
-      run_id: "run-1",
-      replay: true,
-      timestamp_ms: 1_700_000_000_000,
-    });
-    expect(
-      parseAgentEventPayload(
-        envelope(
-          { type: "run_started", run_id: "other-run" },
-          { replay: true, timestampMs: 1_700_000_000_000 },
-        ),
-      ),
-    ).toBeNull();
   });
 
   it("rejects unknown versions even when they look legacy", () => {
@@ -174,105 +326,6 @@ describe("parseAgentEventPayload", () => {
       }),
     ).toMatchObject({ legacy: true });
     expect(parseAgentEventPayload({ type: "done", reason: "no" })).toBeNull();
-  });
-});
-
-describe("replay side-effect boundary", () => {
-  it("rebuilds lifecycle state without duplicating transcript or stale prompts", () => {
-    const before = useChatStore.getState();
-    useAgentRunsStore.setState({ runs: {} });
-    useChatStore.setState({
-      activeSessionId: "chat-1",
-      nativeMessages: [],
-      pendingClarificationsBySession: {},
-      pendingChoices: null,
-      pendingEditDiff: null,
-      agentMeta: {
-        ...before.agentMeta,
-        pendingApprovals: [],
-        approvalsPending: 0,
-      },
-    });
-
-    applyAgentEventPayload(
-      envelope({ type: "run_started", run_id: "run-1" }),
-      true,
-    );
-    applyAgentEventPayload(
-      envelope(
-        { type: "agent_message", role: "assistant", content: "durable text" },
-        { seq: 2, replay: true },
-      ),
-      true,
-    );
-    applyAgentEventPayload(
-      envelope(
-        { type: "tool_call_start", id: "tool-1", name: "shell", input: {} },
-        { seq: 3, replay: true },
-      ),
-      true,
-    );
-    applyAgentEventPayload(
-      envelope(
-        {
-          type: "tool_call_end",
-          id: "tool-1",
-          name: "shell",
-          output: { exitCode: 0 },
-        },
-        { seq: 4, replay: true },
-      ),
-      true,
-    );
-    applyAgentEventPayload(
-      envelope(
-        {
-          type: "approval_request",
-          id: "approval-1",
-          action: "shell",
-          payload: {},
-        },
-        { seq: 5, replay: true },
-      ),
-      true,
-    );
-    applyAgentEventPayload(
-      envelope(
-        { type: "clarification", content: "Continue?", choices: ["Yes"] },
-        { seq: 6, replay: true },
-      ),
-      true,
-    );
-    applyAgentEventPayload(
-      envelope(
-        {
-          type: "run_terminated",
-          run_id: "run-1",
-          outcome: { kind: "completed" },
-        },
-        { seq: 7, replay: true },
-      ),
-      true,
-    );
-
-    const recovered = useChatStore.getState();
-    expect(recovered.nativeMessages).toEqual([]);
-    expect(recovered.pendingClarificationsBySession["chat-1"]).toBeUndefined();
-    expect(recovered.agentMeta.pendingApprovals).toEqual([]);
-    expect(useAgentRunsStore.getState().runs["chat-1"]).toMatchObject({
-      runId: "run-1",
-      lastSeq: 7,
-      completed: true,
-    });
-
-    useChatStore.setState({
-      activeSessionId: before.activeSessionId,
-      nativeMessages: before.nativeMessages,
-      pendingClarificationsBySession: before.pendingClarificationsBySession,
-      pendingChoices: before.pendingChoices,
-      pendingEditDiff: before.pendingEditDiff,
-      agentMeta: before.agentMeta,
-    });
-    useAgentRunsStore.setState({ runs: {} });
+    expect(parseAgentEventPayload({ type: "error", message: "no" })).toBeNull();
   });
 });

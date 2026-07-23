@@ -10,8 +10,8 @@ use tokio::sync::Mutex;
 use super::commands::DocumentArg;
 use super::event_journal::EventJournal;
 use super::runtime::{
-    admit_queued_user_message, admit_user_message, emit_event, next_run_event,
-    rollback_run_admission, Event, SendAck, SharedRunCoordinator,
+    admit_queued_user_message, admit_user_message, deliver_next_run_event, rollback_run_admission,
+    Event, SendAck, SharedRunCoordinator,
 };
 
 /// A Tauri-native channel that bridges IsanAgent's bus system to the
@@ -210,9 +210,14 @@ impl Channel for TauriChannel {
             content: msg.content,
             role: "assistant".to_string(),
         };
-        let run = next_run_event(&self.run_coordinator, &chat_id, &self.owner_id)
-            .ok_or_else(|| format!("No active run owns outbound for chat {chat_id}"))?;
-        emit_event(&self.app, &self.event_journal, &chat_id, &event, Some(run))
+        deliver_next_run_event(
+            &self.app,
+            &self.event_journal,
+            &self.run_coordinator,
+            &chat_id,
+            &self.owner_id,
+            &event,
+        )
     }
 
     fn as_any(&self) -> &dyn Any {
@@ -456,8 +461,6 @@ mod tests {
             Event::Thinking { .. } => "thinking",
             Event::Clarification { .. } => "clarification",
             Event::Usage { .. } => "usage",
-            Event::Done { .. } => "done",
-            Event::Error { .. } => "error",
             Event::ExecutionRunFinished { .. } => "execution_run_finished",
             Event::ExecutionJobFinished { .. } => "execution_job_finished",
             Event::BackgroundJobUpdated { .. } => "background_job_updated",

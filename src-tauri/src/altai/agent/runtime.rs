@@ -165,12 +165,6 @@ pub enum Event {
         cache_read_tokens: u32,
         cache_creation_tokens: u32,
     },
-    Done {
-        reason: String,
-    },
-    Error {
-        message: String,
-    },
     /// A synchronous `execution_run` completed.
     ExecutionRunFinished {
         provider_id: String,
@@ -255,32 +249,55 @@ struct AgentEventEnvelope<'a> {
     run_id: Option<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     seq: Option<u64>,
-    timestamp_ms: u64,
     chat_id: &'a str,
-    event: &'a Event,
+    event: &'a serde_json::Value,
 }
 
 #[derive(Debug)]
-pub(crate) enum AgentEventDeliveryError {
+enum RunEventDeliveryError {
     Serialization,
-    InvalidEnvelope,
-    Persistence(super::event_journal::JournalError),
+    Transition(String),
+    Persistence(String),
     Renderer(String),
 }
 
-impl std::fmt::Display for AgentEventDeliveryError {
+impl std::fmt::Display for RunEventDeliveryError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Serialization => formatter.write_str("Agent event serialization failed"),
-            Self::InvalidEnvelope => formatter.write_str("Agent event envelope is invalid"),
-            Self::Persistence(error) => {
-                write!(formatter, "Agent event persistence failed: {error}")
+            Self::Serialization => formatter.write_str("agent_event_serialization_failed"),
+            Self::Transition(detail) => {
+                write!(formatter, "agent_event_transition_rejected: {detail}")
             }
-            Self::Renderer(error) => {
-                write!(formatter, "Agent event renderer delivery failed: {error}")
+            Self::Persistence(detail) => {
+                write!(formatter, "agent_event_persistence_failed: {detail}")
+            }
+            Self::Renderer(detail) => {
+                write!(formatter, "agent_event_renderer_unavailable: {detail}")
             }
         }
     }
+}
+
+/// Owned replay form of the live `agent://event` envelope. Replayed records
+/// intentionally preserve the same wire contract so the renderer can feed
+/// them through the exact same reducer without starting any agent work.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentReplayEventEnvelope {
+    pub version: u8,
+    pub scope: String,
+    pub run_id: String,
+    pub seq: u64,
+    pub chat_id: String,
+    pub event: Event,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentRunReplayCursor {
+    pub run_id: String,
+    pub last_seq: u64,
+    pub terminal_seq: Option<u64>,
 }
 
 pub(crate) type SharedRunCoordinator = Arc<StdMutex<RunCoordinator>>;
@@ -312,13 +329,14 @@ enum RunTransitionError {
     InvalidPhase,
 }
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub(crate) struct RunCoordinator {
     active: HashMap<String, ActiveRun>,
     pending: HashMap<String, VecDeque<PendingRun>>,
     draining_owners: HashSet<String>,
 }
 
+#[derive(Clone)]
 struct ActiveRun {
     run_id: String,
     owner_id: String,
@@ -326,6 +344,7 @@ struct ActiveRun {
     phase: RunPhase,
 }
 
+#[derive(Clone)]
 struct PendingRun {
     run_id: String,
     owner_id: String,
@@ -707,73 +726,192 @@ pub(crate) fn rollback_run_admission(
     coordinator_guard(coordinator).rollback_admission(chat_id, run_id, owner_id);
 }
 
-pub(crate) fn emit_event(
+fn emit_event(
     app: &AppHandle,
-    journal: &EventJournal,
     chat_id: &str,
     event: &Event,
     run: Option<(String, u64)>,
-) -> Result<(), String> {
-    persist_and_deliver_event(journal, chat_id, event, run, |envelope| {
-        app.emit("agent://event", envelope)
-            .map_err(|error| error.to_string())
-    })
-    .map_err(|error| error.to_string())
+) -> Result<(), RunEventDeliveryError> {
+    let payload = redacted_event_payload(event)?;
+    emit_payload(app, chat_id, &payload, run)
 }
 
-fn persist_and_deliver_event(
-    journal: &EventJournal,
+fn emit_payload(
+    app: &AppHandle,
     chat_id: &str,
-    event: &Event,
+    payload: &serde_json::Value,
     run: Option<(String, u64)>,
-    deliver: impl FnOnce(&AgentEventEnvelope<'_>) -> Result<(), String>,
-) -> Result<(), AgentEventDeliveryError> {
+) -> Result<(), RunEventDeliveryError> {
     let (run_id, seq) = match run.as_ref() {
         Some((run_id, seq)) => (Some(run_id.as_str()), Some(*seq)),
         None => (None, None),
     };
-    let timestamp_ms = if let Some((run_id, seq)) = run.as_ref() {
-        let payload =
-            serde_json::to_value(event).map_err(|_| AgentEventDeliveryError::Serialization)?;
-        let kind = payload
-            .get("type")
-            .and_then(serde_json::Value::as_str)
-            .map(str::to_owned)
-            .ok_or(AgentEventDeliveryError::InvalidEnvelope)?;
-        let journal_event = JournalEvent::now(1, run_id, *seq, chat_id, kind, payload);
-        let recorded_at_ms = journal_event.recorded_at_ms;
-        let status = if matches!(event, Event::RunTerminated { .. }) {
-            journal.append_terminal(&journal_event)
-        } else {
-            journal.append(&journal_event)
-        }
-        .map_err(AgentEventDeliveryError::Persistence)?;
-        debug_assert!(matches!(
-            status,
-            AppendStatus::Appended | AppendStatus::Duplicate
-        ));
-        recorded_at_ms
-    } else {
-        now_epoch_ms()
-    };
-    deliver(&AgentEventEnvelope {
-        version: 1,
-        scope: if run.is_some() { "run" } else { "system" },
-        run_id,
-        seq,
-        timestamp_ms,
-        chat_id,
-        event,
-    })
-    .map_err(AgentEventDeliveryError::Renderer)
+    app.emit(
+        "agent://event",
+        &AgentEventEnvelope {
+            version: 1,
+            scope: if run.is_some() { "run" } else { "system" },
+            run_id,
+            seq,
+            chat_id,
+            event: payload,
+        },
+    )
+    .map_err(|error| RunEventDeliveryError::Renderer(error.to_string()))
 }
 
-pub(crate) fn next_run_event(
+fn redacted_event_payload(event: &Event) -> Result<serde_json::Value, RunEventDeliveryError> {
+    let mut payload =
+        serde_json::to_value(event).map_err(|_| RunEventDeliveryError::Serialization)?;
+    isanagent::redact::shared().redact_json(&mut payload);
+    Ok(payload)
+}
+
+enum RunEventTransition<'a> {
+    Started(&'a str),
+    Next,
+    NextForRun(&'a str),
+    Terminated(&'a str),
+}
+
+#[cfg(test)]
+fn persist_run_event(
+    coordinator: &SharedRunCoordinator,
+    journal: &EventJournal,
+    chat_id: &str,
+    owner_id: &str,
+    event: &Event,
+    transition: RunEventTransition<'_>,
+) -> Result<(String, u64), RunEventDeliveryError> {
+    let payload = redacted_event_payload(event)?;
+    persist_run_payload(
+        coordinator,
+        journal,
+        chat_id,
+        owner_id,
+        &payload,
+        transition,
+    )
+}
+
+fn persist_run_payload(
+    coordinator: &SharedRunCoordinator,
+    journal: &EventJournal,
+    chat_id: &str,
+    owner_id: &str,
+    payload: &serde_json::Value,
+    transition: RunEventTransition<'_>,
+) -> Result<(String, u64), RunEventDeliveryError> {
+    let kind = payload
+        .get("type")
+        .and_then(serde_json::Value::as_str)
+        .ok_or(RunEventDeliveryError::Serialization)?
+        .to_string();
+
+    // Sequence assignment and durable append are one coordinator transition.
+    // SQLite I/O is intentionally performed while the coordinator is locked:
+    // otherwise two producers could reserve the same next sequence or a later
+    // event could overtake a failed append and leave a permanent journal gap.
+    let mut coordinator = coordinator_guard(coordinator);
+    let before = coordinator.clone();
+    let run = match transition {
+        RunEventTransition::Started(run_id) => coordinator.started(chat_id, run_id, owner_id),
+        RunEventTransition::Next => coordinator.next(chat_id, owner_id),
+        RunEventTransition::NextForRun(run_id) => {
+            coordinator.next_for_run(chat_id, run_id, owner_id)
+        }
+        RunEventTransition::Terminated(run_id) => coordinator.terminated(chat_id, run_id, owner_id),
+    }
+    .map_err(|error| RunEventDeliveryError::Transition(format!("{error:?}")))?;
+
+    let journal_event = JournalEvent::now(1, run.0.clone(), run.1, chat_id, kind, payload.clone());
+    let append = if matches!(transition, RunEventTransition::Terminated(_)) {
+        journal.append_terminal(&journal_event)
+    } else {
+        journal.append(&journal_event)
+    };
+    match append {
+        Ok(AppendStatus::Appended | AppendStatus::Duplicate) => Ok(run),
+        Err(error) => {
+            *coordinator = before;
+            Err(RunEventDeliveryError::Persistence(error.to_string()))
+        }
+    }
+}
+
+pub(crate) fn deliver_next_run_event(
+    app: &AppHandle,
+    journal: &EventJournal,
     coordinator: &SharedRunCoordinator,
     chat_id: &str,
     owner_id: &str,
-) -> Option<(String, u64)> {
-    coordinator_guard(coordinator).next(chat_id, owner_id).ok()
+    event: &Event,
+) -> Result<(), String> {
+    let result = persist_and_deliver_to_renderer(
+        app,
+        journal,
+        coordinator,
+        chat_id,
+        owner_id,
+        event,
+        RunEventTransition::Next,
+    );
+    match result {
+        Ok(_) => Ok(()),
+        // Persistence already advanced the durable sequence. A disconnected
+        // renderer recovers it via replay, so surfacing delivery failure to
+        // IsanAgent would only invite a duplicate semantic event.
+        Err(error @ RunEventDeliveryError::Renderer(_)) => {
+            log::warn!("Agent event for chat {chat_id} awaits replay: {error}");
+            Ok(())
+        }
+        Err(error) => Err(error.to_string()),
+    }
+}
+
+fn persist_and_deliver_to_renderer(
+    app: &AppHandle,
+    journal: &EventJournal,
+    coordinator: &SharedRunCoordinator,
+    chat_id: &str,
+    owner_id: &str,
+    event: &Event,
+    transition: RunEventTransition<'_>,
+) -> Result<(String, u64), RunEventDeliveryError> {
+    persist_and_deliver_run_event(
+        coordinator,
+        journal,
+        chat_id,
+        owner_id,
+        event,
+        transition,
+        |run, payload| emit_payload(app, chat_id, payload, Some(run.clone())),
+    )
+}
+
+fn persist_and_deliver_run_event<F>(
+    coordinator: &SharedRunCoordinator,
+    journal: &EventJournal,
+    chat_id: &str,
+    owner_id: &str,
+    event: &Event,
+    transition: RunEventTransition<'_>,
+    deliver: F,
+) -> Result<(String, u64), RunEventDeliveryError>
+where
+    F: FnOnce(&(String, u64), &serde_json::Value) -> Result<(), RunEventDeliveryError>,
+{
+    let payload = redacted_event_payload(event)?;
+    let run = persist_run_payload(
+        coordinator,
+        journal,
+        chat_id,
+        owner_id,
+        &payload,
+        transition,
+    )?;
+    deliver(&run, &payload)?;
+    Ok(run)
 }
 
 fn is_system_event(event: &Event) -> bool {
@@ -1003,11 +1141,11 @@ async fn stop_instance(instance: Instance) {
 /// orphaning an in-flight `ask_user` wait.
 struct WorkspaceServices {
     memory_node: NodeHandle<isanagent::memory::MemoryMessage>,
+    event_journal: Arc<EventJournal>,
     clarification_hub: Arc<ClarificationHub>,
     logger: WorkspaceLogger,
     dispatcher: Arc<WorkspaceDispatcher>,
     cron: WorkspaceCron,
-    event_journal: Arc<EventJournal>,
 }
 
 struct WorkspaceIngress {
@@ -1166,10 +1304,6 @@ pub struct AgentRuntime {
     /// One service record per workspace root. Provider/persona instances share
     /// this record instead of reconstructing workspace-owned state.
     workspace_services_by_root: tokio::sync::Mutex<HashMap<String, Arc<WorkspaceServices>>>,
-    /// Journals are independently available to the renderer recovery command.
-    /// Keeping this registry separate prevents replay from starting cron,
-    /// logging, memory, provider, or tool services as a side effect.
-    event_journals_by_root: tokio::sync::Mutex<HashMap<String, Arc<EventJournal>>>,
     /// Last successfully delivered model/persona runtime for each workspace
     /// chat. This is only an ownership record today; A2's dispatcher will use
     /// it to route synthetic work and ticket resumes to exactly one instance.
@@ -1182,7 +1316,6 @@ pub fn init(app: AppHandle) -> Result<(), Box<dyn std::error::Error>> {
         app: app.clone(),
         instances: tokio::sync::Mutex::new(HashMap::new()),
         workspace_services_by_root: tokio::sync::Mutex::new(HashMap::new()),
-        event_journals_by_root: tokio::sync::Mutex::new(HashMap::new()),
         chat_owner_by_workspace: tokio::sync::Mutex::new(HashMap::new()),
         run_coordinator: Arc::new(StdMutex::new(RunCoordinator::default())),
     });
@@ -1228,30 +1361,6 @@ fn make_fingerprint(
     }
 }
 
-/// Open only the durable lifecycle journal for a workspace. Replay deliberately
-/// uses this narrower constructor so recovery cannot wake cron or an agent.
-async fn ensure_event_journal(
-    runtime: &AgentRuntime,
-    workspace_root: &str,
-) -> Result<Arc<EventJournal>, String> {
-    let mut guard = runtime.event_journals_by_root.lock().await;
-    if let Some(existing) = guard.get(workspace_root) {
-        return Ok(existing.clone());
-    }
-    let workspace = if workspace_root.is_empty() {
-        None
-    } else {
-        Some(workspace_root)
-    };
-    let dir = resolve_workspace_root(workspace);
-    let journal = Arc::new(
-        EventJournal::open(dir.join(".system_generated").join("agent_events.db"))
-            .map_err(|error| format!("Failed to initialize agent event journal: {error}"))?,
-    );
-    guard.insert(workspace_root.to_string(), journal.clone());
-    Ok(journal)
-}
-
 /// Get-or-create workspace-owned services (`""` = the default IsanAgent
 /// workspace). This is intentionally the only constructor for shared
 /// workspace state.
@@ -1276,6 +1385,11 @@ async fn ensure_workspace_services(
     let db_path_str = db_path
         .to_str()
         .ok_or("workspace DB path is not valid UTF-8")?;
+    let event_journal =
+        EventJournal::open(dir.join(".system_generated").join("agent_event_journal.db"))
+            .map_err(|error| format!("Failed to initialize agent event journal: {error}"))?;
+    classify_runs_abandoned_by_restart(&event_journal)?;
+    let event_journal = Arc::new(event_journal);
     let memory_actor = isanagent::memory::SqliteMemoryActor::new(db_path_str)
         .map_err(|e| format!("Failed to initialize SqliteMemoryActor: {}", e))?;
     let node = NodeHandle::<isanagent::memory::MemoryMessage>::new(
@@ -1284,7 +1398,6 @@ async fn ensure_workspace_services(
         1,
         Duration::from_millis(5),
     );
-    let event_journal = ensure_event_journal(runtime, workspace_root).await?;
     let (logger_handle, logger_rx) =
         isanagent::logging::create_logger_channel(isanagent::logging::LOGGER_QUEUE_CAPACITY);
     let logger_factory = {
@@ -1352,6 +1465,7 @@ async fn ensure_workspace_services(
 
     let services = Arc::new(WorkspaceServices {
         memory_node: node,
+        event_journal,
         clarification_hub: ClarificationHub::shared(),
         logger: WorkspaceLogger {
             handle: logger_handle,
@@ -1363,7 +1477,6 @@ async fn ensure_workspace_services(
             node: cron_node,
             forwarder: cron_forwarder,
         },
-        event_journal,
     });
     guard.insert(workspace_root.to_string(), services.clone());
     Ok(services)
@@ -1379,6 +1492,150 @@ async fn ensure_memory(
         .await?
         .memory_node
         .clone())
+}
+
+/// Read durable events strictly after the renderer's last acknowledged
+/// sequence. This path only opens the workspace journal; it never constructs
+/// an agent instance, dispatches inbound work, or touches provider/tool code.
+pub async fn replay_run_events(
+    runtime: &AgentRuntime,
+    workspace_path: &str,
+    chat_id: &str,
+    run_id: &str,
+    after_seq: u64,
+    limit: usize,
+) -> Result<Vec<AgentReplayEventEnvelope>, String> {
+    let chat_id = validate_tauri_chat_id(chat_id)?;
+    let run_id = run_id.trim();
+    if run_id.is_empty() {
+        return Err("runId is required".to_string());
+    }
+    if run_id.len() > 256 {
+        return Err("runId is too long".to_string());
+    }
+    if limit == 0 || limit > 1_000 {
+        return Err("limit must be between 1 and 1000".to_string());
+    }
+
+    let workspace_root = format!("{}/.isanagent", workspace_path.trim_end_matches('/'));
+    let services = ensure_workspace_services(runtime, &workspace_root).await?;
+    replay_events_from_journal(&services.event_journal, chat_id, run_id, after_seq, limit)
+}
+
+/// Discover the newest durable run for a restored chat without replaying or
+/// starting work. On a fresh host process, startup classification first makes
+/// every run inherited from the previous process terminal; a run started by
+/// the current process may still be live during a renderer-only reconnect.
+pub async fn latest_run_replay_cursor(
+    runtime: &AgentRuntime,
+    workspace_path: &str,
+    chat_id: &str,
+) -> Result<Option<AgentRunReplayCursor>, String> {
+    let chat_id = validate_tauri_chat_id(chat_id)?;
+    let workspace_root = format!("{}/.isanagent", workspace_path.trim_end_matches('/'));
+    let services = ensure_workspace_services(runtime, &workspace_root).await?;
+    services
+        .event_journal
+        .latest_run_summary_for_chat(chat_id)
+        .map(|summary| {
+            summary.map(|summary| AgentRunReplayCursor {
+                run_id: summary.run_id,
+                last_seq: summary.last_seq,
+                terminal_seq: summary.terminal_seq,
+            })
+        })
+        .map_err(|error| format!("Failed to inspect agent event journal: {error}"))
+}
+
+fn classify_runs_abandoned_by_restart(journal: &EventJournal) -> Result<(), String> {
+    for summary in journal
+        .incomplete_run_summaries()
+        .map_err(|error| format!("Failed to inspect incomplete agent runs: {error}"))?
+    {
+        let seq = summary
+            .last_seq
+            .checked_add(1)
+            .ok_or_else(|| "Cannot classify an agent run with an exhausted sequence".to_string())?;
+        let event = Event::RunTerminated {
+            run_id: summary.run_id.clone(),
+            outcome: serde_json::json!({
+                "kind": "failed",
+                "failure": "The previous app process ended before this run completed.",
+                "retryable": false
+            }),
+        };
+        let payload = serde_json::to_value(&event)
+            .map_err(|_| "Failed to serialize restart recovery event".to_string())?;
+        let terminal = JournalEvent::now(
+            1,
+            summary.run_id.clone(),
+            seq,
+            summary.chat_id,
+            "run_terminated",
+            payload,
+        );
+        if let Err(error) = journal.append_terminal(&terminal) {
+            // Another host may have won the terminal CAS. Accept only a
+            // verified terminal summary; all other failures abort startup.
+            let committed = journal
+                .run_summary(&summary.run_id)
+                .map_err(|inspect| format!("Failed to verify recovered run: {inspect}"))?
+                .is_some_and(|current| current.terminal_seq.is_some());
+            if !committed {
+                return Err(format!("Failed to classify abandoned agent run: {error}"));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn replay_events_from_journal(
+    journal: &EventJournal,
+    chat_id: &str,
+    run_id: &str,
+    after_seq: u64,
+    limit: usize,
+) -> Result<Vec<AgentReplayEventEnvelope>, String> {
+    let summary = journal
+        .run_summary(run_id)
+        .map_err(|error| format!("Failed to inspect agent event journal: {error}"))?
+        .filter(|summary| summary.chat_id == chat_id)
+        .ok_or_else(|| "Run was not found for this chat".to_string())?;
+    if summary.run_id != run_id {
+        return Err("Journal returned an invalid run identity".to_string());
+    }
+
+    journal
+        .fetch_after(run_id, after_seq, limit)
+        .map_err(|error| format!("Failed to replay agent events: {error}"))?
+        .into_iter()
+        .map(|record| {
+            if record.version != 1
+                || record.run_id != run_id
+                || record.chat_id != chat_id
+                || record.seq <= after_seq
+            {
+                return Err("Journal returned an invalid event envelope".to_string());
+            }
+            let payload_kind = record
+                .payload
+                .get("type")
+                .and_then(serde_json::Value::as_str);
+            if payload_kind != Some(record.kind.as_str()) {
+                return Err("Journal event type does not match its payload".to_string());
+            }
+            let event = serde_json::from_value(record.payload)
+                .map_err(|error| format!("Journal contains an invalid agent event: {error}"))?;
+            Ok(AgentReplayEventEnvelope {
+                version: 1,
+                scope: "run".to_string(),
+                run_id: record.run_id,
+                seq: record.seq,
+                chat_id: record.chat_id,
+                event,
+            })
+        })
+        .collect()
 }
 
 /// Ensure an instance exists for this config and return its channel. The app
@@ -1515,7 +1772,6 @@ async fn ensure_instance(
         workspace_root_opt,
         permission_mode,
         compaction,
-        fallback,
     )
     .await?;
 
@@ -1591,6 +1847,22 @@ pub async fn route_send(
         fallback.as_ref(),
     )
     .await?;
+
+    // IsanAgent #91 explicitly restored the pre-#90 process-wide fallback
+    // registry. Refresh it immediately before dispatch so this send observes
+    // the requested fallback as closely as that API permits. Concurrent chats
+    // can still overwrite one another before failover is evaluated; that is a
+    // known limitation of the intentionally restored upstream contract.
+    let fallback_providers = match fallback {
+        Some(fallback) => isanagent::agent::build_fallback_specs(
+            provider_name,
+            base_url_override.unwrap_or(""),
+            model_name,
+            vec![fallback],
+        ),
+        None => Vec::new(),
+    };
+    isanagent::agent::set_fallback_providers(fallback_providers);
 
     let acknowledgement = channel
         .inject_user_message(message, images, documents, chat_id.clone(), queue)
@@ -1768,182 +2040,6 @@ pub struct SendAck {
     pub queued: bool,
 }
 
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ReplayCursor {
-    pub chat_id: String,
-    pub run_id: Option<String>,
-    pub after_seq: u64,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ReplayedAgentEvent {
-    version: u32,
-    scope: &'static str,
-    run_id: String,
-    seq: u64,
-    timestamp_ms: u64,
-    chat_id: String,
-    event: serde_json::Value,
-    replay: bool,
-}
-
-fn validate_replay_cursor(
-    journal: &EventJournal,
-    coordinator: &SharedRunCoordinator,
-    chat_id: &str,
-    run_id: Option<&str>,
-    after_seq: u64,
-) -> Result<(), String> {
-    if run_id.is_none() && after_seq != 0 {
-        return Err(format!(
-            "Replay cursor for chat {chat_id} has a sequence without a run ID"
-        ));
-    }
-    i64::try_from(after_seq).map_err(|_| "Replay cursor sequence is too large".to_string())?;
-    let Some(run_id) = run_id else {
-        return Ok(());
-    };
-    validate_replay_run_id(run_id)?;
-    match journal
-        .run_chat_id(run_id)
-        .map_err(|error| format!("Failed to validate replay cursor: {error}"))?
-    {
-        Some(stored_chat_id) if stored_chat_id != chat_id => {
-            Err("Replay cursor run does not belong to the requested chat".to_string())
-        }
-        None => {
-            let is_active_unjournaled_run = coordinator_guard(coordinator)
-                .active_run(chat_id)
-                .is_some_and(|(active_run_id, _)| active_run_id == run_id);
-            if is_active_unjournaled_run {
-                Ok(())
-            } else {
-                Err("Replay cursor references an unknown run".to_string())
-            }
-        }
-        Some(_) => Ok(()),
-    }
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RecoveredInterruptedRun {
-    chat_id: String,
-    run_id: String,
-    terminal_seq: u64,
-}
-
-/// Classify process-abandoned runs before read-only replay. A renderer refresh
-/// while the backend is still working is not a crash: chats with an active
-/// coordinator lease are skipped. The CAS journal operation is idempotent and
-/// cannot resume an agent, provider, prompt, or tool.
-pub async fn recover_interrupted_runs(
-    runtime: &AgentRuntime,
-    workspace_path: &str,
-    chat_ids: Vec<String>,
-) -> Result<Vec<RecoveredInterruptedRun>, String> {
-    if chat_ids.len() > 200 {
-        return Err("At most 200 chats can be recovered at once".to_string());
-    }
-    let workspace_root = format!("{}/.isanagent", workspace_path.trim_end_matches('/'));
-    let journal = ensure_event_journal(runtime, &workspace_root).await?;
-    let mut seen_chats = HashSet::new();
-    let mut recovered = Vec::new();
-    for chat_id in chat_ids {
-        let chat_id = validate_tauri_chat_id(&chat_id)?.to_owned();
-        if !seen_chats.insert(chat_id.clone()) {
-            return Err(format!("Duplicate recovery request for chat {chat_id}"));
-        }
-        // Hold the admission lock through the journal CAS: otherwise a new run
-        // could be admitted in the narrow window after the active check and be
-        // mistaken for process-abandoned work.
-        let coordinator = coordinator_guard(&runtime.run_coordinator);
-        if coordinator.active_run(&chat_id).is_some() {
-            continue;
-        }
-        let terminal = journal
-            .terminate_latest_interrupted(&chat_id)
-            .map_err(|error| {
-                format!("Failed to classify interrupted run for chat {chat_id}: {error}")
-            })?;
-        drop(coordinator);
-        if let Some(event) = terminal {
-            recovered.push(RecoveredInterruptedRun {
-                chat_id,
-                run_id: event.run_id,
-                terminal_seq: event.seq,
-            });
-        }
-    }
-    Ok(recovered)
-}
-
-/// Read-only recovery path for renderer lifecycle state. This never touches an
-/// agent bus, provider, prompt, or tool registry: it only projects already
-/// committed SQLite rows back into the same frontend event envelope.
-pub async fn replay_events(
-    runtime: &AgentRuntime,
-    workspace_path: &str,
-    cursors: Vec<ReplayCursor>,
-) -> Result<Vec<ReplayedAgentEvent>, String> {
-    if cursors.len() > 200 {
-        return Err("At most 200 chat replay cursors are accepted".to_string());
-    }
-    let workspace_root = format!("{}/.isanagent", workspace_path.trim_end_matches('/'));
-    let journal = ensure_event_journal(runtime, &workspace_root).await?;
-    let mut seen_chats = HashSet::new();
-    let mut replay = Vec::new();
-    for cursor in cursors {
-        let chat_id = validate_tauri_chat_id(&cursor.chat_id)?.to_owned();
-        if !seen_chats.insert(chat_id.clone()) {
-            return Err(format!("Duplicate replay cursor for chat {chat_id}"));
-        }
-        let acknowledged_run_id = cursor
-            .run_id
-            .as_deref()
-            .map(str::trim)
-            .filter(|run_id| !run_id.is_empty());
-        validate_replay_cursor(
-            &journal,
-            &runtime.run_coordinator,
-            &chat_id,
-            acknowledged_run_id,
-            cursor.after_seq,
-        )?;
-        let events = journal
-            .replay_latest(&chat_id, acknowledged_run_id, cursor.after_seq)
-            .map_err(|error| format!("Failed to replay chat {chat_id}: {error}"))?;
-        for event in events {
-            let payload_kind = event
-                .payload
-                .get("type")
-                .and_then(serde_json::Value::as_str)
-                .ok_or_else(|| {
-                    format!("Journal event {}:{} has no type", event.run_id, event.seq)
-                })?;
-            if payload_kind != event.kind {
-                return Err(format!(
-                    "Journal event {}:{} has mismatched kind",
-                    event.run_id, event.seq
-                ));
-            }
-            replay.push(ReplayedAgentEvent {
-                version: event.version,
-                scope: "run",
-                run_id: event.run_id,
-                seq: event.seq,
-                timestamp_ms: event.recorded_at_ms,
-                chat_id: event.chat_id,
-                event: event.payload,
-                replay: true,
-            });
-        }
-    }
-    Ok(replay)
-}
-
 /// Cancel the single runtime instance holding this chat's coordinator lease.
 /// The owning bus router records the cancelling transition in the same FIFO
 /// order in which IsanAgent observes inbound/cancel messages.
@@ -1959,6 +2055,74 @@ pub struct CancelAck {
 pub struct SteerAck {
     pub chat_id: String,
     pub run_id: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ManualCompactionAck {
+    pub chat_id: String,
+}
+
+fn enqueue_manual_compaction(
+    bus_tx: &mpsc::Sender<BusMessage>,
+    chat_id: &str,
+    focus_instructions: Option<String>,
+) -> Result<(), String> {
+    let session_key = isanagent::bus::clarification_session_key("tauri", chat_id, None);
+    bus_tx
+        .try_send(BusMessage::TriggerCompaction {
+            session_key,
+            focus_instructions,
+            trigger: Some(isanagent::bus::CompactionTrigger::Manual),
+        })
+        .map_err(|error| format!("Could not enqueue manual compaction: {error}"))
+}
+
+/// Enqueue exactly one caller-driven compaction on the runtime that last owned
+/// this workspace chat. No inbound prompt or agent run is created. Admission
+/// and enqueue share the coordinator lock so a new foreground run cannot jump
+/// ahead of the compaction request.
+pub async fn route_manual_compaction(
+    runtime: &AgentRuntime,
+    workspace_path: &str,
+    chat_id: String,
+    focus_instructions: Option<String>,
+) -> Result<ManualCompactionAck, String> {
+    let chat_id = validate_tauri_chat_id(&chat_id)?.to_owned();
+    let focus_instructions = focus_instructions
+        .map(|focus| focus.trim().to_string())
+        .filter(|focus| !focus.is_empty());
+    if focus_instructions
+        .as_ref()
+        .is_some_and(|focus| focus.len() > 4_000)
+    {
+        return Err("Compaction focus instructions are too long".to_string());
+    }
+    let workspace_root = format!("{}/.isanagent", workspace_path.trim_end_matches('/'));
+    let fingerprint = runtime
+        .chat_owner_by_workspace
+        .lock()
+        .await
+        .get(&(workspace_root, chat_id.clone()))
+        .cloned()
+        .ok_or_else(|| {
+            "This chat has no active runtime in the current app session; send a message first"
+                .to_string()
+        })?;
+    let bus_tx = runtime
+        .instances
+        .lock()
+        .await
+        .get(&fingerprint)
+        .map(|instance| instance.bus_tx.clone())
+        .ok_or_else(|| "The chat's agent runtime is unavailable".to_string())?;
+    let coordinator = coordinator_guard(&runtime.run_coordinator);
+    if coordinator.active_run(&chat_id).is_some() {
+        return Err("Wait for the active run to finish before compacting context".to_string());
+    }
+    enqueue_manual_compaction(&bus_tx, &chat_id, focus_instructions)?;
+    drop(coordinator);
+    Ok(ManualCompactionAck { chat_id })
 }
 
 pub async fn route_cancel(
@@ -2359,16 +2523,6 @@ pub fn validate_tauri_chat_id(chat_id: &str) -> Result<&str, String> {
         return Err("chatId contains an invalid delimiter".to_string());
     }
     Ok(chat_id)
-}
-
-fn validate_replay_run_id(run_id: &str) -> Result<&str, String> {
-    let run_id = run_id.trim();
-    let parsed = uuid::Uuid::parse_str(run_id)
-        .map_err(|_| "Replay cursor runId must be a UUID".to_string())?;
-    if parsed.to_string() != run_id.to_ascii_lowercase() {
-        return Err("Replay cursor runId is not canonical".to_string());
-    }
-    Ok(run_id)
 }
 
 fn automation_workspace_root(workspace_path: Option<&str>) -> String {
@@ -3012,7 +3166,6 @@ async fn build_instance(
     workspace_root: Option<&str>,
     permission_mode: Option<&str>,
     compaction: Option<&CompactionArg>,
-    fallback: Option<&isanagent::agent::FallbackProviderSpec>,
 ) -> Result<
     (
         Arc<TauriChannel>,
@@ -3440,8 +3593,6 @@ async fn build_instance(
         api_key: api_key.to_string(),
         model_name: model_name.to_string(),
     };
-    let fallback_providers = fallback.cloned().into_iter().collect();
-
     // System prompt
     let mut system_prompt = workspace.compile_system_prompt();
     if workspace.config.ml_engineer_harness_enabled() {
@@ -3565,33 +3716,30 @@ async fn build_instance(
         harness_ref,
     );
 
-    let agent_logic = AgentLogic::new_with_fallback_providers(
-        AgentLogicParams {
-            name: "altai-agent".to_string(),
-            provider: llm_provider,
-            provider_credentials,
-            session_manager,
-            tools,
-            skills,
-            system_prompt,
-            max_iterations,
-            max_tool_output_chars,
-            max_recent_summaries,
-            short_term_threshold_turns,
-            short_term_threshold_tokens,
-            outbound_tx: global_outbound_tx.clone(),
-            logger_tx: logger_handle,
-            clarification_hub,
-            subagent,
-            doom_loop_enabled: workspace.config.doom_loop_enabled(),
-            harness_runtime_summary,
-            subagent_system_prompt,
-            forbid_final_without_tools,
-            shell_policy,
-            hook_tool_ctx,
-        },
-        fallback_providers,
-    );
+    let agent_logic = AgentLogic::new(AgentLogicParams {
+        name: "altai-agent".to_string(),
+        provider: llm_provider,
+        provider_credentials,
+        session_manager,
+        tools,
+        skills,
+        system_prompt,
+        max_iterations,
+        max_tool_output_chars,
+        max_recent_summaries,
+        short_term_threshold_turns,
+        short_term_threshold_tokens,
+        outbound_tx: global_outbound_tx.clone(),
+        logger_tx: logger_handle,
+        clarification_hub,
+        subagent,
+        doom_loop_enabled: workspace.config.doom_loop_enabled(),
+        harness_runtime_summary,
+        subagent_system_prompt,
+        forbid_final_without_tools,
+        shell_policy,
+        hook_tool_ctx,
+    });
 
     let agent_node = NodeHandle::<BusMessage>::new(agent_logic, 100, 3, Duration::from_millis(50));
 
@@ -3708,8 +3856,8 @@ async fn build_instance(
     // dropped — the UI saw no tool calls or thinking between "Sending to
     // ALTAI…" and the final answer.
     let app_for_outbound = app.clone();
-    let journal_for_outbound = event_journal.clone();
     let coordinator_for_outbound = run_coordinator.clone();
+    let journal_for_outbound = event_journal.clone();
     let owner_for_outbound = owner_id.clone();
     let outbound_router = async_runtime::spawn(async move {
         while let Some(out_msg) = global_outbound_rx.recv().await {
@@ -3751,49 +3899,58 @@ async fn build_instance(
                             role: "assistant".to_string(),
                         }
                     };
-                    let run = coordinator_guard(&coordinator_for_outbound)
-                        .next(&chat_id, &owner_for_outbound)
-                        .ok();
-                    let accepted = run.is_some();
-                    if is_clarification && accepted {
-                        if let Err(error) = coordinator_guard(&coordinator_for_outbound)
-                            .mark_waiting_user(&chat_id, &owner_for_outbound)
-                        {
-                            log::warn!(
-                                "Could not mark clarification wait for chat {chat_id}: {error:?}"
-                            );
-                        }
-                    }
-                    if let Err(error) = emit_event(
-                        &app_for_outbound,
+                    let transition = persist_and_deliver_run_event(
+                        &coordinator_for_outbound,
                         &journal_for_outbound,
                         &chat_id,
+                        &owner_for_outbound,
                         &event,
-                        run,
-                    ) {
-                        log::error!("Could not deliver outbound event for chat {chat_id}: {error}");
+                        RunEventTransition::Next,
+                        |run, payload| {
+                            // Waiting-user is runtime state, not renderer
+                            // state. Commit it after durability even when the
+                            // live window is gone and must replay the prompt.
+                            if is_clarification {
+                                if let Err(error) = coordinator_guard(&coordinator_for_outbound)
+                                    .mark_waiting_user(&chat_id, &owner_for_outbound)
+                                {
+                                    log::warn!(
+                                        "Could not mark clarification wait for chat {chat_id}: {error:?}"
+                                    );
+                                }
+                            }
+                            emit_payload(&app_for_outbound, &chat_id, payload, Some(run.clone()))
+                        },
+                    );
+                    match transition {
+                        Ok(_) => {}
+                        Err(error @ RunEventDeliveryError::Renderer(_)) => {
+                            log::warn!("Agent event for chat {chat_id} awaits replay: {error}")
+                        }
+                        Err(error) => {
+                            log::warn!("Dropped outbound event for chat {chat_id}: {error}")
+                        }
                     }
                 }
                 BusMessage::Telemetry(ref telemetry) => {
                     if let Some(event) = map_telemetry_to_event(telemetry) {
                         let chat_id = telemetry_chat_id(telemetry).unwrap_or("");
-                        let run = if is_system_event(&event) {
-                            None
+                        if is_system_event(&event) {
+                            if let Err(error) = emit_event(&app_for_outbound, chat_id, &event, None)
+                            {
+                                log::warn!("Could not deliver system event: {error}");
+                            }
                         } else {
-                            coordinator_guard(&coordinator_for_outbound)
-                                .next(chat_id, &owner_for_outbound)
-                                .ok()
-                        };
-                        if let Err(error) = emit_event(
-                            &app_for_outbound,
-                            &journal_for_outbound,
-                            chat_id,
-                            &event,
-                            run,
-                        ) {
-                            log::error!(
-                                "Could not deliver telemetry event for chat {chat_id}: {error}"
-                            );
+                            if let Err(error) = deliver_next_run_event(
+                                &app_for_outbound,
+                                &journal_for_outbound,
+                                &coordinator_for_outbound,
+                                chat_id,
+                                &owner_for_outbound,
+                                &event,
+                            ) {
+                                log::warn!("Dropped telemetry event for chat {chat_id}: {error}");
+                            }
                         }
                     }
                 }
@@ -3803,75 +3960,57 @@ async fn build_instance(
                     let event = map_lifecycle_to_event(&lifecycle);
                     match lifecycle {
                         RunLifecycleEvent::Started { run_id, chat_id } => {
-                            let transition = coordinator_guard(&coordinator_for_outbound).started(
+                            let transition = persist_and_deliver_to_renderer(
+                                &app_for_outbound,
+                                &journal_for_outbound,
+                                &coordinator_for_outbound,
                                 &chat_id,
-                                &run_id,
                                 &owner_for_outbound,
+                                &event,
+                                RunEventTransition::Started(&run_id),
                             );
                             match transition {
-                                Ok(run) => {
-                                    if let Err(error) = emit_event(
-                                        &app_for_outbound,
-                                        &journal_for_outbound,
-                                        &chat_id,
-                                        &event,
-                                        Some(run),
-                                    ) {
-                                        log::error!(
-                                            "Could not deliver run_started for chat {chat_id}: {error}"
-                                        );
-                                    }
-                                }
+                                Ok(_) => {}
                                 Err(error) => log::warn!(
-                                    "Dropped invalid run_started transition for chat {chat_id}: {error:?}"
+                                    "Could not persist or deliver run_started for chat {chat_id}: {error}"
                                 ),
                             }
                         }
                         RunLifecycleEvent::Warning {
                             run_id, chat_id, ..
                         } => {
-                            let transition = coordinator_guard(&coordinator_for_outbound)
-                                .next_for_run(&chat_id, &run_id, &owner_for_outbound);
+                            let transition = persist_and_deliver_to_renderer(
+                                &app_for_outbound,
+                                &journal_for_outbound,
+                                &coordinator_for_outbound,
+                                &chat_id,
+                                &owner_for_outbound,
+                                &event,
+                                RunEventTransition::NextForRun(&run_id),
+                            );
                             match transition {
-                                Ok(run) => {
-                                    if let Err(error) = emit_event(
-                                        &app_for_outbound,
-                                        &journal_for_outbound,
-                                        &chat_id,
-                                        &event,
-                                        Some(run),
-                                    ) {
-                                        log::error!(
-                                            "Could not deliver run_warning for chat {chat_id}: {error}"
-                                        );
-                                    }
-                                }
+                                Ok(_) => {}
                                 Err(error) => log::warn!(
-                                    "Dropped invalid run_warning transition for chat {chat_id}: {error:?}"
+                                    "Could not persist or deliver run_warning for chat {chat_id}: {error}"
                                 ),
                             }
                         }
                         RunLifecycleEvent::Terminated {
                             run_id, chat_id, ..
                         } => {
-                            let transition = coordinator_guard(&coordinator_for_outbound)
-                                .terminated(&chat_id, &run_id, &owner_for_outbound);
+                            let transition = persist_and_deliver_to_renderer(
+                                &app_for_outbound,
+                                &journal_for_outbound,
+                                &coordinator_for_outbound,
+                                &chat_id,
+                                &owner_for_outbound,
+                                &event,
+                                RunEventTransition::Terminated(&run_id),
+                            );
                             match transition {
-                                Ok(run) => {
-                                    if let Err(error) = emit_event(
-                                        &app_for_outbound,
-                                        &journal_for_outbound,
-                                        &chat_id,
-                                        &event,
-                                        Some(run),
-                                    ) {
-                                        log::error!(
-                                            "Could not deliver run_terminated for chat {chat_id}: {error}"
-                                        );
-                                    }
-                                }
+                                Ok(_) => {}
                                 Err(error) => log::warn!(
-                                    "Dropped invalid run_terminated transition for chat {chat_id}: {error:?}"
+                                    "Could not persist or deliver run_terminated for chat {chat_id}: {error}"
                                 ),
                             }
                         }
@@ -3887,7 +4026,6 @@ async fn build_instance(
     // lifecycle signal, not a message to render in a user's chat.
     if let Err(error) = emit_event(
         &app,
-        &event_journal,
         channel.chat_id(),
         &Event::AgentMessage {
             content: "IsanAgent runtime initialized.".to_string(),
@@ -3895,7 +4033,7 @@ async fn build_instance(
         },
         None,
     ) {
-        log::warn!("Could not emit runtime initialization event: {error}");
+        log::warn!("Could not deliver runtime bootstrap event: {error}");
     }
 
     Ok((channel, bus_tx, shutdown_tx, bus_router, outbound_router))
@@ -3904,6 +4042,398 @@ async fn build_instance(
 #[cfg(test)]
 mod run_event_tests {
     use super::*;
+
+    fn journal() -> (tempfile::TempDir, EventJournal) {
+        let directory = tempfile::tempdir().expect("journal directory");
+        let journal = EventJournal::open(directory.path().join("events.db")).expect("open journal");
+        (directory, journal)
+    }
+
+    fn admitted_coordinator() -> SharedRunCoordinator {
+        let coordinator = Arc::new(StdMutex::new(RunCoordinator::default()));
+        coordinator_guard(&coordinator)
+            .admit("chat-a", "run-1", "owner-1")
+            .expect("admit run");
+        coordinator
+    }
+
+    #[test]
+    fn journal_append_precedes_delivery() {
+        let (_directory, journal) = journal();
+        let coordinator = admitted_coordinator();
+        let event = Event::RunStarted {
+            run_id: "run-1".to_string(),
+        };
+
+        persist_and_deliver_run_event(
+            &coordinator,
+            &journal,
+            "chat-a",
+            "owner-1",
+            &event,
+            RunEventTransition::Started("run-1"),
+            |run, _| {
+                let persisted = journal.fetch_after("run-1", 0, 10).expect("replay");
+                assert_eq!(
+                    (persisted[0].run_id.as_str(), persisted[0].seq),
+                    (run.0.as_str(), run.1)
+                );
+                Ok(())
+            },
+        )
+        .expect("persist and deliver");
+    }
+
+    #[test]
+    fn delivery_failure_leaves_event_replayable() {
+        let (_directory, journal) = journal();
+        let coordinator = admitted_coordinator();
+        let started = Event::RunStarted {
+            run_id: "run-1".to_string(),
+        };
+        persist_run_event(
+            &coordinator,
+            &journal,
+            "chat-a",
+            "owner-1",
+            &started,
+            RunEventTransition::Started("run-1"),
+        )
+        .expect("start run");
+        let message = Event::AgentMessage {
+            content: "durable".to_string(),
+            role: "assistant".to_string(),
+        };
+
+        let error = persist_and_deliver_run_event(
+            &coordinator,
+            &journal,
+            "chat-a",
+            "owner-1",
+            &message,
+            RunEventTransition::Next,
+            |_, _| Err(RunEventDeliveryError::Renderer("unavailable".to_string())),
+        )
+        .expect_err("delivery must fail");
+
+        assert!(matches!(error, RunEventDeliveryError::Renderer(_)));
+        let replay = journal.fetch_after("run-1", 1, 10).expect("replay");
+        assert_eq!(replay.len(), 1);
+        assert_eq!(replay[0].seq, 2);
+        assert_eq!(replay[0].payload["content"], "durable");
+    }
+
+    #[test]
+    fn journal_failure_blocks_delivery_and_rolls_back_sequence() {
+        let (_directory, journal) = journal();
+        journal
+            .append(&JournalEvent::now(
+                1,
+                "run-1",
+                1,
+                "other-chat",
+                "run_started",
+                serde_json::json!({"type":"run_started","run_id":"run-1"}),
+            ))
+            .expect("seed conflicting ownership");
+        let coordinator = admitted_coordinator();
+        let event = Event::RunStarted {
+            run_id: "run-1".to_string(),
+        };
+        let delivered = std::cell::Cell::new(false);
+
+        assert!(persist_and_deliver_run_event(
+            &coordinator,
+            &journal,
+            "chat-a",
+            "owner-1",
+            &event,
+            RunEventTransition::Started("run-1"),
+            |_, _| {
+                delivered.set(true);
+                Ok(())
+            },
+        )
+        .is_err());
+        assert!(!delivered.get());
+        assert_eq!(
+            coordinator_guard(&coordinator).started("chat-a", "run-1", "owner-1"),
+            Ok(("run-1".to_string(), 1))
+        );
+    }
+
+    #[test]
+    fn terminal_persistence_failure_keeps_the_cancelling_lease() {
+        let (_directory, journal) = journal();
+        let coordinator = admitted_coordinator();
+        {
+            let mut coordinator = coordinator_guard(&coordinator);
+            coordinator
+                .started("chat-a", "run-1", "owner-1")
+                .expect("start run");
+            coordinator
+                .cancel_requested("chat-a", Some("run-1"))
+                .expect("cancel run");
+        }
+        let delivered = std::cell::Cell::new(false);
+        let terminal = Event::RunTerminated {
+            run_id: "run-1".to_string(),
+            outcome: serde_json::json!({ "kind": "cancelled" }),
+        };
+
+        // Sequence 1 was intentionally not persisted. The terminal append
+        // must fail and restore the coordinator snapshot before the lock is
+        // released, so a replacement cannot enter during cancellation unwind.
+        assert!(persist_and_deliver_run_event(
+            &coordinator,
+            &journal,
+            "chat-a",
+            "owner-1",
+            &terminal,
+            RunEventTransition::Terminated("run-1"),
+            |_, _| {
+                delivered.set(true);
+                Ok(())
+            },
+        )
+        .is_err());
+        assert!(!delivered.get());
+        let mut coordinator = coordinator_guard(&coordinator);
+        assert_eq!(coordinator.active_run("chat-a"), Some(("run-1", "owner-1")));
+        assert_eq!(
+            coordinator.admit("chat-a", "run-2", "owner-2"),
+            Err(RunTransitionError::ActiveLease)
+        );
+    }
+
+    #[test]
+    fn terminal_transition_commits_event_and_summary_together() {
+        let (_directory, journal) = journal();
+        let coordinator = admitted_coordinator();
+        persist_run_event(
+            &coordinator,
+            &journal,
+            "chat-a",
+            "owner-1",
+            &Event::RunStarted {
+                run_id: "run-1".to_string(),
+            },
+            RunEventTransition::Started("run-1"),
+        )
+        .expect("start run");
+        persist_run_event(
+            &coordinator,
+            &journal,
+            "chat-a",
+            "owner-1",
+            &Event::RunTerminated {
+                run_id: "run-1".to_string(),
+                outcome: serde_json::json!({"status":"completed"}),
+            },
+            RunEventTransition::Terminated("run-1"),
+        )
+        .expect("terminate run");
+
+        let summary = journal
+            .run_summary("run-1")
+            .expect("summary")
+            .expect("run summary");
+        assert_eq!(summary.last_seq, 2);
+        assert_eq!(summary.terminal_seq, Some(2));
+        assert_eq!(summary.terminal_kind.as_deref(), Some("run_terminated"));
+        assert_eq!(
+            coordinator_guard(&coordinator).next("chat-a", "owner-1"),
+            Err(RunTransitionError::MissingLease)
+        );
+    }
+
+    #[test]
+    fn replay_is_exclusive_ordered_and_chat_scoped() {
+        let (_directory, journal) = journal();
+        let coordinator = admitted_coordinator();
+        for (event, transition) in [
+            (
+                Event::RunStarted {
+                    run_id: "run-1".to_string(),
+                },
+                RunEventTransition::Started("run-1"),
+            ),
+            (
+                Event::Thinking {
+                    content: "step".to_string(),
+                },
+                RunEventTransition::Next,
+            ),
+            (
+                Event::RunTerminated {
+                    run_id: "run-1".to_string(),
+                    outcome: serde_json::json!({"status":"completed"}),
+                },
+                RunEventTransition::Terminated("run-1"),
+            ),
+        ] {
+            persist_run_event(
+                &coordinator,
+                &journal,
+                "chat-a",
+                "owner-1",
+                &event,
+                transition,
+            )
+            .expect("persist event");
+        }
+
+        let replay = replay_events_from_journal(&journal, "chat-a", "run-1", 1, 10)
+            .expect("replay after acknowledged sequence");
+        assert_eq!(
+            replay.iter().map(|event| event.seq).collect::<Vec<_>>(),
+            [2, 3]
+        );
+        assert!(replay_events_from_journal(&journal, "chat-b", "run-1", 0, 10).is_err());
+        assert!(replay_events_from_journal(&journal, "chat-a", "unknown", 0, 10).is_err());
+    }
+
+    #[test]
+    fn concurrent_replay_reads_are_identical_and_read_only() {
+        let (_directory, journal) = journal();
+        let journal = Arc::new(journal);
+        journal
+            .append(&JournalEvent::now(
+                1,
+                "run-1",
+                1,
+                "chat-a",
+                "run_started",
+                serde_json::json!({"type":"run_started","run_id":"run-1"}),
+            ))
+            .expect("seed event");
+
+        let reads = std::thread::scope(|scope| {
+            let left_journal = journal.clone();
+            let right_journal = journal.clone();
+            let left = scope.spawn(move || {
+                replay_events_from_journal(&left_journal, "chat-a", "run-1", 0, 10)
+                    .map(|events| serde_json::to_value(events).expect("serialize replay"))
+            });
+            let right = scope.spawn(move || {
+                replay_events_from_journal(&right_journal, "chat-a", "run-1", 0, 10)
+                    .map(|events| serde_json::to_value(events).expect("serialize replay"))
+            });
+            (
+                left.join().expect("left replay").expect("left result"),
+                right.join().expect("right replay").expect("right result"),
+            )
+        });
+
+        assert_eq!(reads.0, reads.1);
+        assert_eq!(
+            journal
+                .run_summary("run-1")
+                .expect("summary")
+                .expect("run")
+                .last_seq,
+            1
+        );
+    }
+
+    #[test]
+    fn restart_classifies_incomplete_runs_once_without_resuming_work() {
+        let (_directory, journal) = journal();
+        for event in [
+            JournalEvent::now(
+                1,
+                "run-before-tool-end",
+                1,
+                "chat-a",
+                "run_started",
+                serde_json::json!({"type":"run_started","run_id":"run-before-tool-end"}),
+            ),
+            JournalEvent::now(
+                1,
+                "run-before-tool-end",
+                2,
+                "chat-a",
+                "tool_call_start",
+                serde_json::json!({"type":"tool_call_start","id":"tool-1","name":"edit_file","input":{}}),
+            ),
+            JournalEvent::now(
+                1,
+                "run-after-tool-end",
+                1,
+                "chat-b",
+                "run_started",
+                serde_json::json!({"type":"run_started","run_id":"run-after-tool-end"}),
+            ),
+            JournalEvent::now(
+                1,
+                "run-after-tool-end",
+                2,
+                "chat-b",
+                "tool_call_end",
+                serde_json::json!({"type":"tool_call_end","id":"tool-2","name":"read_file","output":"ok"}),
+            ),
+        ] {
+            journal.append(&event).expect("seed incomplete run");
+        }
+
+        classify_runs_abandoned_by_restart(&journal).expect("classify abandoned runs");
+        classify_runs_abandoned_by_restart(&journal).expect("repeat is a no-op");
+
+        for (run_id, terminal_seq) in [("run-before-tool-end", 3), ("run-after-tool-end", 3)] {
+            let summary = journal.run_summary(run_id).expect("summary").expect("run");
+            assert_eq!(summary.last_seq, terminal_seq);
+            assert_eq!(summary.terminal_seq, Some(terminal_seq));
+            assert_eq!(
+                summary.terminal_payload.as_ref().unwrap()["outcome"]["retryable"],
+                false
+            );
+            assert_eq!(
+                journal.fetch_after(run_id, 0, 10).expect("replay").len(),
+                terminal_seq as usize
+            );
+        }
+        assert!(journal.incomplete_run_summaries().unwrap().is_empty());
+    }
+
+    #[test]
+    fn latest_chat_cursor_uses_durable_event_order_and_preserves_terminal() {
+        let (_directory, journal) = journal();
+        let mut old = JournalEvent::now(
+            1,
+            "run-old",
+            1,
+            "chat-a",
+            "run_started",
+            serde_json::json!({"type":"run_started","run_id":"run-old"}),
+        );
+        old.recorded_at_ms = 1;
+        journal.append(&old).unwrap();
+        let mut new = JournalEvent::now(
+            1,
+            "run-new",
+            1,
+            "chat-a",
+            "run_terminated",
+            serde_json::json!({
+                "type":"run_terminated",
+                "run_id":"run-new",
+                "outcome":{"kind":"completed"}
+            }),
+        );
+        new.recorded_at_ms = 2;
+        journal.append_terminal(&new).unwrap();
+
+        let latest = journal
+            .latest_run_summary_for_chat("chat-a")
+            .unwrap()
+            .unwrap();
+        assert_eq!(latest.run_id, "run-new");
+        assert_eq!(latest.terminal_seq, Some(1));
+        assert!(journal
+            .latest_run_summary_for_chat("chat-b")
+            .unwrap()
+            .is_none());
+    }
 
     #[test]
     fn sequence_is_monotonic_and_terminal_closes_only_the_matching_run() {
@@ -4103,136 +4633,77 @@ mod run_event_tests {
         let event = Event::RunStarted {
             run_id: "run-1".to_string(),
         };
+        let payload = redacted_event_payload(&event).expect("event payload");
         let envelope = AgentEventEnvelope {
             version: 1,
             scope: "run",
             run_id: Some("run-1"),
             seq: Some(1),
-            timestamp_ms: 42,
             chat_id: "chat-a",
-            event: &event,
+            event: &payload,
         };
         let value = serde_json::to_value(envelope).expect("serialize envelope");
         assert_eq!(value["version"], 1);
         assert_eq!(value["scope"], "run");
         assert_eq!(value["runId"], "run-1");
         assert_eq!(value["seq"], 1);
-        assert_eq!(value["timestampMs"], 42);
         assert_eq!(value["chatId"], "chat-a");
         assert_eq!(value["event"]["type"], "run_started");
     }
 
     #[test]
-    fn replay_cursor_run_ids_are_canonical_uuids() {
-        assert!(validate_replay_run_id("550e8400-e29b-41d4-a716-446655440000").is_ok());
-        assert!(validate_replay_run_id("run-1").is_err());
-        assert!(validate_replay_run_id("550e8400e29b41d4a716446655440000").is_err());
-    }
-
-    #[test]
-    fn replay_cursor_rejects_wrong_chat_unknown_run_and_malformed_sequence() {
-        let journal = EventJournal::open_in_memory().expect("journal");
-        let coordinator = Arc::new(StdMutex::new(RunCoordinator::default()));
-        let run_id = "550e8400-e29b-41d4-a716-446655440000";
-        journal
-            .append(&JournalEvent::now(
-                1,
-                run_id,
-                1,
-                "chat-a",
-                "run_started",
-                serde_json::json!({ "type": "run_started", "run_id": run_id }),
-            ))
-            .expect("start");
-        assert!(validate_replay_cursor(&journal, &coordinator, "chat-a", Some(run_id), 1).is_ok());
-        assert!(validate_replay_cursor(&journal, &coordinator, "chat-b", Some(run_id), 1).is_err());
-        assert!(validate_replay_cursor(
-            &journal,
+    fn event_boundary_redacts_secrets_identically_for_journal_and_renderer() {
+        let (_directory, journal) = journal();
+        let coordinator = admitted_coordinator();
+        persist_run_event(
             &coordinator,
-            "chat-a",
-            Some("6ba7b810-9dad-11d1-80b4-00c04fd430c8"),
-            1,
-        )
-        .is_err());
-        assert!(validate_replay_cursor(&journal, &coordinator, "chat-a", None, 1).is_err());
-        assert!(
-            validate_replay_cursor(&journal, &coordinator, "chat-a", Some(run_id), u64::MAX,)
-                .is_err()
-        );
-    }
-
-    #[test]
-    fn run_event_is_durable_before_renderer_delivery() {
-        let journal = EventJournal::open_in_memory().expect("journal");
-        let event = Event::RunStarted {
-            run_id: "run-1".to_string(),
-        };
-        persist_and_deliver_event(
             &journal,
             "chat-a",
+            "owner-1",
+            &Event::RunStarted {
+                run_id: "run-1".to_string(),
+            },
+            RunEventTransition::Started("run-1"),
+        )
+        .expect("start run");
+        let recognizable_secret = "sk-abcdef0123456789ABCDEF";
+        let bare_secret = "plain-private-value";
+        let event = Event::ToolCallStart {
+            id: "call-1".to_string(),
+            name: "example".to_string(),
+            input: serde_json::json!({
+                "api_key": bare_secret,
+                "command": format!("echo {recognizable_secret}"),
+            }),
+        };
+        let mut delivered = None;
+
+        persist_and_deliver_run_event(
+            &coordinator,
+            &journal,
+            "chat-a",
+            "owner-1",
             &event,
-            Some(("run-1".to_string(), 1)),
-            |envelope| {
-                assert_eq!(envelope.seq, Some(1));
-                assert_eq!(
-                    journal
-                        .fetch_after("run-1", 0, 10)
-                        .expect("durable row")
-                        .len(),
-                    1
-                );
+            RunEventTransition::Next,
+            |_, payload| {
+                delivered = Some(payload.clone());
                 Ok(())
             },
         )
-        .expect("delivery");
-    }
+        .expect("persist and deliver redacted event");
 
-    #[test]
-    fn renderer_failure_leaves_the_event_replayable() {
-        let journal = EventJournal::open_in_memory().expect("journal");
-        let event = Event::RunStarted {
-            run_id: "run-1".to_string(),
-        };
-        let result = persist_and_deliver_event(
-            &journal,
-            "chat-a",
-            &event,
-            Some(("run-1".to_string(), 1)),
-            |_| Err("renderer unavailable".to_string()),
-        );
-        assert!(matches!(result, Err(AgentEventDeliveryError::Renderer(_))));
-        assert_eq!(
-            journal.fetch_after("run-1", 0, 10).expect("replay").len(),
-            1
-        );
-    }
-
-    #[test]
-    fn journal_failure_prevents_renderer_delivery() {
-        let journal = EventJournal::open_in_memory().expect("journal");
-        let event = Event::Thinking {
-            content: "must not leak past a sequence gap".to_string(),
-        };
-        let mut delivered = false;
-        let result = persist_and_deliver_event(
-            &journal,
-            "chat-a",
-            &event,
-            Some(("run-1".to_string(), 2)),
-            |_| {
-                delivered = true;
-                Ok(())
-            },
-        );
-        assert!(matches!(
-            result,
-            Err(AgentEventDeliveryError::Persistence(_))
-        ));
-        assert!(!delivered);
-        assert!(journal
-            .fetch_after("run-1", 0, 10)
-            .expect("empty replay")
-            .is_empty());
+        let delivered = delivered.expect("renderer payload");
+        let journaled = journal
+            .fetch_after("run-1", 1, 10)
+            .expect("journal events")
+            .pop()
+            .expect("journal event")
+            .payload;
+        assert_eq!(delivered, journaled);
+        let encoded = delivered.to_string();
+        assert!(!encoded.contains(recognizable_secret), "{encoded}");
+        assert!(!encoded.contains(bare_secret), "{encoded}");
+        assert!(encoded.contains("REDACTED"), "{encoded}");
     }
 }
 
@@ -4295,7 +4766,7 @@ mod compaction_tests {
     #[test]
     fn auto_off_disables_via_max_threshold() {
         // auto=false → MAX threshold so the between-turns trigger never fires.
-        // Manual /compact still works (it's a direct tool invocation).
+        // Manual /compact still works (it is a direct backend FIFO command).
         let c = CompactionArg {
             auto: false,
             threshold_tokens: 50_000,
@@ -4313,6 +4784,32 @@ mod compaction_tests {
             tail_turns: 9,
         };
         assert_eq!(c.fingerprint_tuple(), (false, 12_345, 9));
+    }
+
+    #[tokio::test]
+    async fn manual_compaction_enqueues_exactly_one_backend_command() {
+        let (tx, mut rx) = mpsc::channel(4);
+        enqueue_manual_compaction(&tx, "chat-1", Some("keep API decisions".to_string()))
+            .expect("enqueue");
+        match rx.recv().await.expect("command") {
+            BusMessage::TriggerCompaction {
+                session_key,
+                focus_instructions,
+                trigger,
+            } => {
+                assert_eq!(session_key, "tauri:chat-1:");
+                assert_eq!(focus_instructions.as_deref(), Some("keep API decisions"));
+                assert!(matches!(
+                    trigger,
+                    Some(isanagent::bus::CompactionTrigger::Manual)
+                ));
+            }
+            other => panic!("expected TriggerCompaction, got {other:?}"),
+        }
+        assert!(matches!(
+            rx.try_recv(),
+            Err(tokio::sync::mpsc::error::TryRecvError::Empty)
+        ));
     }
 }
 
@@ -4366,7 +4863,7 @@ mod provider_fingerprint_tests {
     }
 
     #[test]
-    fn two_concurrent_chat_configurations_keep_distinct_fallback_identity() {
+    fn runtime_fingerprint_distinguishes_fallback_configurations() {
         let fallback_a = fallback("backup-a", "model-a", "fallback-key-a");
         let fallback_b = fallback("backup-b", "model-b", "fallback-key-b");
         let (config_a, config_b) = std::thread::scope(|scope| {
