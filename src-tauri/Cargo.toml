@@ -52,10 +52,10 @@ base64 = "0.22"
 pdf-extract = "0.12"
 
 # İsanAgent — embedded as Rust crate (direct API, no sidecar).
-# Immutable merged baseline containing IsanAgent's run-scoped provider
-# configuration. Keep this pinned so builds cannot silently change the
-# provider-admission contract from a moving branch.
-isanagent = { git = "https://github.com/altaidevorg/isanagent.git", rev = "b22dd73ebd1dd06706406c2d95b32eed6d353699" }
+# Temporarily points at the intent-aware failure-budget fork until
+# https://github.com/altaidevorg/isanagent/pull/95 lands on main; then
+# retarget `altaidevorg/isanagent` at the merge commit.
+isanagent = { git = "https://github.com/efecnc/isanagent.git", rev = "bb3dbbe1dc5706404e41aa4ce1a26d50d0065329" }
 tauri-plugin-single-instance = "2"
 tauri-plugin-cli = "2"
 tauri-plugin-deep-link = "2"

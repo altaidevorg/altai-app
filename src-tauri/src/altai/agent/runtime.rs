@@ -106,6 +106,9 @@ pub enum Event {
         run_id: String,
         warning: serde_json::Value,
     },
+    RunWarningCleared {
+        run_id: String,
+    },
     RunTerminated {
         run_id: String,
         outcome: serde_json::Value,
@@ -3992,6 +3995,25 @@ async fn build_instance(
                                 Ok(_) => {}
                                 Err(error) => log::warn!(
                                     "Could not persist or deliver run_warning for chat {chat_id}: {error}"
+                                ),
+                            }
+                        }
+                        RunLifecycleEvent::WarningCleared {
+                            run_id, chat_id, ..
+                        } => {
+                            let transition = persist_and_deliver_to_renderer(
+                                &app_for_outbound,
+                                &journal_for_outbound,
+                                &coordinator_for_outbound,
+                                &chat_id,
+                                &owner_for_outbound,
+                                &event,
+                                RunEventTransition::NextForRun(&run_id),
+                            );
+                            match transition {
+                                Ok(_) => {}
+                                Err(error) => log::warn!(
+                                    "Could not persist or deliver run_warning_cleared for chat {chat_id}: {error}"
                                 ),
                             }
                         }

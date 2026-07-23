@@ -47,7 +47,7 @@ function AiToolApprovalImpl({ part, toolName, onRespond }: Props) {
     <div
       role="group"
       aria-labelledby={titleId}
-      className="rounded-lg border border-border bg-card shadow-sm"
+      className="min-w-0 max-w-full overflow-hidden rounded-lg border border-border bg-card shadow-sm"
     >
       {/* Off-screen live region. role="alert" → assertive (interrupts);
           role="status" → polite. Controlled by the accessibility pref. */}
@@ -125,13 +125,13 @@ function PreviewBlock({
     return (
       <div className="space-y-1.5">
         {cwd && (
-          <div className="font-mono text-[10.5px] text-muted-foreground">
+          <div className="break-all font-mono text-[10.5px] text-muted-foreground [overflow-wrap:anywhere]">
             {cwd}
           </div>
         )}
         <pre
           className={cn(
-            "max-h-40 overflow-auto rounded-md bg-muted/60 p-2 font-mono text-[11px] leading-relaxed",
+            "max-h-40 max-w-full overflow-x-auto whitespace-pre-wrap break-words rounded-md bg-muted/60 p-2 font-mono text-[11px] leading-relaxed [overflow-wrap:anywhere]",
           )}
         >
           {String(input.command ?? "")}
@@ -148,7 +148,9 @@ function PreviewBlock({
     const lines = content ? content.split("\n").length : 0;
     return (
       <div className="space-y-0.5 font-mono text-[11px]">
-        <div className="text-muted-foreground">{String(input.path ?? "")}</div>
+        <div className="break-all text-muted-foreground [overflow-wrap:anywhere]">
+          {String(input.path ?? "")}
+        </div>
         <div className="text-[10.5px] text-muted-foreground/80">
           {lines} line{lines === 1 ? "" : "s"} · review in the diff tab
         </div>
@@ -162,7 +164,7 @@ function PreviewBlock({
     const added = newStr ? newStr.split("\n").length : 0;
     return (
       <div className="space-y-0.5 font-mono text-[11px]">
-        <div className="text-muted-foreground">
+        <div className="break-all text-muted-foreground [overflow-wrap:anywhere]">
           {String(input.path ?? "")}
           {input.replace_all ? " · replace all" : ""}
         </div>
@@ -179,7 +181,9 @@ function PreviewBlock({
       : [];
     return (
       <div className="space-y-0.5 font-mono text-[11px]">
-        <div className="text-muted-foreground">{String(input.path ?? "")}</div>
+        <div className="break-all text-muted-foreground [overflow-wrap:anywhere]">
+          {String(input.path ?? "")}
+        </div>
         <div className="text-[10.5px] text-muted-foreground/80">
           {edits.length} edit{edits.length === 1 ? "" : "s"} · review in the
           diff tab
@@ -189,13 +193,13 @@ function PreviewBlock({
   }
   if (toolName === "create_directory") {
     return (
-      <div className="font-mono text-[11px] text-muted-foreground">
+      <div className="break-all font-mono text-[11px] text-muted-foreground [overflow-wrap:anywhere]">
         {String(input.path ?? "")}
       </div>
     );
   }
   return (
-    <pre className="overflow-auto rounded-md bg-muted/60 p-2 font-mono text-[11px] leading-relaxed">
+    <pre className="max-w-full overflow-x-auto whitespace-pre-wrap break-words rounded-md bg-muted/60 p-2 font-mono text-[11px] leading-relaxed [overflow-wrap:anywhere]">
       {JSON.stringify(input, null, 2)}
     </pre>
   );

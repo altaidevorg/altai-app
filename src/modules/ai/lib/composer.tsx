@@ -50,8 +50,11 @@ export function getComposerActionAvailability(input: {
   submitting: boolean;
 }): ComposerActionAvailability {
   const isRunning = input.status === "thinking" || input.status === "streaming";
+  const isAwaiting = input.status === "awaiting-approval";
   const isCancelling = input.status === "cancelling";
-  const isBusy = isRunning || isCancelling;
+  // Treat approval waits as busy so typed input queues/steers instead of
+  // looking like a fresh idle send.
+  const isBusy = isRunning || isCancelling || isAwaiting;
   const ready = input.hasDraft && !input.submitting;
   return {
     isBusy,

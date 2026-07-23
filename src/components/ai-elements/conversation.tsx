@@ -13,7 +13,7 @@ export type ConversationProps = ComponentProps<typeof StickToBottom>;
 
 export const Conversation = ({ className, ...props }: ConversationProps) => (
   <StickToBottom
-    className={cn("relative flex-1 overflow-y-hidden", className)}
+    className={cn("relative flex-1 overflow-hidden", className)}
     initial="smooth"
     resize="smooth"
     role="log"
@@ -38,7 +38,13 @@ export const ConversationContent = ({
   ...props
 }: ConversationContentProps) => (
   <StickToBottom.Content
-    className={cn("flex flex-col gap-5 p-4", className)}
+    // Constrain the real scrollport — StickToBottom puts overflow on this
+    // inner element, not the outer wrapper. Without min-w-0 + overflow-x
+    // clip, long monospace commands blow past the chat panel edge.
+    scrollClassName="h-full min-w-0 overflow-x-hidden overflow-y-auto"
+    // min-h-full (not h-full): content must grow past the viewport so the
+    // stick-to-bottom scroll container can follow new messages.
+    className={cn("flex min-h-full min-w-0 flex-col gap-3 p-4", className)}
     {...props}
   />
 );

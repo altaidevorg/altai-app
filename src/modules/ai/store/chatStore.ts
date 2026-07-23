@@ -41,6 +41,7 @@ import {
 import { effectivePermissionMode, setDefaultModel } from "@/modules/settings/store";
 import type { AssignmentRunConfig } from "@/modules/github/lib/assignments";
 import type { RunOutcome } from "../lib/agentEventBridge";
+import { dismissRunAttention } from "../lib/agentEventBridge";
 import { useAgentRunsStore, type RunState } from "./agentRunsStore";
 
 type Live = {
@@ -136,7 +137,9 @@ function terminalOutcomeError(outcome: RunOutcome | null): string | null {
     return null;
   }
   if (outcome.kind === "failed") return outcome.failure;
-  if (outcome.kind === "stuck") return `Agent got stuck: ${outcome.reason}`;
+  if (outcome.kind === "stuck") {
+    return `Run paused — ${outcome.reason.replace(/^Stopped:\s*/i, "")}`;
+  }
   return `Run budget exhausted after ${outcome.budget.iterations_used} iterations`;
 }
 
@@ -406,6 +409,12 @@ export const useChatStore = create<StoreState>((set, get) => ({
       (item) => item.id === approvalId,
     );
     get().removeApproval(approvalId);
+    const sessionId = get().activeSessionId;
+    if (sessionId) {
+      // Approving/denying is an explicit acknowledgment — drop the sticky
+      // "needs attention" banner so it doesn't outlive the user's response.
+      dismissRunAttention(sessionId);
+    }
     get().addActivity({
       label: approved ? "Approved action" : "Denied action",
       detail: approval?.action,

@@ -68,6 +68,7 @@ type State = {
   admitAccepted: (chatId: string, runId: string) => boolean;
   ingest: (chatId: string, ev: ParsedAgentEvent) => boolean;
   markCancelling: (chatId: string, runId: string) => boolean;
+  clearWarning: (chatId: string) => void;
   clear: (chatId: string) => void;
 };
 
@@ -134,6 +135,17 @@ export const useAgentRunsStore = create<State>((set) => ({
     });
     return accepted;
   },
+  clearWarning: (chatId) =>
+    set((s) => {
+      const current = s.runs[chatId];
+      if (!current?.warning) return s;
+      return {
+        runs: {
+          ...s.runs,
+          [chatId]: { ...current, warning: null },
+        },
+      };
+    }),
   clear: (chatId) =>
     set((s) => {
       if (!(chatId in s.runs)) return s;
@@ -183,11 +195,16 @@ function reduce(cur: RunState, ev: ParsedAgentEvent): RunState {
       };
     }
     case "tool_call_end": {
+      // isanagent clears RepeatedRootCause / NoProgress only on NewEvidence
+      // (successful tool). Mirror that here so the sticky banner does not
+      // outlive a recovered run.
+      const clearLiveWarning = !ev.error && cur.warning ? { warning: null } : {};
       const existing = cur.verifications.find((item) => item.id === ev.id);
       if (existing) {
         const result = verificationResult(ev.output, ev.error);
         return {
           ...cur,
+          ...clearLiveWarning,
           step: ev.error ? `${existing.label} failed` : cur.step,
           verifications: cur.verifications.map((item) =>
             item.id === ev.id ? { ...item, ...result } : item,
@@ -197,7 +214,7 @@ function reduce(cur: RunState, ev: ParsedAgentEvent): RunState {
       }
       return ev.error
         ? { ...cur, step: `${ev.id} (error)`, failures: [...cur.failures, ev.error].slice(-10) }
-        : cur;
+        : { ...cur, ...clearLiveWarning };
     }
     case "edit_diff":
       return {
@@ -286,6 +303,11 @@ function reduce(cur: RunState, ev: ParsedAgentEvent): RunState {
         status: cur.status === "cancelling" ? "cancelling" : "thinking",
         warning: ev.warning,
       };
+    case "run_warning_cleared":
+      return {
+        ...cur,
+        warning: null,
+      };
     case "run_terminated": {
       const succeeded =
         ev.outcome.kind === "completed" || ev.outcome.kind === "cancelled";
@@ -295,6 +317,8 @@ function reduce(cur: RunState, ev: ParsedAgentEvent): RunState {
         step: null,
         completed: true,
         outcome: ev.outcome,
+        // Terminal outcomes supersede the live attention banner.
+        warning: null,
       };
     }
     default:

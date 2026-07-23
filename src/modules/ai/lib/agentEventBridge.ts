@@ -78,6 +78,7 @@ function ingestTodoWrite(input: unknown, sessionId: string | null): void {
 export type AgentEvent =
   | { type: "run_started"; run_id: string }
   | { type: "run_warning"; run_id: string; warning: RunBudgetWarning }
+  | { type: "run_warning_cleared"; run_id: string }
   | { type: "run_terminated"; run_id: string; outcome: RunOutcome }
   | { type: "agent_message"; content: string; role: string }
   | { type: "tool_call_start"; id: string; name: string; input: unknown }
@@ -236,6 +237,7 @@ export type ParsedAgentEvent = AgentEvent & {
 const AGENT_EVENT_TYPES = new Set<AgentEvent["type"]>([
   "run_started",
   "run_warning",
+  "run_warning_cleared",
   "run_terminated",
   "agent_message",
   "tool_call_start",
@@ -308,6 +310,10 @@ const lifecycleEventSchema = z.discriminatedUnion("type", [
     type: z.literal("run_warning"),
     run_id: nonBlankString,
     warning: runBudgetWarningSchema,
+  }),
+  z.object({
+    type: z.literal("run_warning_cleared"),
+    run_id: nonBlankString,
   }),
   z.object({
     type: z.literal("run_terminated"),
@@ -489,6 +495,7 @@ export function parseAgentEventPayload(payload: unknown): ParsedAgentEvent | nul
       if (
         eventType === "run_started" ||
         eventType === "run_warning" ||
+        eventType === "run_warning_cleared" ||
         eventType === "run_terminated"
       ) {
         if (!lifecycle.success || lifecycle.data.run_id !== runId) return null;
@@ -612,7 +619,7 @@ export function ingestAgentEventEnvelope(
       case "run_warning": {
         const warning = describeRunWarning(payload.warning);
         store.addActivity({
-          label: "Run needs attention",
+          label: "Possible repeated failure",
           detail: warning,
           kind: "agent",
           tone: "warning",
@@ -623,12 +630,24 @@ export function ingestAgentEventEnvelope(
         break;
       }
 
+      case "run_warning_cleared": {
+        if (
+          store.agentMeta.step &&
+          /repeated|no measurable progress|approaching its/i.test(store.agentMeta.step)
+        ) {
+          store.patchAgentMeta({ step: null });
+        }
+        break;
+      }
+
       case "run_terminated": {
         const error =
           payload.outcome.kind === "failed"
             ? payload.outcome.failure
             : payload.outcome.kind === "stuck"
-              ? `Agent got stuck: ${payload.outcome.reason}`
+              ? // Recoverable — RunRecoveryActions owns the Continue/Steer UI.
+                // Keep a short status string without the scary "Something went wrong" framing.
+                `Run paused — ${payload.outcome.reason.replace(/^Stopped:\s*/i, "")}`
               : payload.outcome.kind === "budget_exhausted"
                 ? `Run budget exhausted after ${payload.outcome.budget.iterations_used} iterations`
                 : null;
@@ -679,6 +698,12 @@ export function ingestAgentEventEnvelope(
         activeMcpCalls.delete(payload.id);
         if (payload.error) {
           store.patchAgentMeta({ step: `${payload.name} (error)` });
+        } else if (
+          store.agentMeta.step &&
+          /repeated|no measurable progress|approaching its/i.test(store.agentMeta.step)
+        ) {
+          // Drop the sticky budget-warning status once measurable progress resumes.
+          store.patchAgentMeta({ step: null });
         }
         store.addActivity({
           label: mcp
@@ -895,7 +920,7 @@ function projectRecoveredRun(chatId: string): void {
     run.outcome?.kind === "failed"
       ? run.outcome.failure
       : run.outcome?.kind === "stuck"
-        ? `Agent got stuck: ${run.outcome.reason}`
+        ? `Run paused — ${run.outcome.reason.replace(/^Stopped:\s*/i, "")}`
         : run.outcome?.kind === "budget_exhausted"
           ? `Run budget exhausted after ${run.outcome.budget.iterations_used} iterations`
           : null;
@@ -910,6 +935,20 @@ function projectRecoveredRun(chatId: string): void {
     },
     activeSubagents: run.subagents,
   });
+}
+
+/** Drop the sticky budget-warning banner and matching status-row step text. */
+export function dismissRunAttention(chatId: string | null | undefined): void {
+  if (!chatId) return;
+  useAgentRunsStore.getState().clearWarning(chatId);
+  const chat = useChatStore.getState();
+  if (
+    chat.activeSessionId === chatId &&
+    chat.agentMeta.step &&
+    /repeated|no measurable progress|approaching its/i.test(chat.agentMeta.step)
+  ) {
+    chat.patchAgentMeta({ step: null });
+  }
 }
 
 export async function replayRestoredAgentRuns(

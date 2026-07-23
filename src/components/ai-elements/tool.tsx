@@ -317,7 +317,10 @@ const ToolImpl = ({
   return (
     <Collapsible
       defaultOpen={open}
-      className={cn("group/tool not-prose w-full", className)}
+      className={cn(
+        "group/tool not-prose w-full min-w-0 max-w-full overflow-hidden",
+        className,
+      )}
       {...props}
     >
       {/* SR-announced status mirror. The visual status dot below conveys
@@ -334,7 +337,7 @@ const ToolImpl = ({
       <CollapsibleTrigger
         disabled={!hasDetails}
         className={cn(
-          "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left",
+          "flex w-full min-w-0 items-center gap-2 rounded-md px-2 py-1.5 text-left",
           "text-[12px] transition-colors",
           "hover:bg-muted/60 disabled:cursor-default disabled:hover:bg-transparent",
           "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
@@ -371,16 +374,16 @@ const ToolImpl = ({
       </CollapsibleTrigger>
 
       {subtitle ? (
-        <div className="-mt-0.5 truncate pb-1 pl-[2.65rem] pr-2 font-mono text-[10.5px] text-muted-foreground/70">
+        <div className="-mt-0.5 min-w-0 max-w-full break-all pb-1 pl-[2.65rem] pr-2 font-mono text-[10.5px] leading-snug text-muted-foreground/70 whitespace-pre-wrap [overflow-wrap:anywhere]">
           {subtitle}
         </div>
       ) : null}
 
       {hasDetails && (
         <CollapsibleContent
-          className={cn("altai-collapsible-content")}
+          className={cn("altai-collapsible-content min-w-0")}
         >
-          <div className="ml-3 mt-1 space-y-2 border-l border-border/60 pl-3 pb-1">
+          <div className="ml-3 mt-1 min-w-0 space-y-2 overflow-hidden border-l border-border/60 pl-3 pb-1">
             {showInputBody ? (
               <ToolInput toolName={toolName} input={input} />
             ) : null}
@@ -484,7 +487,7 @@ function renderInputPreview(
             {cwd}
           </div>
         ) : null}
-        <pre className="overflow-auto rounded bg-muted/40 p-2 font-mono text-[11px] leading-relaxed">
+        <pre className="max-w-full overflow-x-auto whitespace-pre-wrap break-words rounded bg-muted/40 p-2 font-mono text-[11px] leading-relaxed [overflow-wrap:anywhere]">
           {cmd}
         </pre>
       </div>
@@ -494,7 +497,7 @@ function renderInputPreview(
     const path = str("path");
     if (!path) return null;
     return (
-      <div className="font-mono text-[11px] text-muted-foreground">{path}</div>
+      <div className="font-mono text-[11px] text-muted-foreground break-all [overflow-wrap:anywhere]">{path}</div>
     );
   }
   if (toolName === "search_text" || toolName === "glob_files") {
@@ -524,7 +527,7 @@ function ToolOutput({
     return (
       <div className="space-y-1">
         <div className="text-[10px] font-medium text-destructive">Error</div>
-        <div className="rounded bg-destructive/10 px-2 py-1.5 font-mono text-[11px] text-destructive whitespace-pre-wrap">
+        <div className="min-w-0 max-w-full break-words rounded bg-destructive/10 px-2 py-1.5 font-mono text-[11px] text-destructive whitespace-pre-wrap [overflow-wrap:anywhere]">
           {errorText}
         </div>
       </div>
@@ -830,7 +833,7 @@ function renderToolOutput(toolName: string, output: unknown): ReactNode | null {
             {bytes.length.toLocaleString()} bytes
           </span>
         </div>
-        <pre className="max-h-60 overflow-auto rounded bg-muted/40 p-2 font-mono text-[11px] leading-relaxed whitespace-pre-wrap">
+        <pre className="max-h-60 max-w-full min-w-0 overflow-x-auto whitespace-pre-wrap break-words rounded bg-muted/40 p-2 font-mono text-[11px] leading-relaxed [overflow-wrap:anywhere]">
           {bytes || " "}
         </pre>
       </div>
@@ -962,7 +965,7 @@ function renderToolOutput(toolName: string, output: unknown): ReactNode | null {
           ) : null}
         </div>
         {summary ? (
-          <div className="rounded bg-muted/30 px-2 py-1.5 text-[11.5px] leading-relaxed text-foreground whitespace-pre-wrap">
+          <div className="min-w-0 max-w-full break-words rounded bg-muted/30 px-2 py-1.5 text-[11.5px] leading-relaxed text-foreground whitespace-pre-wrap [overflow-wrap:anywhere]">
             {summary}
           </div>
         ) : null}
@@ -1061,7 +1064,7 @@ function FetchedDocOutput({ text }: { text: string }) {
           {title}
         </div>
       ) : null}
-      <pre className="max-h-60 overflow-auto rounded bg-muted/40 p-2 font-mono text-[11px] leading-relaxed text-foreground whitespace-pre-wrap">
+      <pre className="max-h-60 max-w-full min-w-0 overflow-x-auto whitespace-pre-wrap break-words rounded bg-muted/40 p-2 font-mono text-[11px] leading-relaxed text-foreground [overflow-wrap:anywhere]">
         {body || " "}
       </pre>
       {(lines != null || bytes != null || path) && (
@@ -1199,7 +1202,7 @@ function ArxivSearchOutput({ text }: { text: string }) {
   const hits = parseArxivResults(text);
   if (hits.length === 0) {
     return (
-      <pre className="max-h-60 overflow-auto rounded bg-muted/40 p-2 font-mono text-[11px] whitespace-pre-wrap">
+      <pre className="max-h-60 max-w-full min-w-0 overflow-x-auto whitespace-pre-wrap break-words rounded bg-muted/40 p-2 font-mono text-[11px] [overflow-wrap:anywhere]">
         {text}
       </pre>
     );
@@ -1250,7 +1253,7 @@ function HfHubFileOutput({ text }: { text: string }) {
   const lines = body ? body.split("\n").length : 0;
   return (
     <div className="space-y-1">
-      <pre className="max-h-60 overflow-auto rounded bg-muted/40 p-2 font-mono text-[11px] leading-relaxed whitespace-pre-wrap">
+      <pre className="max-h-60 max-w-full min-w-0 overflow-x-auto whitespace-pre-wrap break-words rounded bg-muted/40 p-2 font-mono text-[11px] leading-relaxed [overflow-wrap:anywhere]">
         {body || " "}
       </pre>
       <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
@@ -1361,7 +1364,7 @@ function BashRunOutput({ data }: { data: Record<string, unknown> }) {
           </span>
         ) : null}
       </div>
-      <pre className="max-h-72 overflow-auto rounded bg-muted/40 p-2 font-mono text-[11px] leading-relaxed whitespace-pre-wrap">
+      <pre className="max-h-72 max-w-full min-w-0 overflow-x-auto whitespace-pre-wrap break-words rounded bg-muted/40 p-2 font-mono text-[11px] leading-relaxed [overflow-wrap:anywhere]">
         {tab === "stdout" ? stdout || " " : stderr || " "}
       </pre>
       {cwdAfter ? (
@@ -1407,7 +1410,7 @@ function CodeBlockMini({ code }: { code: string; language: string }) {
   // file content is shown in the editor diff tab. Highlighting here is not
   // worth the parser hop.
   return (
-    <pre className="max-h-60 overflow-auto rounded bg-muted/40 p-2 font-mono text-[11px] leading-relaxed text-foreground whitespace-pre-wrap">
+    <pre className="max-h-60 max-w-full min-w-0 overflow-x-auto whitespace-pre-wrap break-words rounded bg-muted/40 p-2 font-mono text-[11px] leading-relaxed text-foreground [overflow-wrap:anywhere]">
       {code}
     </pre>
   );
@@ -1432,8 +1435,8 @@ function SuggestCommandCard({
       {explanation ? (
         <div className="text-[11px] text-muted-foreground">{explanation}</div>
       ) : null}
-      <div className="flex items-stretch gap-1.5 rounded bg-muted/40 overflow-hidden">
-        <pre className="flex-1 overflow-auto p-2 font-mono text-[11px] leading-relaxed">
+      <div className="flex min-w-0 items-stretch gap-1.5 overflow-hidden rounded bg-muted/40">
+        <pre className="min-w-0 flex-1 overflow-x-auto whitespace-pre-wrap break-words p-2 font-mono text-[11px] leading-relaxed [overflow-wrap:anywhere]">
           {command}
         </pre>
         <button
