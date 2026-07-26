@@ -22,7 +22,7 @@ use std::path::Path;
 use std::sync::Mutex;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-const SCHEMA_VERSION: i64 = 1;
+const SCHEMA_VERSION: i64 = 2;
 const MAX_EVENT_LIMIT: usize = 1_000;
 const MAX_EVENT_PAYLOAD_BYTES: usize = 256 * 1024;
 
@@ -88,6 +88,11 @@ CREATE INDEX IF NOT EXISTS orchestration_events_task_seq
     ON orchestration_events (task_id, seq);
 "#;
 
+const MIGRATION_V2: &str = r#"
+ALTER TABLE orchestration_tasks
+ADD COLUMN description TEXT NOT NULL DEFAULT '';
+"#;
+
 // ---------------------------------------------------------------------------
 // Records
 // ---------------------------------------------------------------------------
@@ -99,6 +104,7 @@ pub struct TaskRecord {
     pub source_kind: String,
     pub source_ref: String,
     pub title: String,
+    pub description: String,
     pub state: TaskState,
     pub created_at_ms: u64,
     pub updated_at_ms: u64,
@@ -316,7 +322,7 @@ impl OrchestrationLedger {
     // ----- tasks -----------------------------------------------------------
 
     /// Insert or refresh task metadata. Idempotent by `task_id`: a second call
-    /// updates source metadata and title but never bypasses the event-backed
+    /// updates source metadata, title, and description but never bypasses the event-backed
     /// state transition path.
     pub fn upsert_task(&self, task: &TaskRecord) -> LedgerResult<WriteStatus> {
         validate_nonempty(&task.task_id, "task_id")?;
@@ -332,14 +338,15 @@ impl OrchestrationLedger {
         let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
         transaction.execute(
             "INSERT INTO orchestration_tasks
-                (task_id, workspace_key, source_kind, source_ref, title, state,
+                (task_id, workspace_key, source_kind, source_ref, title, description, state,
                  created_at_ms, updated_at_ms)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
              ON CONFLICT(task_id) DO UPDATE SET
                 workspace_key = excluded.workspace_key,
                 source_kind   = excluded.source_kind,
                 source_ref    = excluded.source_ref,
                 title         = excluded.title,
+                description   = excluded.description,
                 updated_at_ms = excluded.updated_at_ms",
             params![
                 task.task_id,
@@ -347,6 +354,7 @@ impl OrchestrationLedger {
                 task.source_kind,
                 task.source_ref,
                 task.title,
+                task.description,
                 task.state.name(),
                 created_at_ms,
                 updated_at_ms,
@@ -428,7 +436,7 @@ impl OrchestrationLedger {
             .map_err(|_| LedgerError::LockPoisoned)?;
         connection
             .query_row(
-                "SELECT task_id, workspace_key, source_kind, source_ref, title, state,
+                "SELECT task_id, workspace_key, source_kind, source_ref, title, description, state,
                         created_at_ms, updated_at_ms
                  FROM orchestration_tasks WHERE task_id = ?1",
                 params![task_id],
@@ -447,7 +455,7 @@ impl OrchestrationLedger {
             .lock()
             .map_err(|_| LedgerError::LockPoisoned)?;
         let mut statement = connection.prepare(
-            "SELECT task_id, workspace_key, source_kind, source_ref, title, state,
+            "SELECT task_id, workspace_key, source_kind, source_ref, title, description, state,
                     created_at_ms, updated_at_ms
              FROM orchestration_tasks
              WHERE workspace_key = ?1 AND state NOT IN ('done','cancelled','failed','abandoned')
@@ -466,7 +474,7 @@ impl OrchestrationLedger {
             .lock()
             .map_err(|_| LedgerError::LockPoisoned)?;
         let mut statement = connection.prepare(
-            "SELECT task_id, workspace_key, source_kind, source_ref, title, state,
+            "SELECT task_id, workspace_key, source_kind, source_ref, title, description, state,
                     created_at_ms, updated_at_ms
              FROM orchestration_tasks
              WHERE state NOT IN ('done','cancelled','failed','abandoned')
@@ -1094,10 +1102,10 @@ fn decode_optional_u64(
 }
 
 fn decode_task(row: &rusqlite::Row<'_>) -> rusqlite::Result<TaskRecord> {
-    let state_name: String = row.get(5)?;
+    let state_name: String = row.get(6)?;
     let state = TaskState::from_name(&state_name).ok_or_else(|| {
         rusqlite::Error::FromSqlConversionFailure(
-            5,
+            6,
             rusqlite::types::Type::Text,
             format!("unknown task state `{state_name}`").into(),
         )
@@ -1108,9 +1116,10 @@ fn decode_task(row: &rusqlite::Row<'_>) -> rusqlite::Result<TaskRecord> {
         source_kind: row.get(2)?,
         source_ref: row.get(3)?,
         title: row.get(4)?,
+        description: row.get(5)?,
         state,
-        created_at_ms: decode_u64(row, 6, "created_at_ms")?,
-        updated_at_ms: decode_u64(row, 7, "updated_at_ms")?,
+        created_at_ms: decode_u64(row, 7, "created_at_ms")?,
+        updated_at_ms: decode_u64(row, 8, "updated_at_ms")?,
     })
 }
 
@@ -1202,6 +1211,14 @@ fn migrate(connection: &mut Connection) -> LedgerResult<()> {
             params![applied_at_ms],
         )?;
     }
+    if current < 2 {
+        let applied_at_ms = now_ms();
+        transaction.execute_batch(MIGRATION_V2)?;
+        transaction.execute(
+            "INSERT INTO orchestration_migrations (version, applied_at_ms) VALUES (2, ?1)",
+            params![applied_at_ms],
+        )?;
+    }
     transaction.commit()?;
     Ok(())
 }
@@ -1256,6 +1273,7 @@ mod tests {
             source_kind: "local".to_string(),
             source_ref: format!("local://{task_id}"),
             title: format!("Task {task_id}"),
+            description: String::new(),
             state,
             created_at_ms: 1_000,
             updated_at_ms: 1_000,
@@ -1285,11 +1303,49 @@ mod tests {
         let temp = tempfile::tempdir().expect("tempdir");
         let path = temp.path().join("ledger.sqlite3");
         let ledger = OrchestrationLedger::open(&path).expect("open");
-        assert_eq!(ledger.schema_version().expect("schema"), 1);
+        assert_eq!(ledger.schema_version().expect("schema"), 2);
         drop(ledger);
         // Reopening must not re-apply or fail.
         let reopened = OrchestrationLedger::open(&path).expect("reopen");
-        assert_eq!(reopened.schema_version().expect("schema"), 1);
+        assert_eq!(reopened.schema_version().expect("schema"), 2);
+    }
+
+    #[test]
+    fn migration_v2_preserves_v1_tasks_with_empty_description() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let path = temp.path().join("v1.sqlite3");
+        let connection = Connection::open(&path).expect("db");
+        connection
+            .execute_batch(
+                "CREATE TABLE orchestration_migrations (
+                     version INTEGER PRIMARY KEY,
+                     applied_at_ms INTEGER NOT NULL
+                 );",
+            )
+            .expect("migration table");
+        connection.execute_batch(MIGRATION_V1).expect("v1 schema");
+        connection
+            .execute(
+                "INSERT INTO orchestration_migrations (version, applied_at_ms) VALUES (1, 0)",
+                [],
+            )
+            .expect("v1 marker");
+        connection
+            .execute(
+                "INSERT INTO orchestration_tasks
+                    (task_id, workspace_key, source_kind, source_ref, title, state,
+                     created_at_ms, updated_at_ms)
+                 VALUES ('t1', 'ws', 'local', 'native-1', 'Legacy task', 'queued', 1, 1)",
+                [],
+            )
+            .expect("legacy task");
+        drop(connection);
+
+        let ledger = OrchestrationLedger::open(&path).expect("upgrade");
+        assert_eq!(ledger.schema_version().expect("schema"), 2);
+        let task = ledger.task("t1").expect("lookup").expect("task");
+        assert_eq!(task.title, "Legacy task");
+        assert_eq!(task.description, "");
     }
 
     #[test]
