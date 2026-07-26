@@ -20,6 +20,7 @@ pub struct MockRunner {
     started: Vec<String>,
     steered: Vec<(String, String)>,
     cancelled: Vec<String>,
+    next_start_error: Option<String>,
 }
 
 impl MockRunner {
@@ -51,6 +52,11 @@ impl MockRunner {
         &self.steered
     }
 
+    /// Make the next start call fail, then automatically return to normal.
+    pub fn fail_next_start(&mut self, message: impl Into<String>) {
+        self.next_start_error = Some(message.into());
+    }
+
     fn next_seq(&mut self, attempt_id: &str) -> u64 {
         let entry = self.seq.entry(attempt_id.to_string()).or_insert(0);
         *entry += 1;
@@ -68,6 +74,9 @@ impl RunnerAdapter for MockRunner {
     }
 
     fn start_attempt(&mut self, spec: &AttemptSpec) -> RunnerResult<AttemptIdentity> {
+        if let Some(message) = self.next_start_error.take() {
+            return Err(RunnerError::Other(message));
+        }
         self.started.push(spec.attempt_id.clone());
         // Ensure the attempt has a queue even if none was pre-loaded.
         self.queues.entry(spec.attempt_id.clone()).or_default();
@@ -178,5 +187,21 @@ mod tests {
             &[("att-1".into(), "focus on tests".into())]
         );
         assert!(runner.was_cancelled("att-1"));
+    }
+
+    #[test]
+    fn scripted_start_failure_is_one_shot() {
+        let mut runner = MockRunner::new();
+        runner.fail_next_start("offline");
+        let spec = AttemptSpec {
+            task_id: "t1".into(),
+            attempt_id: "att-1".into(),
+            input: String::new(),
+        };
+        assert!(matches!(
+            runner.start_attempt(&spec),
+            Err(RunnerError::Other(message)) if message == "offline"
+        ));
+        assert!(runner.start_attempt(&spec).is_ok());
     }
 }

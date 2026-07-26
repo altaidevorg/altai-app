@@ -8,9 +8,15 @@
 //!
 //! Only the coordinator changes authoritative state (§2.2).
 
-use super::domain::{AttemptState, Lease, TaskState, TaskTrigger, TransitionError};
-use super::ledger::{CreateAttemptRequest, LedgerError, OrchestrationLedger, WriteStatus};
-use super::runners::{event_to_trigger, AttemptIdentity, AttemptSpec, RunnerAdapter, RunnerError};
+use super::domain::{
+    AttemptState, AttemptTrigger, Lease, LeaseError, TaskState, TaskTrigger, TransitionError,
+};
+use super::ledger::{
+    CreateAttemptRequest, LedgerError, OrchestrationEvent, OrchestrationLedger, WriteStatus,
+};
+use super::runners::{
+    event_to_trigger, AttemptIdentity, AttemptSpec, RunnerAdapter, RunnerError, RunnerEventKind,
+};
 use std::cell::Cell;
 use std::fmt;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -131,7 +137,12 @@ pub enum CoordinatorError {
     NotCancellable {
         attempt_id: String,
     },
+    EventAttemptMismatch {
+        expected: String,
+        actual: String,
+    },
     InvalidTransition(TransitionError),
+    Lease(LeaseError),
     Ledger(LedgerError),
     Runner(RunnerError),
 }
@@ -153,9 +164,14 @@ impl fmt::Display for CoordinatorError {
             CoordinatorError::NotCancellable { attempt_id } => {
                 write!(f, "coordinator: attempt {attempt_id} cannot be cancelled")
             }
+            CoordinatorError::EventAttemptMismatch { expected, actual } => write!(
+                f,
+                "coordinator: runner event for attempt {actual} was returned while polling {expected}"
+            ),
             CoordinatorError::InvalidTransition(error) => {
                 write!(f, "coordinator: invalid transition: {error}")
             }
+            CoordinatorError::Lease(error) => write!(f, "coordinator: {error}"),
             CoordinatorError::Ledger(error) => write!(f, "coordinator: {error}"),
             CoordinatorError::Runner(error) => write!(f, "coordinator: {error}"),
         }
@@ -179,6 +195,12 @@ impl From<RunnerError> for CoordinatorError {
 impl From<TransitionError> for CoordinatorError {
     fn from(value: TransitionError) -> Self {
         Self::InvalidTransition(value)
+    }
+}
+
+impl From<LeaseError> for CoordinatorError {
+    fn from(value: LeaseError) -> Self {
+        Self::Lease(value)
     }
 }
 
@@ -235,7 +257,7 @@ impl<'a> Coordinator<'a> {
         // An active (non-terminal) attempt already owns this task: re-claim is
         // idempotent and must not create a second attempt or re-dispatch.
         if let Some(active) = latest.as_ref() {
-            if !active.state.is_terminal() {
+            if !active.state.is_terminal() && active.state != AttemptState::Stalled {
                 return Ok(AttemptIdentity {
                     attempt_id: active.attempt_id.clone(),
                     handle: active.attempt_id.clone(),
@@ -275,11 +297,36 @@ impl<'a> Coordinator<'a> {
 
         self.ledger
             .set_task_state(task_id, running, &format!("{attempt_id}:task:running"), now)?;
-        let identity = runner.start_attempt(&AttemptSpec {
+        let identity = match runner.start_attempt(&AttemptSpec {
             task_id: task_id.to_string(),
             attempt_id: attempt_id.clone(),
             input: task.title.clone(),
-        })?;
+        }) {
+            Ok(identity) => identity,
+            Err(error) => {
+                let message = error.to_string();
+                self.ledger.set_attempt_state(
+                    &attempt_id,
+                    AttemptState::Failed,
+                    Some(&message),
+                    &format!("{attempt_id}:start_failed"),
+                    None,
+                    now,
+                )?;
+                let task_state = if attempt_no < self.policy.max_attempts {
+                    TaskState::Retrying
+                } else {
+                    TaskState::Failed
+                };
+                self.ledger.set_task_state(
+                    task_id,
+                    task_state,
+                    &format!("{attempt_id}:task:start_failed"),
+                    now,
+                )?;
+                return Err(CoordinatorError::Runner(error));
+            }
+        };
         self.ledger.set_attempt_state(
             &attempt_id,
             AttemptState::Started,
@@ -306,6 +353,12 @@ impl<'a> Coordinator<'a> {
         let Some(event) = runner.poll_event(identity)? else {
             return Ok(PumpOutcome::Idle);
         };
+        if event.attempt_id != identity.attempt_id {
+            return Err(CoordinatorError::EventAttemptMismatch {
+                expected: identity.attempt_id.clone(),
+                actual: event.attempt_id,
+            });
+        }
         let attempt =
             self.ledger
                 .attempt(&identity.attempt_id)?
@@ -313,17 +366,51 @@ impl<'a> Coordinator<'a> {
                     attempt_id: identity.attempt_id.clone(),
                 })?;
 
-        let new_state = match event_to_trigger(&event.kind) {
-            Some(trigger) => attempt.state.transition(trigger)?,
-            None => attempt.state,
+        if event.kind == RunnerEventKind::Output {
+            self.ledger.record_event(&OrchestrationEvent {
+                event_id: format!("{}:event:{}", identity.attempt_id, event.seq),
+                task_id: attempt.task_id,
+                seq: 0,
+                kind: "attempt.output".to_string(),
+                payload: serde_json::json!({
+                    "attempt_id": identity.attempt_id,
+                    "runner_seq": event.seq,
+                    "payload": event.payload,
+                }),
+                recorded_at_ms: now,
+            })?;
+            return Ok(PumpOutcome::Progressed(attempt.state));
+        }
+
+        let new_state = match (&event.kind, event_to_trigger(&event.kind)) {
+            (RunnerEventKind::Started, _) if attempt.state == AttemptState::Started => {
+                AttemptState::Started
+            }
+            (_, Some(trigger)) => attempt.state.transition(trigger)?,
+            (_, None) => attempt.state,
         };
         let outcome = outcome_payload(&event.kind);
+        let renewed_lease = if event.kind == RunnerEventKind::Heartbeat {
+            let lease = attempt.lease.as_ref().ok_or_else(|| {
+                CoordinatorError::Ledger(LedgerError::LeaseMismatch {
+                    attempt_id: identity.attempt_id.clone(),
+                })
+            })?;
+            Some(lease.renew(
+                COORDINATOR_OWNER,
+                lease.generation,
+                now,
+                self.policy.lease_ttl_ms,
+            )?)
+        } else {
+            None
+        };
         self.ledger.set_attempt_state(
             &identity.attempt_id,
             new_state,
             outcome,
             &format!("{}:event:{}", identity.attempt_id, event.seq),
-            None,
+            renewed_lease.as_ref(),
             now,
         )?;
 
@@ -394,7 +481,6 @@ impl<'a> Coordinator<'a> {
         R: RunnerAdapter,
         C: Clock,
     {
-        runner.cancel(identity)?;
         let attempt =
             self.ledger
                 .attempt(&identity.attempt_id)?
@@ -406,9 +492,8 @@ impl<'a> Coordinator<'a> {
                 attempt_id: identity.attempt_id.clone(),
             });
         }
-        let new_state = attempt
-            .state
-            .transition(super::domain::AttemptTrigger::RequestCancel)?;
+        runner.cancel(identity)?;
+        let new_state = attempt.state.transition(AttemptTrigger::RequestCancel)?;
         self.ledger.set_attempt_state(
             &identity.attempt_id,
             new_state,
@@ -531,6 +616,86 @@ mod tests {
         assert_eq!(attempt.terminal_outcome.as_deref(), Some("completed"));
     }
 
+    #[test]
+    fn runner_started_event_is_an_idempotent_progress_signal() {
+        let ledger = ledger();
+        let coord = coord(&ledger);
+        let clock = ManualClock::new(2_000);
+        let mut runner = MockRunner::new();
+        runner.enqueue("t1-att-1", [RunnerEventKind::Started]);
+
+        let id = coord
+            .claim_and_start("t1", "native", &mut runner, &clock)
+            .expect("claim");
+        assert_eq!(
+            coord.pump(&id, &mut runner, &clock).expect("pump"),
+            PumpOutcome::Progressed(AttemptState::Started)
+        );
+    }
+
+    #[test]
+    fn output_event_preserves_payload_without_changing_state() {
+        let ledger = ledger();
+        let coord = coord(&ledger);
+        let clock = ManualClock::new(2_000);
+        let mut runner = MockRunner::new();
+        runner.enqueue("t1-att-1", [RunnerEventKind::Output]);
+
+        let id = coord
+            .claim_and_start("t1", "native", &mut runner, &clock)
+            .expect("claim");
+        assert_eq!(
+            coord.pump(&id, &mut runner, &clock).expect("pump"),
+            PumpOutcome::Progressed(AttemptState::Started)
+        );
+        let events = ledger.events_for_task("t1", 0, 20).expect("events");
+        assert!(events.iter().any(|event| event.kind == "attempt.output"));
+        assert_eq!(
+            ledger.attempt("t1-att-1").unwrap().unwrap().state,
+            AttemptState::Started
+        );
+    }
+
+    #[test]
+    fn heartbeat_renews_the_lease_and_may_repeat() {
+        let ledger = ledger();
+        let coord = coord(&ledger);
+        let clock = ManualClock::new(2_000);
+        let mut runner = MockRunner::new();
+        runner.enqueue(
+            "t1-att-1",
+            [RunnerEventKind::Heartbeat, RunnerEventKind::Heartbeat],
+        );
+
+        let id = coord
+            .claim_and_start("t1", "native", &mut runner, &clock)
+            .expect("claim");
+        clock.set(3_000);
+        coord.pump(&id, &mut runner, &clock).expect("heartbeat 1");
+        assert_eq!(
+            ledger
+                .attempt("t1-att-1")
+                .unwrap()
+                .unwrap()
+                .lease
+                .unwrap()
+                .expires_at_ms,
+            63_000
+        );
+        clock.set(4_000);
+        coord.pump(&id, &mut runner, &clock).expect("heartbeat 2");
+        assert_eq!(
+            ledger
+                .attempt("t1-att-1")
+                .unwrap()
+                .unwrap()
+                .lease
+                .unwrap()
+                .expires_at_ms,
+            64_000
+        );
+    }
+
     // --- Failure + retry ----------------------------------------------------
 
     #[test]
@@ -597,6 +762,36 @@ mod tests {
         assert_eq!(ledger.task("t1").unwrap().unwrap().state, TaskState::Failed);
     }
 
+    #[test]
+    fn runner_start_failure_is_persisted_and_can_be_retried() {
+        let ledger = ledger();
+        let coord = coord(&ledger);
+        let clock = ManualClock::new(2_000);
+        let mut runner = MockRunner::new();
+        runner.fail_next_start("runner unavailable");
+
+        assert!(matches!(
+            coord.claim_and_start("t1", "native", &mut runner, &clock),
+            Err(CoordinatorError::Runner(RunnerError::Other(message)))
+                if message == "runner unavailable"
+        ));
+        let failed = ledger.attempt("t1-att-1").unwrap().unwrap();
+        assert_eq!(failed.state, AttemptState::Failed);
+        assert_eq!(
+            failed.terminal_outcome.as_deref(),
+            Some("runner error: runner unavailable")
+        );
+        assert_eq!(
+            ledger.task("t1").unwrap().unwrap().state,
+            TaskState::Retrying
+        );
+
+        let retry = coord
+            .claim_and_start("t1", "native", &mut runner, &clock)
+            .expect("retry");
+        assert_eq!(retry.attempt_id, "t1-att-2");
+    }
+
     // --- Cancellation -------------------------------------------------------
 
     #[test]
@@ -642,6 +837,7 @@ mod tests {
             coord.request_cancel(&id, &mut runner, &clock),
             Err(CoordinatorError::NotCancellable { .. })
         ));
+        assert!(!runner.was_cancelled("t1-att-1"));
     }
 
     // --- Lost-lease recovery ------------------------------------------------
@@ -660,14 +856,25 @@ mod tests {
             .expect("claim");
         let _ = id;
 
-        // Advance past the lease TTL (default 60s).
-        clock.set(1_000 + 61_000);
+        // Reaching the exact lease expiry is enough to reclaim it.
+        clock.set(1_000 + 60_000);
         let reclaimed = coord.reclaim_expired_leases(&clock).expect("reclaim");
         assert_eq!(reclaimed, vec!["t1-att-1".to_string()]);
         assert_eq!(
             ledger.attempt("t1-att-1").unwrap().unwrap().state,
             AttemptState::Stalled
         );
+        assert!(ledger.attempt("t1-att-1").unwrap().unwrap().lease.is_none());
+        assert!(coord
+            .reclaim_expired_leases(&clock)
+            .expect("second reclaim")
+            .is_empty());
+
+        runner.enqueue("t1-att-2", []);
+        let retry = coord
+            .claim_and_start("t1", "native", &mut runner, &clock)
+            .expect("fresh claim");
+        assert_eq!(retry.attempt_id, "t1-att-2");
     }
 
     // --- Idempotent re-claim does not double-dispatch -----------------------
