@@ -469,7 +469,7 @@ impl OrchestrationLedger {
             "SELECT task_id, workspace_key, source_kind, source_ref, title, state,
                     created_at_ms, updated_at_ms
              FROM orchestration_tasks
-             WHERE state NOT IN ('done','cancelled','failed','abandoned','needs_attention')
+             WHERE state NOT IN ('done','cancelled','failed','abandoned')
              ORDER BY task_id ASC",
         )?;
         let rows = statement.query_map([], decode_task)?;
@@ -1481,10 +1481,20 @@ mod tests {
         ledger
             .upsert_task(&task("failed", TaskState::Failed))
             .expect("t");
+        ledger
+            .upsert_task(&task("needs-attention", TaskState::NeedsAttention))
+            .expect("t");
 
         let active = ledger.active_tasks("ws-1").expect("active");
         let ids: Vec<_> = active.iter().map(|t| t.task_id.as_str()).collect();
-        assert_eq!(ids, vec!["active", "queued"]);
+        assert_eq!(ids, vec!["active", "needs-attention", "queued"]);
+
+        let non_terminal = ledger.non_terminal_tasks().expect("non-terminal");
+        let ids: Vec<_> = non_terminal
+            .iter()
+            .map(|task| task.task_id.as_str())
+            .collect();
+        assert_eq!(ids, vec!["active", "needs-attention", "queued"]);
     }
 
     #[test]
