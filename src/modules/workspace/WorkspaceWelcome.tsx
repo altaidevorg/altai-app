@@ -10,6 +10,7 @@ import { homeDir } from "@tauri-apps/api/path";
 import { useEffect, useRef, useState } from "react";
 import { Spinner } from "@/components/ui/spinner";
 import { cn } from "@/lib/utils";
+import { useAppMenuCommands } from "@/modules/app-menu/useAppMenuCommands";
 import { folderName, prettyDir, useWorkspaceFolderStore } from "./folder";
 
 /**
@@ -33,6 +34,14 @@ export function WorkspaceWelcome() {
   const [cloneUrl, setCloneUrl] = useState("");
   const [cloning, setCloning] = useState(false);
   const [cloneError, setCloneError] = useState<string | null>(null);
+
+  useAppMenuCommands((command) => {
+    if (command.id === "file.openFolder") {
+      void pickFolder();
+    } else if (command.id === "file.openRecent" && command.path) {
+      void openRecent(command.path);
+    }
+  });
 
   // Move SR focus into the title on mount so screen-reader users land in
   // context instead of at the top of an unlabelled document.

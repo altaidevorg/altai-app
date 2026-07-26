@@ -1,3 +1,4 @@
+pub mod app_menu;
 pub mod fs;
 pub mod git;
 pub mod github;

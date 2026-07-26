@@ -26,6 +26,13 @@ pub struct GitBranch {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct GitWorktreeInfo {
+    pub path: String,
+    pub branch: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct GitChangedFile {
     pub path: String,
     pub original_path: Option<String>,

@@ -3,8 +3,8 @@ mod modules;
 
 use altai::agent::commands as agent_commands;
 use modules::{
-    fs, git, github, lsp_install, mcp, net, notebook, os_menu, proc, pty, secrets, shell, webview,
-    workspace,
+    app_menu, fs, git, github, lsp_install, mcp, net, notebook, os_menu, proc, pty, secrets, shell,
+    webview, workspace,
 };
 use serde::{Deserialize, Serialize};
 use std::sync::Mutex;
@@ -277,6 +277,7 @@ pub fn run() {
         })
         .manage(os_menu::RecentFolders::default())
         .manage(mcp::McpStatusRegistry::new())
+        .on_menu_event(app_menu::handle_event)
         .setup(|app| {
             altai::agent::runtime::init(app.handle().clone())?;
             // We use workspaceFallbackPath in frontend which depends on this
@@ -284,6 +285,7 @@ pub fn run() {
             // Build the Dock/Jump List menu (recents fill in once the frontend
             // mirrors them via set_recent_folders).
             os_menu::init(app.handle());
+            app_menu::install(app.handle(), &[])?;
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -324,6 +326,8 @@ pub fn run() {
             git::commands::git_fetch,
             git::commands::git_pull_ff_only,
             git::commands::git_branches,
+            git::commands::git_worktree_create,
+            git::commands::git_worktree_remove,
             git::commands::git_checkout_branch,
             git::commands::git_create_branch,
             git::commands::git_push,

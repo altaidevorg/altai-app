@@ -488,6 +488,12 @@ export const native = {
       label,
       workspace: currentWorkspaceEnv(),
     }),
+  gitWorktreeRemove: (repoRoot: string, path: string) =>
+    invoke<void>("git_worktree_remove", {
+      repoRoot,
+      path,
+      workspace: currentWorkspaceEnv(),
+    }),
   gitWorktreeApply: (sourceWorktree: string, targetRepoRoot: string) =>
     invoke<void>("git_worktree_apply", {
       sourceWorktree,

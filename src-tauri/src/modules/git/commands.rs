@@ -4,6 +4,7 @@ use crate::modules::git::operations;
 use crate::modules::git::types::{
     DiscardEntry, GitBranch, GitCommitFileChange, GitCommitResult, GitDiffContentResult,
     GitDiffResult, GitLogEntry, GitPanelSnapshot, GitPushResult, GitRepoInfo, GitStatusSnapshot,
+    GitWorktreeInfo,
 };
 use crate::modules::github::config as github_config;
 use crate::modules::secrets::{self, SecretsState};
@@ -221,6 +222,34 @@ pub async fn git_branches(
     let workspace = WorkspaceEnv::from_option(workspace);
     blocking(app, move |r| {
         operations::branches(r, &repo_root, &workspace).map_err(Into::into)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn git_worktree_create(
+    repo_root: String,
+    label: String,
+    workspace: Option<WorkspaceEnv>,
+    app: AppHandle,
+) -> Result<GitWorktreeInfo, String> {
+    let workspace = WorkspaceEnv::from_option(workspace);
+    blocking(app, move |r| {
+        operations::create_worktree(r, &repo_root, &label, &workspace).map_err(Into::into)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn git_worktree_remove(
+    repo_root: String,
+    path: String,
+    workspace: Option<WorkspaceEnv>,
+    app: AppHandle,
+) -> Result<(), String> {
+    let workspace = WorkspaceEnv::from_option(workspace);
+    blocking(app, move |r| {
+        operations::remove_worktree(r, &repo_root, &path, &workspace).map_err(Into::into)
     })
     .await
 }

@@ -18,6 +18,23 @@ export type AssignmentStatus =
   | "failed"
   | "cancelled";
 
+export type AssignmentDelivery =
+  | {
+      status: "worktree" | "publishing" | "failed";
+      workspacePath: string;
+      branchName: string;
+      baseBranch: string;
+      error?: string;
+    }
+  | {
+      status: "draft-pr";
+      workspacePath: string;
+      branchName: string;
+      baseBranch: string;
+      pullNumber: number;
+      pullUrl: string;
+    };
+
 /** Per-task runtime choices. They are deliberately stored with the task so a
  * completed run remains auditable after the global preferences change. */
 export type AssignmentRunConfig = {
@@ -25,6 +42,12 @@ export type AssignmentRunConfig = {
   modelId?: string;
   skills?: string[];
   permissionMode?: PermissionMode;
+  /** Per-assignment sandbox override, normally an ALTAI-created git worktree. */
+  workspacePath?: string;
+  /** Branch checked out at workspacePath, retained for delivery/recovery UI. */
+  branchName?: string;
+  /** Branch the worktree was created from. */
+  baseBranch?: string;
 };
 
 /** One assignment = one ALTAI session = one IsanAgent chat_id (1:1). */
@@ -36,6 +59,8 @@ export interface Assignment {
   title: string;
   status: AssignmentStatus;
   runConfig?: AssignmentRunConfig;
+  /** Delivery state for issue runs isolated in an ALTAI git worktree. */
+  delivery?: AssignmentDelivery;
   createdAt: number;
   updatedAt: number;
 }
@@ -78,7 +103,29 @@ const assignmentSchema = z.object({
       modelId: z.string().optional(),
       skills: z.array(z.string().min(1)).max(20).optional(),
       permissionMode: z.enum(PERMISSION_MODES).optional(),
+      workspacePath: z.string().min(1).optional(),
+      branchName: z.string().min(1).optional(),
+      baseBranch: z.string().min(1).optional(),
     })
+    .optional(),
+  delivery: z
+    .discriminatedUnion("status", [
+      z.object({
+        status: z.enum(["worktree", "publishing", "failed"]),
+        workspacePath: z.string().min(1),
+        branchName: z.string().min(1),
+        baseBranch: z.string().min(1),
+        error: z.string().optional(),
+      }),
+      z.object({
+        status: z.literal("draft-pr"),
+        workspacePath: z.string().min(1),
+        branchName: z.string().min(1),
+        baseBranch: z.string().min(1),
+        pullNumber: z.number().int().positive(),
+        pullUrl: z.string().min(1),
+      }),
+    ])
     .optional(),
   createdAt: z.number(),
   updatedAt: z.number(),
@@ -117,12 +164,15 @@ export function buildItemSeed(input: {
   number: number;
   title: string;
   body: string | null;
+  additionalInstructions?: string;
+  worktree?: { path: string; branch: string; baseBranch: string };
 }): string {
   const noun = input.kind === "pr" ? "pull request" : "issue";
   const verb =
     input.kind === "pr"
       ? "Review it, address any problems, and push the needed changes."
       : "Investigate and complete it end-to-end.";
+  const additionalInstructions = input.additionalInstructions?.trim();
   return [
     `You've been assigned to work on a GitHub ${noun}.`,
     ``,
@@ -131,6 +181,19 @@ export function buildItemSeed(input: {
     ``,
     input.body ? clip(input.body) : "(no description provided)",
     ``,
+    input.worktree
+      ? [
+          "Isolated delivery workspace:",
+          `- Worktree: ${input.worktree.path}`,
+          `- Branch: ${input.worktree.branch}`,
+          `- Base branch: ${input.worktree.baseBranch}`,
+          "Stay on this branch and keep all edits inside this worktree. Do not modify the user's base working tree.",
+          "",
+        ].join("\n")
+      : "",
+    additionalInstructions
+      ? `Additional instructions:\n${clip(additionalInstructions)}\n`
+      : "",
     `${verb} Use todo_write to lay out your plan, and spawn sub-agents for independent parts as needed. When finished, summarize what you did.`,
   ].join("\n");
 }

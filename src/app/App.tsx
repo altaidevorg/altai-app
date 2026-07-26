@@ -15,6 +15,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
+import { useAppMenuCommands } from "@/modules/app-menu/useAppMenuCommands";
 import {
   AgentRunBridge,
   AiSidePanel,
@@ -96,7 +97,11 @@ import {
   type ShortcutHandlers,
   type ShortcutId,
 } from "@/modules/shortcuts";
-import { SidebarRail, type SidebarViewId } from "@/modules/sidebar";
+import {
+  SidebarRail,
+  type SidebarRailItemId,
+  type SidebarViewId,
+} from "@/modules/sidebar";
 import {
   SourceControlPanel,
   useSourceControl,
@@ -110,6 +115,7 @@ import {
   WORKSPACE_PANEL_ID,
 } from "@/modules/tabs";
 import { folderName, useWorkspaceFolderStore } from "@/modules/workspace/folder";
+import { useAssignmentsStore } from "@/modules/github/store/assignmentsStore";
 import {
   disposeSession,
   findLeafCwd,
@@ -320,6 +326,22 @@ export default function App() {
     useWorkspaceFolderStore.getState().justCloned
       ? "source-control"
       : readSidebarView(),
+  );
+  const boardAssignments = useAssignmentsStore((state) => state.assignments);
+  const hydrateAssignments = useAssignmentsStore((state) => state.hydrate);
+  useEffect(() => {
+    void hydrateAssignments();
+  }, [hydrateAssignments]);
+  const projectsBadge = useMemo(
+    () =>
+      boardAssignments.filter(
+        (assignment) =>
+          assignment.status === "dispatching" ||
+          assignment.status === "running" ||
+          assignment.status === "awaiting-approval" ||
+          assignment.status === "done",
+      ).length,
+    [boardAssignments],
   );
   const persistSidebarView = useCallback((view: SidebarViewId) => {
     setSidebarViewState(view);
@@ -1446,6 +1468,25 @@ export default function App() {
     sourceControlContextPath,
   ]);
 
+  const handleSidebarRailSelect = useCallback(
+    (item: SidebarRailItemId) => {
+      if (item === "github") {
+        void openGitHubItemsFromContext();
+        return;
+      }
+      if (item === "projects") {
+        void openProjectBoardFromContext();
+        return;
+      }
+      persistSidebarView(item);
+    },
+    [
+      openGitHubItemsFromContext,
+      openProjectBoardFromContext,
+      persistSidebarView,
+    ],
+  );
+
   const openPreviewTab = useCallback(
     (url: string) => {
       const id = newPreviewTab(url);
@@ -1589,6 +1630,107 @@ export default function App() {
   );
 
   useGlobalShortcuts(shortcutHandlers, { isDisabled: shortcutsDisabled });
+
+  useAppMenuCommands((command) => {
+    switch (command.id) {
+      case "app.settings":
+        void openSettingsWindow();
+        break;
+      case "app.shortcuts":
+        setShortcutsOpen(true);
+        break;
+      case "file.newFile":
+        setNewEditorOpen(true);
+        break;
+      case "file.openFolder":
+        void (async () => {
+          const path = await useWorkspaceFolderStore.getState().pickFolder();
+          if (path) resetWorkspace(path);
+        })();
+        break;
+      case "file.openRecent":
+        if (command.path) {
+          const path = command.path;
+          void (async () => {
+            const opened =
+              await useWorkspaceFolderStore.getState().openRecent(path);
+            if (opened) resetWorkspace(path);
+          })();
+        }
+        break;
+      case "file.closeWorkspace":
+        closeFolder();
+        break;
+      case "file.save":
+        editorRefs.current.get(activeId)?.save();
+        break;
+      case "file.closeEditor":
+        handleCloseTabOrPane();
+        break;
+      case "edit.find":
+        searchInlineRef.current?.focus();
+        break;
+      case "edit.findInFiles": {
+        const panel = sidebarRef.current;
+        if (panel?.isCollapsed()) panel.resize(`${sidebarWidthRef.current}px`);
+        if (sidebarView !== "explorer") persistSidebarView("explorer");
+        requestAnimationFrame(() => explorerRef.current?.openSearch());
+        break;
+      }
+      case "edit.toggleComment":
+        editorRefs.current.get(activeId)?.toggleLineComment();
+        break;
+      case "view.explorer":
+        cycleSidebarView("explorer");
+        break;
+      case "view.sourceControl":
+        toggleSourceControl();
+        break;
+      case "view.agent":
+        togglePanelAndFocus();
+        break;
+      case "view.terminal":
+      case "terminal.toggle":
+        toggleTerminalDrawer();
+        break;
+      case "view.sidebar":
+        toggleSidebar();
+        break;
+      case "view.zoomIn":
+        zoomIn();
+        break;
+      case "view.zoomOut":
+        zoomOut();
+        break;
+      case "view.zoomReset":
+        zoomReset();
+        break;
+      case "go.nextTab":
+        cycleTab(1);
+        break;
+      case "go.previousTab":
+        cycleTab(-1);
+        break;
+      case "go.nextPane":
+        if (activeTerminalId != null) focusNextPaneInTab(activeTerminalId, 1);
+        break;
+      case "go.previousPane":
+        if (activeTerminalId != null) focusNextPaneInTab(activeTerminalId, -1);
+        break;
+      case "terminal.new":
+        openNewTab();
+        break;
+      case "terminal.newPrivate":
+        openNewPrivateTab();
+        break;
+      case "help.shortcuts":
+        setShortcutsOpen(true);
+        break;
+      case "terminal.split":
+        splitActivePaneInActiveTab("row");
+        break;
+    }
+  });
 
   // Queue of writes waiting for a specific leaf's PTY handle to register.
   // "Run in terminal" stuffs the install command in here right after
@@ -2043,8 +2185,15 @@ export default function App() {
               >
                 <div className="flex h-full min-h-0 flex-col border-r border-border/60 bg-card">
                   <SidebarRail
-                    activeView={sidebarView}
-                    onSelectView={persistSidebarView}
+                    activeItem={
+                      isProjectBoardTab
+                        ? "projects"
+                        : isGitHubItemsTab
+                          ? "github"
+                          : sidebarView
+                    }
+                    onSelectItem={handleSidebarRailSelect}
+                    projectsBadge={projectsBadge}
                   />
                   {workspaceFolder ? (
                     <div className="group/ws flex items-center gap-1 border-b border-border/60 px-2 py-1.5">

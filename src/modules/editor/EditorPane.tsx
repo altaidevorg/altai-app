@@ -1,4 +1,4 @@
-import { redo, undo } from "@codemirror/commands";
+import { redo, toggleLineComment, undo } from "@codemirror/commands";
 import {
   findNext,
   findPrevious,
@@ -62,6 +62,8 @@ export type EditorPaneHandle = {
   /** Apply CodeMirror's undo/redo commands. */
   undo: () => void;
   redo: () => void;
+  save: () => void;
+  toggleLineComment: () => void;
 };
 
 type Props = {
@@ -368,6 +370,16 @@ export const EditorPane = forwardRef<EditorPaneHandle, Props>(
         redo: () => {
           const view = cmRef.current?.view;
           if (view) redo(view);
+        },
+        save: () => {
+          void (async () => {
+            await saveRef.current();
+            onSavedRef.current?.();
+          })();
+        },
+        toggleLineComment: () => {
+          const view = cmRef.current?.view;
+          if (view) toggleLineComment(view);
         },
       }),
       [path],

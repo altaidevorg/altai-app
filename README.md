@@ -68,6 +68,7 @@ It's a desktop app, not a service. Your code never leaves your machine; only the
 - 🖥️ **First-class terminal** — xterm.js + portable-pty with shell integration for zsh, bash, fish, PowerShell. Emits OSC 7 (cwd) and OSC 133 (prompt boundaries) so the agent tracks every command boundary the way iTerm and Warp do.
 - ✏️ **Editor with LSP** — CodeMirror 6, 20+ languages lazy-loaded, vim mode, 9 themes, inline diffs.
 - 📊 **Background jobs that don't block you** — start a long training run, close the chat, come back later. Background jobs persist across restarts; the agent wakes when they finish.
+- 🗂️ **GitHub project and agent workflows** — manage issues, pull requests, local todos, and linked GitHub Projects from one board; assign work to isolated background agents and publish reviewed results as draft pull requests. See the [usage guide](docs/GITHUB_PROJECT_WORKFLOWS.md).
 - 🔬 **ML-domain tools out of the box** — `arxiv_search`, `arxiv_fetch`, `hf_hub_file_fetch`, `python_run`, and a Colab MCP bridge so paper reproduction works on free T4 GPUs.
 - 🪪 **Zero account, zero telemetry, zero cloud round-trip.** Single signed binary. Apache 2.0.
 
