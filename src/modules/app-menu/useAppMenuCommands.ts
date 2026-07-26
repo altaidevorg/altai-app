@@ -1,3 +1,4 @@
+import { isTauri } from "@tauri-apps/api/core";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { useEffect, useRef } from "react";
 
@@ -18,12 +19,29 @@ export function useAppMenuCommands(
   latest.current = handler;
 
   useEffect(() => {
-    const unlisten = getCurrentWebviewWindow().listen<AppMenuCommand>(
-      "altai:menu-command",
-      (event) => latest.current(event.payload),
-    );
+    // `pnpm dev` can render the welcome screen in a regular browser, where
+    // Tauri's window metadata does not exist. Native menus are desktop-only,
+    // so there is nothing to subscribe to in that environment.
+    if (!isTauri()) return;
+
+    let disposed = false;
+    let unlisten: (() => void) | null = null;
+    const subscription = getCurrentWebviewWindow()
+      .listen<AppMenuCommand>("altai:menu-command", (event) => {
+        latest.current(event.payload);
+      })
+      .then((dispose) => {
+        if (disposed) dispose();
+        else unlisten = dispose;
+      })
+      .catch((error) => {
+        console.warn("Could not subscribe to native app menu commands", error);
+      });
+
     return () => {
-      void unlisten.then((dispose) => dispose());
+      disposed = true;
+      unlisten?.();
+      void subscription;
     };
   }, []);
 }
