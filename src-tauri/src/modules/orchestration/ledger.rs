@@ -24,6 +24,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 const SCHEMA_VERSION: i64 = 1;
 const MAX_EVENT_LIMIT: usize = 1_000;
+const MAX_EVENT_PAYLOAD_BYTES: usize = 256 * 1024;
 
 const MIGRATION_V1: &str = r#"
 CREATE TABLE IF NOT EXISTS orchestration_tasks (
@@ -52,9 +53,21 @@ CREATE TABLE IF NOT EXISTS orchestration_attempts (
     terminal_outcome    TEXT,
     idempotency_key     TEXT NOT NULL UNIQUE,
     created_at_ms       INTEGER NOT NULL CHECK (created_at_ms >= 0),
-    started_at_ms       INTEGER,
-    heartbeat_ms        INTEGER,
-    terminal_at_ms      INTEGER,
+    started_at_ms       INTEGER CHECK (started_at_ms IS NULL OR started_at_ms >= 0),
+    heartbeat_ms        INTEGER CHECK (heartbeat_ms IS NULL OR heartbeat_ms >= 0),
+    terminal_at_ms      INTEGER CHECK (terminal_at_ms IS NULL OR terminal_at_ms >= 0),
+    CHECK (
+        (lease_owner IS NULL AND lease_generation IS NULL AND lease_expires_at_ms IS NULL)
+        OR
+        (
+            lease_owner IS NOT NULL
+            AND lease_generation IS NOT NULL
+            AND lease_expires_at_ms IS NOT NULL
+            AND length(trim(lease_owner)) > 0
+            AND lease_generation >= 0
+            AND lease_expires_at_ms >= 0
+        )
+    ),
     UNIQUE (task_id, attempt_no)
 ) WITHOUT ROWID;
 
@@ -155,9 +168,30 @@ pub enum LedgerError {
     InvalidField(&'static str),
     NumericOverflow(&'static str),
     UnsupportedSchema(i64),
-    UnknownTask { task_id: String },
-    UnknownAttempt { attempt_id: String },
-    AttemptNumberConflict { task_id: String, attempt_no: u32 },
+    UnknownTask {
+        task_id: String,
+    },
+    UnknownAttempt {
+        attempt_id: String,
+    },
+    EventConflict {
+        event_id: String,
+    },
+    TaskTerminalAlreadyCommitted {
+        task_id: String,
+        state: TaskState,
+    },
+    AttemptTerminalAlreadyCommitted {
+        attempt_id: String,
+        state: AttemptState,
+    },
+    LeaseMismatch {
+        attempt_id: String,
+    },
+    AttemptNumberConflict {
+        task_id: String,
+        attempt_no: u32,
+    },
     LockPoisoned,
 }
 
@@ -177,6 +211,25 @@ impl fmt::Display for LedgerError {
             LedgerError::UnknownTask { task_id } => write!(f, "unknown task {task_id}"),
             LedgerError::UnknownAttempt { attempt_id } => {
                 write!(f, "unknown attempt {attempt_id}")
+            }
+            LedgerError::EventConflict { event_id } => {
+                write!(f, "conflicting orchestration event {event_id}")
+            }
+            LedgerError::TaskTerminalAlreadyCommitted { task_id, state } => write!(
+                f,
+                "task {task_id} already committed terminal state {}",
+                state.name()
+            ),
+            LedgerError::AttemptTerminalAlreadyCommitted { attempt_id, state } => write!(
+                f,
+                "attempt {attempt_id} already committed terminal state {}",
+                state.name()
+            ),
+            LedgerError::LeaseMismatch { attempt_id } => {
+                write!(
+                    f,
+                    "attempt {attempt_id} lease owner or generation does not match"
+                )
             }
             LedgerError::AttemptNumberConflict {
                 task_id,
@@ -255,9 +308,9 @@ impl OrchestrationLedger {
 
     // ----- tasks -----------------------------------------------------------
 
-    /// Insert or refresh a task projection. Idempotent by `task_id`: a second
-    /// call with the same id updates mutable fields (title/state/source) but
-    /// never duplicates the row.
+    /// Insert or refresh task metadata. Idempotent by `task_id`: a second call
+    /// updates source metadata and title but never bypasses the event-backed
+    /// state transition path.
     pub fn upsert_task(&self, task: &TaskRecord) -> LedgerResult<WriteStatus> {
         validate_nonempty(&task.task_id, "task_id")?;
         validate_nonempty(&task.workspace_key, "workspace_key")?;
@@ -303,36 +356,59 @@ impl OrchestrationLedger {
         &self,
         task_id: &str,
         new_state: TaskState,
+        event_id: &str,
         now_ms: u64,
     ) -> LedgerResult<WriteStatus> {
         validate_nonempty(task_id, "task_id")?;
+        validate_nonempty(event_id, "event_id")?;
         let now = sqlite_u64(now_ms, "now_ms")?;
         let mut connection = self
             .connection
             .lock()
             .map_err(|_| LedgerError::LockPoisoned)?;
         let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let event = OrchestrationEvent {
+            event_id: event_id.to_string(),
+            task_id: task_id.to_string(),
+            seq: 0,
+            kind: format!("task.{}", new_state.name()),
+            payload: serde_json::json!({ "state": new_state.name() }),
+            recorded_at_ms: now_ms,
+        };
+        if append_event_tx(&transaction, &event)? == WriteStatus::Duplicate {
+            transaction.rollback()?;
+            return Ok(WriteStatus::Duplicate);
+        }
+        let current_name: String = transaction
+            .query_row(
+                "SELECT state FROM orchestration_tasks WHERE task_id = ?1",
+                params![task_id],
+                |row| row.get(0),
+            )
+            .optional()?
+            .ok_or_else(|| LedgerError::UnknownTask {
+                task_id: task_id.to_string(),
+            })?;
+        let current = TaskState::from_name(&current_name)
+            .ok_or(LedgerError::InvalidField("persisted task state"))?;
+        if current.is_terminal() {
+            return Err(LedgerError::TaskTerminalAlreadyCommitted {
+                task_id: task_id.to_string(),
+                state: current,
+            });
+        }
         let changed = transaction.execute(
             "UPDATE orchestration_tasks SET state = ?2, updated_at_ms = ?3
-             WHERE task_id = ?1",
+             WHERE task_id = ?1
+               AND state NOT IN ('done','cancelled','failed','abandoned')",
             params![task_id, new_state.name(), now],
         )?;
         if changed == 0 {
-            return Err(LedgerError::UnknownTask {
+            return Err(LedgerError::TaskTerminalAlreadyCommitted {
                 task_id: task_id.to_string(),
+                state: current,
             });
         }
-        append_event_tx(
-            &transaction,
-            &OrchestrationEvent {
-                event_id: format!("{task_id}:state:{}", new_state.name()),
-                task_id: task_id.to_string(),
-                seq: 0,
-                kind: format!("task.{}", new_state.name()),
-                payload: serde_json::json!({ "state": new_state.name() }),
-                recorded_at_ms: now_ms,
-            },
-        )?;
         transaction.commit()?;
         Ok(WriteStatus::Written)
     }
@@ -384,13 +460,12 @@ impl OrchestrationLedger {
         validate_nonempty(&request.task_id, "task_id")?;
         validate_nonempty(&request.runner_kind, "runner_kind")?;
         validate_nonempty(&request.idempotency_key, "idempotency_key")?;
-        let attempt_no = i64::try_from(request.attempt_no)
-            .map_err(|_| LedgerError::NumericOverflow("attempt_no"))?;
+        let attempt_no = i64::from(request.attempt_no);
         if attempt_no == 0 {
             return Err(LedgerError::InvalidField("attempt_no"));
         }
         let created_at_ms = sqlite_u64(request.now_ms, "now_ms")?;
-        let (lease_owner, lease_generation, lease_expires) = encode_lease(&request.lease);
+        let (lease_owner, lease_generation, lease_expires) = encode_lease(&request.lease)?;
 
         let mut connection = self
             .connection
@@ -468,58 +543,147 @@ impl OrchestrationLedger {
         attempt_id: &str,
         new_state: AttemptState,
         terminal_outcome: Option<&str>,
+        event_id: &str,
+        renewed_lease: Option<&Lease>,
         now_ms: u64,
     ) -> LedgerResult<WriteStatus> {
         validate_nonempty(attempt_id, "attempt_id")?;
+        validate_nonempty(event_id, "event_id")?;
+        if new_state == AttemptState::Heartbeat && renewed_lease.is_none() {
+            return Err(LedgerError::InvalidField("renewed_lease"));
+        }
+        if new_state != AttemptState::Heartbeat && renewed_lease.is_some() {
+            return Err(LedgerError::InvalidField("renewed_lease"));
+        }
         let now = sqlite_u64(now_ms, "now_ms")?;
         let mut connection = self
             .connection
             .lock()
             .map_err(|_| LedgerError::LockPoisoned)?;
         let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let task_id: String = transaction
+        let (task_id, current_name, lease_owner, lease_generation, lease_expires): (
+            String,
+            String,
+            Option<String>,
+            Option<i64>,
+            Option<i64>,
+        ) = transaction
             .query_row(
-                "SELECT task_id FROM orchestration_attempts WHERE attempt_id = ?1",
+                "SELECT task_id, state, lease_owner, lease_generation, lease_expires_at_ms
+                 FROM orchestration_attempts WHERE attempt_id = ?1",
                 params![attempt_id],
-                |row| row.get(0),
+                |row| {
+                    Ok((
+                        row.get(0)?,
+                        row.get(1)?,
+                        row.get(2)?,
+                        row.get(3)?,
+                        row.get(4)?,
+                    ))
+                },
             )
             .optional()?
             .ok_or_else(|| LedgerError::UnknownAttempt {
                 attempt_id: attempt_id.to_string(),
             })?;
+        let current = AttemptState::from_name(&current_name)
+            .ok_or(LedgerError::InvalidField("persisted attempt state"))?;
+        let payload = match renewed_lease {
+            Some(lease) => serde_json::json!({
+                "attempt_id": attempt_id,
+                "state": new_state.name(),
+                "lease": lease,
+            }),
+            None => serde_json::json!({
+                "attempt_id": attempt_id,
+                "state": new_state.name()
+            }),
+        };
+        let event = OrchestrationEvent {
+            event_id: event_id.to_string(),
+            task_id: task_id.clone(),
+            seq: 0,
+            kind: format!("attempt.{}", new_state.name()),
+            payload,
+            recorded_at_ms: now_ms,
+        };
+        if append_event_tx(&transaction, &event)? == WriteStatus::Duplicate {
+            transaction.rollback()?;
+            return Ok(WriteStatus::Duplicate);
+        }
+        if current.is_terminal() {
+            return Err(LedgerError::AttemptTerminalAlreadyCommitted {
+                attempt_id: attempt_id.to_string(),
+                state: current,
+            });
+        }
 
         let changed = if new_state.is_terminal() {
             transaction.execute(
                 "UPDATE orchestration_attempts
                  SET state = ?2, terminal_outcome = ?3, terminal_at_ms = ?4
-                 WHERE attempt_id = ?1",
+                 WHERE attempt_id = ?1 AND terminal_at_ms IS NULL",
                 params![attempt_id, new_state.name(), terminal_outcome, now],
+            )?
+        } else if new_state == AttemptState::Started {
+            transaction.execute(
+                "UPDATE orchestration_attempts
+                 SET state = ?2, started_at_ms = COALESCE(started_at_ms, ?3)
+                 WHERE attempt_id = ?1 AND terminal_at_ms IS NULL",
+                params![attempt_id, new_state.name(), now],
+            )?
+        } else if let Some(lease) = renewed_lease {
+            let stored_lease = decode_lease_values(
+                lease_owner,
+                lease_generation,
+                lease_expires,
+                "persisted lease",
+            )?
+            .ok_or_else(|| LedgerError::LeaseMismatch {
+                attempt_id: attempt_id.to_string(),
+            })?;
+            if stored_lease.owner != lease.owner
+                || stored_lease.generation != lease.generation
+                || stored_lease.is_expired(now_ms)
+                || lease.expires_at_ms <= now_ms
+                || lease.expires_at_ms <= stored_lease.expires_at_ms
+            {
+                return Err(LedgerError::LeaseMismatch {
+                    attempt_id: attempt_id.to_string(),
+                });
+            }
+            let renewed_expiry = sqlite_u64(lease.expires_at_ms, "lease_expires_at_ms")?;
+            transaction.execute(
+                "UPDATE orchestration_attempts
+                 SET state = ?2, heartbeat_ms = ?3, lease_expires_at_ms = ?4
+                 WHERE attempt_id = ?1
+                   AND lease_owner = ?5
+                   AND lease_generation = ?6
+                   AND terminal_at_ms IS NULL",
+                params![
+                    attempt_id,
+                    new_state.name(),
+                    now,
+                    renewed_expiry,
+                    lease.owner,
+                    i64::try_from(lease.generation)
+                        .map_err(|_| LedgerError::NumericOverflow("lease_generation"))?,
+                ],
             )?
         } else {
             transaction.execute(
-                "UPDATE orchestration_attempts SET state = ?2 WHERE attempt_id = ?1",
+                "UPDATE orchestration_attempts
+                 SET state = ?2
+                 WHERE attempt_id = ?1 AND terminal_at_ms IS NULL",
                 params![attempt_id, new_state.name()],
             )?
         };
         if changed == 0 {
-            return Err(LedgerError::UnknownAttempt {
+            return Err(LedgerError::AttemptTerminalAlreadyCommitted {
                 attempt_id: attempt_id.to_string(),
+                state: current,
             });
         }
-        append_event_tx(
-            &transaction,
-            &OrchestrationEvent {
-                event_id: format!("{attempt_id}:state:{}", new_state.name()),
-                task_id,
-                seq: 0,
-                kind: format!("attempt.{}", new_state.name()),
-                payload: serde_json::json!({
-                    "attempt_id": attempt_id,
-                    "state": new_state.name()
-                }),
-                recorded_at_ms: now_ms,
-            },
-        )?;
         transaction.commit()?;
         Ok(WriteStatus::Written)
     }
@@ -622,16 +786,33 @@ fn append_event_tx(
     transaction: &Transaction<'_>,
     event: &OrchestrationEvent,
 ) -> LedgerResult<WriteStatus> {
+    validate_nonempty(&event.event_id, "event_id")?;
+    validate_nonempty(&event.task_id, "task_id")?;
+    validate_nonempty(&event.kind, "kind")?;
+    let payload_json = serde_json::to_string(&event.payload)?;
+    if payload_json.len() > MAX_EVENT_PAYLOAD_BYTES {
+        return Err(LedgerError::InvalidField("payload"));
+    }
+    if let Some(existing) = find_event(transaction, &event.event_id)? {
+        if existing
+            == (StoredEvent {
+                task_id: event.task_id.clone(),
+                kind: event.kind.clone(),
+                payload_json,
+            })
+        {
+            return Ok(WriteStatus::Duplicate);
+        }
+        return Err(LedgerError::EventConflict {
+            event_id: event.event_id.clone(),
+        });
+    }
     if !task_exists(transaction, &event.task_id)? {
         return Err(LedgerError::UnknownTask {
             task_id: event.task_id.clone(),
         });
     }
-    if event_exists(transaction, &event.event_id)? {
-        return Ok(WriteStatus::Duplicate);
-    }
     let seq = next_seq_for_task(transaction, &event.task_id)?;
-    let payload_json = serde_json::to_string(&event.payload)?;
     let recorded_at_ms = sqlite_u64(event.recorded_at_ms, "recorded_at_ms")?;
     transaction.execute(
         "INSERT INTO orchestration_events
@@ -658,10 +839,10 @@ fn next_seq_for_task(transaction: &Transaction<'_>, task_id: &str) -> LedgerResu
         )
         .optional()?
         .flatten();
-    Ok(max_seq
+    max_seq
         .unwrap_or(0)
         .checked_add(1)
-        .ok_or(LedgerError::NumericOverflow("seq"))?)
+        .ok_or(LedgerError::NumericOverflow("seq"))
 }
 
 fn task_exists(transaction: &Transaction<'_>, task_id: &str) -> LedgerResult<bool> {
@@ -675,15 +856,29 @@ fn task_exists(transaction: &Transaction<'_>, task_id: &str) -> LedgerResult<boo
         .is_some())
 }
 
-fn event_exists(transaction: &Transaction<'_>, event_id: &str) -> LedgerResult<bool> {
-    Ok(transaction
+#[derive(Debug, PartialEq, Eq)]
+struct StoredEvent {
+    task_id: String,
+    kind: String,
+    payload_json: String,
+}
+
+fn find_event(transaction: &Transaction<'_>, event_id: &str) -> LedgerResult<Option<StoredEvent>> {
+    transaction
         .query_row(
-            "SELECT 1 FROM orchestration_events WHERE event_id = ?1",
+            "SELECT task_id, kind, payload_json
+             FROM orchestration_events WHERE event_id = ?1",
             params![event_id],
-            |_| Ok(()),
+            |row| {
+                Ok(StoredEvent {
+                    task_id: row.get(0)?,
+                    kind: row.get(1)?,
+                    payload_json: row.get(2)?,
+                })
+            },
         )
-        .optional()?
-        .is_some())
+        .optional()
+        .map_err(LedgerError::from)
 }
 
 fn attempt_for_key(transaction: &Transaction<'_>, key: &str) -> LedgerResult<Option<String>> {
@@ -712,15 +907,76 @@ fn attempt_no_exists(
         .is_some())
 }
 
-fn encode_lease(lease: &Option<Lease>) -> (Option<String>, Option<i64>, Option<i64>) {
-    lease
-        .as_ref()
-        .map(|lease| {
-            let generation = i64::try_from(lease.generation).ok();
-            let expiry = sqlite_u64(lease.expires_at_ms, "lease_expires_at_ms").ok();
-            (Some(lease.owner.clone()), generation, expiry)
+fn encode_lease(lease: &Option<Lease>) -> LedgerResult<(Option<String>, Option<i64>, Option<i64>)> {
+    let Some(lease) = lease else {
+        return Ok((None, None, None));
+    };
+    validate_nonempty(&lease.owner, "lease_owner")?;
+    let generation = sqlite_u64(lease.generation, "lease_generation")?;
+    let expiry = sqlite_u64(lease.expires_at_ms, "lease_expires_at_ms")?;
+    Ok((Some(lease.owner.clone()), Some(generation), Some(expiry)))
+}
+
+fn decode_lease_values(
+    owner: Option<String>,
+    generation: Option<i64>,
+    expires: Option<i64>,
+    field: &'static str,
+) -> LedgerResult<Option<Lease>> {
+    match (owner, generation, expires) {
+        (None, None, None) => Ok(None),
+        (Some(owner), Some(generation), Some(expires)) if !owner.trim().is_empty() => {
+            Ok(Some(Lease {
+                owner,
+                generation: u64::try_from(generation)
+                    .map_err(|_| LedgerError::InvalidField(field))?,
+                expires_at_ms: u64::try_from(expires)
+                    .map_err(|_| LedgerError::InvalidField(field))?,
+            }))
+        }
+        _ => Err(LedgerError::InvalidField(field)),
+    }
+}
+
+fn from_sql_failure(
+    index: usize,
+    value_type: rusqlite::types::Type,
+    message: String,
+) -> rusqlite::Error {
+    rusqlite::Error::FromSqlConversionFailure(
+        index,
+        value_type,
+        std::io::Error::new(std::io::ErrorKind::InvalidData, message).into(),
+    )
+}
+
+fn decode_u64(row: &rusqlite::Row<'_>, index: usize, field: &'static str) -> rusqlite::Result<u64> {
+    let value = row.get::<_, i64>(index)?;
+    u64::try_from(value).map_err(|_| {
+        from_sql_failure(
+            index,
+            rusqlite::types::Type::Integer,
+            format!("invalid {field}: {value}"),
+        )
+    })
+}
+
+fn decode_optional_u64(
+    row: &rusqlite::Row<'_>,
+    index: usize,
+    field: &'static str,
+) -> rusqlite::Result<Option<u64>> {
+    row.get::<_, Option<i64>>(index)?
+        .map(|value| {
+            u64::try_from(value).map_err(|_| {
+                from_sql_failure(
+                    index,
+                    rusqlite::types::Type::Integer,
+                    format!("invalid {field}: {value}"),
+                )
+            })
         })
-        .unwrap_or((None, None, None))
+        .transpose()
 }
 
 fn decode_task(row: &rusqlite::Row<'_>) -> rusqlite::Result<TaskRecord> {
@@ -739,8 +995,8 @@ fn decode_task(row: &rusqlite::Row<'_>) -> rusqlite::Result<TaskRecord> {
         source_ref: row.get(3)?,
         title: row.get(4)?,
         state,
-        created_at_ms: u64::try_from(row.get::<_, i64>(6)?).unwrap_or(u64::MAX),
-        updated_at_ms: u64::try_from(row.get::<_, i64>(7)?).unwrap_or(u64::MAX),
+        created_at_ms: decode_u64(row, 6, "created_at_ms")?,
+        updated_at_ms: decode_u64(row, 7, "updated_at_ms")?,
     })
 }
 
@@ -756,33 +1012,35 @@ fn decode_attempt(row: &rusqlite::Row<'_>) -> rusqlite::Result<AttemptRecord> {
     let lease_owner: Option<String> = row.get(4)?;
     let lease_generation: Option<i64> = row.get(5)?;
     let lease_expires: Option<i64> = row.get(6)?;
-    let lease = match (lease_owner, lease_generation, lease_expires) {
-        (Some(owner), Some(generation), Some(expires)) => Some(Lease {
-            owner,
-            generation: generation.max(0) as u64,
-            expires_at_ms: expires.max(0) as u64,
-        }),
-        _ => None,
-    };
-    let opt_u64 = |idx: usize| -> Option<u64> {
-        row.get::<_, Option<i64>>(idx)
-            .ok()
-            .flatten()
-            .map(|v| v.max(0) as u64)
-    };
+    let lease = decode_lease_values(
+        lease_owner,
+        lease_generation,
+        lease_expires,
+        "persisted lease",
+    )
+    .map_err(|error| from_sql_failure(4, rusqlite::types::Type::Integer, error.to_string()))?;
+    let attempt_no = decode_u64(row, 2, "attempt_no").and_then(|value| {
+        u32::try_from(value).map_err(|_| {
+            from_sql_failure(
+                2,
+                rusqlite::types::Type::Integer,
+                format!("invalid attempt_no: {value}"),
+            )
+        })
+    })?;
     Ok(AttemptRecord {
         attempt_id: row.get(0)?,
         task_id: row.get(1)?,
-        attempt_no: u32::try_from(row.get::<_, i64>(2)?).unwrap_or(u32::MAX),
+        attempt_no,
         runner_kind: row.get(3)?,
         lease,
         state,
         terminal_outcome: row.get(8)?,
         idempotency_key: row.get(9)?,
-        created_at_ms: u64::try_from(row.get::<_, i64>(10)?).unwrap_or(u64::MAX),
-        started_at_ms: opt_u64(11),
-        heartbeat_ms: opt_u64(12),
-        terminal_at_ms: opt_u64(13),
+        created_at_ms: decode_u64(row, 10, "created_at_ms")?,
+        started_at_ms: decode_optional_u64(row, 11, "started_at_ms")?,
+        heartbeat_ms: decode_optional_u64(row, 12, "heartbeat_ms")?,
+        terminal_at_ms: decode_optional_u64(row, 13, "terminal_at_ms")?,
     })
 }
 
@@ -791,10 +1049,11 @@ fn decode_event(row: &rusqlite::Row<'_>) -> rusqlite::Result<OrchestrationEvent>
     Ok(OrchestrationEvent {
         event_id: row.get(0)?,
         task_id: row.get(1)?,
-        seq: u64::try_from(row.get::<_, i64>(2)?).unwrap_or(u64::MAX),
+        seq: decode_u64(row, 2, "seq")?,
         kind: row.get(3)?,
-        payload: serde_json::from_str(&payload_json).unwrap_or(Value::Null),
-        recorded_at_ms: u64::try_from(row.get::<_, i64>(5)?).unwrap_or(u64::MAX),
+        payload: serde_json::from_str(&payload_json)
+            .map_err(|error| from_sql_failure(4, rusqlite::types::Type::Text, error.to_string()))?,
+        recorded_at_ms: decode_u64(row, 5, "recorded_at_ms")?,
     })
 }
 
@@ -855,7 +1114,9 @@ fn create_private_file(path: &Path) -> LedgerResult<()> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::OpenOptionsExt;
-        options.mode(0o600);
+        options
+            .mode(0o600)
+            .custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW);
     }
     let file = options.open(path)?;
     #[cfg(unix)]
@@ -976,7 +1237,14 @@ mod tests {
             .create_attempt(&attempt_req("t1", 1, "k1"))
             .expect("attempt 1");
         ledger
-            .set_attempt_state("t1-att-1", AttemptState::Failed, Some("error"), 1_600)
+            .set_attempt_state(
+                "t1-att-1",
+                AttemptState::Failed,
+                Some("error"),
+                "evt-attempt-1-failed",
+                None,
+                1_600,
+            )
             .expect("fail");
         // A retry creates a NEW attempt identity; the old one is retained.
         ledger
@@ -1051,6 +1319,37 @@ mod tests {
         );
     }
 
+    #[test]
+    fn conflicting_duplicate_event_id_is_rejected() {
+        let ledger = OrchestrationLedger::open_in_memory().expect("ledger");
+        ledger
+            .upsert_task(&task("t1", TaskState::Queued))
+            .expect("task");
+        let event = OrchestrationEvent {
+            event_id: "evt-conflict".to_string(),
+            task_id: "t1".to_string(),
+            seq: 0,
+            kind: "task.updated".to_string(),
+            payload: serde_json::json!({ "v": 1 }),
+            recorded_at_ms: 9_000,
+        };
+        ledger.record_event(&event).expect("first");
+        let conflicting = OrchestrationEvent {
+            kind: "task.blocked".to_string(),
+            payload: serde_json::json!({ "v": 2 }),
+            ..event
+        };
+        assert!(matches!(
+            ledger.record_event(&conflicting),
+            Err(LedgerError::EventConflict { event_id })
+                if event_id == "evt-conflict"
+        ));
+        assert_eq!(
+            ledger.events_for_task("t1", 0, 10).expect("events").len(),
+            1
+        );
+    }
+
     // --- Acceptance: restart-safe queries -----------------------------------
 
     #[test]
@@ -1089,7 +1388,7 @@ mod tests {
                 .create_attempt(&attempt_req("t1", 1, "k1"))
                 .expect("attempt");
             ledger
-                .set_task_state("t1", TaskState::Verifying, 2_000)
+                .set_task_state("t1", TaskState::Verifying, "evt-t1-verifying", 2_000)
                 .expect("state");
         }
         // A fresh process reopens the same file and recovers projections.
@@ -1124,15 +1423,18 @@ mod tests {
         ledger
             .upsert_task(&task("t1", TaskState::Draft))
             .expect("task");
-        for state in [
+        for (index, state) in [
             TaskState::Queued,
             TaskState::Running,
             TaskState::AwaitingApproval,
             TaskState::ReadyForHandoff,
             TaskState::Done,
-        ] {
+        ]
+        .into_iter()
+        .enumerate()
+        {
             ledger
-                .set_task_state("t1", state, 3_000)
+                .set_task_state("t1", state, &format!("evt-state-{index}"), 3_000)
                 .expect("set state");
             assert_eq!(ledger.task("t1").expect("read").unwrap().state, state);
         }
@@ -1142,7 +1444,7 @@ mod tests {
     fn set_task_state_rejects_unknown_task() {
         let ledger = OrchestrationLedger::open_in_memory().expect("ledger");
         assert!(matches!(
-            ledger.set_task_state("nope", TaskState::Running, 1),
+            ledger.set_task_state("nope", TaskState::Running, "evt-unknown", 1),
             Err(LedgerError::UnknownTask { .. })
         ));
     }
@@ -1167,18 +1469,294 @@ mod tests {
             .expect("attempt");
         // Non-terminal move carries no outcome.
         ledger
-            .set_attempt_state("t1-att-1", AttemptState::Started, None, 1_700)
+            .set_attempt_state(
+                "t1-att-1",
+                AttemptState::Started,
+                None,
+                "evt-attempt-started",
+                None,
+                1_700,
+            )
             .expect("start");
         let mid = ledger.latest_attempt("t1").expect("latest").unwrap();
         assert_eq!(mid.state, AttemptState::Started);
+        assert_eq!(mid.started_at_ms, Some(1_700));
         assert!(mid.terminal_outcome.is_none() && mid.terminal_at_ms.is_none());
         // Terminal move records outcome + timestamp.
         ledger
-            .set_attempt_state("t1-att-1", AttemptState::Completed, Some("ok"), 1_800)
+            .set_attempt_state(
+                "t1-att-1",
+                AttemptState::Completed,
+                Some("ok"),
+                "evt-attempt-completed",
+                None,
+                1_800,
+            )
             .expect("complete");
         let done = ledger.latest_attempt("t1").expect("latest").unwrap();
         assert_eq!(done.state, AttemptState::Completed);
         assert_eq!(done.terminal_outcome.as_deref(), Some("ok"));
         assert_eq!(done.terminal_at_ms, Some(1_800));
+    }
+
+    #[test]
+    fn state_reentry_records_each_transition_occurrence() {
+        let ledger = OrchestrationLedger::open_in_memory().expect("ledger");
+        ledger
+            .upsert_task(&task("t1", TaskState::Running))
+            .expect("task");
+        for (state, event_id) in [
+            (TaskState::Retrying, "evt-retrying"),
+            (TaskState::Running, "evt-running-after-retry"),
+            (TaskState::Paused, "evt-paused"),
+            (TaskState::Running, "evt-running-after-pause"),
+        ] {
+            assert_eq!(
+                ledger
+                    .set_task_state("t1", state, event_id, 2_000)
+                    .expect("transition"),
+                WriteStatus::Written
+            );
+        }
+        let events = ledger.events_for_task("t1", 0, 10).expect("events");
+        assert_eq!(events.len(), 4);
+        assert_eq!(
+            events
+                .iter()
+                .map(|event| event.event_id.as_str())
+                .collect::<Vec<_>>(),
+            vec![
+                "evt-retrying",
+                "evt-running-after-retry",
+                "evt-paused",
+                "evt-running-after-pause",
+            ]
+        );
+    }
+
+    #[test]
+    fn terminal_attempt_is_first_writer_wins_and_exact_replay_is_idempotent() {
+        let ledger = OrchestrationLedger::open_in_memory().expect("ledger");
+        ledger
+            .upsert_task(&task("t1", TaskState::Running))
+            .expect("task");
+        ledger
+            .create_attempt(&attempt_req("t1", 1, "k1"))
+            .expect("attempt");
+        assert_eq!(
+            ledger
+                .set_attempt_state(
+                    "t1-att-1",
+                    AttemptState::Completed,
+                    Some("ok"),
+                    "evt-terminal",
+                    None,
+                    2_000,
+                )
+                .expect("complete"),
+            WriteStatus::Written
+        );
+        assert_eq!(
+            ledger
+                .set_attempt_state(
+                    "t1-att-1",
+                    AttemptState::Completed,
+                    Some("ok"),
+                    "evt-terminal",
+                    None,
+                    2_100,
+                )
+                .expect("exact replay"),
+            WriteStatus::Duplicate
+        );
+        assert!(matches!(
+            ledger.set_attempt_state(
+                "t1-att-1",
+                AttemptState::Failed,
+                Some("late failure"),
+                "evt-late-failure",
+                None,
+                2_200,
+            ),
+            Err(LedgerError::AttemptTerminalAlreadyCommitted {
+                state: AttemptState::Completed,
+                ..
+            })
+        ));
+        let attempt = ledger.latest_attempt("t1").expect("latest").unwrap();
+        assert_eq!(attempt.state, AttemptState::Completed);
+        assert_eq!(attempt.terminal_outcome.as_deref(), Some("ok"));
+        assert_eq!(attempt.terminal_at_ms, Some(2_000));
+        assert_eq!(
+            ledger.events_for_task("t1", 0, 10).expect("events").len(),
+            2
+        );
+    }
+
+    #[test]
+    fn terminal_task_is_first_writer_wins() {
+        let ledger = OrchestrationLedger::open_in_memory().expect("ledger");
+        ledger
+            .upsert_task(&task("t1", TaskState::ReadyForHandoff))
+            .expect("task");
+        ledger
+            .set_task_state("t1", TaskState::Done, "evt-done", 2_000)
+            .expect("done");
+        assert!(matches!(
+            ledger.set_task_state("t1", TaskState::Failed, "evt-late-failure", 2_100),
+            Err(LedgerError::TaskTerminalAlreadyCommitted {
+                state: TaskState::Done,
+                ..
+            })
+        ));
+        assert_eq!(
+            ledger.task("t1").expect("task").unwrap().state,
+            TaskState::Done
+        );
+        assert_eq!(
+            ledger.events_for_task("t1", 0, 10).expect("events").len(),
+            1
+        );
+    }
+
+    #[test]
+    fn heartbeat_updates_timestamp_and_renews_matching_lease() {
+        let ledger = OrchestrationLedger::open_in_memory().expect("ledger");
+        ledger
+            .upsert_task(&task("t1", TaskState::Running))
+            .expect("task");
+        ledger
+            .create_attempt(&attempt_req("t1", 1, "k1"))
+            .expect("attempt");
+        ledger
+            .set_attempt_state(
+                "t1-att-1",
+                AttemptState::Started,
+                None,
+                "evt-started",
+                None,
+                1_600,
+            )
+            .expect("start");
+        let renewed = Lease {
+            owner: "coord-1".to_string(),
+            generation: 1,
+            expires_at_ms: 6_000,
+        };
+        ledger
+            .set_attempt_state(
+                "t1-att-1",
+                AttemptState::Heartbeat,
+                None,
+                "evt-heartbeat-1",
+                Some(&renewed),
+                2_000,
+            )
+            .expect("heartbeat");
+        let attempt = ledger.latest_attempt("t1").expect("latest").unwrap();
+        assert_eq!(attempt.started_at_ms, Some(1_600));
+        assert_eq!(attempt.heartbeat_ms, Some(2_000));
+        assert_eq!(attempt.lease, Some(renewed));
+    }
+
+    #[test]
+    fn heartbeat_rejects_stale_lease_generation() {
+        let ledger = OrchestrationLedger::open_in_memory().expect("ledger");
+        ledger
+            .upsert_task(&task("t1", TaskState::Running))
+            .expect("task");
+        ledger
+            .create_attempt(&attempt_req("t1", 1, "k1"))
+            .expect("attempt");
+        let stale = Lease {
+            owner: "coord-1".to_string(),
+            generation: 2,
+            expires_at_ms: 6_000,
+        };
+        assert!(matches!(
+            ledger.set_attempt_state(
+                "t1-att-1",
+                AttemptState::Heartbeat,
+                None,
+                "evt-stale-heartbeat",
+                Some(&stale),
+                2_000,
+            ),
+            Err(LedgerError::LeaseMismatch { .. })
+        ));
+        assert_eq!(
+            ledger.events_for_task("t1", 0, 10).expect("events").len(),
+            1
+        );
+    }
+
+    #[test]
+    fn lease_overflow_is_rejected_instead_of_dropped() {
+        let ledger = OrchestrationLedger::open_in_memory().expect("ledger");
+        ledger
+            .upsert_task(&task("t1", TaskState::Running))
+            .expect("task");
+        let mut request = attempt_req("t1", 1, "k1");
+        request.lease.as_mut().unwrap().generation = u64::MAX;
+        assert!(matches!(
+            ledger.create_attempt(&request),
+            Err(LedgerError::NumericOverflow("lease_generation"))
+        ));
+        assert!(ledger.attempts_for_task("t1").expect("history").is_empty());
+    }
+
+    #[test]
+    fn malformed_persisted_lease_is_reported_instead_of_clamped() {
+        let ledger = OrchestrationLedger::open_in_memory().expect("ledger");
+        ledger
+            .upsert_task(&task("t1", TaskState::Running))
+            .expect("task");
+        ledger
+            .create_attempt(&attempt_req("t1", 1, "k1"))
+            .expect("attempt");
+        {
+            let connection = ledger.connection.lock().expect("connection");
+            connection
+                .pragma_update(None, "ignore_check_constraints", "ON")
+                .expect("disable checks for corruption fixture");
+            connection
+                .execute(
+                    "UPDATE orchestration_attempts
+                     SET lease_generation = -1
+                     WHERE attempt_id = 't1-att-1'",
+                    [],
+                )
+                .expect("inject corrupt value");
+            connection
+                .pragma_update(None, "ignore_check_constraints", "OFF")
+                .expect("restore checks");
+        }
+        assert!(matches!(
+            ledger.latest_attempt("t1"),
+            Err(LedgerError::Sqlite(
+                rusqlite::Error::FromSqlConversionFailure(..)
+            ))
+        ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn open_rejects_symlinked_database_path() {
+        use std::os::unix::fs::symlink;
+
+        let temp = tempfile::tempdir().expect("tempdir");
+        let target = temp.path().join("target.sqlite3");
+        std::fs::write(&target, b"not a database").expect("target");
+        let link = temp.path().join("ledger.sqlite3");
+        symlink(&target, &link).expect("symlink");
+
+        assert!(matches!(
+            OrchestrationLedger::open(&link),
+            Err(LedgerError::Io(_))
+        ));
+        assert_eq!(
+            std::fs::read(&target).expect("target remains readable"),
+            b"not a database"
+        );
     }
 }
