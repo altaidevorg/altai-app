@@ -414,6 +414,16 @@ impl<'a> Coordinator<'a> {
             now,
         )?;
 
+        if new_state == AttemptState::Stalled {
+            self.ledger.set_task_state(
+                &attempt.task_id,
+                TaskState::NeedsAttention,
+                &format!("{}:task:needs_attention", identity.attempt_id),
+                now,
+            )?;
+            return Ok(PumpOutcome::Progressed(new_state));
+        }
+
         if !new_state.is_terminal() {
             return Ok(PumpOutcome::Progressed(new_state));
         }
@@ -814,6 +824,31 @@ mod tests {
             .claim_and_start("t1", "native", &mut runner, &clock)
             .expect("retry");
         assert_eq!(retry.attempt_id, "t1-att-2");
+    }
+
+    #[test]
+    fn stalled_runner_parks_the_task_for_attention() {
+        let ledger = ledger();
+        let coord = coord(&ledger);
+        let clock = ManualClock::new(2_000);
+        let mut runner = MockRunner::new();
+        runner.enqueue("t1-att-1", [RunnerEventKind::Stalled]);
+
+        let id = coord
+            .claim_and_start("t1", "native", &mut runner, &clock)
+            .expect("claim");
+        assert_eq!(
+            coord.pump(&id, &mut runner, &clock).expect("pump"),
+            PumpOutcome::Progressed(AttemptState::Stalled)
+        );
+        assert_eq!(
+            ledger.task("t1").unwrap().unwrap().state,
+            TaskState::NeedsAttention
+        );
+        assert_eq!(
+            ledger.attempt("t1-att-1").unwrap().unwrap().state,
+            AttemptState::Stalled
+        );
     }
 
     // --- Cancellation -------------------------------------------------------

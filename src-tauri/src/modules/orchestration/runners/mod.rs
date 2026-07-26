@@ -150,6 +150,7 @@ pub fn event_to_trigger(kind: &RunnerEventKind) -> Option<AttemptTrigger> {
 }
 
 pub mod mock;
+pub mod native;
 
 #[cfg(test)]
 mod tests {
