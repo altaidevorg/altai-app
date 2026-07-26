@@ -14,10 +14,19 @@
 //! a [`NativeFeeder`] (a clonable handle) via [`NativeRunnerAdapter::feeder`]
 //! and calls [`NativeFeeder::push_event`] from an async task; the adapter's
 //! [`RunnerAdapter::poll_event`] drains the same inbox synchronously.
+//!
+//! O6c adds the **dispatch bridge**: a [`NativeRunnerAdapter`] constructed via
+//! [`NativeRunnerAdapter::with_dispatch`] routes `start_attempt`/`steer`/`cancel`
+//! to an injected async [`NativeDispatch`] (which wraps the runtime's public
+//! `route_send`/`route_steer`/`route_cancel`). The attempt's id doubles as the
+//! native `chat_id`, so events observed for that chat feed straight back into the
+//! adapter's inbox. This closes the sync→async→sync loop without touching the
+//! runtime's core paths.
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::{Arc, Mutex};
 
+use async_trait::async_trait;
 use serde_json::Value;
 
 use super::{
@@ -50,6 +59,18 @@ struct NativeState {
 /// [`map_event`].
 pub struct NativeRunnerAdapter {
     state: Arc<Mutex<NativeState>>,
+    /// O6c dispatch bridge. `None` (via [`NativeRunnerAdapter::new`]) leaves the
+    /// adapter in pure-observation mode (O6a/O6b); `Some` makes `start_attempt`
+    /// actually launch a run and `steer`/`cancel` route to the runtime.
+    bridge: Option<NativeBridge>,
+}
+
+/// Async dispatch surface the adapter drives when constructed with
+/// [`NativeRunnerAdapter::with_dispatch`]. The production impl wraps
+/// `AgentRuntime` (`route_send`/`route_steer`/`route_cancel`); tests use a fake.
+struct NativeBridge {
+    handle: tokio::runtime::Handle,
+    dispatch: Arc<dyn NativeDispatch>,
 }
 
 impl Default for NativeRunnerAdapter {
@@ -62,6 +83,22 @@ impl NativeRunnerAdapter {
     pub fn new() -> Self {
         Self {
             state: Arc::new(Mutex::new(NativeState::default())),
+            bridge: None,
+        }
+    }
+
+    /// Construct a live adapter whose `start_attempt`/`steer`/`cancel` route to
+    /// `dispatch` via `handle` (spawned async tasks). Observed events still flow
+    /// back through [`NativeRunnerAdapter::feeder`]; the dispatch impl is
+    /// responsible for feeding them (a fake scripts them; the production impl
+    /// relies on the `agent://event` listener tap).
+    pub fn with_dispatch(
+        dispatch: Arc<dyn NativeDispatch>,
+        handle: tokio::runtime::Handle,
+    ) -> Self {
+        Self {
+            state: Arc::new(Mutex::new(NativeState::default())),
+            bridge: Some(NativeBridge { handle, dispatch }),
         }
     }
 
@@ -115,6 +152,29 @@ impl NativeFeeder {
         let mut state = lock(&self.state)?;
         push_event_locked(&mut state, attempt_id, event)
     }
+}
+
+/// Async dispatch surface the adapter drives (O6c). `attempt_id` doubles as the
+/// native `chat_id`.
+///
+/// Production binding (needs a running app + provider to validate):
+/// - `launch` → `runtime::route_send(...)` (runtime.rs:1813), `chat_id = attempt_id`.
+/// - `steer`  → resolve active `run_id` via `RunCoordinator::active_run`, then
+///   `runtime::route_steer(...)` (runtime.rs:2144).
+/// - `cancel` → `runtime::route_cancel(...)` (runtime.rs:2116).
+///
+/// Observed events are fed into `feeder` by the `agent://event` listener tap
+/// (the single emit chokepoint, runtime.rs:742): deserialize the envelope's
+/// redacted `event` JSON back into an [`Event`] and call `feeder.push_event`.
+#[async_trait]
+pub trait NativeDispatch: Send + Sync {
+    /// Launch a run for `attempt_id`. Observed events must be fed into `feeder`.
+    /// Returns `Ok` once the launch is accepted; the run continues asynchronously.
+    async fn launch(&self, attempt_id: String, input: String, feeder: NativeFeeder);
+    /// Steer the active run for `attempt_id` (no-op if none is active).
+    async fn steer(&self, attempt_id: String, message: String);
+    /// Cancel the active run for `attempt_id` (no-op if none is active).
+    async fn cancel(&self, attempt_id: String);
 }
 
 fn lock(state: &Arc<Mutex<NativeState>>) -> RunnerResult<std::sync::MutexGuard<'_, NativeState>> {
@@ -180,17 +240,32 @@ impl RunnerAdapter for NativeRunnerAdapter {
     }
 
     fn start_attempt(&mut self, spec: &AttemptSpec) -> RunnerResult<AttemptIdentity> {
-        let mut state = lock(&self.state)?;
-        // O6b will route this to the live runtime (ensure_instance). Here we
-        // establish the immutable identity and an empty inbox.
-        if state.finished.contains(&spec.attempt_id) {
-            return Err(RunnerError::Finished {
-                attempt_id: spec.attempt_id.clone(),
+        {
+            let mut state = lock(&self.state)?;
+            // Establish the immutable identity and an empty inbox.
+            if state.finished.contains(&spec.attempt_id) {
+                return Err(RunnerError::Finished {
+                    attempt_id: spec.attempt_id.clone(),
+                });
+            }
+            // Starting the same active identity is idempotent and must not discard
+            // events already delivered by the runtime bus.
+            state.inbox.entry(spec.attempt_id.clone()).or_default();
+        }
+        // O6c: route to the live runtime via the async dispatch. The run launches
+        // asynchronously; observed events flow back through the feeder. The
+        // attempt's id doubles as the native chat_id, so the adapter can poll
+        // events before the launched task has produced any.
+        if let Some(bridge) = &self.bridge {
+            let dispatch = bridge.dispatch.clone();
+            let handle = bridge.handle.clone();
+            let feeder = self.feeder();
+            let attempt_id = spec.attempt_id.clone();
+            let input = spec.input.clone();
+            handle.spawn(async move {
+                dispatch.launch(attempt_id, input, feeder).await;
             });
         }
-        // Starting the same active identity is idempotent and must not discard
-        // events already delivered by the runtime bus.
-        state.inbox.entry(spec.attempt_id.clone()).or_default();
         Ok(AttemptIdentity {
             attempt_id: spec.attempt_id.clone(),
             handle: spec.attempt_id.clone(),
@@ -210,39 +285,62 @@ impl RunnerAdapter for NativeRunnerAdapter {
 
     fn steer(&mut self, identity: &AttemptIdentity, message: &str) -> RunnerResult<()> {
         validate_identity(identity)?;
-        let mut state = lock(&self.state)?;
-        if !state.inbox.contains_key(&identity.attempt_id) {
-            return Err(RunnerError::UnknownAttempt {
-                attempt_id: identity.attempt_id.clone(),
+        {
+            let mut state = lock(&self.state)?;
+            if !state.inbox.contains_key(&identity.attempt_id) {
+                return Err(RunnerError::UnknownAttempt {
+                    attempt_id: identity.attempt_id.clone(),
+                });
+            }
+            if state.finished.contains(&identity.attempt_id) {
+                return Err(RunnerError::Finished {
+                    attempt_id: identity.attempt_id.clone(),
+                });
+            }
+            // Record the steering intent; the async dispatch executes it.
+            state
+                .steer_log
+                .push((identity.attempt_id.clone(), message.to_string()));
+        }
+        // O6c: route to the runtime's `route_steer` asynchronously.
+        if let Some(bridge) = &self.bridge {
+            let dispatch = bridge.dispatch.clone();
+            let handle = bridge.handle.clone();
+            let attempt_id = identity.attempt_id.clone();
+            let message = message.to_string();
+            handle.spawn(async move {
+                dispatch.steer(attempt_id, message).await;
             });
         }
-        if state.finished.contains(&identity.attempt_id) {
-            return Err(RunnerError::Finished {
-                attempt_id: identity.attempt_id.clone(),
-            });
-        }
-        // O6b routes this to `route_steer` on the owning runtime only.
-        state
-            .steer_log
-            .push((identity.attempt_id.clone(), message.to_string()));
         Ok(())
     }
 
     fn cancel(&mut self, identity: &AttemptIdentity) -> RunnerResult<()> {
         validate_identity(identity)?;
-        let mut state = lock(&self.state)?;
-        if !state.inbox.contains_key(&identity.attempt_id) {
-            return Err(RunnerError::UnknownAttempt {
-                attempt_id: identity.attempt_id.clone(),
+        {
+            let mut state = lock(&self.state)?;
+            if !state.inbox.contains_key(&identity.attempt_id) {
+                return Err(RunnerError::UnknownAttempt {
+                    attempt_id: identity.attempt_id.clone(),
+                });
+            }
+            if state.finished.contains(&identity.attempt_id) {
+                return Err(RunnerError::Finished {
+                    attempt_id: identity.attempt_id.clone(),
+                });
+            }
+            // Record the cancel intent; the async dispatch executes it.
+            state.cancel_log.push(identity.attempt_id.clone());
+        }
+        // O6c: route to the runtime's `route_cancel` asynchronously.
+        if let Some(bridge) = &self.bridge {
+            let dispatch = bridge.dispatch.clone();
+            let handle = bridge.handle.clone();
+            let attempt_id = identity.attempt_id.clone();
+            handle.spawn(async move {
+                dispatch.cancel(attempt_id).await;
             });
         }
-        if state.finished.contains(&identity.attempt_id) {
-            return Err(RunnerError::Finished {
-                attempt_id: identity.attempt_id.clone(),
-            });
-        }
-        // O6b routes this to `route_cancel` on the owning runtime only.
-        state.cancel_log.push(identity.attempt_id.clone());
         Ok(())
     }
 
@@ -904,5 +1002,217 @@ mod tests {
         assert!(state.finished.is_empty());
         assert!(state.steer_log.is_empty());
         assert!(state.cancel_log.is_empty());
+    }
+
+    // --- O6c: dispatch bridge -----------------------------------------------
+
+    /// A `NativeDispatch` that scripts a normal run lifecycle (Started → Output →
+    /// Completed) into the feeder and records steer/cancel calls. Stands in for
+    /// the production `AgentRuntime` binding, which needs a running app + provider.
+    struct FakeNativeDispatch {
+        launches: Arc<Mutex<Vec<String>>>,
+        steers: Arc<Mutex<Vec<(String, String)>>>,
+        cancels: Arc<Mutex<Vec<String>>>,
+    }
+
+    impl FakeNativeDispatch {
+        fn new() -> (Self, DispatchCalls) {
+            let launches = Arc::new(Mutex::new(Vec::new()));
+            let steers = Arc::new(Mutex::new(Vec::new()));
+            let cancels = Arc::new(Mutex::new(Vec::new()));
+            let calls = DispatchCalls {
+                launches: Arc::clone(&launches),
+                steers: Arc::clone(&steers),
+                cancels: Arc::clone(&cancels),
+            };
+            let dispatch = Self {
+                launches,
+                steers,
+                cancels,
+            };
+            (dispatch, calls)
+        }
+    }
+
+    struct DispatchCalls {
+        launches: Arc<Mutex<Vec<String>>>,
+        steers: Arc<Mutex<Vec<(String, String)>>>,
+        cancels: Arc<Mutex<Vec<String>>>,
+    }
+
+    #[async_trait]
+    impl NativeDispatch for FakeNativeDispatch {
+        async fn launch(&self, attempt_id: String, _input: String, feeder: NativeFeeder) {
+            self.launches.lock().unwrap().push(attempt_id.clone());
+            // Script a normal lifecycle: started → one output → completed.
+            feeder
+                .push_event(
+                    &attempt_id,
+                    &Event::RunStarted {
+                        run_id: attempt_id.clone(),
+                    },
+                )
+                .ok();
+            feeder
+                .push_event(
+                    &attempt_id,
+                    &Event::AgentMessage {
+                        content: "working".into(),
+                        role: "assistant".into(),
+                    },
+                )
+                .ok();
+            feeder
+                .push_event(
+                    &attempt_id,
+                    &Event::RunTerminated {
+                        run_id: attempt_id.clone(),
+                        outcome: serde_json::json!({ "kind": "completed" }),
+                    },
+                )
+                .ok();
+        }
+
+        async fn steer(&self, attempt_id: String, message: String) {
+            self.steers.lock().unwrap().push((attempt_id, message));
+        }
+
+        async fn cancel(&self, attempt_id: String) {
+            self.cancels.lock().unwrap().push(attempt_id);
+        }
+    }
+
+    async fn drain_until_terminal(
+        a: &mut NativeRunnerAdapter,
+        id: &AttemptIdentity,
+        terminal: RunnerEventKind,
+    ) -> Vec<RunnerEventKind> {
+        let mut kinds = Vec::new();
+        for _ in 0..500 {
+            while let Some(e) = a.poll_event(id).expect("poll") {
+                kinds.push(e.kind);
+            }
+            if kinds.contains(&terminal) {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+        kinds
+    }
+
+    #[tokio::test]
+    async fn dispatch_launch_feeds_events_to_completion() {
+        // End-to-end O6c round trip: the synchronous coordinator starts an
+        // attempt; the async dispatch launches and feeds events; the sync poll
+        // drains them to a terminal — proving sync→async→sync works.
+        let handle = tokio::runtime::Handle::current();
+        let (dispatch, calls) = FakeNativeDispatch::new();
+        let mut adapter = NativeRunnerAdapter::with_dispatch(Arc::new(dispatch), handle);
+
+        let identity = adapter
+            .start_attempt(&AttemptSpec {
+                task_id: "t1".into(),
+                attempt_id: "att-1".into(),
+                input: "do the thing".into(),
+            })
+            .expect("start");
+
+        let kinds = drain_until_terminal(&mut adapter, &identity, RunnerEventKind::Completed).await;
+
+        assert!(kinds.contains(&RunnerEventKind::Started));
+        assert!(kinds.contains(&RunnerEventKind::Output));
+        assert!(kinds.contains(&RunnerEventKind::Completed));
+        // Ordering: Started precedes Completed across the async/sync boundary.
+        let pos = |k: RunnerEventKind| kinds.iter().position(|x| *x == k).unwrap();
+        assert!(pos(RunnerEventKind::Started) < pos(RunnerEventKind::Completed));
+        // The dispatch observed exactly one launch with the attempt's id.
+        assert_eq!(*calls.launches.lock().unwrap(), vec!["att-1".to_string()]);
+    }
+
+    #[tokio::test]
+    async fn dispatch_steer_and_cancel_route_async() {
+        let handle = tokio::runtime::Handle::current();
+        let (dispatch, calls) = FakeNativeDispatch::new();
+        let mut adapter = NativeRunnerAdapter::with_dispatch(Arc::new(dispatch), handle);
+
+        let id = AttemptIdentity {
+            attempt_id: "att-1".into(),
+            handle: "att-1".into(),
+        };
+        adapter
+            .start_attempt(&AttemptSpec {
+                task_id: "t1".into(),
+                attempt_id: "att-1".into(),
+                input: String::new(),
+            })
+            .expect("start");
+
+        adapter.steer(&id, "focus on tests").expect("steer");
+        adapter.cancel(&id).expect("cancel");
+
+        // Let the spawned dispatch tasks run.
+        for _ in 0..50 {
+            tokio::task::yield_now().await;
+        }
+
+        assert_eq!(
+            *calls.steers.lock().unwrap(),
+            vec![("att-1".to_string(), "focus on tests".to_string())]
+        );
+        assert_eq!(*calls.cancels.lock().unwrap(), vec!["att-1".to_string()]);
+    }
+
+    #[tokio::test]
+    async fn pure_observation_adapter_never_dispatches() {
+        // A `new()` adapter (no bridge) never launches: events arrive only via
+        // the explicit `feed`/feeder seam. This is the O6a/O6b contract.
+        let (dispatch, calls) = FakeNativeDispatch::new();
+        // The dispatch is intentionally never wired; ensure no launch happens
+        // when the bridge is absent.
+        let _ = dispatch;
+        let mut adapter = NativeRunnerAdapter::new();
+        adapter
+            .start_attempt(&AttemptSpec {
+                task_id: "t1".into(),
+                attempt_id: "att-1".into(),
+                input: "ignored".into(),
+            })
+            .expect("start");
+        // No async work was spawned: nothing drains without an explicit feed.
+        for _ in 0..10 {
+            assert_eq!(poll_kind(&mut adapter, "att-1"), None);
+            tokio::task::yield_now().await;
+        }
+        assert!(calls.launches.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn dispatch_terminal_closes_attempt_before_poll() {
+        // The async feeder marks the attempt terminal; a later sync cancel is
+        // rejected with Finished even though the coordinator has not yet polled.
+        let handle = tokio::runtime::Handle::current();
+        let (dispatch, _) = FakeNativeDispatch::new();
+        let mut adapter = NativeRunnerAdapter::with_dispatch(Arc::new(dispatch), handle);
+
+        let id = AttemptIdentity {
+            attempt_id: "att-1".into(),
+            handle: "att-1".into(),
+        };
+        adapter
+            .start_attempt(&AttemptSpec {
+                task_id: "t1".into(),
+                attempt_id: "att-1".into(),
+                input: String::new(),
+            })
+            .expect("start");
+
+        // Drain until the dispatch's terminal lands.
+        drain_until_terminal(&mut adapter, &id, RunnerEventKind::Completed).await;
+
+        // The attempt is now closed: cancel is rejected.
+        assert!(matches!(
+            adapter.cancel(&id),
+            Err(RunnerError::Finished { .. })
+        ));
     }
 }
