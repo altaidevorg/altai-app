@@ -430,18 +430,22 @@ impl AttemptState {
             (InputRequired, AttemptTrigger::Resume) => Started,
             (InputRequired, AttemptTrigger::RequestCancel) => CancelRequested,
             (InputRequired, AttemptTrigger::Cancel) => Cancelled,
+            (InputRequired, AttemptTrigger::Stall) => Stalled,
             (ApprovalRequired, AttemptTrigger::Resume) => Started,
             (ApprovalRequired, AttemptTrigger::RequestCancel) => CancelRequested,
             (ApprovalRequired, AttemptTrigger::Cancel) => Cancelled,
+            (ApprovalRequired, AttemptTrigger::Stall) => Stalled,
             (Steered, AttemptTrigger::Heartbeat) => Heartbeat,
             (Steered, AttemptTrigger::Complete) => Completed,
             (Steered, AttemptTrigger::Fail) => Failed,
             (Steered, AttemptTrigger::RequestCancel) => CancelRequested,
+            (Steered, AttemptTrigger::Stall) => Stalled,
             // CancelRequested resolves to cancelled, or to completed/failed if
             // the terminal event raced ahead (first-terminal-wins).
             (CancelRequested, AttemptTrigger::Cancel) => Cancelled,
             (CancelRequested, AttemptTrigger::Complete) => Completed,
             (CancelRequested, AttemptTrigger::Fail) => Failed,
+            (CancelRequested, AttemptTrigger::Stall) => Stalled,
             // Stalled may resume or fail out.
             (Stalled, AttemptTrigger::Resume) => Started,
             (Stalled, AttemptTrigger::Fail) => Failed,
@@ -731,6 +735,24 @@ mod tests {
             .transition(AttemptTrigger::Complete)
             .unwrap();
         assert_eq!(s, AttemptState::Completed);
+    }
+
+    #[test]
+    fn active_attempt_phases_can_stall_when_dispatch_is_lost() {
+        for state in [
+            AttemptState::Started,
+            AttemptState::Heartbeat,
+            AttemptState::InputRequired,
+            AttemptState::ApprovalRequired,
+            AttemptState::Steered,
+            AttemptState::CancelRequested,
+        ] {
+            assert_eq!(
+                state.transition(AttemptTrigger::Stall).unwrap(),
+                AttemptState::Stalled,
+                "{state:?} must be parkable when its dispatch task is lost"
+            );
+        }
     }
 
     // --- Attempt: representative invalid transitions -------------------------

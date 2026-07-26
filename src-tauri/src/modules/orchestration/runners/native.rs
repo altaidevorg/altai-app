@@ -27,7 +27,9 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
+use futures_util::FutureExt;
 use serde_json::Value;
+use tokio::task::JoinHandle;
 
 use super::{
     AttemptIdentity, AttemptSpec, RunnerAdapter, RunnerCapabilities, RunnerError, RunnerEvent,
@@ -71,6 +73,73 @@ pub struct NativeRunnerAdapter {
 struct NativeBridge {
     handle: tokio::runtime::Handle,
     dispatch: Arc<dyn NativeDispatch>,
+    tasks: Vec<DispatchTask>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DispatchAction {
+    Launch,
+    Steer,
+    Cancel,
+}
+
+impl DispatchAction {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Launch => "launch",
+            Self::Steer => "steer",
+            Self::Cancel => "cancel",
+        }
+    }
+}
+
+struct DispatchTask {
+    attempt_id: String,
+    action: DispatchAction,
+    join: JoinHandle<Result<(), String>>,
+}
+
+struct DispatchFailure {
+    attempt_id: String,
+    action: DispatchAction,
+    error: String,
+}
+
+impl NativeBridge {
+    fn collect_failures(&mut self) -> Vec<DispatchFailure> {
+        let mut pending = Vec::with_capacity(self.tasks.len());
+        let mut failures = Vec::new();
+        for mut task in self.tasks.drain(..) {
+            if !task.join.is_finished() {
+                pending.push(task);
+                continue;
+            }
+            match (&mut task.join).now_or_never() {
+                Some(Ok(Ok(()))) => {}
+                Some(Ok(Err(error))) => failures.push(DispatchFailure {
+                    attempt_id: task.attempt_id,
+                    action: task.action,
+                    error,
+                }),
+                Some(Err(error)) => failures.push(DispatchFailure {
+                    attempt_id: task.attempt_id,
+                    action: task.action,
+                    error: format!("dispatch task did not complete: {error}"),
+                }),
+                // Preserve the handle defensively if its readiness changes
+                // between the observation and the non-blocking poll.
+                None => pending.push(task),
+            }
+        }
+        self.tasks = pending;
+        failures
+    }
+
+    fn abort_all(&mut self) {
+        for task in self.tasks.drain(..) {
+            task.join.abort();
+        }
+    }
 }
 
 impl Default for NativeRunnerAdapter {
@@ -98,7 +167,11 @@ impl NativeRunnerAdapter {
     ) -> Self {
         Self {
             state: Arc::new(Mutex::new(NativeState::default())),
-            bridge: Some(NativeBridge { handle, dispatch }),
+            bridge: Some(NativeBridge {
+                handle,
+                dispatch,
+                tasks: Vec::new(),
+            }),
         }
     }
 
@@ -170,11 +243,16 @@ impl NativeFeeder {
 pub trait NativeDispatch: Send + Sync {
     /// Launch a run for `attempt_id`. Observed events must be fed into `feeder`.
     /// Returns `Ok` once the launch is accepted; the run continues asynchronously.
-    async fn launch(&self, attempt_id: String, input: String, feeder: NativeFeeder);
-    /// Steer the active run for `attempt_id` (no-op if none is active).
-    async fn steer(&self, attempt_id: String, message: String);
-    /// Cancel the active run for `attempt_id` (no-op if none is active).
-    async fn cancel(&self, attempt_id: String);
+    async fn launch(
+        &self,
+        attempt_id: String,
+        input: String,
+        feeder: NativeFeeder,
+    ) -> Result<(), String>;
+    /// Steer the active run for `attempt_id`.
+    async fn steer(&self, attempt_id: String, message: String) -> Result<(), String>;
+    /// Cancel the active run for `attempt_id`.
+    async fn cancel(&self, attempt_id: String) -> Result<(), String>;
 }
 
 fn lock(state: &Arc<Mutex<NativeState>>) -> RunnerResult<std::sync::MutexGuard<'_, NativeState>> {
@@ -224,6 +302,36 @@ fn push_event_locked(state: &mut NativeState, attempt_id: &str, event: &Event) -
     Ok(())
 }
 
+fn push_dispatch_failure_locked(state: &mut NativeState, failure: DispatchFailure) {
+    // A native terminal event may have won the race before the dispatch task
+    // itself failed. Preserve that first terminal outcome.
+    if state.finished.contains(&failure.attempt_id) {
+        return;
+    }
+    if !state.inbox.contains_key(&failure.attempt_id) {
+        return;
+    }
+    let action = failure.action.as_str();
+    let payload = serde_json::json!({
+        "kind": "native_dispatch_failed",
+        "action": action,
+        "error": failure.error,
+    });
+    let attempt_id = failure.attempt_id;
+    let seq = next_seq(state, &attempt_id);
+    state
+        .inbox
+        .get_mut(&attempt_id)
+        .expect("checked above")
+        .push_back(RunnerEvent {
+            attempt_id: attempt_id.clone(),
+            kind: RunnerEventKind::Stalled,
+            seq,
+            payload,
+        });
+    state.finished.insert(attempt_id);
+}
+
 fn next_seq(state: &mut NativeState, attempt_id: &str) -> Seq {
     let entry = state.seq.entry(attempt_id.to_string()).or_insert(0);
     *entry += 1;
@@ -265,14 +373,19 @@ impl RunnerAdapter for NativeRunnerAdapter {
         // attempt's id doubles as the native chat_id, so the adapter can poll
         // events before the launched task has produced any.
         if is_new {
-            if let Some(bridge) = &self.bridge {
+            let feeder = self.feeder();
+            if let Some(bridge) = &mut self.bridge {
                 let dispatch = bridge.dispatch.clone();
                 let handle = bridge.handle.clone();
-                let feeder = self.feeder();
                 let attempt_id = spec.attempt_id.clone();
                 let input = spec.input.clone();
-                handle.spawn(async move {
-                    dispatch.launch(attempt_id, input, feeder).await;
+                let task_attempt_id = attempt_id.clone();
+                let join =
+                    handle.spawn(async move { dispatch.launch(attempt_id, input, feeder).await });
+                bridge.tasks.push(DispatchTask {
+                    attempt_id: task_attempt_id,
+                    action: DispatchAction::Launch,
+                    join,
                 });
             }
         }
@@ -284,7 +397,15 @@ impl RunnerAdapter for NativeRunnerAdapter {
 
     fn poll_event(&mut self, identity: &AttemptIdentity) -> RunnerResult<Option<RunnerEvent>> {
         validate_identity(identity)?;
+        let failures = self
+            .bridge
+            .as_mut()
+            .map(NativeBridge::collect_failures)
+            .unwrap_or_default();
         let mut state = lock(&self.state)?;
+        for failure in failures {
+            push_dispatch_failure_locked(&mut state, failure);
+        }
         let Some(queue) = state.inbox.get_mut(&identity.attempt_id) else {
             return Err(RunnerError::UnknownAttempt {
                 attempt_id: identity.attempt_id.clone(),
@@ -313,13 +434,17 @@ impl RunnerAdapter for NativeRunnerAdapter {
                 .push((identity.attempt_id.clone(), message.to_string()));
         }
         // O6c: route to the runtime's `route_steer` asynchronously.
-        if let Some(bridge) = &self.bridge {
+        if let Some(bridge) = &mut self.bridge {
             let dispatch = bridge.dispatch.clone();
             let handle = bridge.handle.clone();
             let attempt_id = identity.attempt_id.clone();
             let message = message.to_string();
-            handle.spawn(async move {
-                dispatch.steer(attempt_id, message).await;
+            let task_attempt_id = attempt_id.clone();
+            let join = handle.spawn(async move { dispatch.steer(attempt_id, message).await });
+            bridge.tasks.push(DispatchTask {
+                attempt_id: task_attempt_id,
+                action: DispatchAction::Steer,
+                join,
             });
         }
         Ok(())
@@ -343,18 +468,25 @@ impl RunnerAdapter for NativeRunnerAdapter {
             state.cancel_log.push(identity.attempt_id.clone());
         }
         // O6c: route to the runtime's `route_cancel` asynchronously.
-        if let Some(bridge) = &self.bridge {
+        if let Some(bridge) = &mut self.bridge {
             let dispatch = bridge.dispatch.clone();
             let handle = bridge.handle.clone();
             let attempt_id = identity.attempt_id.clone();
-            handle.spawn(async move {
-                dispatch.cancel(attempt_id).await;
+            let task_attempt_id = attempt_id.clone();
+            let join = handle.spawn(async move { dispatch.cancel(attempt_id).await });
+            bridge.tasks.push(DispatchTask {
+                attempt_id: task_attempt_id,
+                action: DispatchAction::Cancel,
+                join,
             });
         }
         Ok(())
     }
 
     fn shutdown(&mut self) {
+        if let Some(bridge) = &mut self.bridge {
+            bridge.abort_all();
+        }
         // Shutdown cannot report an error through RunnerAdapter, so recover a
         // poisoned guard and still honor the cleanup contract. Clear the poison
         // marker only after every resource has been released.
@@ -1052,7 +1184,12 @@ mod tests {
 
     #[async_trait]
     impl NativeDispatch for FakeNativeDispatch {
-        async fn launch(&self, attempt_id: String, _input: String, feeder: NativeFeeder) {
+        async fn launch(
+            &self,
+            attempt_id: String,
+            _input: String,
+            feeder: NativeFeeder,
+        ) -> Result<(), String> {
             self.launches.lock().unwrap().push(attempt_id.clone());
             // Script a normal lifecycle: started → one output → completed.
             feeder
@@ -1062,7 +1199,7 @@ mod tests {
                         run_id: attempt_id.clone(),
                     },
                 )
-                .ok();
+                .map_err(|error| error.to_string())?;
             feeder
                 .push_event(
                     &attempt_id,
@@ -1071,7 +1208,7 @@ mod tests {
                         role: "assistant".into(),
                     },
                 )
-                .ok();
+                .map_err(|error| error.to_string())?;
             feeder
                 .push_event(
                     &attempt_id,
@@ -1080,16 +1217,124 @@ mod tests {
                         outcome: serde_json::json!({ "kind": "completed" }),
                     },
                 )
-                .ok();
+                .map_err(|error| error.to_string())?;
+            Ok(())
         }
 
-        async fn steer(&self, attempt_id: String, message: String) {
+        async fn steer(&self, attempt_id: String, message: String) -> Result<(), String> {
             self.steers.lock().unwrap().push((attempt_id, message));
+            Ok(())
         }
 
-        async fn cancel(&self, attempt_id: String) {
+        async fn cancel(&self, attempt_id: String) -> Result<(), String> {
             self.cancels.lock().unwrap().push(attempt_id);
+            Ok(())
         }
+    }
+
+    struct FailingNativeDispatch {
+        action: DispatchAction,
+    }
+
+    impl FailingNativeDispatch {
+        fn result(&self, action: DispatchAction) -> Result<(), String> {
+            if self.action == action {
+                Err(format!("{} route unavailable", action.as_str()))
+            } else {
+                Ok(())
+            }
+        }
+    }
+
+    #[async_trait]
+    impl NativeDispatch for FailingNativeDispatch {
+        async fn launch(
+            &self,
+            _attempt_id: String,
+            _input: String,
+            _feeder: NativeFeeder,
+        ) -> Result<(), String> {
+            self.result(DispatchAction::Launch)
+        }
+
+        async fn steer(&self, _attempt_id: String, _message: String) -> Result<(), String> {
+            self.result(DispatchAction::Steer)
+        }
+
+        async fn cancel(&self, _attempt_id: String) -> Result<(), String> {
+            self.result(DispatchAction::Cancel)
+        }
+    }
+
+    struct PanickingNativeDispatch;
+
+    #[async_trait]
+    impl NativeDispatch for PanickingNativeDispatch {
+        async fn launch(
+            &self,
+            _attempt_id: String,
+            _input: String,
+            _feeder: NativeFeeder,
+        ) -> Result<(), String> {
+            panic!("launch dispatch panic");
+        }
+
+        async fn steer(&self, _attempt_id: String, _message: String) -> Result<(), String> {
+            Ok(())
+        }
+
+        async fn cancel(&self, _attempt_id: String) -> Result<(), String> {
+            Ok(())
+        }
+    }
+
+    struct PendingNativeDispatch {
+        started: Arc<std::sync::atomic::AtomicBool>,
+        dropped: Arc<std::sync::atomic::AtomicBool>,
+    }
+
+    struct DropSignal(Arc<std::sync::atomic::AtomicBool>);
+
+    impl Drop for DropSignal {
+        fn drop(&mut self) {
+            self.0.store(true, std::sync::atomic::Ordering::SeqCst);
+        }
+    }
+
+    #[async_trait]
+    impl NativeDispatch for PendingNativeDispatch {
+        async fn launch(
+            &self,
+            _attempt_id: String,
+            _input: String,
+            _feeder: NativeFeeder,
+        ) -> Result<(), String> {
+            self.started
+                .store(true, std::sync::atomic::Ordering::SeqCst);
+            let _drop_signal = DropSignal(self.dropped.clone());
+            std::future::pending().await
+        }
+
+        async fn steer(&self, _attempt_id: String, _message: String) -> Result<(), String> {
+            Ok(())
+        }
+
+        async fn cancel(&self, _attempt_id: String) -> Result<(), String> {
+            Ok(())
+        }
+    }
+
+    async fn next_dispatch_event(
+        adapter: &mut NativeRunnerAdapter,
+        identity: &AttemptIdentity,
+    ) -> RunnerEvent {
+        for _ in 0..500 {
+            if let Some(event) = adapter.poll_event(identity).expect("poll") {
+                return event;
+            }
+            tokio::task::yield_now().await;
+        }
+        panic!("dispatch task did not produce an observable event");
     }
 
     async fn drain_until_terminal(
@@ -1250,5 +1495,105 @@ mod tests {
             adapter.cancel(&id),
             Err(RunnerError::Finished { .. })
         ));
+    }
+
+    #[tokio::test]
+    async fn dispatch_errors_are_observable_for_every_action() {
+        for action in [
+            DispatchAction::Launch,
+            DispatchAction::Steer,
+            DispatchAction::Cancel,
+        ] {
+            let handle = tokio::runtime::Handle::current();
+            let dispatch = FailingNativeDispatch { action };
+            let mut adapter = NativeRunnerAdapter::with_dispatch(Arc::new(dispatch), handle);
+            let identity = adapter
+                .start_attempt(&AttemptSpec {
+                    task_id: "t1".into(),
+                    attempt_id: "att-1".into(),
+                    input: String::new(),
+                })
+                .expect("start");
+
+            match action {
+                DispatchAction::Launch => {}
+                DispatchAction::Steer => adapter.steer(&identity, "focus").expect("steer"),
+                DispatchAction::Cancel => adapter.cancel(&identity).expect("cancel"),
+            }
+
+            let event = next_dispatch_event(&mut adapter, &identity).await;
+            assert_eq!(event.kind, RunnerEventKind::Stalled);
+            assert_eq!(event.payload["kind"], "native_dispatch_failed");
+            assert_eq!(event.payload["action"], action.as_str());
+            assert_eq!(
+                event.payload["error"],
+                format!("{} route unavailable", action.as_str())
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn dispatch_panics_are_observable() {
+        let handle = tokio::runtime::Handle::current();
+        let mut adapter =
+            NativeRunnerAdapter::with_dispatch(Arc::new(PanickingNativeDispatch), handle);
+        let identity = adapter
+            .start_attempt(&AttemptSpec {
+                task_id: "t1".into(),
+                attempt_id: "att-1".into(),
+                input: String::new(),
+            })
+            .expect("start");
+
+        let event = next_dispatch_event(&mut adapter, &identity).await;
+        assert_eq!(event.kind, RunnerEventKind::Stalled);
+        assert_eq!(event.payload["action"], "launch");
+        assert!(event.payload["error"]
+            .as_str()
+            .expect("error string")
+            .contains("panicked"));
+    }
+
+    #[tokio::test]
+    async fn shutdown_aborts_pending_dispatch_tasks() {
+        let started = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let dropped = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let dispatch = PendingNativeDispatch {
+            started: started.clone(),
+            dropped: dropped.clone(),
+        };
+        let handle = tokio::runtime::Handle::current();
+        let mut adapter = NativeRunnerAdapter::with_dispatch(Arc::new(dispatch), handle);
+        adapter
+            .start_attempt(&AttemptSpec {
+                task_id: "t1".into(),
+                attempt_id: "att-1".into(),
+                input: String::new(),
+            })
+            .expect("start");
+
+        for _ in 0..500 {
+            if started.load(std::sync::atomic::Ordering::SeqCst) {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+        assert!(started.load(std::sync::atomic::Ordering::SeqCst));
+
+        adapter.shutdown();
+
+        for _ in 0..500 {
+            if dropped.load(std::sync::atomic::Ordering::SeqCst) {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+        assert!(dropped.load(std::sync::atomic::Ordering::SeqCst));
+        assert!(adapter
+            .bridge
+            .as_ref()
+            .expect("live bridge")
+            .tasks
+            .is_empty());
     }
 }
