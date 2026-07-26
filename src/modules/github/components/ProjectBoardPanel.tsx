@@ -1,12 +1,10 @@
-import { Button } from "@/components/ui/button";
-import { Spinner } from "@/components/ui/spinner";
 import { useGitHubStore } from "@/modules/github";
+import { githubCapabilities } from "@/modules/github/lib/capabilities";
 import {
   listRepoProjects,
   type ProjectSummary,
 } from "@/modules/github/lib/projects";
 import { useRepoSlug } from "@/modules/github/lib/useRepoSlug";
-import { openSettingsWindow } from "@/modules/settings/openSettingsWindow";
 import { GithubIcon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useEffect, useState } from "react";
@@ -30,26 +28,40 @@ function isScopeError(message: string): boolean {
 }
 
 /**
- * Project-management board tab. Defaults to an always-populated **Overview**
- * (issues, PRs, agent todos, and live sub-agents grouped into Todo / In
- * Progress / Done) so the board is never empty, and lets the user switch to any
- * linked GitHub Projects v2 board. The Overview needs no GitHub Project and no
- * `project` scope — it runs purely off the REST issues/PRs the user can already
- * see, plus local agent state.
+ * Local-first project-management tab. Overview is always available for todos
+ * and agent runs. Authentication only unlocks remote issues, pull requests,
+ * and linked GitHub Projects.
  */
 export function ProjectBoardPanel({ repoRoot }: Props) {
   const connection = useGitHubStore((s) => s.connection);
+  const githubHydrated = useGitHubStore((s) => s.hydrated);
+  const refreshGitHub = useGitHubStore((s) => s.refresh);
   const slugState = useRepoSlug(repoRoot);
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
   const [projectsNote, setProjectsNote] = useState<string | null>(null);
   const [mode, setMode] = useState<string>(OVERVIEW);
 
   const slug = slugState.status === "ready" ? slugState.slug : null;
+  const capabilities = githubCapabilities({
+    connected: !!connection,
+    repoState: slugState.status,
+  });
+  const workspaceName =
+    repoRoot.split(/[\\/]/).filter(Boolean).pop() ?? "Local workspace";
+
+  useEffect(() => {
+    if (!githubHydrated) void refreshGitHub();
+  }, [githubHydrated, refreshGitHub]);
 
   // Fetch linked Projects v2 for the mode selector. Non-blocking: a scope error
   // or no projects must NOT stop the Overview board from rendering.
   useEffect(() => {
-    if (!slug || !connection) return;
+    if (!slug || !capabilities.linkedProjects) {
+      setProjects([]);
+      setProjectsNote(null);
+      setMode(OVERVIEW);
+      return;
+    }
     let alive = true;
     setProjectsNote(null);
     listRepoProjects(slug)
@@ -68,45 +80,7 @@ export function ProjectBoardPanel({ repoRoot }: Props) {
     return () => {
       alive = false;
     };
-  }, [slug, connection]);
-
-  if (!connection) {
-    return (
-      <Centered>
-        <Glyph />
-        <p className="text-[13px] font-medium text-foreground">
-          Connect your GitHub account
-        </p>
-        <p className="max-w-[22rem] text-center text-[12px] text-muted-foreground">
-          Track issues, PRs, agent todos, and live sub-agents on one board.
-        </p>
-        <Button onClick={() => openSettingsWindow("github")} className="gap-1.5">
-          <HugeiconsIcon icon={GithubIcon} size={14} strokeWidth={1.75} />
-          Connect to GitHub
-        </Button>
-      </Centered>
-    );
-  }
-
-  if (slugState.status === "loading") {
-    return (
-      <Centered>
-        <Spinner className="size-4" />
-        <p className="text-[12px] text-muted-foreground">Resolving repository…</p>
-      </Centered>
-    );
-  }
-
-  if (slugState.status === "none" || !slug) {
-    return (
-      <Centered>
-        <Glyph />
-        <p className="text-[12.5px] text-muted-foreground">
-          This repository has no GitHub remote (origin).
-        </p>
-      </Centered>
-    );
-  }
+  }, [slug, capabilities.linkedProjects]);
 
   return (
     <div className="flex h-full w-full flex-col">
@@ -119,7 +93,7 @@ export function ProjectBoardPanel({ repoRoot }: Props) {
           className="shrink-0 text-muted-foreground"
         />
         <span className="shrink-0 truncate text-[12.5px] font-medium text-foreground">
-          {slug.owner}/{slug.repo}
+          {slug ? `${slug.owner}/${slug.repo}` : workspaceName}
         </span>
         <span className="text-muted-foreground/40">/</span>
         <select
@@ -148,28 +122,18 @@ export function ProjectBoardPanel({ repoRoot }: Props) {
       </div>
 
       <div className="min-h-0 flex-1">
-        {mode === OVERVIEW ? (
-          <OverviewBoard slug={slug} />
+        {mode === OVERVIEW || !slug || !capabilities.linkedProjects ? (
+          <OverviewBoard
+            repoRoot={repoRoot}
+            slug={slug}
+            githubConnected={!!connection}
+            githubConnectionReady={githubHydrated}
+            repoState={slugState.status}
+          />
         ) : (
           <ProjectsV2Board key={mode} projectId={mode} slug={slug} />
         )}
       </div>
     </div>
-  );
-}
-
-function Centered({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="flex h-full flex-col items-center justify-center gap-3 px-6">
-      {children}
-    </div>
-  );
-}
-
-function Glyph() {
-  return (
-    <span className="flex size-12 items-center justify-center rounded-2xl bg-foreground/[0.04] text-muted-foreground">
-      <HugeiconsIcon icon={GithubIcon} size={24} strokeWidth={1.6} />
-    </span>
   );
 }
