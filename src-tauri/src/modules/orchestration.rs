@@ -12,6 +12,7 @@ use tauri::State;
 // consumes the types in production code.
 #[allow(dead_code)]
 pub mod domain;
+pub mod ledger;
 pub mod workflow;
 
 use workflow::WorkflowConfig;

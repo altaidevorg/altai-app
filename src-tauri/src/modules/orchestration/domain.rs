@@ -143,6 +143,31 @@ impl TaskState {
         }
     }
 
+    /// Parse a state from its [`name`](Self::name). Used by the ledger to
+    /// round-trip persisted projections.
+    pub fn from_name(name: &str) -> Option<TaskState> {
+        Some(match name {
+            "draft" => TaskState::Draft,
+            "queued" => TaskState::Queued,
+            "planning" => TaskState::Planning,
+            "awaiting_plan_approval" => TaskState::AwaitingPlanApproval,
+            "running" => TaskState::Running,
+            "awaiting_input" => TaskState::AwaitingInput,
+            "awaiting_approval" => TaskState::AwaitingApproval,
+            "verifying" => TaskState::Verifying,
+            "reviewing" => TaskState::Reviewing,
+            "ready_for_handoff" => TaskState::ReadyForHandoff,
+            "done" => TaskState::Done,
+            "blocked" => TaskState::Blocked,
+            "retrying" => TaskState::Retrying,
+            "paused" => TaskState::Paused,
+            "cancelled" => TaskState::Cancelled,
+            "failed" => TaskState::Failed,
+            "abandoned" => TaskState::Abandoned,
+            _ => return None,
+        })
+    }
+
     /// Apply `trigger` and return the resulting state, or a typed error if the
     /// move is illegal. This is the single source of truth for task transitions.
     pub fn transition(self, trigger: TaskTrigger) -> Result<TaskState, TransitionError> {
@@ -330,6 +355,24 @@ impl AttemptState {
             AttemptState::Cancelled => "cancelled",
             AttemptState::Stalled => "stalled",
         }
+    }
+
+    /// Parse a state from its [`name`](Self::name).
+    pub fn from_name(name: &str) -> Option<AttemptState> {
+        Some(match name {
+            "created" => AttemptState::Created,
+            "started" => AttemptState::Started,
+            "heartbeat" => AttemptState::Heartbeat,
+            "input_required" => AttemptState::InputRequired,
+            "approval_required" => AttemptState::ApprovalRequired,
+            "steered" => AttemptState::Steered,
+            "cancel_requested" => AttemptState::CancelRequested,
+            "completed" => AttemptState::Completed,
+            "failed" => AttemptState::Failed,
+            "cancelled" => AttemptState::Cancelled,
+            "stalled" => AttemptState::Stalled,
+            _ => return None,
+        })
     }
 
     /// Apply `trigger` and return the resulting state, or a typed error.
