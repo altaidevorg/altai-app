@@ -240,31 +240,41 @@ impl RunnerAdapter for NativeRunnerAdapter {
     }
 
     fn start_attempt(&mut self, spec: &AttemptSpec) -> RunnerResult<AttemptIdentity> {
-        {
+        // Only a *first* start launches: O6a made re-start idempotent so already-
+        // delivered bus events are preserved, and relaunching would start a
+        // second real run for one attempt. Detect vacancy atomically with the
+        // inbox insert so the spawn decision matches creation.
+        let is_new = {
             let mut state = lock(&self.state)?;
-            // Establish the immutable identity and an empty inbox.
             if state.finished.contains(&spec.attempt_id) {
                 return Err(RunnerError::Finished {
                     attempt_id: spec.attempt_id.clone(),
                 });
             }
-            // Starting the same active identity is idempotent and must not discard
-            // events already delivered by the runtime bus.
-            state.inbox.entry(spec.attempt_id.clone()).or_default();
-        }
+            let is_new = match state.inbox.entry(spec.attempt_id.clone()) {
+                std::collections::hash_map::Entry::Vacant(v) => {
+                    v.insert(VecDeque::new());
+                    true
+                }
+                std::collections::hash_map::Entry::Occupied(_) => false,
+            };
+            is_new
+        };
         // O6c: route to the live runtime via the async dispatch. The run launches
         // asynchronously; observed events flow back through the feeder. The
         // attempt's id doubles as the native chat_id, so the adapter can poll
         // events before the launched task has produced any.
-        if let Some(bridge) = &self.bridge {
-            let dispatch = bridge.dispatch.clone();
-            let handle = bridge.handle.clone();
-            let feeder = self.feeder();
-            let attempt_id = spec.attempt_id.clone();
-            let input = spec.input.clone();
-            handle.spawn(async move {
-                dispatch.launch(attempt_id, input, feeder).await;
-            });
+        if is_new {
+            if let Some(bridge) = &self.bridge {
+                let dispatch = bridge.dispatch.clone();
+                let handle = bridge.handle.clone();
+                let feeder = self.feeder();
+                let attempt_id = spec.attempt_id.clone();
+                let input = spec.input.clone();
+                handle.spawn(async move {
+                    dispatch.launch(attempt_id, input, feeder).await;
+                });
+            }
         }
         Ok(AttemptIdentity {
             attempt_id: spec.attempt_id.clone(),
@@ -1126,6 +1136,32 @@ mod tests {
         let pos = |k: RunnerEventKind| kinds.iter().position(|x| *x == k).unwrap();
         assert!(pos(RunnerEventKind::Started) < pos(RunnerEventKind::Completed));
         // The dispatch observed exactly one launch with the attempt's id.
+        assert_eq!(*calls.launches.lock().unwrap(), vec!["att-1".to_string()]);
+    }
+
+    #[tokio::test]
+    async fn duplicate_start_does_not_double_launch() {
+        // start_attempt is idempotent: a re-start must not launch a second run.
+        // O6a preserved already-delivered events on re-start; O6c must not
+        // relaunch the runtime either.
+        let handle = tokio::runtime::Handle::current();
+        let (dispatch, calls) = FakeNativeDispatch::new();
+        let mut adapter = NativeRunnerAdapter::with_dispatch(Arc::new(dispatch), handle);
+
+        let spec = AttemptSpec {
+            task_id: "t1".into(),
+            attempt_id: "att-1".into(),
+            input: "do the thing".into(),
+        };
+        adapter.start_attempt(&spec).expect("first start");
+        adapter.start_attempt(&spec).expect("idempotent re-start");
+
+        // Let any spawned launches run.
+        for _ in 0..50 {
+            tokio::task::yield_now().await;
+        }
+
+        // Exactly one launch, despite two start_attempt calls.
         assert_eq!(*calls.launches.lock().unwrap(), vec!["att-1".to_string()]);
     }
 
