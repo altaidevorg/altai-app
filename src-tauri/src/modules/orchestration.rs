@@ -27,6 +27,8 @@ pub mod recovery;
 pub mod ledger;
 #[allow(dead_code)]
 pub mod runners;
+#[allow(dead_code)]
+pub mod sources;
 pub mod workflow;
 #[allow(dead_code)]
 pub mod workflow_v2;
