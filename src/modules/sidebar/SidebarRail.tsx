@@ -1,8 +1,9 @@
 import { cn } from "@/lib/utils";
-import type { SidebarViewId } from "./types";
 
 export const SIDEBAR_RAIL_HEIGHT = 36;
-export type SidebarRailItemId = SidebarViewId | "github" | "projects";
+/** Top-rail destinations. Local source control lives inside GitHub (CommitBox)
+ *  and remains available via the Source Control shortcut. */
+export type SidebarRailItemId = "explorer" | "github" | "projects";
 
 type RailItem = {
   id: SidebarRailItemId;
@@ -22,9 +23,8 @@ export function SidebarRail({
 }: Props) {
   const items: RailItem[] = [
     { id: "explorer", label: "Files" },
-    { id: "source-control", label: "Git" },
     { id: "github", label: "GitHub" },
-    { id: "projects", label: "Projects" },
+    { id: "projects", label: "Project Management" },
   ];
 
   return (
@@ -41,6 +41,7 @@ export function SidebarRail({
             key={item.id}
             type="button"
             aria-label={item.label}
+            title={item.label}
             aria-pressed={isActive}
             onClick={() => onSelectItem(item.id)}
             className={cn(

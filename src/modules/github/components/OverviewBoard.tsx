@@ -5,6 +5,7 @@ import { cn } from "@/lib/utils";
 import { useChatStore } from "@/modules/ai/store/chatStore";
 import { useTodosStore } from "@/modules/ai/store/todoStore";
 import { buildTodoSeed } from "@/modules/github/lib/assignments";
+import type { GitHubRepoState } from "@/modules/github/lib/capabilities";
 import {
   BOARD_COLUMNS,
   type BoardItem,
@@ -21,6 +22,11 @@ import {
   useAssignmentsStore,
 } from "@/modules/github/store/assignmentsStore";
 import {
+  OrchestrationBar,
+  useOrchestrationStore,
+} from "@/modules/orchestration";
+import { openSettingsWindow } from "@/modules/settings/openSettingsWindow";
+import {
   ArrowReloadHorizontalIcon,
   PlusSignIcon,
   Robot01Icon,
@@ -35,7 +41,11 @@ import {
 import { StateBadge } from "./itemBits";
 
 type Props = {
-  slug: RepoSlug;
+  repoRoot: string;
+  slug: RepoSlug | null;
+  githubConnected: boolean;
+  githubConnectionReady: boolean;
+  repoState: GitHubRepoState;
 };
 
 type AssignableSource = Exclude<BoardSource, "agent">;
@@ -53,14 +63,14 @@ const ACTIVE_ASSIGNMENT_STATUSES = new Set([
   "awaiting-approval",
 ]);
 
-function overrideStorageKey(slug: RepoSlug): string {
-  return `altai.project-board.status.${slug.owner}/${slug.repo}`;
+function overrideStorageKey(scope: string): string {
+  return `altai.project-board.status.${scope}`;
 }
 
-function readStatusOverrides(slug: RepoSlug): Record<string, BoardStatus> {
+function readStatusOverrides(scope: string): Record<string, BoardStatus> {
   try {
     const parsed = JSON.parse(
-      window.localStorage.getItem(overrideStorageKey(slug)) ?? "{}",
+      window.localStorage.getItem(overrideStorageKey(scope)) ?? "{}",
     ) as Record<string, string>;
     return Object.fromEntries(
       Object.entries(parsed).filter((entry): entry is [string, BoardStatus] =>
@@ -74,12 +84,13 @@ function readStatusOverrides(slug: RepoSlug): Record<string, BoardStatus> {
 
 function assignmentKey(
   assignment: Assignment,
-  slug: RepoSlug,
+  slug: RepoSlug | null,
 ): string | null {
   if (
     assignment.source.kind === "issue" ||
     assignment.source.kind === "pr"
   ) {
+    if (!slug) return null;
     if (
       assignment.source.owner !== slug.owner ||
       assignment.source.repo !== slug.repo
@@ -99,10 +110,18 @@ function assignmentStatus(assignment: Assignment): BoardStatus | null {
   return null;
 }
 
-export function OverviewBoard({ slug }: Props) {
+export function OverviewBoard({
+  repoRoot,
+  slug,
+  githubConnected,
+  githubConnectionReady,
+  repoState,
+}: Props) {
+  const remoteAvailable = githubConnected && !!slug;
+  const storageScope = slug ? `${slug.owner}/${slug.repo}` : repoRoot;
   const [issues, setIssues] = useState<GHItem[]>([]);
   const [pulls, setPulls] = useState<GHItem[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(remoteAvailable);
   const [error, setError] = useState<string | null>(null);
   const [assignError, setAssignError] = useState<string | null>(null);
   const [reloadTick, setReloadTick] = useState(0);
@@ -115,11 +134,18 @@ export function OverviewBoard({ slug }: Props) {
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [statusOverrides, setStatusOverrides] = useState<
     Record<string, BoardStatus>
-  >(() => readStatusOverrides(slug));
+  >(() => readStatusOverrides(storageScope));
 
   const activeSessionId = useChatStore((s) => s.activeSessionId);
+  const orchestrationSnapshot = useOrchestrationStore(
+    (state) => state.snapshots[repoRoot],
+  );
+  const todoSessionId =
+    orchestrationSnapshot?.status !== "stopped"
+      ? orchestrationSnapshot?.taskSessionId ?? activeSessionId
+      : activeSessionId;
   const todos = useTodosStore((s) =>
-    activeSessionId ? s.bySession[activeSessionId] : undefined,
+    todoSessionId ? s.bySession[todoSessionId] : undefined,
   );
   const hydrateTodos = useTodosStore((s) => s.hydrate);
   const addTodo = useTodosStore((s) => s.addTodo);
@@ -129,15 +155,22 @@ export function OverviewBoard({ slug }: Props) {
   const assign = useAssignmentsStore((s) => s.assign);
 
   useEffect(() => {
-    setStatusOverrides(readStatusOverrides(slug));
+    setStatusOverrides(readStatusOverrides(storageScope));
     setSelectedKey(null);
-  }, [slug]);
+  }, [storageScope]);
 
   useEffect(() => {
-    if (activeSessionId) void hydrateTodos(activeSessionId);
-  }, [activeSessionId, hydrateTodos]);
+    if (todoSessionId) void hydrateTodos(todoSessionId);
+  }, [todoSessionId, hydrateTodos]);
 
   useEffect(() => {
+    if (!remoteAvailable || !slug) {
+      setIssues([]);
+      setPulls([]);
+      setLoading(false);
+      setError(null);
+      return;
+    }
     let alive = true;
     setLoading(true);
     setError(null);
@@ -157,13 +190,15 @@ export function OverviewBoard({ slug }: Props) {
     return () => {
       alive = false;
     };
-  }, [slug, reloadTick]);
+  }, [remoteAvailable, slug, reloadTick]);
 
   const assignmentByKey = useMemo(() => {
     const map = new Map<string, Assignment>();
     for (const assignment of assignments) {
       const key = assignmentKey(assignment, slug);
-      if (key) map.set(key, assignment);
+      // Assignments are newest-first. Preserve the latest attempt so a failed
+      // orchestration retry cannot be hidden by an older run.
+      if (key && !map.has(key)) map.set(key, assignment);
     }
     return map;
   }, [assignments, slug]);
@@ -202,6 +237,11 @@ export function OverviewBoard({ slug }: Props) {
     for (const item of items) map.get(item.status)?.push(item);
     return map;
   }, [items]);
+  const sourceCounts: Record<AssignableSource, number> = {
+    issue: issues.length,
+    pr: pulls.length,
+    todo: todos?.length ?? 0,
+  };
 
   // Board-item keys that already have an assignment, so we don't offer a
   // duplicate "Assign agent".
@@ -220,8 +260,8 @@ export function OverviewBoard({ slug }: Props) {
 
   const createTodo = () => {
     const title = todoDraft.trim();
-    if (!title || !activeSessionId) return;
-    addTodo(activeSessionId, { title });
+    if (!title || !todoSessionId) return;
+    addTodo(todoSessionId, { title });
     setTodoDraft("");
     setCreatingTodo(false);
     setEnabled((current) => new Set(current).add("todo"));
@@ -234,6 +274,10 @@ export function OverviewBoard({ slug }: Props) {
         (card.source === "issue" || card.source === "pr") &&
         card.number != null
       ) {
+        if (!slug) {
+          openSettingsWindow("github");
+          return;
+        }
         const arr = card.source === "issue" ? issues : pulls;
         const gh = arr.find((x) => x.number === card.number);
         await assignGitHubItem({
@@ -263,7 +307,7 @@ export function OverviewBoard({ slug }: Props) {
         const next = { ...current, [card.key]: status };
         try {
           window.localStorage.setItem(
-            overrideStorageKey(slug),
+            overrideStorageKey(storageScope),
             JSON.stringify(next),
           );
         } catch {
@@ -273,12 +317,12 @@ export function OverviewBoard({ slug }: Props) {
       });
       if (
         card.source === "todo" &&
-        activeSessionId &&
+        todoSessionId &&
         card.key.startsWith("todo-")
       ) {
         const todoId = card.key.replace(/^todo-/, "");
         updateTodoStatus(
-          activeSessionId,
+          todoSessionId,
           todoId,
           status === "done"
             ? "completed"
@@ -288,7 +332,7 @@ export function OverviewBoard({ slug }: Props) {
         );
       }
     },
-    [activeSessionId, slug, updateTodoStatus],
+    [todoSessionId, storageScope, updateTodoStatus],
   );
 
   const onDrop = (status: BoardStatus) => {
@@ -323,31 +367,44 @@ export function OverviewBoard({ slug }: Props) {
 
   return (
     <div className="flex h-full w-full flex-col">
+      <OrchestrationBar
+        workspaceKey={repoRoot}
+        taskSessionId={todoSessionId}
+      />
       <AssignmentsRail />
 
       {/* Source filters */}
       <div className="flex shrink-0 items-center gap-1.5 border-b border-border/50 px-4 py-2">
         {ALL_SOURCES.map((s) => {
           const on = enabled.has(s);
-          const count = items.filter((it) => it.source === s).length;
+          const remoteSource = s === "issue" || s === "pr";
+          const disabled = remoteSource && !remoteAvailable;
           return (
             <button
               key={s}
               type="button"
+              disabled={disabled}
               onClick={() => toggleSource(s)}
+              title={
+                disabled
+                  ? "Connect GitHub and add a GitHub origin to load this source."
+                  : undefined
+              }
               className={cn(
                 "flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors",
-                on
+                disabled
+                  ? "cursor-not-allowed text-muted-foreground/30"
+                  : on
                   ? SOURCE_META[s].cls
                   : "text-muted-foreground/50 hover:text-muted-foreground",
               )}
             >
               {SOURCE_META[s].label}
-              <span className="opacity-70">{count}</span>
+              <span className="opacity-70">{sourceCounts[s]}</span>
             </button>
           );
         })}
-        {activeSessionId ? (
+        {todoSessionId ? (
           <Button
             size="xs"
             variant="ghost"
@@ -367,7 +424,12 @@ export function OverviewBoard({ slug }: Props) {
           className="h-7 w-7 p-0"
           aria-label="Refresh board"
           onClick={() => setReloadTick((t) => t + 1)}
-          disabled={loading}
+          disabled={loading || !remoteAvailable}
+          title={
+            remoteAvailable
+              ? "Refresh GitHub items"
+              : "GitHub items are not available."
+          }
         >
           <HugeiconsIcon
             icon={ArrowReloadHorizontalIcon}
@@ -377,6 +439,49 @@ export function OverviewBoard({ slug }: Props) {
           />
         </Button>
       </div>
+
+      {!githubConnectionReady ? (
+        <div className="flex shrink-0 items-center gap-2 border-b border-border/50 px-4 py-2 text-[10.5px] text-muted-foreground">
+          <Spinner className="size-3.5" />
+          Checking the optional GitHub connection while local work remains
+          available…
+        </div>
+      ) : !githubConnected ? (
+        <div className="flex shrink-0 items-center gap-3 border-b border-border/50 bg-sky-500/[0.045] px-4 py-2">
+          <div className="min-w-0 flex-1">
+            <p className="text-[11.5px] font-medium text-foreground">
+              Local board is ready
+            </p>
+            <p className="text-[10.5px] text-muted-foreground">
+              Connect GitHub only when you want to load issues, pull requests,
+              and linked Projects.
+            </p>
+          </div>
+          <Button
+            size="xs"
+            variant="outline"
+            className="h-7 shrink-0 gap-1.5 text-[10.5px]"
+            onClick={() => openSettingsWindow("github")}
+          >
+            Connect GitHub
+          </Button>
+        </div>
+      ) : repoState === "loading" ? (
+        <div className="flex shrink-0 items-center gap-2 border-b border-border/50 px-4 py-2 text-[10.5px] text-muted-foreground">
+          <Spinner className="size-3.5" />
+          Resolving the GitHub repository while local work remains available…
+        </div>
+      ) : !slug ? (
+        <div className="shrink-0 border-b border-border/50 bg-amber-500/[0.045] px-4 py-2">
+          <p className="text-[11.5px] font-medium text-foreground">
+            No GitHub origin found
+          </p>
+          <p className="text-[10.5px] text-muted-foreground">
+            Todos and agent runs remain available. Add a GitHub origin to load
+            remote issues, pull requests, and Projects.
+          </p>
+        </div>
+      ) : null}
 
       {creatingTodo ? (
         <div className="flex shrink-0 items-center gap-2 border-b border-border/50 bg-muted/15 px-4 py-2">
@@ -450,12 +555,6 @@ export function OverviewBoard({ slug }: Props) {
                 </span>
               </div>
               <ul className="flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto p-2">
-                {loading && cards.length === 0 ? (
-                  <li className="flex items-center gap-2 px-1 py-3 text-[11px] text-muted-foreground/60">
-                    <Spinner className="size-3.5" />
-                    Loading…
-                  </li>
-                ) : null}
                 {cards.map((card) => (
                   <li key={card.key}>
                     <OverviewCardView
@@ -469,7 +568,7 @@ export function OverviewBoard({ slug }: Props) {
                     />
                   </li>
                 ))}
-                {!loading && cards.length === 0 ? (
+                {cards.length === 0 ? (
                   <li className="px-1 py-3 text-center text-[11px] text-muted-foreground/40">
                     —
                   </li>

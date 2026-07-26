@@ -1,42 +1,67 @@
 # GitHub Project Management and Agent Workflows
 
-ALTAI can turn a local GitHub repository into a project-management workspace.
-You can browse issues and pull requests, organize work on a board, assign coding
-tasks to background agents, review their progress, and publish completed issue
-work as a draft pull request.
+ALTAI turns a local repository into a project-management workspace. Local Git,
+todos, the Overview board, and agent tracking work without connecting GitHub.
+Connecting GitHub adds remote issues, pull requests, linked Projects, and
+publishing actions.
 
 ## Prerequisites
 
-Before using the GitHub features:
+For local project management:
 
 1. Open a local Git repository as the ALTAI workspace.
-2. Make sure the repository has a GitHub `origin` remote.
-3. Open **Settings > GitHub** and connect your GitHub account.
-4. Configure an AI model and its API key in **Settings > Models**.
+2. Configure an AI model and its API key in **Settings > Models** before
+   assigning work to an agent.
+
+To add remote GitHub features:
+
+1. Make sure the repository has a GitHub `origin` remote.
+2. Open **Settings > GitHub** and connect your GitHub account.
 
 Linked GitHub Projects require the GitHub `project` scope. If ALTAI asks for
 Projects access, reconnect the account. If reconnecting does not request the new
 scope, revoke the existing ALTAI authorization in GitHub settings and connect
 again.
 
+## Local and Remote Capabilities
+
+GitHub authentication is an optional integration, not an application-wide
+login requirement.
+
+| Available without GitHub | Requires a GitHub connection |
+| --- | --- |
+| Local todo creation and board status changes | Load private repository issues and pull requests |
+| Todo, In Progress, Review, and Done workflow | Create, comment on, close, or merge GitHub items |
+| Agent assignment, tracking, transcript, and cancellation | Load and synchronize linked GitHub Projects |
+| Local status, diff, stage, commit, branch, and worktree operations | Push through GitHub integration and create draft pull requests |
+| Repository name derived from an existing origin | Other authenticated remote mutations |
+
+Anonymous read-only loading for public repositories is a planned extension.
+The current remote issue, pull request, and Project API paths still require a
+GitHub connection.
+
 ## Open the GitHub Workspaces
 
-The top of the left sidebar contains four entries:
+The top of the left sidebar contains three entries:
 
 - **Files** opens the file explorer.
-- **Git** opens source control.
-- **GitHub** opens the repository's pull request and issue hub.
-- **Projects** opens the project-management board.
+- **GitHub** opens the repository hub: local changes/commits plus pull
+  requests and issues when connected.
+- **Project Management** opens the project-management board.
 
-The badge on **Projects** is an attention count for active agent work and work
-that is ready for review.
+The badge on **Project Management** is an attention count for active agent work
+and work that is ready for review.
 
 ## Use the GitHub Hub
 
 Select **GitHub** in the sidebar to work with the repository without leaving
 ALTAI.
 
-From this view you can:
+Local changes, diffs, staging, and commits remain available when GitHub is not
+connected. The remote section displays a compact connection action instead of
+blocking the entire workspace.
+
+After connecting GitHub, you can also:
 
 - Browse and filter pull requests and issues.
 - Read descriptions and comments.
@@ -86,15 +111,17 @@ or interrupt the conversation currently open in the main chat.
 
 ## Use the Project Board
 
-Select **Projects** in the sidebar. The board initially opens in **Overview**
+Select **Project Management** in the sidebar. The board initially opens in **Overview**
 mode and combines:
 
-- GitHub issues
-- GitHub pull requests
 - Local ALTAI todos
 - Agent assignments and their run state
+- GitHub issues when connected
+- GitHub pull requests when connected
 
 Use the source filters to show or hide issues, pull requests, and todos.
+Without a GitHub connection, the issue and pull request sources are disabled
+while the rest of the board remains interactive.
 
 ### Overview columns
 
@@ -128,6 +155,80 @@ Local todos are useful for work that does not need a public GitHub issue. The
 Overview quick-assign action uses the current agent, model, and permission
 defaults.
 
+### Run local todos automatically
+
+The **Orchestration** bar turns the local Overview board into a continuous
+agent queue:
+
+1. Create one or more local todos in **Todo**.
+2. Open **Configure** and adjust the workflow policy when needed.
+3. Save the policy to the repository's `WORKFLOW.md`.
+4. Choose **Start orchestration**.
+5. Keep ALTAI open while the queue is running.
+
+The scheduler claims pending manual todos, creates an isolated Git worktree for
+each todo, and starts a background agent run. Agent-generated plan items are not
+treated as project work and are never claimed automatically.
+
+Choose **Pause** to stop claiming new todos without cancelling active agents.
+Choose **Stop all** to stop the scheduler and request cancellation of its active
+runs. A failed dispatch or run is retried in the same worktree with backoff, up
+to four attempts.
+
+The todo session used when orchestration starts remains pinned to the queue, so
+switching chat sessions does not redirect an active project run. Running and
+paused intent is persisted per workspace. When ALTAI restarts, it reconciles
+persisted assignments before claiming more work, restores the previous
+running/paused state, and continues retry attempt numbering without creating a
+duplicate assignment. ALTAI must remain open to execute work; closing it stops
+the process until the next launch.
+
+### Configure WORKFLOW.md
+
+The Project Board configuration panel controls:
+
+- Maximum concurrent agents (1–8)
+- Maximum attempts per todo (1–10)
+- Initial and maximum retry delay
+- Per-run permission mode
+- Optional model override
+- The project-specific agent prompt
+
+Selecting `bypass` in a workflow does not override ALTAI's global safety gate;
+**Enable bypass permissions** must still be explicitly enabled in Settings.
+
+Saving the panel creates or updates `WORKFLOW.md` in the repository root:
+
+```md
+---
+orchestration:
+  max_concurrent: 2
+  max_attempts: 4
+  retry_base_seconds: 5
+  retry_max_seconds: 300
+agent:
+  model_id: null
+  permission_mode: ask
+---
+Complete the assigned local project task end-to-end.
+
+Inspect the repository before editing and run relevant tests.
+```
+
+ALTAI checks `WORKFLOW.md` while orchestration is active, so edits made in the
+editor apply without restarting the queue. Scheduler limits update immediately;
+model, permission, and prompt changes apply to newly dispatched attempts.
+Invalid YAML, unknown keys, unsafe ranges, an empty prompt, symlinked files, and
+oversized workflow files are rejected. An invalid external edit is shown in the
+Project Board while the scheduler continues using the last valid configuration.
+
+When an orchestrated local todo finishes, its card moves to **Review**. Inspect
+the transcript and changes, then choose **Apply to workspace**. ALTAI commits
+remaining changes inside the agent worktree and cherry-picks the worktree
+commits onto the current workspace branch. The target workspace must be clean.
+If Git reports a conflict, ALTAI aborts the cherry-pick and leaves the target
+unchanged. A successful apply marks the todo **Done**.
+
 ## Use a Linked GitHub Project
 
 The board selector next to the repository name lists GitHub Projects linked to
@@ -157,6 +258,7 @@ assignment state, the drawer provides:
 - Assigned agent, model, run state, and branch
 - **Open transcript** to switch to the assignment's chat session
 - **Cancel** for an active run
+- **Apply to workspace** for completed orchestrated local todo work
 - **Create draft PR** or **Retry draft PR** for completed isolated issue work
 - **Open PR** after a draft pull request has been created
 - **Open on GitHub** for remote items
@@ -202,7 +304,9 @@ is not left orphaned.
 
 ### "Connect your GitHub account"
 
-Open **Settings > GitHub** and complete the connection flow.
+This message applies only to the remote section. Local Git, todos, Overview, and
+agent tracking remain available. Open **Settings > GitHub** when you want to
+enable remote GitHub data and actions.
 
 ### "This repository has no GitHub remote (origin)"
 

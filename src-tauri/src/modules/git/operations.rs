@@ -1178,6 +1178,94 @@ pub fn remove_worktree(
     ensure_success(&output, "git worktree remove failed")
 }
 
+/// Cherry-pick commits made in an ALTAI-owned worktree into the user's current
+/// workspace branch. Both trees must be clean. A conflicting cherry-pick is
+/// aborted so this explicit delivery action never leaves the base tree in a
+/// half-merged state.
+pub fn apply_worktree(
+    registry: &WorkspaceRegistry,
+    source_worktree: &str,
+    target_repo_root: &str,
+    workspace: &WorkspaceEnv,
+) -> Result<()> {
+    let source = authorized_repo_root(registry, source_worktree, workspace)?;
+    let target = authorized_repo_root(registry, target_repo_root, workspace)?;
+    ensure_git_available(&target.workspace)?;
+
+    let allowed_root = format!("{}/", worktree_root(&target)?);
+    let normalized_source = source.git_path.trim().replace('\\', "/");
+    let label = normalized_source
+        .strip_prefix(&allowed_root)
+        .unwrap_or_default();
+    if validate_worktree_label(label).is_err() || worktree_root(&source)? != worktree_root(&target)?
+    {
+        return Err(GitError::command(
+            "worktree apply",
+            "source is not an ALTAI worktree for this repository",
+        ));
+    }
+
+    let has_delivery_changes = |status: &GitStatusSnapshot| {
+        status
+            .changed_files
+            .iter()
+            .any(|file| file.path != ".isanagent" && !file.path.starts_with(".isanagent/"))
+    };
+    if has_delivery_changes(&status_inner(&source)?) {
+        return Err(GitError::command(
+            "worktree apply",
+            "agent worktree has uncommitted changes",
+        ));
+    }
+    if has_delivery_changes(&status_inner(&target)?) {
+        return Err(GitError::command(
+            "worktree apply",
+            "the target workspace has uncommitted changes",
+        ));
+    }
+
+    let source_head =
+        git_stdout_line_opt(&source.workspace, &source.git_path, ["rev-parse", "HEAD"])?
+            .ok_or_else(|| {
+                GitError::command("worktree apply", "could not resolve worktree HEAD")
+            })?;
+    let merge_base = git_stdout_line_opt(
+        &target.workspace,
+        &target.git_path,
+        ["merge-base", "HEAD", source_head.as_str()],
+    )?
+    .ok_or_else(|| GitError::command("worktree apply", "could not resolve a common ancestor"))?;
+    let range = format!("{merge_base}..{source_head}");
+    let commits = git_stdout_lines(
+        &target.workspace,
+        &target.git_path,
+        ["rev-list", "--reverse", range.as_str()],
+    )?;
+    if commits.is_empty() {
+        return Ok(());
+    }
+
+    let mut args: Vec<OsString> = vec!["cherry-pick".into()];
+    args.extend(commits.into_iter().map(Into::into));
+    let output = run_git(
+        &target.workspace,
+        Some(&target.git_path),
+        args,
+        DEFAULT_TIMEOUT_SECS,
+    )?;
+    if output.exit_code == Some(0) {
+        return Ok(());
+    }
+
+    let _ = run_git(
+        &target.workspace,
+        Some(&target.git_path),
+        ["cherry-pick", "--abort"],
+        DEFAULT_TIMEOUT_SECS,
+    );
+    ensure_success(&output, "could not apply agent changes")
+}
+
 /// Switch the working tree to an existing local branch. Uses `git switch`
 /// (git ≥ 2.23, our floor) rather than `git checkout` so a name is never
 /// ambiguously interpreted as a pathspec. Fails — surfacing git's own
@@ -1388,5 +1476,55 @@ mod tests {
         for label in ["", "../escape", "Issue 1", "-flag", "name/branch"] {
             assert!(validate_worktree_label(label).is_err(), "{label}");
         }
+    }
+
+    #[test]
+    fn applies_committed_worktree_changes_to_clean_base() {
+        let root = temp_repo();
+        let registry = WorkspaceRegistry::default();
+        registry.authorize(&root).expect("authorize repo");
+        let root_string = root.to_string_lossy().into_owned();
+        let worktree = create_worktree(
+            &registry,
+            &root_string,
+            "todo-1-apply-change-abc123",
+            &WorkspaceEnv::Local,
+        )
+        .expect("create worktree");
+
+        fs::write(Path::new(&worktree.path).join("feature.txt"), "ready\n").expect("write feature");
+        let status = Command::new("git")
+            .current_dir(&worktree.path)
+            .args(["add", "feature.txt"])
+            .status()
+            .expect("stage feature");
+        assert!(status.success());
+        let status = Command::new("git")
+            .current_dir(&worktree.path)
+            .args(["commit", "-qm", "add feature"])
+            .status()
+            .expect("commit feature");
+        assert!(status.success());
+
+        apply_worktree(
+            &registry,
+            &worktree.path,
+            &root_string,
+            &WorkspaceEnv::Local,
+        )
+        .expect("apply worktree");
+        assert_eq!(
+            fs::read_to_string(root.join("feature.txt")).expect("read applied feature"),
+            "ready\n"
+        );
+
+        remove_worktree(
+            &registry,
+            &root_string,
+            &worktree.path,
+            &WorkspaceEnv::Local,
+        )
+        .expect("remove worktree");
+        fs::remove_dir_all(root).expect("remove temp repo");
     }
 }

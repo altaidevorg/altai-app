@@ -6,6 +6,7 @@ pub mod lsp_install;
 pub mod mcp;
 pub mod net;
 pub mod notebook;
+pub mod orchestration;
 pub mod os_integration;
 pub mod os_menu;
 pub mod proc;

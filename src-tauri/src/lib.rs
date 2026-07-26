@@ -3,8 +3,8 @@ mod modules;
 
 use altai::agent::commands as agent_commands;
 use modules::{
-    app_menu, fs, git, github, lsp_install, mcp, net, notebook, os_menu, proc, pty, secrets, shell,
-    webview, workspace,
+    app_menu, fs, git, github, lsp_install, mcp, net, notebook, orchestration, os_menu, proc, pty,
+    secrets, shell, webview, workspace,
 };
 use serde::{Deserialize, Serialize};
 use std::sync::Mutex;
@@ -277,6 +277,7 @@ pub fn run() {
         })
         .manage(os_menu::RecentFolders::default())
         .manage(mcp::McpStatusRegistry::new())
+        .manage(orchestration::OrchestrationState::default())
         .on_menu_event(app_menu::handle_event)
         .setup(|app| {
             altai::agent::runtime::init(app.handle().clone())?;
@@ -328,6 +329,7 @@ pub fn run() {
             git::commands::git_branches,
             git::commands::git_worktree_create,
             git::commands::git_worktree_remove,
+            git::commands::git_worktree_apply,
             git::commands::git_checkout_branch,
             git::commands::git_create_branch,
             git::commands::git_push,
@@ -344,6 +346,17 @@ pub fn run() {
             github::commands::github_disconnect,
             github::commands::github_api_request,
             github::commands::github_create_repo,
+            // ALTAI — Symphony-style local project orchestration
+            orchestration::orchestration_snapshot,
+            orchestration::orchestration_start,
+            orchestration::orchestration_configure,
+            orchestration::orchestration_pause,
+            orchestration::orchestration_stop,
+            orchestration::orchestration_reconcile,
+            orchestration::orchestration_dispatch_result,
+            orchestration::orchestration_record_terminal,
+            orchestration::workflow::orchestration_workflow_load,
+            orchestration::workflow::orchestration_workflow_save,
             shell::shell_run_command,
             shell::shell_session_open,
             shell::shell_session_run,
