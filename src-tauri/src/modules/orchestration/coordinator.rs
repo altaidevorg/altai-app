@@ -300,7 +300,11 @@ impl<'a> Coordinator<'a> {
         let identity = match runner.start_attempt(&AttemptSpec {
             task_id: task_id.to_string(),
             attempt_id: attempt_id.clone(),
-            input: task.title.clone(),
+            input: if task.description.trim().is_empty() {
+                task.title.clone()
+            } else {
+                task.description.clone()
+            },
         }) {
             Ok(identity) => identity,
             Err(error) => {
@@ -607,6 +611,7 @@ mod tests {
                 source_kind: "local".into(),
                 source_ref: "local://t1".into(),
                 title: "Do the thing".into(),
+                description: String::new(),
                 state: TaskState::Queued,
                 created_at_ms: 1_000,
                 updated_at_ms: 1_000,
@@ -648,6 +653,36 @@ mod tests {
         let attempt = ledger.attempt("t1-att-1").unwrap().unwrap();
         assert_eq!(attempt.state, AttemptState::Completed);
         assert_eq!(attempt.terminal_outcome.as_deref(), Some("completed"));
+    }
+
+    #[test]
+    fn claim_uses_description_as_runner_input_with_title_fallback() {
+        let ledger = ledger();
+        ledger
+            .upsert_task(&TaskRecord {
+                task_id: "t1".into(),
+                workspace_key: "ws".into(),
+                source_kind: "local".into(),
+                source_ref: "local://t1".into(),
+                title: "Short title".into(),
+                description: "Detailed task prompt".into(),
+                state: TaskState::Queued,
+                created_at_ms: 1_000,
+                updated_at_ms: 1_001,
+            })
+            .expect("refresh task");
+        let coord = coord(&ledger);
+        let clock = ManualClock::new(2_000);
+        let mut runner = MockRunner::new();
+
+        let identity = coord
+            .claim_and_start("t1", "native", &mut runner, &clock)
+            .expect("claim");
+
+        assert_eq!(
+            runner.started_input(&identity.attempt_id),
+            Some("Detailed task prompt")
+        );
     }
 
     #[test]

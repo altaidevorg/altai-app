@@ -15,6 +15,8 @@ use super::{SourceTask, TaskSourceAdapter, TaskSourceCapabilities};
 
 const SOURCE_KIND: &str = "local";
 const TASKS_DIR: &str = ".altai/tasks";
+const MAX_TASK_FILE_BYTES: u64 = 128 * 1024;
+const MAX_TASK_FILES: usize = 10_000;
 
 /// A task source backed by a directory of JSON task files on the local disk.
 pub struct LocalTaskSource {
@@ -27,20 +29,30 @@ impl LocalTaskSource {
         Self { root: root.into() }
     }
 
-    fn tasks_dir(&self) -> PathBuf {
-        self.root.join(TASKS_DIR)
-    }
-
     /// Read every `*.json` task file under the board directory. A missing
     /// directory is an empty board (the coordinator simply has no candidates),
     /// not an error.
     fn read_all(&self) -> Result<Vec<SourceTask>, String> {
-        let dir = self.tasks_dir();
+        let root = std::fs::canonicalize(&self.root)
+            .map_err(|error| format!("Cannot resolve workspace root: {error}"))?;
+        if !root.is_dir() {
+            return Err("Workspace root must be a directory.".into());
+        }
+        let dir = root.join(TASKS_DIR);
         if !dir.exists() {
             return Ok(Vec::new());
         }
         let canonical = std::fs::canonicalize(&dir)
             .map_err(|error| format!("Cannot resolve tasks directory: {error}"))?;
+        if !canonical.starts_with(&root) {
+            return Err(format!(
+                "Tasks directory {} resolves outside the workspace.",
+                dir.display()
+            ));
+        }
+        if !canonical.is_dir() {
+            return Err(format!("Tasks path {} must be a directory.", dir.display()));
+        }
         let mut tasks = Vec::new();
         let entries = std::fs::read_dir(&canonical)
             .map_err(|error| format!("Cannot read tasks directory: {error}"))?;
@@ -60,15 +72,35 @@ impl LocalTaskSource {
                     path.display()
                 ));
             }
+            if meta.len() > MAX_TASK_FILE_BYTES {
+                return Err(format!(
+                    "Task file {} cannot exceed {} KiB.",
+                    path.display(),
+                    MAX_TASK_FILE_BYTES / 1024
+                ));
+            }
             let body = std::fs::read_to_string(&path)
                 .map_err(|error| format!("Cannot read {}: {error}", path.display()))?;
             let task: SourceTask = serde_json::from_str(&body)
                 .map_err(|error| format!("Invalid task file {}: {error}", path.display()))?;
             tasks.push(task);
+            if tasks.len() > MAX_TASK_FILES {
+                return Err(format!(
+                    "Local task board cannot exceed {MAX_TASK_FILES} JSON files."
+                ));
+            }
         }
         // Stable, deterministic order by id so reconcile output is reproducible.
         tasks.sort_by(|a, b| a.id.cmp(&b.id));
-        tasks.dedup_by(|a, b| a.id == b.id);
+        if let Some(duplicate) = tasks
+            .windows(2)
+            .find(|pair| pair[0].id == pair[1].id)
+            .map(|pair| pair[0].id.as_str())
+        {
+            return Err(format!(
+                "Local task board contains duplicate task id `{duplicate}`."
+            ));
+        }
         Ok(tasks)
     }
 }
@@ -102,7 +134,7 @@ mod tests {
     use super::*;
     use crate::modules::orchestration::domain::TaskState;
     use crate::modules::orchestration::ledger::OrchestrationLedger;
-    use crate::modules::orchestration::sources::{reconcile_into, SourceStatus};
+    use crate::modules::orchestration::sources::{reconcile_into, task_id_for, SourceStatus};
 
     fn write_task(dir: &Path, file: &str, id: &str, status: &str) {
         let body =
@@ -165,12 +197,59 @@ mod tests {
         assert!(source.list_all().is_err());
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn rejects_tasks_directory_that_resolves_outside_workspace() {
+        let workspace = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(workspace.path().join(".altai")).unwrap();
+        std::os::unix::fs::symlink(outside.path(), workspace.path().join(TASKS_DIR)).unwrap();
+        write_task(outside.path(), "outside.json", "outside", "todo");
+
+        let source = LocalTaskSource::new(workspace.path());
+        let error = source.list_all().unwrap_err();
+        assert!(error.contains("outside the workspace"), "{error}");
+    }
+
+    #[test]
+    fn rejects_duplicate_ids_and_oversized_files() {
+        let duplicate_board = tempfile::tempdir().unwrap();
+        let duplicate_dir = duplicate_board.path().join(TASKS_DIR);
+        std::fs::create_dir_all(&duplicate_dir).unwrap();
+        write_task(&duplicate_dir, "a.json", "same", "todo");
+        write_task(&duplicate_dir, "b.json", "same", "in_progress");
+        let source = LocalTaskSource::new(duplicate_board.path());
+        let error = source.list_all().unwrap_err();
+        assert!(error.contains("duplicate task id `same`"), "{error}");
+
+        let oversized_board = tempfile::tempdir().unwrap();
+        let oversized_dir = oversized_board.path().join(TASKS_DIR);
+        std::fs::create_dir_all(&oversized_dir).unwrap();
+        std::fs::write(
+            oversized_dir.join("large.json"),
+            vec![b' '; MAX_TASK_FILE_BYTES as usize + 1],
+        )
+        .unwrap();
+        let source = LocalTaskSource::new(oversized_board.path());
+        let error = source.list_all().unwrap_err();
+        assert!(error.contains("cannot exceed 128 KiB"), "{error}");
+    }
+
     #[test]
     fn reconciles_local_board_into_ledger() {
         let tmp = tempfile::tempdir().unwrap();
         let dir = tmp.path().join(TASKS_DIR);
         std::fs::create_dir_all(&dir).unwrap();
-        write_task(&dir, "a.json", "local-1", "todo");
+        std::fs::write(
+            dir.join("a.json"),
+            r#"{
+                "id": "local-1",
+                "title": "Fix login",
+                "status": "todo",
+                "prompt": "Reproduce and fix the login redirect."
+            }"#,
+        )
+        .unwrap();
         write_task(&dir, "b.json", "local-2", "done");
 
         let ledger = OrchestrationLedger::open_in_memory().unwrap();
@@ -179,11 +258,16 @@ mod tests {
 
         assert_eq!(summary.candidates, 1);
         assert_eq!(summary.upserted, 1);
-        let task = ledger.task("local-1").unwrap().expect("present");
+        let task_id = task_id_for("ws-1", "local", "local-1");
+        let task = ledger.task(&task_id).unwrap().expect("present");
         assert_eq!(task.state, TaskState::Queued);
         assert_eq!(task.source_kind, "local");
+        assert_eq!(task.source_ref, "local-1");
         assert_eq!(task.workspace_key, "ws-1");
+        assert_eq!(task.title, "Fix login");
+        assert_eq!(task.description, "Reproduce and fix the login redirect.");
         // The "done" task was not mirrored.
-        assert!(ledger.task("local-2").unwrap().is_none());
+        let done_id = task_id_for("ws-1", "local", "local-2");
+        assert!(ledger.task(&done_id).unwrap().is_none());
     }
 }

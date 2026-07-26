@@ -7,6 +7,8 @@
 pub mod local;
 
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
+use std::collections::HashSet;
 
 use super::domain::TaskState;
 use super::ledger::{OrchestrationLedger, TaskRecord};
@@ -85,6 +87,44 @@ pub struct ReconcileSummary {
     pub upserted: usize,
 }
 
+const MAX_NATIVE_ID_CHARS: usize = 512;
+const MAX_TITLE_CHARS: usize = 4_096;
+const MAX_PROMPT_CHARS: usize = 32_000;
+
+fn validate_source_task(task: &SourceTask) -> Result<(), String> {
+    if task.id.trim().is_empty() || task.id.chars().count() > MAX_NATIVE_ID_CHARS {
+        return Err(format!(
+            "Source task id must be non-empty and at most {MAX_NATIVE_ID_CHARS} characters."
+        ));
+    }
+    if task.title.trim().is_empty() || task.title.chars().count() > MAX_TITLE_CHARS {
+        return Err(format!(
+            "Source task `{}` title must be non-empty and at most {MAX_TITLE_CHARS} characters.",
+            task.id
+        ));
+    }
+    if task.prompt.chars().count() > MAX_PROMPT_CHARS {
+        return Err(format!(
+            "Source task `{}` prompt cannot exceed {MAX_PROMPT_CHARS} characters.",
+            task.id
+        ));
+    }
+    Ok(())
+}
+
+/// Derive the stable ALTAI task identity from the full source namespace. Native
+/// ids are not globally unique: two workspaces (or two providers) may both have
+/// task `1`. Length-prefix each component before hashing to avoid ambiguous
+/// concatenations.
+pub fn task_id_for(workspace_key: &str, source_kind: &str, native_id: &str) -> String {
+    let mut hash = Sha256::new();
+    for component in [workspace_key, source_kind, native_id] {
+        hash.update((component.len() as u64).to_be_bytes());
+        hash.update(component.as_bytes());
+    }
+    format!("source:{}", hex::encode(hash.finalize()))
+}
+
 /// Upsert active candidates from `source` into the ledger as claimable tasks.
 ///
 /// Only active (`Todo`/`InProgress`) tasks become `Queued` ledger records — the
@@ -100,26 +140,50 @@ pub fn reconcile_into(
     now_ms: u64,
 ) -> Result<ReconcileSummary, String> {
     let tasks = source.list_all()?;
+    let source_kind = source.source_kind();
+    if source_kind.trim().is_empty() {
+        return Err("Task source kind must be non-empty.".into());
+    }
+    if workspace_key.trim().is_empty() {
+        return Err("Workspace key must be non-empty.".into());
+    }
+
+    // Validate the complete snapshot before mutating the ledger. This prevents
+    // a malformed or duplicate task late in the source response from leaving a
+    // partially reconciled board.
+    let mut native_ids = HashSet::with_capacity(tasks.len());
+    for task in &tasks {
+        validate_source_task(task)?;
+        if !native_ids.insert(task.id.as_str()) {
+            return Err(format!(
+                "Task source `{source_kind}` returned duplicate task id `{}`.",
+                task.id
+            ));
+        }
+    }
+
     let mut summary = ReconcileSummary::default();
     for task in tasks {
         if !task.status.is_active() {
             continue;
         }
         summary.candidates += 1;
-        let id = task.id.clone();
+        let native_id = task.id;
+        let task_id = task_id_for(workspace_key, source_kind, &native_id);
         let record = TaskRecord {
-            task_id: task.id,
+            task_id: task_id.clone(),
             workspace_key: workspace_key.to_string(),
-            source_kind: source.source_kind().to_string(),
-            source_ref: id.clone(),
+            source_kind: source_kind.to_string(),
+            source_ref: native_id.clone(),
             title: task.title,
+            description: task.prompt,
             state: task.status.to_task_state(),
             created_at_ms: now_ms,
             updated_at_ms: now_ms,
         };
         ledger
             .upsert_task(&record)
-            .map_err(|error| format!("ledger upsert failed for task {id}: {error}"))?;
+            .map_err(|error| format!("ledger upsert failed for task {native_id}: {error}"))?;
         summary.upserted += 1;
     }
     Ok(summary)
@@ -191,15 +255,24 @@ mod tests {
         assert_eq!(summary.candidates, 2);
         assert_eq!(summary.upserted, 2);
 
-        let active = ledger.task("t-active").unwrap().expect("active present");
+        let active_id = task_id_for("ws-1", "memory", "t-active");
+        let active = ledger.task(&active_id).unwrap().expect("active present");
         assert_eq!(active.state, TaskState::Queued);
         assert_eq!(active.workspace_key, "ws-1");
         assert_eq!(active.source_kind, "memory");
-        let running = ledger.task("t-running").unwrap().expect("running present");
+        assert_eq!(active.source_ref, "t-active");
+        let running_id = task_id_for("ws-1", "memory", "t-running");
+        let running = ledger.task(&running_id).unwrap().expect("running present");
         assert_eq!(running.state, TaskState::Queued);
         // Terminal source tasks were not mirrored into the ledger.
-        assert!(ledger.task("t-done").unwrap().is_none());
-        assert!(ledger.task("t-cancelled").unwrap().is_none());
+        assert!(ledger
+            .task(&task_id_for("ws-1", "memory", "t-done"))
+            .unwrap()
+            .is_none());
+        assert!(ledger
+            .task(&task_id_for("ws-1", "memory", "t-cancelled"))
+            .unwrap()
+            .is_none());
     }
 
     #[test]
@@ -218,7 +291,8 @@ mod tests {
                 upserted: 1
             }
         );
-        let record = ledger.task("t-1").unwrap().expect("present");
+        let task_id = task_id_for("ws", "memory", "t-1");
+        let record = ledger.task(&task_id).unwrap().expect("present");
         assert_eq!(record.updated_at_ms, 2_000);
         assert_eq!(record.created_at_ms, 1_000);
     }
@@ -229,5 +303,31 @@ mod tests {
         let source = InMemorySource { tasks: vec![] };
         let summary = reconcile_into(&source, &ledger, "ws", 0).expect("reconcile");
         assert_eq!(summary, ReconcileSummary::default());
+    }
+
+    #[test]
+    fn native_ids_are_namespaced_by_workspace_and_source() {
+        let first = task_id_for("ws-a", "local", "1");
+        let second = task_id_for("ws-b", "local", "1");
+        let third = task_id_for("ws-a", "github", "1");
+        assert_ne!(first, second);
+        assert_ne!(first, third);
+        assert_eq!(first, task_id_for("ws-a", "local", "1"));
+    }
+
+    #[test]
+    fn reconcile_validates_entire_snapshot_before_writing() {
+        let ledger = OrchestrationLedger::open_in_memory().unwrap();
+        let source = InMemorySource {
+            tasks: vec![
+                task("valid", SourceStatus::Todo),
+                task("valid", SourceStatus::InProgress),
+            ],
+        };
+
+        let error = reconcile_into(&source, &ledger, "ws", 1_000).unwrap_err();
+        assert!(error.contains("duplicate task id `valid`"), "{error}");
+        let task_id = task_id_for("ws", "memory", "valid");
+        assert!(ledger.task(&task_id).unwrap().is_none());
     }
 }

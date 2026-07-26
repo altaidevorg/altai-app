@@ -18,6 +18,7 @@ pub struct MockRunner {
     queues: HashMap<String, VecDeque<RunnerEventKind>>,
     seq: HashMap<String, u64>,
     started: Vec<String>,
+    started_inputs: HashMap<String, String>,
     steered: Vec<(String, String)>,
     cancelled: Vec<String>,
     next_start_error: Option<String>,
@@ -42,6 +43,10 @@ impl MockRunner {
 
     pub fn was_started(&self, attempt_id: &str) -> bool {
         self.started.iter().any(|id| id == attempt_id)
+    }
+
+    pub fn started_input(&self, attempt_id: &str) -> Option<&str> {
+        self.started_inputs.get(attempt_id).map(String::as_str)
     }
 
     pub fn was_cancelled(&self, attempt_id: &str) -> bool {
@@ -78,6 +83,8 @@ impl RunnerAdapter for MockRunner {
             return Err(RunnerError::Other(message));
         }
         self.started.push(spec.attempt_id.clone());
+        self.started_inputs
+            .insert(spec.attempt_id.clone(), spec.input.clone());
         // Ensure the attempt has a queue even if none was pre-loaded.
         self.queues.entry(spec.attempt_id.clone()).or_default();
         Ok(AttemptIdentity {

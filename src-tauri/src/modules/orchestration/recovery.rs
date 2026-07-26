@@ -154,6 +154,7 @@ mod tests {
                 source_kind: "local".into(),
                 source_ref: format!("local://{task_id}"),
                 title: "Do the thing".into(),
+                description: String::new(),
                 state,
                 created_at_ms: 1_000,
                 updated_at_ms: 1_000,
