@@ -247,13 +247,20 @@ impl RunnerAdapter for NativeRunnerAdapter {
     }
 
     fn shutdown(&mut self) {
-        if let Ok(mut state) = self.state.lock() {
-            state.inbox.clear();
-            state.seq.clear();
-            state.finished.clear();
-            state.steer_log.clear();
-            state.cancel_log.clear();
-        }
+        // Shutdown cannot report an error through RunnerAdapter, so recover a
+        // poisoned guard and still honor the cleanup contract. Clear the poison
+        // marker only after every resource has been released.
+        let mut state = match self.state.lock() {
+            Ok(state) => state,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        state.inbox.clear();
+        state.seq.clear();
+        state.finished.clear();
+        state.steer_log.clear();
+        state.cancel_log.clear();
+        drop(state);
+        self.state.clear_poison();
     }
 }
 
@@ -858,5 +865,44 @@ mod tests {
         assert_eq!(e1.payload["content"], "from-f1");
         assert_eq!(e2.payload["content"], "from-f2");
         assert!(e1.seq < e2.seq);
+    }
+
+    #[test]
+    fn shutdown_recovers_poisoned_state_and_cleans_every_resource() {
+        let mut adapter = adapter_with_attempt("att-1");
+        let identity = AttemptIdentity {
+            attempt_id: "att-1".into(),
+            handle: "att-1".into(),
+        };
+        adapter
+            .feed(
+                "att-1",
+                &Event::AgentMessage {
+                    content: "queued".into(),
+                    role: "assistant".into(),
+                },
+            )
+            .expect("feed");
+        adapter.steer(&identity, "focus").expect("steer");
+        adapter.cancel(&identity).expect("cancel");
+
+        let shared = adapter.state.clone();
+        let panic = std::thread::spawn(move || {
+            let _guard = shared.lock().expect("lock before poison");
+            panic!("poison native adapter state");
+        })
+        .join();
+        assert!(panic.is_err());
+        assert!(adapter.state.is_poisoned());
+
+        adapter.shutdown();
+
+        assert!(!adapter.state.is_poisoned());
+        let state = adapter.state.lock().expect("recovered state");
+        assert!(state.inbox.is_empty());
+        assert!(state.seq.is_empty());
+        assert!(state.finished.is_empty());
+        assert!(state.steer_log.is_empty());
+        assert!(state.cancel_log.is_empty());
     }
 }
