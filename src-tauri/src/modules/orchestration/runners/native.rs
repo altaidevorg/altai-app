@@ -12,7 +12,7 @@
 //! drains the inbox. This keeps the runtime's async/bus model out of the
 //! synchronous coordinator decision core while preventing feature loss.
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 
 use serde_json::Value;
 
@@ -32,6 +32,7 @@ type Seq = u64;
 pub struct NativeRunnerAdapter {
     inbox: HashMap<String, VecDeque<RunnerEvent>>,
     seq: HashMap<String, Seq>,
+    finished: HashSet<String>,
     steer_log: Vec<(String, String)>,
     cancel_log: Vec<String>,
 }
@@ -47,6 +48,7 @@ impl NativeRunnerAdapter {
         Self {
             inbox: HashMap::new(),
             seq: HashMap::new(),
+            finished: HashSet::new(),
             steer_log: Vec::new(),
             cancel_log: Vec::new(),
         }
@@ -61,8 +63,22 @@ impl NativeRunnerAdapter {
                 attempt_id: attempt_id.to_string(),
             });
         }
+        if self.finished.contains(attempt_id) {
+            return Err(RunnerError::Finished {
+                attempt_id: attempt_id.to_string(),
+            });
+        }
         if let Some(kind) = map_event(event) {
+            let payload = serde_json::to_value(event)
+                .map_err(|error| RunnerError::Other(format!("cannot normalize event: {error}")))?;
             let seq = self.next_seq(attempt_id);
+            let terminal = matches!(
+                kind,
+                RunnerEventKind::Completed
+                    | RunnerEventKind::Failed
+                    | RunnerEventKind::Cancelled
+                    | RunnerEventKind::Stalled
+            );
             self.inbox
                 .get_mut(attempt_id)
                 .expect("checked above")
@@ -70,8 +86,11 @@ impl NativeRunnerAdapter {
                     attempt_id: attempt_id.to_string(),
                     kind,
                     seq,
-                    payload: Value::Null,
+                    payload,
                 });
+            if terminal {
+                self.finished.insert(attempt_id.to_string());
+            }
         }
         Ok(())
     }
@@ -103,10 +122,14 @@ impl RunnerAdapter for NativeRunnerAdapter {
     fn start_attempt(&mut self, spec: &AttemptSpec) -> RunnerResult<AttemptIdentity> {
         // O6b will route this to the live runtime (ensure_instance). Here we
         // establish the immutable identity and an empty inbox.
-        self.inbox
-            .entry(spec.attempt_id.clone())
-            .or_default()
-            .clear();
+        if self.finished.contains(&spec.attempt_id) {
+            return Err(RunnerError::Finished {
+                attempt_id: spec.attempt_id.clone(),
+            });
+        }
+        // Starting the same active identity is idempotent and must not discard
+        // events already delivered by the runtime bus.
+        self.inbox.entry(spec.attempt_id.clone()).or_default();
         Ok(AttemptIdentity {
             attempt_id: spec.attempt_id.clone(),
             handle: spec.attempt_id.clone(),
@@ -114,6 +137,7 @@ impl RunnerAdapter for NativeRunnerAdapter {
     }
 
     fn poll_event(&mut self, identity: &AttemptIdentity) -> RunnerResult<Option<RunnerEvent>> {
+        validate_identity(identity)?;
         let Some(queue) = self.inbox.get_mut(&identity.attempt_id) else {
             return Err(RunnerError::UnknownAttempt {
                 attempt_id: identity.attempt_id.clone(),
@@ -123,8 +147,14 @@ impl RunnerAdapter for NativeRunnerAdapter {
     }
 
     fn steer(&mut self, identity: &AttemptIdentity, message: &str) -> RunnerResult<()> {
+        validate_identity(identity)?;
         if !self.inbox.contains_key(&identity.attempt_id) {
             return Err(RunnerError::UnknownAttempt {
+                attempt_id: identity.attempt_id.clone(),
+            });
+        }
+        if self.finished.contains(&identity.attempt_id) {
+            return Err(RunnerError::Finished {
                 attempt_id: identity.attempt_id.clone(),
             });
         }
@@ -135,8 +165,14 @@ impl RunnerAdapter for NativeRunnerAdapter {
     }
 
     fn cancel(&mut self, identity: &AttemptIdentity) -> RunnerResult<()> {
+        validate_identity(identity)?;
         if !self.inbox.contains_key(&identity.attempt_id) {
             return Err(RunnerError::UnknownAttempt {
+                attempt_id: identity.attempt_id.clone(),
+            });
+        }
+        if self.finished.contains(&identity.attempt_id) {
+            return Err(RunnerError::Finished {
                 attempt_id: identity.attempt_id.clone(),
             });
         }
@@ -147,6 +183,10 @@ impl RunnerAdapter for NativeRunnerAdapter {
 
     fn shutdown(&mut self) {
         self.inbox.clear();
+        self.seq.clear();
+        self.finished.clear();
+        self.steer_log.clear();
+        self.cancel_log.clear();
     }
 }
 
@@ -164,21 +204,18 @@ pub fn map_event(event: &Event) -> Option<RunnerEventKind> {
         Event::ToolCallStart { .. } | Event::ToolCallEnd { .. } => Some(RunnerEventKind::Output),
         Event::EditDiff { .. } => Some(RunnerEventKind::Output),
         Event::Usage { .. } => Some(RunnerEventKind::Output),
-        Event::Clarification { .. } => Some(RunnerEventKind::InputRequired),
+        Event::Clarification {
+            edit_diff: Some(_), ..
+        } => Some(RunnerEventKind::ApprovalRequired),
+        Event::Clarification {
+            edit_diff: None, ..
+        } => Some(RunnerEventKind::InputRequired),
         Event::ApprovalRequest { .. } => Some(RunnerEventKind::ApprovalRequired),
-        Event::ExecutionRunFinished { exit_code, .. } => {
-            let code = exit_code.as_ref().copied().unwrap_or(0);
-            Some(if code == 0 {
-                RunnerEventKind::Completed
-            } else {
-                RunnerEventKind::Failed
-            })
-        }
-        Event::ExecutionJobFinished {
-            status, exit_code, ..
-        } => {
-            let code = exit_code.as_ref().copied().unwrap_or(0);
-            Some(execution_job_kind(status, code))
+        // These events describe tools/jobs within an agent run, not the
+        // orchestration attempt itself. Only RunTerminated is authoritative
+        // for the attempt's terminal state.
+        Event::ExecutionRunFinished { .. } | Event::ExecutionJobFinished { .. } => {
+            Some(RunnerEventKind::Output)
         }
         // Events with no orchestration meaning.
         Event::RunWarning { .. }
@@ -194,37 +231,28 @@ pub fn map_event(event: &Event) -> Option<RunnerEventKind> {
 }
 
 fn terminal_kind(outcome: &Value) -> RunnerEventKind {
-    if is_failure_outcome(outcome) {
-        RunnerEventKind::Failed
-    } else {
-        RunnerEventKind::Completed
+    let discriminator = outcome
+        .get("kind")
+        .or_else(|| outcome.get("status"))
+        .and_then(Value::as_str);
+    match discriminator {
+        Some("completed" | "success") => RunnerEventKind::Completed,
+        Some("cancelled") => RunnerEventKind::Cancelled,
+        Some("stuck") => RunnerEventKind::Stalled,
+        Some("failed" | "error" | "budget_exhausted") => RunnerEventKind::Failed,
+        // The runtime outcome is a tagged enum. Unknown/malformed outcomes
+        // fail closed instead of silently reporting successful completion.
+        _ => RunnerEventKind::Failed,
     }
 }
 
-fn execution_job_kind(status: &str, exit_code: i32) -> RunnerEventKind {
-    match status {
-        "completed" => RunnerEventKind::Completed,
-        "cancelled" => RunnerEventKind::Cancelled,
-        _ if exit_code != 0 => RunnerEventKind::Failed,
-        _ => RunnerEventKind::Completed,
+fn validate_identity(identity: &AttemptIdentity) -> RunnerResult<()> {
+    if identity.handle != identity.attempt_id {
+        return Err(RunnerError::UnknownAttempt {
+            attempt_id: identity.attempt_id.clone(),
+        });
     }
-}
-
-/// Heuristic failure detection for an opaque serialized run outcome. The native
-/// outcome schema is provider-dependent; this catches the common signals
-/// (an `error` field or an explicit error/failed status) and defaults to
-/// success. O6b refines this once the adapter owns the typed outcome.
-fn is_failure_outcome(outcome: &Value) -> bool {
-    let Some(obj) = outcome.as_object() else {
-        return false;
-    };
-    if obj.get("error").map(|v| !v.is_null()).unwrap_or(false) {
-        return true;
-    }
-    matches!(
-        obj.get("status").and_then(|v| v.as_str()),
-        Some("error") | Some("failed")
-    )
+    Ok(())
 }
 
 #[cfg(test)]
@@ -268,14 +296,42 @@ mod tests {
         assert_eq!(
             map_event(&Event::RunTerminated {
                 run_id: "r1".into(),
-                outcome: serde_json::json!({ "ok": true }),
+                outcome: serde_json::json!({ "kind": "completed" }),
             }),
             Some(RunnerEventKind::Completed)
         );
         assert_eq!(
             map_event(&Event::RunTerminated {
                 run_id: "r1".into(),
-                outcome: serde_json::json!({ "error": "boom" }),
+                outcome: serde_json::json!({ "kind": "failed", "failure": "boom" }),
+            }),
+            Some(RunnerEventKind::Failed)
+        );
+        assert_eq!(
+            map_event(&Event::RunTerminated {
+                run_id: "r1".into(),
+                outcome: serde_json::json!({ "kind": "cancelled" }),
+            }),
+            Some(RunnerEventKind::Cancelled)
+        );
+        assert_eq!(
+            map_event(&Event::RunTerminated {
+                run_id: "r1".into(),
+                outcome: serde_json::json!({ "kind": "stuck" }),
+            }),
+            Some(RunnerEventKind::Stalled)
+        );
+        assert_eq!(
+            map_event(&Event::RunTerminated {
+                run_id: "r1".into(),
+                outcome: serde_json::json!({ "kind": "budget_exhausted" }),
+            }),
+            Some(RunnerEventKind::Failed)
+        );
+        assert_eq!(
+            map_event(&Event::RunTerminated {
+                run_id: "r1".into(),
+                outcome: Value::Null,
             }),
             Some(RunnerEventKind::Failed)
         );
@@ -317,6 +373,18 @@ mod tests {
             Some(RunnerEventKind::InputRequired)
         );
         assert_eq!(
+            map_event(&Event::Clarification {
+                content: "apply edit?".into(),
+                choices: vec![],
+                edit_diff: Some(crate::altai::agent::runtime::EditDiffPayload {
+                    file: "src/lib.rs".into(),
+                    diff: "@@".into(),
+                    truncated: false,
+                }),
+            }),
+            Some(RunnerEventKind::ApprovalRequired)
+        );
+        assert_eq!(
             map_event(&Event::ApprovalRequest {
                 id: "a1".into(),
                 action: "run".into(),
@@ -327,7 +395,7 @@ mod tests {
     }
 
     #[test]
-    fn execution_runs_map_terminal_by_exit_code() {
+    fn execution_tools_are_output_not_attempt_terminals() {
         assert_eq!(
             map_event(&Event::ExecutionRunFinished {
                 provider_id: "p".into(),
@@ -340,7 +408,7 @@ mod tests {
                 git_head: None,
                 description: None,
             }),
-            Some(RunnerEventKind::Completed)
+            Some(RunnerEventKind::Output)
         );
         assert_eq!(
             map_event(&Event::ExecutionRunFinished {
@@ -354,7 +422,22 @@ mod tests {
                 git_head: None,
                 description: None,
             }),
-            Some(RunnerEventKind::Failed)
+            Some(RunnerEventKind::Output)
+        );
+        assert_eq!(
+            map_event(&Event::ExecutionJobFinished {
+                job_id: "j".into(),
+                session_id: "s".into(),
+                provider_id: "p".into(),
+                status: "failed".into(),
+                exit_code: Some(2),
+                duration_ms: 10,
+                stdout_len: 0,
+                stderr_len: 10,
+                artifact_count: 0,
+                description: None,
+            }),
+            Some(RunnerEventKind::Output)
         );
     }
 
@@ -410,9 +493,77 @@ mod tests {
             },
         )
         .expect("feed");
-        assert_eq!(poll_kind(&mut a, "att-1"), Some(RunnerEventKind::Started));
-        assert_eq!(poll_kind(&mut a, "att-1"), Some(RunnerEventKind::Output));
+        let identity = AttemptIdentity {
+            attempt_id: "att-1".into(),
+            handle: "att-1".into(),
+        };
+        let started = a.poll_event(&identity).expect("poll").expect("started");
+        assert_eq!(started.kind, RunnerEventKind::Started);
+        assert_eq!(started.payload["type"], "run_started");
+        let output = a.poll_event(&identity).expect("poll").expect("output");
+        assert_eq!(output.kind, RunnerEventKind::Output);
+        assert_eq!(output.payload["content"], "working");
+        assert_eq!(output.payload["role"], "assistant");
         assert_eq!(poll_kind(&mut a, "att-1"), None);
+    }
+
+    #[test]
+    fn duplicate_start_preserves_queued_events_and_sequence() {
+        let mut a = adapter_with_attempt("att-1");
+        a.feed(
+            "att-1",
+            &Event::AgentMessage {
+                content: "queued".into(),
+                role: "assistant".into(),
+            },
+        )
+        .expect("feed");
+        a.start_attempt(&AttemptSpec {
+            task_id: "t1".into(),
+            attempt_id: "att-1".into(),
+            input: String::new(),
+        })
+        .expect("idempotent start");
+
+        let identity = AttemptIdentity {
+            attempt_id: "att-1".into(),
+            handle: "att-1".into(),
+        };
+        let event = a.poll_event(&identity).unwrap().unwrap();
+        assert_eq!(event.seq, 1);
+        assert_eq!(event.payload["content"], "queued");
+    }
+
+    #[test]
+    fn terminal_event_closes_the_attempt_after_it_is_queued() {
+        let mut a = adapter_with_attempt("att-1");
+        a.feed(
+            "att-1",
+            &Event::RunTerminated {
+                run_id: "r1".into(),
+                outcome: serde_json::json!({ "kind": "completed" }),
+            },
+        )
+        .expect("terminal");
+        assert!(matches!(
+            a.feed(
+                "att-1",
+                &Event::AgentMessage {
+                    content: "late".into(),
+                    role: "assistant".into(),
+                }
+            ),
+            Err(RunnerError::Finished { .. })
+        ));
+        let identity = AttemptIdentity {
+            attempt_id: "att-1".into(),
+            handle: "att-1".into(),
+        };
+        assert!(matches!(
+            a.cancel(&identity),
+            Err(RunnerError::Finished { .. })
+        ));
+        assert_eq!(poll_kind(&mut a, "att-1"), Some(RunnerEventKind::Completed));
     }
 
     #[test]
@@ -454,6 +605,14 @@ mod tests {
         ));
         assert!(matches!(
             a.cancel(&ghost),
+            Err(RunnerError::UnknownAttempt { .. })
+        ));
+        let mismatched_handle = AttemptIdentity {
+            attempt_id: "att-1".into(),
+            handle: "att-2".into(),
+        };
+        assert!(matches!(
+            a.poll_event(&mismatched_handle),
             Err(RunnerError::UnknownAttempt { .. })
         ));
     }
