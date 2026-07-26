@@ -1,18 +1,22 @@
-//! O6a — Native runner adapter: event normalization and identity.
+//! O6a/O6b — Native runner adapter: event normalization, identity, and the
+//! async/sync event bridge.
 //!
 //! Wraps the existing ALTAI runtime behind the O3 [`RunnerAdapter`] boundary.
-//! This slice delivers the **normalization** of native `runtime::Event`s into
-//! orchestration [`RunnerEventKind`]s and the per-attempt identity/isolation
-//! model, with conformance tests (§B1). The live dispatch bridge (starting a
-//! real run and feeding bus events) lands in O6b.
+//! O6a delivered normalization of native `runtime::Event`s into orchestration
+//! [`RunnerEventKind`]s and the per-attempt identity/isolation model. O6b adds
+//! the **concurrent event bridge**: the adapter's inbox lives behind an
+//! `Arc<Mutex>`, so an async feeder (the future outbound-router tap) can push
+//! events while the synchronous coordinator's `poll_event` drains them. This is
+//! the mechanism that lets the runtime's async/bus model coexist with the
+//! synchronous coordinator decision core without feature loss.
 //!
-//! Design: the adapter owns an event inbox per attempt. A future bus listener
-//! calls [`NativeRunnerAdapter::feed`] with a runtime event; the adapter
-//! normalizes it (the single translation point) and queues it. `poll_event`
-//! drains the inbox. This keeps the runtime's async/bus model out of the
-//! synchronous coordinator decision core while preventing feature loss.
+//! Design: [`NativeRunnerAdapter`] owns the shared inbox. A bus listener obtains
+//! a [`NativeFeeder`] (a clonable handle) via [`NativeRunnerAdapter::feeder`]
+//! and calls [`NativeFeeder::push_event`] from an async task; the adapter's
+//! [`RunnerAdapter::poll_event`] drains the same inbox synchronously.
 
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::sync::{Arc, Mutex};
 
 use serde_json::Value;
 
@@ -25,16 +29,27 @@ use crate::altai::agent::runtime::Event;
 /// Normalized event sequence number per attempt.
 type Seq = u64;
 
-/// Adapter around the native ALTAI runtime.
+/// Mutable state shared between the adapter and its feeders.
 ///
-/// `feed` is the integration seam for O6b: the bus listener pushes observed
-/// `runtime::Event`s here and the adapter normalizes + queues them.
-pub struct NativeRunnerAdapter {
+/// Held behind an `Arc<Mutex<…>>` so an async feeder task can push while the
+/// synchronous adapter drains.
+#[derive(Default)]
+struct NativeState {
     inbox: HashMap<String, VecDeque<RunnerEvent>>,
     seq: HashMap<String, Seq>,
     finished: HashSet<String>,
     steer_log: Vec<(String, String)>,
     cancel_log: Vec<String>,
+}
+
+/// Adapter around the native ALTAI runtime.
+///
+/// The synchronous [`RunnerAdapter`] methods lock [`NativeState`]; the
+/// [`NativeRunnerAdapter::feeder`] handle lets an async bus tap push events
+/// concurrently. The single translation point for native events is
+/// [`map_event`].
+pub struct NativeRunnerAdapter {
+    state: Arc<Mutex<NativeState>>,
 }
 
 impl Default for NativeRunnerAdapter {
@@ -46,11 +61,17 @@ impl Default for NativeRunnerAdapter {
 impl NativeRunnerAdapter {
     pub fn new() -> Self {
         Self {
-            inbox: HashMap::new(),
-            seq: HashMap::new(),
-            finished: HashSet::new(),
-            steer_log: Vec::new(),
-            cancel_log: Vec::new(),
+            state: Arc::new(Mutex::new(NativeState::default())),
+        }
+    }
+
+    /// Return a clonable handle through which an **async** task can push observed
+    /// native events into this adapter's inbox. The feeder shares the same
+    /// `Arc<Mutex<NativeState>>` as the adapter, so pushes become visible to the
+    /// synchronous [`RunnerAdapter::poll_event`] without copying.
+    pub fn feeder(&self) -> NativeFeeder {
+        NativeFeeder {
+            state: self.state.clone(),
         }
     }
 
@@ -58,56 +79,95 @@ impl NativeRunnerAdapter {
     /// form. Events for an unknown attempt are rejected (a runner cannot emit
     /// for another task/workspace — §B1).
     pub fn feed(&mut self, attempt_id: &str, event: &Event) -> RunnerResult<()> {
-        if !self.inbox.contains_key(attempt_id) {
-            return Err(RunnerError::UnknownAttempt {
+        let mut state = lock(&self.state)?;
+        push_event_locked(&mut state, attempt_id, event)
+    }
+
+    pub fn steers(&self) -> Vec<(String, String)> {
+        lock(&self.state)
+            .map(|s| s.steer_log.clone())
+            .unwrap_or_default()
+    }
+
+    pub fn cancels(&self) -> Vec<String> {
+        lock(&self.state)
+            .map(|s| s.cancel_log.clone())
+            .unwrap_or_default()
+    }
+}
+
+/// Clonable handle that lets an async task push native events into the owning
+/// [`NativeRunnerAdapter`]'s inbox. Created via [`NativeRunnerAdapter::feeder`].
+///
+/// This is the O6b integration seam: the outbound-router tap (or, in tests, a
+/// scripted async task) calls [`NativeFeeder::push_event`] from a tokio task
+/// while the synchronous coordinator drains with `poll_event`. The shared
+/// `Arc<Mutex<NativeState>>` is what bridges the async and sync worlds.
+#[derive(Clone)]
+pub struct NativeFeeder {
+    state: Arc<Mutex<NativeState>>,
+}
+
+impl NativeFeeder {
+    /// Push an observed native event for `attempt_id`. Thread-safe: safe to call
+    /// from an async task while the adapter's synchronous `poll_event` drains.
+    pub fn push_event(&self, attempt_id: &str, event: &Event) -> RunnerResult<()> {
+        let mut state = lock(&self.state)?;
+        push_event_locked(&mut state, attempt_id, event)
+    }
+}
+
+fn lock(state: &Arc<Mutex<NativeState>>) -> RunnerResult<std::sync::MutexGuard<'_, NativeState>> {
+    state
+        .lock()
+        .map_err(|_| RunnerError::Other("native adapter inbox poisoned".to_string()))
+}
+
+/// Core normalization + enqueue, operating on a held guard. Shared by
+/// [`NativeRunnerAdapter::feed`] (sync) and [`NativeFeeder::push_event`] (async).
+fn push_event_locked(state: &mut NativeState, attempt_id: &str, event: &Event) -> RunnerResult<()> {
+    if !state.inbox.contains_key(attempt_id) {
+        return Err(RunnerError::UnknownAttempt {
+            attempt_id: attempt_id.to_string(),
+        });
+    }
+    if state.finished.contains(attempt_id) {
+        return Err(RunnerError::Finished {
+            attempt_id: attempt_id.to_string(),
+        });
+    }
+    if let Some(kind) = map_event(event) {
+        let payload = serde_json::to_value(event)
+            .map_err(|error| RunnerError::Other(format!("cannot normalize event: {error}")))?;
+        let seq = next_seq(state, attempt_id);
+        let terminal = matches!(
+            kind,
+            RunnerEventKind::Completed
+                | RunnerEventKind::Failed
+                | RunnerEventKind::Cancelled
+                | RunnerEventKind::Stalled
+        );
+        state
+            .inbox
+            .get_mut(attempt_id)
+            .expect("checked above")
+            .push_back(RunnerEvent {
                 attempt_id: attempt_id.to_string(),
-            });
-        }
-        if self.finished.contains(attempt_id) {
-            return Err(RunnerError::Finished {
-                attempt_id: attempt_id.to_string(),
-            });
-        }
-        if let Some(kind) = map_event(event) {
-            let payload = serde_json::to_value(event)
-                .map_err(|error| RunnerError::Other(format!("cannot normalize event: {error}")))?;
-            let seq = self.next_seq(attempt_id);
-            let terminal = matches!(
                 kind,
-                RunnerEventKind::Completed
-                    | RunnerEventKind::Failed
-                    | RunnerEventKind::Cancelled
-                    | RunnerEventKind::Stalled
-            );
-            self.inbox
-                .get_mut(attempt_id)
-                .expect("checked above")
-                .push_back(RunnerEvent {
-                    attempt_id: attempt_id.to_string(),
-                    kind,
-                    seq,
-                    payload,
-                });
-            if terminal {
-                self.finished.insert(attempt_id.to_string());
-            }
+                seq,
+                payload,
+            });
+        if terminal {
+            state.finished.insert(attempt_id.to_string());
         }
-        Ok(())
     }
+    Ok(())
+}
 
-    pub fn steers(&self) -> &[(String, String)] {
-        &self.steer_log
-    }
-
-    pub fn cancels(&self) -> &[String] {
-        &self.cancel_log
-    }
-
-    fn next_seq(&mut self, attempt_id: &str) -> Seq {
-        let entry = self.seq.entry(attempt_id.to_string()).or_insert(0);
-        *entry += 1;
-        *entry
-    }
+fn next_seq(state: &mut NativeState, attempt_id: &str) -> Seq {
+    let entry = state.seq.entry(attempt_id.to_string()).or_insert(0);
+    *entry += 1;
+    *entry
 }
 
 impl RunnerAdapter for NativeRunnerAdapter {
@@ -120,16 +180,17 @@ impl RunnerAdapter for NativeRunnerAdapter {
     }
 
     fn start_attempt(&mut self, spec: &AttemptSpec) -> RunnerResult<AttemptIdentity> {
+        let mut state = lock(&self.state)?;
         // O6b will route this to the live runtime (ensure_instance). Here we
         // establish the immutable identity and an empty inbox.
-        if self.finished.contains(&spec.attempt_id) {
+        if state.finished.contains(&spec.attempt_id) {
             return Err(RunnerError::Finished {
                 attempt_id: spec.attempt_id.clone(),
             });
         }
         // Starting the same active identity is idempotent and must not discard
         // events already delivered by the runtime bus.
-        self.inbox.entry(spec.attempt_id.clone()).or_default();
+        state.inbox.entry(spec.attempt_id.clone()).or_default();
         Ok(AttemptIdentity {
             attempt_id: spec.attempt_id.clone(),
             handle: spec.attempt_id.clone(),
@@ -138,7 +199,8 @@ impl RunnerAdapter for NativeRunnerAdapter {
 
     fn poll_event(&mut self, identity: &AttemptIdentity) -> RunnerResult<Option<RunnerEvent>> {
         validate_identity(identity)?;
-        let Some(queue) = self.inbox.get_mut(&identity.attempt_id) else {
+        let mut state = lock(&self.state)?;
+        let Some(queue) = state.inbox.get_mut(&identity.attempt_id) else {
             return Err(RunnerError::UnknownAttempt {
                 attempt_id: identity.attempt_id.clone(),
             });
@@ -148,45 +210,57 @@ impl RunnerAdapter for NativeRunnerAdapter {
 
     fn steer(&mut self, identity: &AttemptIdentity, message: &str) -> RunnerResult<()> {
         validate_identity(identity)?;
-        if !self.inbox.contains_key(&identity.attempt_id) {
+        let mut state = lock(&self.state)?;
+        if !state.inbox.contains_key(&identity.attempt_id) {
             return Err(RunnerError::UnknownAttempt {
                 attempt_id: identity.attempt_id.clone(),
             });
         }
-        if self.finished.contains(&identity.attempt_id) {
+        if state.finished.contains(&identity.attempt_id) {
             return Err(RunnerError::Finished {
                 attempt_id: identity.attempt_id.clone(),
             });
         }
         // O6b routes this to `route_steer` on the owning runtime only.
-        self.steer_log
+        state
+            .steer_log
             .push((identity.attempt_id.clone(), message.to_string()));
         Ok(())
     }
 
     fn cancel(&mut self, identity: &AttemptIdentity) -> RunnerResult<()> {
         validate_identity(identity)?;
-        if !self.inbox.contains_key(&identity.attempt_id) {
+        let mut state = lock(&self.state)?;
+        if !state.inbox.contains_key(&identity.attempt_id) {
             return Err(RunnerError::UnknownAttempt {
                 attempt_id: identity.attempt_id.clone(),
             });
         }
-        if self.finished.contains(&identity.attempt_id) {
+        if state.finished.contains(&identity.attempt_id) {
             return Err(RunnerError::Finished {
                 attempt_id: identity.attempt_id.clone(),
             });
         }
         // O6b routes this to `route_cancel` on the owning runtime only.
-        self.cancel_log.push(identity.attempt_id.clone());
+        state.cancel_log.push(identity.attempt_id.clone());
         Ok(())
     }
 
     fn shutdown(&mut self) {
-        self.inbox.clear();
-        self.seq.clear();
-        self.finished.clear();
-        self.steer_log.clear();
-        self.cancel_log.clear();
+        // Shutdown cannot report an error through RunnerAdapter, so recover a
+        // poisoned guard and still honor the cleanup contract. Clear the poison
+        // marker only after every resource has been released.
+        let mut state = match self.state.lock() {
+            Ok(state) => state,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        state.inbox.clear();
+        state.seq.clear();
+        state.finished.clear();
+        state.steer_log.clear();
+        state.cancel_log.clear();
+        drop(state);
+        self.state.clear_poison();
     }
 }
 
@@ -592,8 +666,8 @@ mod tests {
         };
         a.steer(&id, "focus").expect("steer");
         a.cancel(&id).expect("cancel");
-        assert_eq!(a.steers(), &[("att-1".into(), "focus".into())]);
-        assert_eq!(a.cancels(), &["att-1".to_string()]);
+        assert_eq!(a.steers(), vec![("att-1".into(), "focus".into())]);
+        assert_eq!(a.cancels(), vec!["att-1".to_string()]);
 
         let ghost = AttemptIdentity {
             attempt_id: "ghost".into(),
@@ -638,5 +712,197 @@ mod tests {
         let e2 = a.poll_event(&id).expect("poll").expect("event");
         let e3 = a.poll_event(&id).expect("poll").expect("event");
         assert!((e1.seq, e2.seq, e3.seq) == (1, 2, 3));
+    }
+
+    // --- O6b: async/sync bridge ---------------------------------------------
+
+    #[tokio::test]
+    async fn async_feeder_feeds_sync_poll() {
+        // The adapter is driven synchronously; a feeder (an async-task handle)
+        // pushes events into the shared inbox. `poll_event` drains them without
+        // copying — proving the Arc<Mutex> bridge between the async runtime and
+        // the synchronous coordinator.
+        let mut a = adapter_with_attempt("att-1");
+        let feeder = a.feeder();
+
+        let task = tokio::spawn(async move {
+            feeder
+                .push_event(
+                    "att-1",
+                    &Event::RunStarted {
+                        run_id: "r1".into(),
+                    },
+                )
+                .expect("push started");
+            // Yield so the synchronous drainer (below) can observe ordering.
+            tokio::task::yield_now().await;
+            feeder
+                .push_event(
+                    "att-1",
+                    &Event::AgentMessage {
+                        content: "step".into(),
+                        role: "assistant".into(),
+                    },
+                )
+                .expect("push output");
+            tokio::task::yield_now().await;
+            feeder
+                .push_event(
+                    "att-1",
+                    &Event::RunTerminated {
+                        run_id: "r1".into(),
+                        outcome: serde_json::json!({ "kind": "completed" }),
+                    },
+                )
+                .expect("push terminal");
+        });
+
+        // Drain synchronously, yielding between sweeps so the feeder task runs.
+        let id = AttemptIdentity {
+            attempt_id: "att-1".into(),
+            handle: "att-1".into(),
+        };
+        let mut kinds = Vec::new();
+        for _ in 0..200 {
+            while let Some(e) = a.poll_event(&id).expect("poll") {
+                kinds.push(e.kind);
+            }
+            if kinds
+                .iter()
+                .any(|k| matches!(k, RunnerEventKind::Completed))
+            {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+        task.await.expect("feeder task");
+
+        assert!(kinds.contains(&RunnerEventKind::Started));
+        assert!(kinds.contains(&RunnerEventKind::Output));
+        assert!(kinds.contains(&RunnerEventKind::Completed));
+        // Ordering is preserved across the async/sync boundary.
+        let pos = |k: RunnerEventKind| kinds.iter().position(|x| *x == k).unwrap();
+        assert!(pos(RunnerEventKind::Started) < pos(RunnerEventKind::Completed));
+    }
+
+    #[tokio::test]
+    async fn feeder_is_isolated_by_attempt() {
+        let mut a = adapter_with_attempt("att-1");
+        let feeder = a.feeder();
+        // Pushing to an attempt this adapter never started is rejected, even
+        // from an async task.
+        let err = tokio::spawn(async move {
+            feeder.push_event(
+                "att-other",
+                &Event::RunStarted {
+                    run_id: "r2".into(),
+                },
+            )
+        })
+        .await
+        .expect("task");
+        assert!(matches!(err, Err(RunnerError::UnknownAttempt { .. })));
+        // att-1 remains untouched.
+        assert_eq!(poll_kind(&mut a, "att-1"), None);
+    }
+
+    #[tokio::test]
+    async fn feeder_shares_terminal_state_with_adapter() {
+        // A terminal event pushed by the async feeder must be observed by the
+        // synchronous adapter's `finished` guard: subsequent feeds are rejected.
+        let mut a = adapter_with_attempt("att-1");
+        let feeder = a.feeder();
+        feeder
+            .push_event(
+                "att-1",
+                &Event::RunTerminated {
+                    run_id: "r1".into(),
+                    outcome: serde_json::json!({ "kind": "failed" }),
+                },
+            )
+            .expect("push terminal");
+        // The adapter (sync side) sees the same terminal state.
+        assert!(matches!(
+            a.feed(
+                "att-1",
+                &Event::AgentMessage {
+                    content: "late".into(),
+                    role: "assistant".into(),
+                }
+            ),
+            Err(RunnerError::Finished { .. })
+        ));
+    }
+
+    #[test]
+    fn feeder_can_be_cloned_and_shared() {
+        // Multiple feeders (e.g. a bus tap + a replay task) share one inbox.
+        let mut a = adapter_with_attempt("att-1");
+        let f1 = a.feeder();
+        let f2 = f1.clone();
+        f1.push_event(
+            "att-1",
+            &Event::AgentMessage {
+                content: "from-f1".into(),
+                role: "assistant".into(),
+            },
+        )
+        .expect("push");
+        f2.push_event(
+            "att-1",
+            &Event::AgentMessage {
+                content: "from-f2".into(),
+                role: "assistant".into(),
+            },
+        )
+        .expect("push");
+        let id = AttemptIdentity {
+            attempt_id: "att-1".into(),
+            handle: "att-1".into(),
+        };
+        let e1 = a.poll_event(&id).unwrap().unwrap();
+        let e2 = a.poll_event(&id).unwrap().unwrap();
+        assert_eq!(e1.payload["content"], "from-f1");
+        assert_eq!(e2.payload["content"], "from-f2");
+        assert!(e1.seq < e2.seq);
+    }
+
+    #[test]
+    fn shutdown_recovers_poisoned_state_and_cleans_every_resource() {
+        let mut adapter = adapter_with_attempt("att-1");
+        let identity = AttemptIdentity {
+            attempt_id: "att-1".into(),
+            handle: "att-1".into(),
+        };
+        adapter
+            .feed(
+                "att-1",
+                &Event::AgentMessage {
+                    content: "queued".into(),
+                    role: "assistant".into(),
+                },
+            )
+            .expect("feed");
+        adapter.steer(&identity, "focus").expect("steer");
+        adapter.cancel(&identity).expect("cancel");
+
+        let shared = adapter.state.clone();
+        let panic = std::thread::spawn(move || {
+            let _guard = shared.lock().expect("lock before poison");
+            panic!("poison native adapter state");
+        })
+        .join();
+        assert!(panic.is_err());
+        assert!(adapter.state.is_poisoned());
+
+        adapter.shutdown();
+
+        assert!(!adapter.state.is_poisoned());
+        let state = adapter.state.lock().expect("recovered state");
+        assert!(state.inbox.is_empty());
+        assert!(state.seq.is_empty());
+        assert!(state.finished.is_empty());
+        assert!(state.steer_log.is_empty());
+        assert!(state.cancel_log.is_empty());
     }
 }
