@@ -97,7 +97,11 @@ import {
   type ShortcutHandlers,
   type ShortcutId,
 } from "@/modules/shortcuts";
-import { SidebarRail, type SidebarViewId } from "@/modules/sidebar";
+import {
+  SidebarRail,
+  type SidebarRailItemId,
+  type SidebarViewId,
+} from "@/modules/sidebar";
 import {
   SourceControlPanel,
   useSourceControl,
@@ -111,6 +115,7 @@ import {
   WORKSPACE_PANEL_ID,
 } from "@/modules/tabs";
 import { folderName, useWorkspaceFolderStore } from "@/modules/workspace/folder";
+import { useAssignmentsStore } from "@/modules/github/store/assignmentsStore";
 import {
   disposeSession,
   findLeafCwd,
@@ -321,6 +326,22 @@ export default function App() {
     useWorkspaceFolderStore.getState().justCloned
       ? "source-control"
       : readSidebarView(),
+  );
+  const boardAssignments = useAssignmentsStore((state) => state.assignments);
+  const hydrateAssignments = useAssignmentsStore((state) => state.hydrate);
+  useEffect(() => {
+    void hydrateAssignments();
+  }, [hydrateAssignments]);
+  const projectsBadge = useMemo(
+    () =>
+      boardAssignments.filter(
+        (assignment) =>
+          assignment.status === "dispatching" ||
+          assignment.status === "running" ||
+          assignment.status === "awaiting-approval" ||
+          assignment.status === "done",
+      ).length,
+    [boardAssignments],
   );
   const persistSidebarView = useCallback((view: SidebarViewId) => {
     setSidebarViewState(view);
@@ -1447,6 +1468,25 @@ export default function App() {
     sourceControlContextPath,
   ]);
 
+  const handleSidebarRailSelect = useCallback(
+    (item: SidebarRailItemId) => {
+      if (item === "github") {
+        void openGitHubItemsFromContext();
+        return;
+      }
+      if (item === "projects") {
+        void openProjectBoardFromContext();
+        return;
+      }
+      persistSidebarView(item);
+    },
+    [
+      openGitHubItemsFromContext,
+      openProjectBoardFromContext,
+      persistSidebarView,
+    ],
+  );
+
   const openPreviewTab = useCallback(
     (url: string) => {
       const id = newPreviewTab(url);
@@ -2145,8 +2185,15 @@ export default function App() {
               >
                 <div className="flex h-full min-h-0 flex-col border-r border-border/60 bg-card">
                   <SidebarRail
-                    activeView={sidebarView}
-                    onSelectView={persistSidebarView}
+                    activeItem={
+                      isProjectBoardTab
+                        ? "projects"
+                        : isGitHubItemsTab
+                          ? "github"
+                          : sidebarView
+                    }
+                    onSelectItem={handleSidebarRailSelect}
+                    projectsBadge={projectsBadge}
                   />
                   {workspaceFolder ? (
                     <div className="group/ws flex items-center gap-1 border-b border-border/60 px-2 py-1.5">

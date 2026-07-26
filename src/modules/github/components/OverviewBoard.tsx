@@ -8,11 +8,13 @@ import { buildTodoSeed } from "@/modules/github/lib/assignments";
 import {
   BOARD_COLUMNS,
   type BoardItem,
+  type BoardStatus,
   type BoardSource,
   issueToBoardItem,
   pullToBoardItem,
   todoToBoardItem,
 } from "@/modules/github/lib/boardModel";
+import type { Assignment } from "@/modules/github/lib/assignments";
 import { listItems, type GHItem, type RepoSlug } from "@/modules/github/lib/items";
 import {
   assignGitHubItem,
@@ -24,9 +26,12 @@ import {
   Robot01Icon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { openUrl } from "@tauri-apps/plugin-opener";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { AssignmentsRail } from "./AssignmentsRail";
+import {
+  BoardCardDetailsSheet,
+  type BoardCardDetail,
+} from "./BoardCardDetailsSheet";
 import { StateBadge } from "./itemBits";
 
 type Props = {
@@ -42,6 +47,57 @@ const SOURCE_META: Record<AssignableSource, { label: string; cls: string }> = {
 };
 
 const ALL_SOURCES: AssignableSource[] = ["issue", "pr", "todo"];
+const ACTIVE_ASSIGNMENT_STATUSES = new Set([
+  "dispatching",
+  "running",
+  "awaiting-approval",
+]);
+
+function overrideStorageKey(slug: RepoSlug): string {
+  return `altai.project-board.status.${slug.owner}/${slug.repo}`;
+}
+
+function readStatusOverrides(slug: RepoSlug): Record<string, BoardStatus> {
+  try {
+    const parsed = JSON.parse(
+      window.localStorage.getItem(overrideStorageKey(slug)) ?? "{}",
+    ) as Record<string, string>;
+    return Object.fromEntries(
+      Object.entries(parsed).filter((entry): entry is [string, BoardStatus] =>
+        BOARD_COLUMNS.some((column) => column.id === entry[1]),
+      ),
+    );
+  } catch {
+    return {};
+  }
+}
+
+function assignmentKey(
+  assignment: Assignment,
+  slug: RepoSlug,
+): string | null {
+  if (
+    assignment.source.kind === "issue" ||
+    assignment.source.kind === "pr"
+  ) {
+    if (
+      assignment.source.owner !== slug.owner ||
+      assignment.source.repo !== slug.repo
+    ) {
+      return null;
+    }
+    return `${assignment.source.kind}-${assignment.source.number}`;
+  }
+  return assignment.source.kind === "todo"
+    ? `todo-${assignment.source.todoId}`
+    : null;
+}
+
+function assignmentStatus(assignment: Assignment): BoardStatus | null {
+  if (ACTIVE_ASSIGNMENT_STATUSES.has(assignment.status)) return "in_progress";
+  if (assignment.status === "done") return "review";
+  return null;
+}
 
 export function OverviewBoard({ slug }: Props) {
   const [issues, setIssues] = useState<GHItem[]>([]);
@@ -55,6 +111,11 @@ export function OverviewBoard({ slug }: Props) {
   );
   const [creatingTodo, setCreatingTodo] = useState(false);
   const [todoDraft, setTodoDraft] = useState("");
+  const [dragItem, setDragItem] = useState<string | null>(null);
+  const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  const [statusOverrides, setStatusOverrides] = useState<
+    Record<string, BoardStatus>
+  >(() => readStatusOverrides(slug));
 
   const activeSessionId = useChatStore((s) => s.activeSessionId);
   const todos = useTodosStore((s) =>
@@ -62,9 +123,15 @@ export function OverviewBoard({ slug }: Props) {
   );
   const hydrateTodos = useTodosStore((s) => s.hydrate);
   const addTodo = useTodosStore((s) => s.addTodo);
+  const updateTodoStatus = useTodosStore((s) => s.updateTodoStatus);
 
   const assignments = useAssignmentsStore((s) => s.assignments);
   const assign = useAssignmentsStore((s) => s.assign);
+
+  useEffect(() => {
+    setStatusOverrides(readStatusOverrides(slug));
+    setSelectedKey(null);
+  }, [slug]);
 
   useEffect(() => {
     if (activeSessionId) void hydrateTodos(activeSessionId);
@@ -92,6 +159,15 @@ export function OverviewBoard({ slug }: Props) {
     };
   }, [slug, reloadTick]);
 
+  const assignmentByKey = useMemo(() => {
+    const map = new Map<string, Assignment>();
+    for (const assignment of assignments) {
+      const key = assignmentKey(assignment, slug);
+      if (key) map.set(key, assignment);
+    }
+    return map;
+  }, [assignments, slug]);
+
   const items = useMemo<BoardItem[]>(() => {
     const out: BoardItem[] = [];
     if (enabled.has("issue")) out.push(...issues.map(issueToBoardItem));
@@ -99,8 +175,26 @@ export function OverviewBoard({ slug }: Props) {
     if (enabled.has("todo")) {
       (todos ?? []).forEach((t, i) => out.push(todoToBoardItem(t, i)));
     }
-    return out;
-  }, [issues, pulls, todos, enabled]);
+    return out.map((item) => {
+      if (item.status === "done") return item;
+      const assignment = assignmentByKey.get(item.key);
+      const runStatus = assignment ? assignmentStatus(assignment) : null;
+      return {
+        ...item,
+        status:
+          runStatus === "in_progress"
+            ? "in_progress"
+            : statusOverrides[item.key] ?? runStatus ?? item.status,
+      };
+    });
+  }, [
+    issues,
+    pulls,
+    todos,
+    enabled,
+    assignmentByKey,
+    statusOverrides,
+  ]);
 
   const byColumn = useMemo(() => {
     const map = new Map<string, BoardItem[]>();
@@ -111,15 +205,10 @@ export function OverviewBoard({ slug }: Props) {
 
   // Board-item keys that already have an assignment, so we don't offer a
   // duplicate "Assign agent".
-  const assignedKeys = useMemo(() => {
-    const set = new Set<string>();
-    for (const a of assignments) {
-      if (a.source.kind === "issue") set.add(`issue-${a.source.number}`);
-      else if (a.source.kind === "pr") set.add(`pr-${a.source.number}`);
-      else if (a.source.kind === "todo") set.add(`todo-${a.source.todoId}`);
-    }
-    return set;
-  }, [assignments]);
+  const assignedKeys = useMemo(
+    () => new Set(assignmentByKey.keys()),
+    [assignmentByKey],
+  );
 
   const toggleSource = (s: AssignableSource) =>
     setEnabled((prev) => {
@@ -168,6 +257,70 @@ export function OverviewBoard({ slug }: Props) {
     }
   };
 
+  const moveCard = useCallback(
+    (card: BoardItem, status: BoardStatus) => {
+      setStatusOverrides((current) => {
+        const next = { ...current, [card.key]: status };
+        try {
+          window.localStorage.setItem(
+            overrideStorageKey(slug),
+            JSON.stringify(next),
+          );
+        } catch {
+          // Local Overview status is best-effort; linked Projects sync remotely.
+        }
+        return next;
+      });
+      if (
+        card.source === "todo" &&
+        activeSessionId &&
+        card.key.startsWith("todo-")
+      ) {
+        const todoId = card.key.replace(/^todo-/, "");
+        updateTodoStatus(
+          activeSessionId,
+          todoId,
+          status === "done"
+            ? "completed"
+            : status === "todo"
+              ? "pending"
+              : "in_progress",
+        );
+      }
+    },
+    [activeSessionId, slug, updateTodoStatus],
+  );
+
+  const onDrop = (status: BoardStatus) => {
+    const card = items.find((item) => item.key === dragItem);
+    setDragItem(null);
+    if (card && card.status !== status) moveCard(card, status);
+  };
+
+  const selectedCard = items.find((item) => item.key === selectedKey) ?? null;
+  const selectedAssignment = selectedCard
+    ? assignmentByKey.get(selectedCard.key)
+    : undefined;
+  const selectedDetail: BoardCardDetail | null = selectedCard
+    ? {
+        title: selectedCard.title,
+        source:
+          selectedCard.source === "pr"
+            ? "pr"
+            : selectedCard.source === "issue"
+              ? "issue"
+              : "todo",
+        status: selectedCard.status,
+        statusLabel:
+          BOARD_COLUMNS.find((column) => column.id === selectedCard.status)
+            ?.name ?? selectedCard.status,
+        number: selectedCard.number,
+        url: selectedCard.url,
+        body: selectedCard.body,
+        meta: selectedCard.meta,
+      }
+    : null;
+
   return (
     <div className="flex h-full w-full flex-col">
       <AssignmentsRail />
@@ -205,10 +358,13 @@ export function OverviewBoard({ slug }: Props) {
             New todo
           </Button>
         ) : null}
+        <span className="ml-auto text-[10px] text-muted-foreground/45">
+          Local workflow · drag cards to update
+        </span>
         <Button
           size="xs"
           variant="ghost"
-          className="ml-auto h-7 w-7 p-0"
+          className="h-7 w-7 p-0"
           aria-label="Refresh board"
           onClick={() => setReloadTick((t) => t + 1)}
           disabled={loading}
@@ -276,7 +432,14 @@ export function OverviewBoard({ slug }: Props) {
           return (
             <div
               key={col.id}
-              className="flex w-72 shrink-0 flex-col rounded-xl border border-border/50 bg-card/30"
+              onDragOver={(event) => {
+                if (dragItem) event.preventDefault();
+              }}
+              onDrop={() => onDrop(col.id)}
+              className={cn(
+                "flex w-72 shrink-0 flex-col rounded-xl border border-border/50 bg-card/30 transition-colors",
+                dragItem && "hover:border-primary/40 hover:bg-primary/[0.025]",
+              )}
             >
               <div className="flex items-center gap-2 border-b border-border/40 px-3 py-2">
                 <span className="text-[12px] font-semibold text-foreground">
@@ -299,6 +462,10 @@ export function OverviewBoard({ slug }: Props) {
                       card={card}
                       assigned={assignedKeys.has(card.key)}
                       onAssign={() => void onAssign(card)}
+                      onOpen={() => setSelectedKey(card.key)}
+                      draggable
+                      onDragStart={() => setDragItem(card.key)}
+                      onDragEnd={() => setDragItem(null)}
                     />
                   </li>
                 ))}
@@ -312,6 +479,25 @@ export function OverviewBoard({ slug }: Props) {
           );
         })}
       </div>
+
+      <BoardCardDetailsSheet
+        open={!!selectedCard}
+        onOpenChange={(open) => !open && setSelectedKey(null)}
+        card={selectedDetail}
+        assignment={selectedAssignment}
+        statusOptions={BOARD_COLUMNS.map((column) => ({
+          id: column.id,
+          label: column.name,
+        }))}
+        onStatusChange={(status) => {
+          if (selectedCard) moveCard(selectedCard, status as BoardStatus);
+        }}
+        onAssign={
+          selectedCard && !selectedAssignment
+            ? () => void onAssign(selectedCard)
+            : undefined
+        }
+      />
     </div>
   );
 }
@@ -320,23 +506,31 @@ function OverviewCardView({
   card,
   assigned,
   onAssign,
+  onOpen,
+  draggable,
+  onDragStart,
+  onDragEnd,
 }: {
   card: BoardItem;
   assigned: boolean;
   onAssign: () => void;
+  onOpen: () => void;
+  draggable: boolean;
+  onDragStart: () => void;
+  onDragEnd: () => void;
 }) {
-  const clickable = !!card.url;
   const source = card.source === "agent" ? null : SOURCE_META[card.source];
   return (
-    <div className="flex flex-col gap-1.5 rounded-lg border border-border/50 bg-background/70 px-2.5 py-2">
+    <div
+      draggable={draggable}
+      onDragStart={onDragStart}
+      onDragEnd={onDragEnd}
+      className="flex flex-col gap-1.5 rounded-lg border border-border/50 bg-background/70 px-2.5 py-2 active:cursor-grabbing"
+    >
       <button
         type="button"
-        onClick={() => card.url && void openUrl(card.url)}
-        disabled={!clickable}
-        className={cn(
-          "flex flex-col gap-1.5 text-left",
-          clickable && "cursor-pointer",
-        )}
+        onClick={onOpen}
+        className="flex cursor-pointer flex-col gap-1.5 text-left"
       >
         <p className="line-clamp-2 text-[12px] font-medium leading-snug text-foreground">
           {card.title}

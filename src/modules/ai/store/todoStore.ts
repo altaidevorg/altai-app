@@ -17,6 +17,11 @@ type TodosState = {
     sessionId: string,
     input: { title: string; description?: string },
   ) => Todo;
+  updateTodoStatus: (
+    sessionId: string,
+    todoId: string,
+    status: Todo["status"],
+  ) => void;
   clearSession: (sessionId: string) => Promise<void>;
 };
 
@@ -76,6 +81,17 @@ export const useTodosStore = create<TodosState>((set, get) => ({
     }));
     void persistSave(sessionId, todos);
     return todo;
+  },
+
+  updateTodoStatus(sessionId, todoId, status) {
+    const current = get().bySession[sessionId] ?? [];
+    const next = current.map((todo) =>
+      todo.id === todoId ? { ...todo, status } : todo,
+    );
+    set((state) => ({
+      bySession: { ...state.bySession, [sessionId]: next },
+    }));
+    void persistSave(sessionId, next);
   },
 
   async clearSession(sessionId) {

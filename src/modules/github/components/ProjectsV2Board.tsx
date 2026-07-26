@@ -2,6 +2,7 @@ import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { cn } from "@/lib/utils";
 import { useGitHubStore } from "@/modules/github";
+import type { Assignment } from "@/modules/github/lib/assignments";
 import type { RepoSlug } from "@/modules/github/lib/items";
 import {
   type BoardCard,
@@ -11,6 +12,7 @@ import {
   setCardStatus,
   type Board,
 } from "@/modules/github/lib/projects";
+import { useAssignmentsStore } from "@/modules/github/store/assignmentsStore";
 import {
   ArrowReloadHorizontalIcon,
   GithubIcon,
@@ -22,6 +24,10 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { StateBadge } from "./itemBits";
 import { AssignAgentButton } from "./AssignAgentButton";
+import {
+  BoardCardDetailsSheet,
+  type BoardCardDetail,
+} from "./BoardCardDetailsSheet";
 
 type Props = {
   projectId: string;
@@ -58,10 +64,16 @@ export function ProjectsV2Board({ projectId, slug }: Props) {
   const [scopeError, setScopeError] = useState(false);
   const [scopeErrorDetail, setScopeErrorDetail] = useState<string | null>(null);
   const [dragItem, setDragItem] = useState<string | null>(null);
+  const [dragOverColumn, setDragOverColumn] = useState<string | null | undefined>(
+    undefined,
+  );
+  const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
+  const [movingItemId, setMovingItemId] = useState<string | null>(null);
   const [populating, setPopulating] = useState(false);
   // All reloads flow through this counter so the single effect owns the
   // request's `alive` cleanup (no setState-after-unmount from manual calls).
   const [reloadTick, setReloadTick] = useState(0);
+  const assignments = useAssignmentsStore((state) => state.assignments);
 
   const loadBoard = useCallback(() => {
     let alive = true;
@@ -123,15 +135,15 @@ export function ProjectsV2Board({ projectId, slug }: Props) {
     return map;
   }, [board, columns]);
 
-  const onDrop = async (columnId: string | null) => {
-    const itemId = dragItem;
-    setDragItem(null);
+  const moveCard = async (itemId: string, columnId: string | null) => {
     if (!board || !board.statusFieldId) return;
     const card = board.cards.find((c) => c.itemId === itemId);
-    if (!itemId || !card || card.statusOptionId === columnId) return;
+    if (!card || card.statusOptionId === columnId) return;
     const fieldId = board.statusFieldId;
     const projId = board.projectId;
     const prevStatus = card.statusOptionId;
+    setMovingItemId(itemId);
+    setError(null);
     // Functional updates so a concurrent drag's change isn't clobbered.
     setBoard((b) =>
       b
@@ -157,8 +169,60 @@ export function ProjectsV2Board({ projectId, slug }: Props) {
           : b,
       );
       setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setMovingItemId(null);
     }
   };
+
+  const onDrop = (columnId: string | null) => {
+    const itemId = dragItem;
+    setDragItem(null);
+    setDragOverColumn(undefined);
+    if (itemId) void moveCard(itemId, columnId);
+  };
+
+  const assignmentFor = useCallback(
+    (card: BoardCard): Assignment | undefined => {
+      if (
+        card.number == null ||
+        (card.type !== "Issue" && card.type !== "PullRequest")
+      ) {
+        return undefined;
+      }
+      const kind = card.type === "Issue" ? "issue" : "pr";
+      return assignments.find(
+        (assignment) =>
+          assignment.source.kind === kind &&
+          assignment.source.owner === slug.owner &&
+          assignment.source.repo === slug.repo &&
+          assignment.source.number === card.number,
+      );
+    },
+    [assignments, slug],
+  );
+
+  const selectedCard =
+    board?.cards.find((card) => card.itemId === selectedItemId) ?? null;
+  const selectedColumn = selectedCard
+    ? columns.find((column) => column.id === selectedCard.statusOptionId)
+    : null;
+  const selectedDetail: BoardCardDetail | null = selectedCard
+    ? {
+        title: selectedCard.title,
+        source:
+          selectedCard.type === "Issue"
+            ? "issue"
+            : selectedCard.type === "PullRequest"
+              ? "pr"
+              : "draft",
+        status: selectedCard.statusOptionId ?? "__none",
+        statusLabel: selectedColumn?.name ?? "No Status",
+        number: selectedCard.number,
+        url: selectedCard.url,
+        body: selectedCard.body,
+        meta: selectedCard.author ? `@${selectedCard.author}` : null,
+      }
+    : null;
 
   if (scopeError) {
     return (
@@ -222,6 +286,9 @@ export function ProjectsV2Board({ projectId, slug }: Props) {
           {board?.cards.length ?? 0} items
           {board?.truncated ? " (first 300)" : ""}
         </span>
+        <span className="text-[10px] text-emerald-500/70">
+          Synced with GitHub Projects
+        </span>
         {board && board.cards.length === 0 ? (
           <Button
             size="xs"
@@ -270,10 +337,23 @@ export function ProjectsV2Board({ projectId, slug }: Props) {
             <div
               key={col.id ?? "__none"}
               onDragOver={(e) => {
-                if (board?.statusFieldId) e.preventDefault();
+                if (board?.statusFieldId) {
+                  e.preventDefault();
+                  setDragOverColumn(col.id);
+                }
               }}
+              onDragLeave={() =>
+                setDragOverColumn((current) =>
+                  current === col.id ? undefined : current,
+                )
+              }
               onDrop={() => void onDrop(col.id)}
-              className="flex w-64 shrink-0 flex-col rounded-xl border border-border/50 bg-card/30"
+              className={cn(
+                "flex w-64 shrink-0 flex-col rounded-xl border border-border/50 bg-card/30 transition-colors",
+                dragItem &&
+                  dragOverColumn === col.id &&
+                  "border-primary/45 bg-primary/[0.035]",
+              )}
             >
               <div className="flex items-center gap-2 border-b border-border/40 px-3 py-2">
                 <span className="truncate text-[12px] font-semibold text-foreground">
@@ -291,7 +371,11 @@ export function ProjectsV2Board({ projectId, slug }: Props) {
                       slug={slug}
                       draggable={!!board?.statusFieldId}
                       onDragStart={() => setDragItem(card.itemId)}
-                      onDragEnd={() => setDragItem(null)}
+                      onDragEnd={() => {
+                        setDragItem(null);
+                        setDragOverColumn(undefined);
+                      }}
+                      onOpen={() => setSelectedItemId(card.itemId)}
                     />
                   </li>
                 ))}
@@ -305,6 +389,41 @@ export function ProjectsV2Board({ projectId, slug }: Props) {
           );
         })}
       </div>
+
+      <BoardCardDetailsSheet
+        open={!!selectedCard}
+        onOpenChange={(open) => !open && setSelectedItemId(null)}
+        card={selectedDetail}
+        assignment={selectedCard ? assignmentFor(selectedCard) : undefined}
+        statusOptions={columns.map((column) => ({
+          id: column.id ?? "__none",
+          label: column.name,
+        }))}
+        onStatusChange={(status) => {
+          if (selectedCard) {
+            void moveCard(
+              selectedCard.itemId,
+              status === "__none" ? null : status,
+            );
+          }
+        }}
+        statusBusy={movingItemId === selectedCard?.itemId}
+        assignControl={
+          selectedCard?.number &&
+          selectedCard.url &&
+          (selectedCard.type === "Issue" ||
+            selectedCard.type === "PullRequest") ? (
+            <AssignAgentButton
+              kind={selectedCard.type === "Issue" ? "issue" : "pr"}
+              slug={slug}
+              number={selectedCard.number}
+              title={selectedCard.title}
+              body={selectedCard.body}
+              url={selectedCard.url}
+            />
+          ) : undefined
+        }
+      />
     </div>
   );
 }
@@ -315,12 +434,14 @@ function ProjectCardView({
   draggable,
   onDragStart,
   onDragEnd,
+  onOpen,
 }: {
   card: BoardCard;
   slug: RepoSlug;
   draggable: boolean;
   onDragStart: () => void;
   onDragEnd: () => void;
+  onOpen: () => void;
 }) {
   const state = cardState(card);
   return (
@@ -330,11 +451,25 @@ function ProjectCardView({
       draggable={draggable}
       onDragStart={onDragStart}
       onDragEnd={onDragEnd}
-      onClick={() => card.url && void openUrl(card.url)}
+      onClick={(event) => {
+        if (
+          event.target instanceof Element &&
+          event.target.closest("[data-board-card-action]")
+        ) {
+          return;
+        }
+        onOpen();
+      }}
       onKeyDown={(e) => {
-        if ((e.key === "Enter" || e.key === " ") && card.url) {
+        if (
+          e.target instanceof Element &&
+          e.target.closest("[data-board-card-action]")
+        ) {
+          return;
+        }
+        if (e.key === "Enter" || e.key === " ") {
           e.preventDefault();
-          void openUrl(card.url);
+          onOpen();
         }
       }}
       className={cn(
@@ -357,15 +492,17 @@ function ProjectCardView({
         card.url &&
         (card.type === "Issue" || card.type === "PullRequest") ? (
           <span className="ml-auto">
-            <AssignAgentButton
-              kind={card.type === "Issue" ? "issue" : "pr"}
-              slug={slug}
-              number={card.number}
-              title={card.title}
-              body={null}
-              url={card.url}
-              variant="chip"
-            />
+            <span data-board-card-action>
+              <AssignAgentButton
+                kind={card.type === "Issue" ? "issue" : "pr"}
+                slug={slug}
+                number={card.number}
+                title={card.title}
+                body={card.body}
+                url={card.url}
+                variant="chip"
+              />
+            </span>
           </span>
         ) : null}
         {state ? (

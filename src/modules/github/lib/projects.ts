@@ -27,6 +27,9 @@ export type BoardCard = {
   /** OPEN / CLOSED / MERGED for issues & PRs; null for draft items. */
   state: string | null;
   isDraft: boolean;
+  body: string | null;
+  author: string | null;
+  updatedAt: string | null;
 };
 
 export type Board = {
@@ -69,9 +72,15 @@ const BOARD_PAGE = `
             }
             content {
               __typename
-              ... on Issue { number title url state }
-              ... on PullRequest { number title url state isDraft }
-              ... on DraftIssue { title }
+              ... on Issue {
+                number title url state body updatedAt
+                author { login }
+              }
+              ... on PullRequest {
+                number title url state isDraft body updatedAt
+                author { login }
+              }
+              ... on DraftIssue { title body }
             }
           }
         }
@@ -118,6 +127,9 @@ type RawItem = {
         url?: string;
         state?: string;
         isDraft?: boolean;
+        body?: string;
+        updatedAt?: string;
+        author?: { login?: string } | null;
       }
     | null;
 };
@@ -167,6 +179,9 @@ export async function getProjectBoard(projectId: string): Promise<Board> {
         url: c.url ?? null,
         state: c.state ?? null,
         isDraft: c.isDraft ?? false,
+        body: c.body ?? null,
+        author: c.author?.login ?? null,
+        updatedAt: c.updatedAt ?? null,
       });
     }
     if (!node.items.pageInfo.hasNextPage) break;
