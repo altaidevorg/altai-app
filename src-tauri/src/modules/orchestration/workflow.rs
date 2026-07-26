@@ -11,20 +11,11 @@ const WORKFLOW_FILE: &str = "WORKFLOW.md";
 const MAX_WORKFLOW_BYTES: u64 = 128 * 1024;
 const MAX_PROMPT_CHARS: usize = 32_000;
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct WorkflowConfig {
     pub orchestration: SchedulerConfig,
     pub agent: AgentConfig,
-}
-
-impl Default for WorkflowConfig {
-    fn default() -> Self {
-        Self {
-            orchestration: SchedulerConfig::default(),
-            agent: AgentConfig::default(),
-        }
-    }
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]

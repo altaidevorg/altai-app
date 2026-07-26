@@ -6,6 +6,11 @@ use std::{
 };
 use tauri::State;
 
+// O1 lands the authoritative domain API before O2 wires it into the ledger and
+// coordinator. Keep the staged API compiled and tested without making the
+// intermediate PR fail `clippy -D warnings`; remove this allowance once O2
+// consumes the types in production code.
+#[allow(dead_code)]
 pub mod domain;
 pub mod workflow;
 

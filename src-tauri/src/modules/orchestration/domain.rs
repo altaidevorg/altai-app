@@ -84,10 +84,11 @@ impl std::error::Error for LeaseError {}
 /// Authoritative task lifecycle state (main flow plus side states).
 ///
 /// Source: `AGENT_OPERATIONS_IMPLEMENTATION_PLAN.md` §5.3.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TaskState {
     // Main happy path.
+    #[default]
     Draft,
     Queued,
     Planning,
@@ -226,12 +227,6 @@ impl TaskState {
     }
 }
 
-impl Default for TaskState {
-    fn default() -> Self {
-        TaskState::Draft
-    }
-}
-
 /// Events that drive task state transitions. Only the coordinator emits these
 /// against authoritative state.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -296,9 +291,10 @@ impl TaskTrigger {
 ///
 /// An attempt completion never directly produces a task `Done`; that requires
 /// the configured completion gates at the task level (§5.3 rule).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AttemptState {
+    #[default]
     Created,
     Started,
     Heartbeat,
@@ -391,12 +387,6 @@ impl AttemptState {
             }
         };
         Ok(next)
-    }
-}
-
-impl Default for AttemptState {
-    fn default() -> Self {
-        AttemptState::Created
     }
 }
 
