@@ -21,6 +21,10 @@ import {
   assignGitHubItem,
   useAssignmentsStore,
 } from "@/modules/github/store/assignmentsStore";
+import {
+  OrchestrationBar,
+  useOrchestrationStore,
+} from "@/modules/orchestration";
 import { openSettingsWindow } from "@/modules/settings/openSettingsWindow";
 import {
   ArrowReloadHorizontalIcon,
@@ -133,8 +137,15 @@ export function OverviewBoard({
   >(() => readStatusOverrides(storageScope));
 
   const activeSessionId = useChatStore((s) => s.activeSessionId);
+  const orchestrationSnapshot = useOrchestrationStore(
+    (state) => state.snapshots[repoRoot],
+  );
+  const todoSessionId =
+    orchestrationSnapshot?.status !== "stopped"
+      ? orchestrationSnapshot?.taskSessionId ?? activeSessionId
+      : activeSessionId;
   const todos = useTodosStore((s) =>
-    activeSessionId ? s.bySession[activeSessionId] : undefined,
+    todoSessionId ? s.bySession[todoSessionId] : undefined,
   );
   const hydrateTodos = useTodosStore((s) => s.hydrate);
   const addTodo = useTodosStore((s) => s.addTodo);
@@ -149,8 +160,8 @@ export function OverviewBoard({
   }, [storageScope]);
 
   useEffect(() => {
-    if (activeSessionId) void hydrateTodos(activeSessionId);
-  }, [activeSessionId, hydrateTodos]);
+    if (todoSessionId) void hydrateTodos(todoSessionId);
+  }, [todoSessionId, hydrateTodos]);
 
   useEffect(() => {
     if (!remoteAvailable || !slug) {
@@ -185,7 +196,9 @@ export function OverviewBoard({
     const map = new Map<string, Assignment>();
     for (const assignment of assignments) {
       const key = assignmentKey(assignment, slug);
-      if (key) map.set(key, assignment);
+      // Assignments are newest-first. Preserve the latest attempt so a failed
+      // orchestration retry cannot be hidden by an older run.
+      if (key && !map.has(key)) map.set(key, assignment);
     }
     return map;
   }, [assignments, slug]);
@@ -247,8 +260,8 @@ export function OverviewBoard({
 
   const createTodo = () => {
     const title = todoDraft.trim();
-    if (!title || !activeSessionId) return;
-    addTodo(activeSessionId, { title });
+    if (!title || !todoSessionId) return;
+    addTodo(todoSessionId, { title });
     setTodoDraft("");
     setCreatingTodo(false);
     setEnabled((current) => new Set(current).add("todo"));
@@ -304,12 +317,12 @@ export function OverviewBoard({
       });
       if (
         card.source === "todo" &&
-        activeSessionId &&
+        todoSessionId &&
         card.key.startsWith("todo-")
       ) {
         const todoId = card.key.replace(/^todo-/, "");
         updateTodoStatus(
-          activeSessionId,
+          todoSessionId,
           todoId,
           status === "done"
             ? "completed"
@@ -319,7 +332,7 @@ export function OverviewBoard({
         );
       }
     },
-    [activeSessionId, storageScope, updateTodoStatus],
+    [todoSessionId, storageScope, updateTodoStatus],
   );
 
   const onDrop = (status: BoardStatus) => {
@@ -354,6 +367,10 @@ export function OverviewBoard({
 
   return (
     <div className="flex h-full w-full flex-col">
+      <OrchestrationBar
+        workspaceKey={repoRoot}
+        taskSessionId={todoSessionId}
+      />
       <AssignmentsRail />
 
       {/* Source filters */}
@@ -387,7 +404,7 @@ export function OverviewBoard({
             </button>
           );
         })}
-        {activeSessionId ? (
+        {todoSessionId ? (
           <Button
             size="xs"
             variant="ghost"

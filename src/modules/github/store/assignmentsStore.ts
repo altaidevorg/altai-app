@@ -1,6 +1,7 @@
 import { resolveIsanAgentTarget } from "@/modules/ai/lib/isanagentTarget";
 import { native } from "@/modules/ai/lib/native";
 import { useAgentRunsStore } from "@/modules/ai/store/agentRunsStore";
+import { useTodosStore } from "@/modules/ai/store/todoStore";
 import {
   dispatchToSession,
   requestStop,
@@ -18,6 +19,7 @@ import {
   type AssignmentStatus,
   buildItemSeed,
   buildTaskSeed,
+  buildTodoSeed,
   loadAssignments,
   saveAssignments,
 } from "../lib/assignments";
@@ -58,6 +60,8 @@ type AssignInput = {
   title: string;
   seed: string;
   runConfig?: AssignmentRunConfig;
+  origin?: Assignment["origin"];
+  orchestration?: Assignment["orchestration"];
 };
 
 type State = {
@@ -71,6 +75,7 @@ type State = {
   cancel: (id: string) => Promise<void>;
   remove: (id: string) => Promise<void>;
   publishDraftPullRequest: (id: string) => Promise<void>;
+  applyLocalChanges: (id: string) => Promise<void>;
   runTask: (input: { title: string; prompt: string; runConfig?: AssignmentRunConfig }) => Promise<string>;
 };
 
@@ -116,7 +121,7 @@ export const useAssignmentsStore = create<State>((set, get) => ({
     });
   },
 
-  assign: async ({ source, title, seed, runConfig }) => {
+  assign: async ({ source, title, seed, runConfig, origin, orchestration }) => {
     const target = resolveTarget(runConfig?.modelId);
     if (!target.ok) throw new Error(target.error);
 
@@ -133,6 +138,8 @@ export const useAssignmentsStore = create<State>((set, get) => ({
         sessionId,
         title,
         status: "dispatching",
+        origin: origin ?? "manual",
+        orchestration,
         runConfig,
         delivery: deliveryFromRunConfig(runConfig),
         createdAt: now,
@@ -309,6 +316,73 @@ export const useAssignmentsStore = create<State>((set, get) => ({
     }
   },
 
+  applyLocalChanges: async (id) => {
+    const assignment = get().assignments.find((item) => item.id === id);
+    if (
+      !assignment ||
+      assignment.source.kind !== "todo" ||
+      assignment.status !== "done" ||
+      !assignment.delivery ||
+      assignment.delivery.status === "applying" ||
+      assignment.delivery.status === "applied" ||
+      !assignment.orchestration
+    ) {
+      return;
+    }
+
+    const delivery = assignment.delivery;
+    const updateDelivery = (next: AssignmentDelivery) =>
+      set((state) => {
+        const assignments = state.assignments.map((item) =>
+          item.id === id
+            ? { ...item, delivery: next, updatedAt: Date.now() }
+            : item,
+        );
+        void saveAssignments(assignments);
+        return { assignments };
+      });
+
+    updateDelivery({ ...delivery, status: "applying", error: undefined });
+    try {
+      const sourceStatus = await native.gitStatus(delivery.workspacePath);
+      const paths = sourceStatus.changedFiles
+        .map((file) => file.path)
+        .filter(
+          (path) =>
+            path !== ".isanagent" && !path.startsWith(".isanagent/"),
+        );
+      if (paths.length > 0) {
+        await native.gitStage(delivery.workspacePath, paths);
+        await native.gitCommit(
+          delivery.workspacePath,
+          `feat: ${assignment.title.replace(/^🤖\s*/, "").trim() || "complete local task"}`,
+        );
+      }
+
+      const target = await native.gitResolveRepo(
+        assignment.orchestration.workspaceKey,
+      );
+      if (!target) {
+        throw new Error("The target workspace is no longer a Git repository.");
+      }
+      await native.gitWorktreeApply(delivery.workspacePath, target.repoRoot);
+      updateDelivery({ ...delivery, status: "applied", error: undefined });
+      useTodosStore
+        .getState()
+        .updateTodoStatus(
+          assignment.orchestration.taskSessionId,
+          assignment.orchestration.taskKey,
+          "completed",
+        );
+    } catch (cause) {
+      updateDelivery({
+        ...delivery,
+        status: "failed",
+        error: cause instanceof Error ? cause.message : String(cause),
+      });
+    }
+  },
+
   runTask: async ({ title, prompt, runConfig }) => {
     const cleanPrompt = prompt.trim();
     if (!cleanPrompt) throw new Error("Describe the task before starting it.");
@@ -339,7 +413,100 @@ export function assignGitHubItem(input: {
   return assignGitHubItemInWorkspace(input);
 }
 
-function worktreeLabel(kind: "issue" | "pr", number: number, title: string): string {
+/** Dispatch a local board todo using the same isolated-worktree delivery path
+ * as remote issues. Non-Git workspaces still run locally without isolation. */
+export async function assignLocalTodo(input: {
+  todoId: string;
+  title: string;
+  description?: string;
+  workspaceKey: string;
+  taskSessionId: string;
+  attempt: number;
+  reuseRunConfig?: AssignmentRunConfig;
+  workflow?: {
+    modelId?: string;
+    permissionMode?: AssignmentRunConfig["permissionMode"];
+    prompt?: string;
+  };
+}): Promise<string> {
+  let repoRoot: string | null = null;
+  let createdWorktree: { path: string; branch: string; baseBranch: string } | null =
+    null;
+  let createdNewWorktree = false;
+  let runConfig = input.reuseRunConfig;
+
+  if (
+    runConfig?.workspacePath &&
+    runConfig.branchName &&
+    runConfig.baseBranch
+  ) {
+    createdWorktree = {
+      path: runConfig.workspacePath,
+      branch: runConfig.branchName,
+      baseBranch: runConfig.baseBranch,
+    };
+  } else {
+    const repo = await native.gitResolveRepo(input.workspaceKey);
+    if (repo) {
+      repoRoot = repo.repoRoot;
+      const worktree = await native.gitWorktreeCreate(
+        repo.repoRoot,
+        worktreeLabel("todo", input.attempt, input.title),
+      );
+      createdNewWorktree = true;
+      createdWorktree = {
+        path: worktree.path,
+        branch: worktree.branch,
+        baseBranch: repo.branch,
+      };
+      runConfig = {
+        workspacePath: worktree.path,
+        branchName: worktree.branch,
+        baseBranch: repo.branch,
+      };
+    }
+  }
+  runConfig = {
+    ...runConfig,
+    modelId: input.workflow?.modelId ?? runConfig?.modelId,
+    permissionMode:
+      input.workflow?.permissionMode ?? runConfig?.permissionMode,
+  };
+
+  try {
+    return await useAssignmentsStore.getState().assign({
+      source: { kind: "todo", todoId: input.todoId },
+      title: `🤖 ${input.title}`,
+      seed: buildTodoSeed(
+        input.title,
+        input.description,
+        createdWorktree ?? undefined,
+        input.workflow?.prompt,
+      ),
+      runConfig,
+      origin: "orchestrator",
+      orchestration: {
+        workspaceKey: input.workspaceKey,
+        taskSessionId: input.taskSessionId,
+        taskKey: input.todoId,
+        attempt: input.attempt,
+      },
+    });
+  } catch (cause) {
+    if (createdNewWorktree && repoRoot && createdWorktree) {
+      await native
+        .gitWorktreeRemove(repoRoot, createdWorktree.path)
+        .catch(() => undefined);
+    }
+    throw cause;
+  }
+}
+
+function worktreeLabel(
+  kind: "issue" | "pr" | "todo",
+  number: number,
+  title: string,
+): string {
   const slug = title
     .normalize("NFKD")
     .replace(/[\u0300-\u036f]/g, "")

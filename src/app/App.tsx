@@ -116,6 +116,7 @@ import {
 } from "@/modules/tabs";
 import { folderName, useWorkspaceFolderStore } from "@/modules/workspace/folder";
 import { useAssignmentsStore } from "@/modules/github/store/assignmentsStore";
+import { OrchestrationController } from "@/modules/orchestration";
 import {
   disposeSession,
   findLeafCwd,
@@ -327,6 +328,11 @@ export default function App() {
       ? "source-control"
       : readSidebarView(),
   );
+  // Rail selection is tracked explicitly so Files/Git stay highlighted when a
+  // GitHub or Project Management tab is still open in the workspace.
+  const [sidebarRailItem, setSidebarRailItem] = useState<SidebarRailItemId>(
+    "explorer",
+  );
   const boardAssignments = useAssignmentsStore((state) => state.assignments);
   const hydrateAssignments = useAssignmentsStore((state) => state.hydrate);
   useEffect(() => {
@@ -345,6 +351,9 @@ export default function App() {
   );
   const persistSidebarView = useCallback((view: SidebarViewId) => {
     setSidebarViewState(view);
+    // Only Files is a rail item among left-sidebar views; Source Control is
+    // opened via shortcut and should not steal the GitHub rail highlight.
+    if (view === "explorer") setSidebarRailItem("explorer");
     try {
       window.localStorage.setItem(SIDEBAR_VIEW_STORAGE_KEY, view);
     } catch {
@@ -1429,6 +1438,7 @@ export default function App() {
   const openGitHubItemsFromContext = useCallback(async () => {
     const known = sourceControl.hasRepo ? sourceControl.repo : null;
     if (known) {
+      setSidebarRailItem("github");
       openGitHubItemsTab({ repoRoot: known.repoRoot });
       return;
     }
@@ -1436,6 +1446,7 @@ export default function App() {
     try {
       const repo = await native.gitResolveRepo(sourceControlContextPath);
       if (!repo) return;
+      setSidebarRailItem("github");
       openGitHubItemsTab({ repoRoot: repo.repoRoot });
     } catch {
       /* noop */
@@ -1450,6 +1461,7 @@ export default function App() {
   const openProjectBoardFromContext = useCallback(async () => {
     const known = sourceControl.hasRepo ? sourceControl.repo : null;
     if (known) {
+      setSidebarRailItem("projects");
       openProjectBoardTab({ repoRoot: known.repoRoot });
       return;
     }
@@ -1457,6 +1469,7 @@ export default function App() {
     try {
       const repo = await native.gitResolveRepo(sourceControlContextPath);
       if (!repo) return;
+      setSidebarRailItem("projects");
       openProjectBoardTab({ repoRoot: repo.repoRoot });
     } catch {
       /* noop */
@@ -1478,7 +1491,12 @@ export default function App() {
         void openProjectBoardFromContext();
         return;
       }
-      persistSidebarView(item);
+      setSidebarRailItem("explorer");
+      const panel = sidebarRef.current;
+      if (panel?.isCollapsed()) {
+        panel.resize(`${sidebarWidthRef.current}px`);
+      }
+      persistSidebarView("explorer");
     },
     [
       openGitHubItemsFromContext,
@@ -1486,6 +1504,16 @@ export default function App() {
       persistSidebarView,
     ],
   );
+
+  // Keep the rail in sync when the user focuses a GitHub / Project Management
+  // tab from the tab bar (not only when opened via the rail itself).
+  useEffect(() => {
+    if (activeTab?.kind === "project-board") {
+      setSidebarRailItem("projects");
+    } else if (activeTab?.kind === "github-items") {
+      setSidebarRailItem("github");
+    }
+  }, [activeId, activeTab?.kind]);
 
   const openPreviewTab = useCallback(
     (url: string) => {
@@ -2121,6 +2149,7 @@ export default function App() {
     <ThemeProvider>
       <TooltipProvider delayDuration={300} disableHoverableContent>
         <div className="relative flex h-screen flex-col overflow-hidden bg-background text-foreground">
+          <OrchestrationController workspaceKey={workspaceFolder} />
           {/* Sr-only document title anchors the heading outline so screen
               reader users can H-navigate: h1 (global) → h2 (each Settings
               section / AI session) → h3 (sub-blocks). */}
@@ -2185,13 +2214,7 @@ export default function App() {
               >
                 <div className="flex h-full min-h-0 flex-col border-r border-border/60 bg-card">
                   <SidebarRail
-                    activeItem={
-                      isProjectBoardTab
-                        ? "projects"
-                        : isGitHubItemsTab
-                          ? "github"
-                          : sidebarView
-                    }
+                    activeItem={sidebarRailItem}
                     onSelectItem={handleSidebarRailSelect}
                     projectsBadge={projectsBadge}
                   />
@@ -2233,8 +2256,6 @@ export default function App() {
                         sourceControl={sourceControl}
                         onOpenDiff={openGitDiffTab}
                         onOpenGitGraph={openGitGraphFromContext}
-                        onOpenGitHubItems={openGitHubItemsFromContext}
-                        onOpenProjects={openProjectBoardFromContext}
                         onBranchSwitched={handleBranchSwitched}
                       />
                     )}

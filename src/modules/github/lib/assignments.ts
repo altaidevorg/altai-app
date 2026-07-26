@@ -20,7 +20,7 @@ export type AssignmentStatus =
 
 export type AssignmentDelivery =
   | {
-      status: "worktree" | "publishing" | "failed";
+      status: "worktree" | "publishing" | "applying" | "applied" | "failed";
       workspacePath: string;
       branchName: string;
       baseBranch: string;
@@ -50,6 +50,13 @@ export type AssignmentRunConfig = {
   baseBranch?: string;
 };
 
+export type AssignmentOrchestration = {
+  workspaceKey: string;
+  taskSessionId: string;
+  taskKey: string;
+  attempt: number;
+};
+
 /** One assignment = one ALTAI session = one IsanAgent chat_id (1:1). */
 export interface Assignment {
   id: string;
@@ -58,6 +65,9 @@ export interface Assignment {
   sessionId: string;
   title: string;
   status: AssignmentStatus;
+  /** Manual assignments and scheduler-created assignments share one run UI. */
+  origin?: "manual" | "orchestrator";
+  orchestration?: AssignmentOrchestration;
   runConfig?: AssignmentRunConfig;
   /** Delivery state for issue runs isolated in an ALTAI git worktree. */
   delivery?: AssignmentDelivery;
@@ -97,6 +107,15 @@ const assignmentSchema = z.object({
     "failed",
     "cancelled",
   ]),
+  origin: z.enum(["manual", "orchestrator"]).optional(),
+  orchestration: z
+    .object({
+      workspaceKey: z.string().min(1),
+      taskSessionId: z.string().min(1),
+      taskKey: z.string().min(1),
+      attempt: z.number().int().positive(),
+    })
+    .optional(),
   runConfig: z
     .object({
       agentId: z.string().optional(),
@@ -111,7 +130,13 @@ const assignmentSchema = z.object({
   delivery: z
     .discriminatedUnion("status", [
       z.object({
-        status: z.enum(["worktree", "publishing", "failed"]),
+        status: z.enum([
+          "worktree",
+          "publishing",
+          "applying",
+          "applied",
+          "failed",
+        ]),
         workspacePath: z.string().min(1),
         branchName: z.string().min(1),
         baseBranch: z.string().min(1),
@@ -199,13 +224,31 @@ export function buildItemSeed(input: {
 }
 
 /** Seed prompt for a local todo assignment. */
-export function buildTodoSeed(title: string, description?: string): string {
+export function buildTodoSeed(
+  title: string,
+  description?: string,
+  worktree?: { path: string; branch: string; baseBranch: string },
+  workflowPrompt?: string,
+): string {
   return [
     `You've been assigned to complete this task:`,
     ``,
     title,
     description ? `\n${clip(description)}` : "",
     ``,
+    worktree
+      ? [
+          "Isolated delivery workspace:",
+          `- Worktree: ${worktree.path}`,
+          `- Branch: ${worktree.branch}`,
+          `- Base branch: ${worktree.baseBranch}`,
+          "Keep every edit inside this worktree. Do not switch branches or modify the user's base working tree.",
+          "",
+        ].join("\n")
+      : "",
+    workflowPrompt?.trim()
+      ? `Project workflow instructions:\n${clip(workflowPrompt, 12_000)}\n`
+      : "",
     `Use todo_write to track sub-steps and spawn sub-agents where it helps. Summarize the outcome when done.`,
   ].join("\n");
 }

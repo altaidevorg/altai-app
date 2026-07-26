@@ -42,15 +42,15 @@ GitHub connection.
 
 ## Open the GitHub Workspaces
 
-The top of the left sidebar contains four entries:
+The top of the left sidebar contains three entries:
 
 - **Files** opens the file explorer.
-- **Git** opens source control.
-- **GitHub** opens the repository's pull request and issue hub.
-- **Projects** opens the project-management board.
+- **GitHub** opens the repository hub: local changes/commits plus pull
+  requests and issues when connected.
+- **Project Management** opens the project-management board.
 
-The badge on **Projects** is an attention count for active agent work and work
-that is ready for review.
+The badge on **Project Management** is an attention count for active agent work
+and work that is ready for review.
 
 ## Use the GitHub Hub
 
@@ -111,7 +111,7 @@ or interrupt the conversation currently open in the main chat.
 
 ## Use the Project Board
 
-Select **Projects** in the sidebar. The board initially opens in **Overview**
+Select **Project Management** in the sidebar. The board initially opens in **Overview**
 mode and combines:
 
 - Local ALTAI todos
@@ -155,6 +155,80 @@ Local todos are useful for work that does not need a public GitHub issue. The
 Overview quick-assign action uses the current agent, model, and permission
 defaults.
 
+### Run local todos automatically
+
+The **Orchestration** bar turns the local Overview board into a continuous
+agent queue:
+
+1. Create one or more local todos in **Todo**.
+2. Open **Configure** and adjust the workflow policy when needed.
+3. Save the policy to the repository's `WORKFLOW.md`.
+4. Choose **Start orchestration**.
+5. Keep ALTAI open while the queue is running.
+
+The scheduler claims pending manual todos, creates an isolated Git worktree for
+each todo, and starts a background agent run. Agent-generated plan items are not
+treated as project work and are never claimed automatically.
+
+Choose **Pause** to stop claiming new todos without cancelling active agents.
+Choose **Stop all** to stop the scheduler and request cancellation of its active
+runs. A failed dispatch or run is retried in the same worktree with backoff, up
+to four attempts.
+
+The todo session used when orchestration starts remains pinned to the queue, so
+switching chat sessions does not redirect an active project run. Running and
+paused intent is persisted per workspace. When ALTAI restarts, it reconciles
+persisted assignments before claiming more work, restores the previous
+running/paused state, and continues retry attempt numbering without creating a
+duplicate assignment. ALTAI must remain open to execute work; closing it stops
+the process until the next launch.
+
+### Configure WORKFLOW.md
+
+The Project Board configuration panel controls:
+
+- Maximum concurrent agents (1–8)
+- Maximum attempts per todo (1–10)
+- Initial and maximum retry delay
+- Per-run permission mode
+- Optional model override
+- The project-specific agent prompt
+
+Selecting `bypass` in a workflow does not override ALTAI's global safety gate;
+**Enable bypass permissions** must still be explicitly enabled in Settings.
+
+Saving the panel creates or updates `WORKFLOW.md` in the repository root:
+
+```md
+---
+orchestration:
+  max_concurrent: 2
+  max_attempts: 4
+  retry_base_seconds: 5
+  retry_max_seconds: 300
+agent:
+  model_id: null
+  permission_mode: ask
+---
+Complete the assigned local project task end-to-end.
+
+Inspect the repository before editing and run relevant tests.
+```
+
+ALTAI checks `WORKFLOW.md` while orchestration is active, so edits made in the
+editor apply without restarting the queue. Scheduler limits update immediately;
+model, permission, and prompt changes apply to newly dispatched attempts.
+Invalid YAML, unknown keys, unsafe ranges, an empty prompt, symlinked files, and
+oversized workflow files are rejected. An invalid external edit is shown in the
+Project Board while the scheduler continues using the last valid configuration.
+
+When an orchestrated local todo finishes, its card moves to **Review**. Inspect
+the transcript and changes, then choose **Apply to workspace**. ALTAI commits
+remaining changes inside the agent worktree and cherry-picks the worktree
+commits onto the current workspace branch. The target workspace must be clean.
+If Git reports a conflict, ALTAI aborts the cherry-pick and leaves the target
+unchanged. A successful apply marks the todo **Done**.
+
 ## Use a Linked GitHub Project
 
 The board selector next to the repository name lists GitHub Projects linked to
@@ -184,6 +258,7 @@ assignment state, the drawer provides:
 - Assigned agent, model, run state, and branch
 - **Open transcript** to switch to the assignment's chat session
 - **Cancel** for an active run
+- **Apply to workspace** for completed orchestrated local todo work
 - **Create draft PR** or **Retry draft PR** for completed isolated issue work
 - **Open PR** after a draft pull request has been created
 - **Open on GitHub** for remote items

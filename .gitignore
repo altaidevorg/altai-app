@@ -32,3 +32,6 @@ target
 
 # IsanAgent local runtime state and provider credentials
 .isanagent/
+
+# macOS Finder metadata
+.DS_Store

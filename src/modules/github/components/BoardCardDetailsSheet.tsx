@@ -71,6 +71,9 @@ export function BoardCardDetailsSheet({
   const publishDraftPullRequest = useAssignmentsStore(
     (state) => state.publishDraftPullRequest,
   );
+  const applyLocalChanges = useAssignmentsStore(
+    (state) => state.applyLocalChanges,
+  );
 
   if (!card) return null;
   const delivery = assignment?.delivery;
@@ -79,6 +82,12 @@ export function BoardCardDetailsSheet({
     assignment.source.kind === "issue" &&
     delivery &&
     delivery.status !== "draft-pr";
+  const canApplyLocal =
+    assignment?.status === "done" &&
+    assignment.source.kind === "todo" &&
+    assignment.origin === "orchestrator" &&
+    delivery &&
+    delivery.status !== "applied";
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -229,6 +238,27 @@ export function BoardCardDetailsSheet({
                         ? "Retry draft PR"
                         : "Create draft PR"}
                     </Button>
+                  ) : null}
+                  {canApplyLocal ? (
+                    <Button
+                      size="xs"
+                      className="h-7 text-[10.5px]"
+                      onClick={() => void applyLocalChanges(assignment.id)}
+                      disabled={delivery.status === "applying"}
+                    >
+                      {delivery.status === "applying" ? (
+                        <Spinner className="size-3" />
+                      ) : null}
+                      {delivery.status === "failed"
+                        ? "Retry apply"
+                        : "Apply to workspace"}
+                    </Button>
+                  ) : null}
+                  {assignment.source.kind === "todo" &&
+                  delivery?.status === "applied" ? (
+                    <span className="inline-flex h-7 items-center rounded-md bg-emerald-500/10 px-2 text-[10.5px] font-medium text-emerald-500">
+                      Applied to workspace
+                    </span>
                   ) : null}
                   {delivery?.status === "draft-pr" ? (
                     <Button

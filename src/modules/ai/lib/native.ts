@@ -269,6 +269,54 @@ export type AgentClarificationTicketInfo = {
   updatedAtMs: number;
 };
 
+export type OrchestrationStatus = "stopped" | "running" | "paused";
+
+export type OrchestrationSnapshot = {
+  status: OrchestrationStatus;
+  taskSessionId: string | null;
+  maxConcurrent: number;
+  activeCount: number;
+  claimingCount: number;
+  retryingCount: number;
+  completedCount: number;
+  startedAtMs: number | null;
+  lastTickMs: number | null;
+  lastError: string | null;
+};
+
+export type OrchestrationTaskClaim = {
+  taskKey: string;
+  attempt: number;
+};
+
+export type OrchestrationReconcileResult = {
+  claims: OrchestrationTaskClaim[];
+  snapshot: OrchestrationSnapshot;
+};
+
+export type OrchestrationWorkflowConfig = {
+  orchestration: {
+    max_concurrent: number;
+    max_attempts: number;
+    retry_base_seconds: number;
+    retry_max_seconds: number;
+  };
+  agent: {
+    model_id: string | null;
+    permission_mode: "ask" | "auto-edit" | "plan" | "bypass" | null;
+  };
+};
+
+export type OrchestrationWorkflowDocument = {
+  exists: boolean;
+  path: string;
+  content: string;
+  config: OrchestrationWorkflowConfig | null;
+  prompt: string | null;
+  validationError: string | null;
+  modifiedAtMs: number | null;
+};
+
 export const native = {
   workspaceCurrentDir: () => invoke<string>("workspace_current_dir"),
   /** Mirror the recent-folders list into the OS taskbar/Dock menu. */
@@ -908,6 +956,77 @@ export const native = {
       method,
       path,
       body,
+    }),
+  orchestrationSnapshot: (workspaceKey: string) =>
+    invoke<OrchestrationSnapshot>("orchestration_snapshot", { workspaceKey }),
+  orchestrationStart: (
+    workspaceKey: string,
+    taskSessionId: string,
+    maxConcurrent: number,
+  ) =>
+    invoke<OrchestrationSnapshot>("orchestration_start", {
+      workspaceKey,
+      taskSessionId,
+      maxConcurrent,
+    }),
+  orchestrationConfigure: (
+    workspaceKey: string,
+    config: OrchestrationWorkflowConfig,
+  ) =>
+    invoke<OrchestrationSnapshot>("orchestration_configure", {
+      workspaceKey,
+      config,
+    }),
+  orchestrationPause: (workspaceKey: string) =>
+    invoke<OrchestrationSnapshot>("orchestration_pause", { workspaceKey }),
+  orchestrationStop: (workspaceKey: string) =>
+    invoke<OrchestrationSnapshot>("orchestration_stop", { workspaceKey }),
+  orchestrationReconcile: (
+    workspaceKey: string,
+    input: {
+      candidates: Array<{ taskKey: string; priorAttempts: number }>;
+      activeKeys: string[];
+    },
+  ) =>
+    invoke<OrchestrationReconcileResult>("orchestration_reconcile", {
+      workspaceKey,
+      input,
+    }),
+  orchestrationWorkflowLoad: (workspaceKey: string) =>
+    invoke<OrchestrationWorkflowDocument>("orchestration_workflow_load", {
+      workspaceKey,
+      workspace: currentWorkspaceEnv(),
+    }),
+  orchestrationWorkflowSave: (workspaceKey: string, content: string) =>
+    invoke<OrchestrationWorkflowDocument>("orchestration_workflow_save", {
+      workspaceKey,
+      content,
+      workspace: currentWorkspaceEnv(),
+    }),
+  orchestrationDispatchResult: (
+    workspaceKey: string,
+    taskKey: string,
+    result: { assignmentId?: string; error?: string },
+  ) =>
+    invoke<OrchestrationSnapshot>("orchestration_dispatch_result", {
+      workspaceKey,
+      taskKey,
+      assignmentId: result.assignmentId ?? null,
+      error: result.error ?? null,
+    }),
+  orchestrationRecordTerminal: (
+    workspaceKey: string,
+    taskKey: string,
+    assignmentId: string,
+    outcome: "done" | "failed" | "cancelled",
+    error?: string,
+  ) =>
+    invoke<OrchestrationSnapshot>("orchestration_record_terminal", {
+      workspaceKey,
+      taskKey,
+      assignmentId,
+      outcome,
+      error: error ?? null,
     }),
   /**
    * Read the workspace's `.isanagentignore` contents. Returns `null` when no

@@ -81,6 +81,7 @@ export function AssignmentsRail() {
   const publishDraftPullRequest = useAssignmentsStore(
     (s) => s.publishDraftPullRequest,
   );
+  const applyLocalChanges = useAssignmentsStore((s) => s.applyLocalChanges);
 
   const runs = useAgentRunsStore((s) => s.runs);
   const activeSessionId = useChatStore((s) => s.activeSessionId);
@@ -264,6 +265,31 @@ export function AssignmentsRail() {
                       ? "Retry draft PR"
                       : "Create draft PR"}
                   </button>
+                ) : null}
+                {status === "done" &&
+                a.source.kind === "todo" &&
+                a.origin === "orchestrator" &&
+                a.delivery &&
+                a.delivery.status !== "applied" ? (
+                  <button
+                    type="button"
+                    onClick={() => void applyLocalChanges(a.id)}
+                    disabled={a.delivery.status === "applying"}
+                    className="ml-auto inline-flex items-center gap-1 rounded-md bg-emerald-500/10 px-2 py-1 text-[10.5px] font-medium text-emerald-500 transition-colors hover:bg-emerald-500/15 disabled:opacity-50"
+                  >
+                    {a.delivery.status === "applying" ? (
+                      <Spinner className="size-3" />
+                    ) : null}
+                    {a.delivery.status === "failed"
+                      ? "Retry apply"
+                      : "Apply to workspace"}
+                  </button>
+                ) : null}
+                {a.source.kind === "todo" &&
+                a.delivery?.status === "applied" ? (
+                  <span className="ml-auto rounded-md bg-emerald-500/10 px-2 py-1 text-[10.5px] font-medium text-emerald-500">
+                    Applied
+                  </span>
                 ) : null}
                 {pullDelivery ? (
                   <button
