@@ -1,0 +1,28 @@
+{
+  "$schema": "https://app.kilo.ai/config.json",
+  "snapshot": true,
+  "model": "zai-coding-plan/glm-4.7",
+  "small_model": "zai-coding-plan/glm-4.5-air",
+  "instructions": [".kilo/rules/*.md"],
+  "compaction": {
+    "auto": true,
+    "prune": true
+    // TODO: validate against installed Kilo version before enabling.
+    // Planned tuning (from KILO_GLM_IMPLEMENTATION_EXECUTION_PLAN.md section 4.1):
+    //   "threshold_percent": 65,
+    //   "tail_turns": 2,
+    //   "preserve_recent_tokens": 6000,
+    //   "reserved": 20000
+  },
+  // Custom agents live in .kilo/agents/*.md (model + steps set in frontmatter).
+  // Provider/model IDs selected from the zai-coding-plan provider:
+  //   glm-4.5-air  -> cheap tier  (explore, summaries, triage)
+  //   glm-4.7      -> default tier (implement, plan, review)
+  //   glm-5.1      -> high tier   (SQLite/concurrency/recovery, escalate once)
+  "permission": {
+    "bash": "allow",
+    "read": "allow",
+    "edit": "allow",
+    "external_directory": "deny"
+  }
+}
