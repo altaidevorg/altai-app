@@ -514,6 +514,30 @@ impl<'a> Coordinator<'a> {
     {
         let now = clock.now_ms();
         let expired = self.ledger.expired_lease_attempts(now)?;
+        self.mark_attempts_stalled(expired, now)
+    }
+
+    /// Workspace-scoped recovery for actors that share a ledger.
+    pub fn reclaim_expired_leases_for_workspace<C>(
+        &self,
+        workspace_key: &str,
+        clock: &C,
+    ) -> CoordinatorResult<Vec<String>>
+    where
+        C: Clock,
+    {
+        let now = clock.now_ms();
+        let expired = self
+            .ledger
+            .expired_lease_attempts_for_workspace(workspace_key, now)?;
+        self.mark_attempts_stalled(expired, now)
+    }
+
+    fn mark_attempts_stalled(
+        &self,
+        expired: Vec<super::ledger::AttemptRecord>,
+        now: u64,
+    ) -> CoordinatorResult<Vec<String>> {
         let mut reclaimed = Vec::with_capacity(expired.len());
         for attempt in expired {
             // A lapsed lease is no longer authoritative; mark the attempt
