@@ -120,7 +120,7 @@ pub struct AttemptRecord {
     pub terminal_at_ms: Option<u64>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct OrchestrationEvent {
     pub event_id: String,
     pub task_id: String,

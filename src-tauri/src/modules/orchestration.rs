@@ -11,6 +11,10 @@ use tauri::State;
 // async driver and Tauri commands land in O4.
 #[allow(dead_code)]
 pub mod coordinator;
+// O4 wraps the O3 decision core in a long-lived actor with pause/stop semantics
+// and forwards committed events to a sink (Tauri AppHandle in production).
+#[allow(dead_code)]
+pub mod actor;
 #[allow(dead_code)]
 pub mod domain;
 // O2 stages the durable ledger before O4 wires it into the coordinator.
