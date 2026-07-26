@@ -13,6 +13,10 @@ type TodosState = {
   hydrated: Set<string>;
   hydrate: (sessionId: string) => Promise<void>;
   setTodos: (sessionId: string, todos: Todo[]) => void;
+  addTodo: (
+    sessionId: string,
+    input: { title: string; description?: string },
+  ) => Todo;
   clearSession: (sessionId: string) => Promise<void>;
 };
 
@@ -39,10 +43,39 @@ export const useTodosStore = create<TodosState>((set, get) => ({
   },
 
   setTodos(sessionId, todos) {
-    set((s) => ({
-      bySession: { ...s.bySession, [sessionId]: todos },
+    // todo_write replaces the agent's current plan, but user-created board
+    // todos are durable work items and must survive those plan refreshes.
+    const manual = (get().bySession[sessionId] ?? []).filter(
+      (todo) => todo.origin === "manual",
+    );
+    const next = [
+      ...manual,
+      ...todos
+        .filter((todo) => todo.origin !== "manual")
+        .map((todo) => ({ ...todo, origin: "agent" as const })),
+    ];
+    set((state) => ({
+      bySession: { ...state.bySession, [sessionId]: next },
+    }));
+    void persistSave(sessionId, next);
+  },
+
+  addTodo(sessionId, input) {
+    const todo: Todo = {
+      id: `todo-${Date.now().toString(36)}-${Math.random()
+        .toString(36)
+        .slice(2, 7)}`,
+      title: input.title.trim(),
+      description: input.description?.trim() || undefined,
+      status: "pending",
+      origin: "manual",
+    };
+    const todos = [...(get().bySession[sessionId] ?? []), todo];
+    set((state) => ({
+      bySession: { ...state.bySession, [sessionId]: todos },
     }));
     void persistSave(sessionId, todos);
+    return todo;
   },
 
   async clearSession(sessionId) {

@@ -7,6 +7,8 @@ export type Todo = {
   title: string;
   description?: string;
   status: TodoStatus;
+  /** Missing on legacy/runtime todos; only explicit board todos use manual. */
+  origin?: "agent" | "manual";
 };
 
 const STORE_PATH = "altai-ai-todos.json";

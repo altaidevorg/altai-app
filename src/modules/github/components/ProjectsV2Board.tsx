@@ -21,6 +21,7 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { StateBadge } from "./itemBits";
+import { AssignAgentButton } from "./AssignAgentButton";
 
 type Props = {
   projectId: string;
@@ -287,6 +288,7 @@ export function ProjectsV2Board({ projectId, slug }: Props) {
                   <li key={card.itemId}>
                     <ProjectCardView
                       card={card}
+                      slug={slug}
                       draggable={!!board?.statusFieldId}
                       onDragStart={() => setDragItem(card.itemId)}
                       onDragEnd={() => setDragItem(null)}
@@ -309,11 +311,13 @@ export function ProjectsV2Board({ projectId, slug }: Props) {
 
 function ProjectCardView({
   card,
+  slug,
   draggable,
   onDragStart,
   onDragEnd,
 }: {
   card: BoardCard;
+  slug: RepoSlug;
   draggable: boolean;
   onDragStart: () => void;
   onDragEnd: () => void;
@@ -349,8 +353,23 @@ function ProjectCardView({
           <HugeiconsIcon icon={RecordIcon} size={11} strokeWidth={1.9} />
         ) : null}
         {card.number ? <span className="font-mono">#{card.number}</span> : null}
-        {state ? (
+        {card.number &&
+        card.url &&
+        (card.type === "Issue" || card.type === "PullRequest") ? (
           <span className="ml-auto">
+            <AssignAgentButton
+              kind={card.type === "Issue" ? "issue" : "pr"}
+              slug={slug}
+              number={card.number}
+              title={card.title}
+              body={null}
+              url={card.url}
+              variant="chip"
+            />
+          </span>
+        ) : null}
+        {state ? (
+          <span>
             <StateBadge state={state} />
           </span>
         ) : null}

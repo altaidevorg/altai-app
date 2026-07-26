@@ -10,7 +10,7 @@ use crate::modules::git::process::{
 use crate::modules::git::types::{
     DiscardEntry, GitBranch, GitCommitFileChange, GitCommitResult, GitDiffContentResult,
     GitDiffResult, GitLogEntry, GitOutput, GitPanelSnapshot, GitPushResult, GitRepoInfo,
-    GitStatusSnapshot, TextSource, DEFAULT_TIMEOUT_SECS, NETWORK_TIMEOUT_SECS,
+    GitStatusSnapshot, GitWorktreeInfo, TextSource, DEFAULT_TIMEOUT_SECS, NETWORK_TIMEOUT_SECS,
 };
 use crate::modules::git::utils::{
     authorized_repo_root, canonical_dir, github_auth_config_args, resolve_within_repo,
@@ -1070,6 +1070,114 @@ fn validate_branch_name(name: &str) -> Result<&str> {
     Ok(trimmed)
 }
 
+fn validate_worktree_label(label: &str) -> Result<&str> {
+    let trimmed = label.trim();
+    let valid = !trimmed.is_empty()
+        && trimmed.len() <= 96
+        && !trimmed.starts_with('-')
+        && !trimmed.ends_with('-')
+        && trimmed
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-');
+    if !valid {
+        return Err(GitError::command("worktree", "invalid worktree label"));
+    }
+    Ok(trimmed)
+}
+
+fn worktree_root(repo_root: &ResolvedGitDirectory) -> Result<String> {
+    let common_dir = git_stdout_line_opt(
+        &repo_root.workspace,
+        &repo_root.git_path,
+        ["rev-parse", "--git-common-dir"],
+    )?
+    .ok_or_else(|| GitError::command("worktree", "could not resolve git common directory"))?;
+    let normalized = common_dir.replace('\\', "/");
+    let absolute = normalized.starts_with('/')
+        || normalized
+            .as_bytes()
+            .get(1)
+            .is_some_and(|separator| *separator == b':');
+    let common = if absolute {
+        normalized.trim_end_matches('/').to_string()
+    } else {
+        format!(
+            "{}/{}",
+            repo_root.git_path.trim_end_matches(['/', '\\']),
+            normalized.trim_matches('/')
+        )
+    };
+    Ok(format!("{common}/altai-worktrees"))
+}
+
+/// Create a linked worktree on a new ALTAI-owned branch. Worktrees live under
+/// the repository's git common directory, so the base working tree stays clean
+/// and parallel agent runs cannot overwrite each other's files.
+pub fn create_worktree(
+    registry: &WorkspaceRegistry,
+    repo_root: &str,
+    label: &str,
+    workspace: &WorkspaceEnv,
+) -> Result<GitWorktreeInfo> {
+    let label = validate_worktree_label(label)?.to_string();
+    let repo_root = authorized_repo_root(registry, repo_root, workspace)?;
+    ensure_git_available(&repo_root.workspace)?;
+    let branch = format!("altai/{label}");
+    validate_branch_name(&branch)?;
+    let path = format!("{}/{}", worktree_root(&repo_root)?, label);
+
+    let output = run_git(
+        &repo_root.workspace,
+        Some(&repo_root.git_path),
+        [
+            OsStr::new("worktree"),
+            OsStr::new("add"),
+            OsStr::new("-b"),
+            OsStr::new(&branch),
+            OsStr::new(&path),
+            OsStr::new("HEAD"),
+        ],
+        DEFAULT_TIMEOUT_SECS,
+    )?;
+    ensure_success(&output, "git worktree add failed")?;
+    Ok(GitWorktreeInfo { path, branch })
+}
+
+/// Remove only a worktree inside ALTAI's private worktree directory. This is
+/// used to roll back a freshly-created worktree when dispatch fails.
+pub fn remove_worktree(
+    registry: &WorkspaceRegistry,
+    repo_root: &str,
+    path: &str,
+    workspace: &WorkspaceEnv,
+) -> Result<()> {
+    let repo_root = authorized_repo_root(registry, repo_root, workspace)?;
+    ensure_git_available(&repo_root.workspace)?;
+    let allowed_root = format!("{}/", worktree_root(&repo_root)?);
+    let normalized_path = path.trim().replace('\\', "/");
+    let label = normalized_path
+        .strip_prefix(&allowed_root)
+        .unwrap_or_default();
+    if validate_worktree_label(label).is_err() {
+        return Err(GitError::command(
+            "worktree",
+            "refusing to remove a non-ALTAI worktree",
+        ));
+    }
+    let output = run_git(
+        &repo_root.workspace,
+        Some(&repo_root.git_path),
+        [
+            OsStr::new("worktree"),
+            OsStr::new("remove"),
+            OsStr::new("--force"),
+            OsStr::new(&normalized_path),
+        ],
+        DEFAULT_TIMEOUT_SECS,
+    )?;
+    ensure_success(&output, "git worktree remove failed")
+}
+
 /// Switch the working tree to an existing local branch. Uses `git switch`
 /// (git ≥ 2.23, our floor) rather than `git checkout` so a name is never
 /// ambiguously interpreted as a pathspec. Fails — surfacing git's own
@@ -1206,4 +1314,79 @@ fn pathspec(repo_root: &Path, absolute: &Path) -> String {
         .strip_prefix(repo_root)
         .map(|rel| rel.to_string_lossy().replace('\\', "/"))
         .unwrap_or_else(|_| absolute.to_string_lossy().replace('\\', "/"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use std::process::Command;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn temp_repo() -> std::path::PathBuf {
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "altai-worktree-test-{}-{suffix}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&root).expect("create temp repo");
+        let git = |args: &[&str]| {
+            let status = Command::new("git")
+                .current_dir(&root)
+                .args(args)
+                .status()
+                .expect("run git");
+            assert!(status.success(), "git command failed: {args:?}");
+        };
+        git(&["init", "-q"]);
+        git(&["config", "user.name", "ALTAI Test"]);
+        git(&["config", "user.email", "altai@example.invalid"]);
+        git(&["config", "commit.gpgsign", "false"]);
+        fs::write(root.join("README.md"), "test\n").expect("write fixture");
+        git(&["add", "README.md"]);
+        git(&["commit", "-qm", "initial"]);
+        fs::canonicalize(root).expect("canonical temp repo")
+    }
+
+    #[test]
+    fn creates_and_removes_an_isolated_worktree() {
+        let root = temp_repo();
+        let registry = WorkspaceRegistry::default();
+        registry.authorize(&root).expect("authorize repo");
+        let root_string = root.to_string_lossy().into_owned();
+
+        let worktree = create_worktree(
+            &registry,
+            &root_string,
+            "issue-42-fix-login-abc123",
+            &WorkspaceEnv::Local,
+        )
+        .expect("create worktree");
+        assert_eq!(worktree.branch, "altai/issue-42-fix-login-abc123");
+        assert!(Path::new(&worktree.path).join("README.md").is_file());
+        assert!(
+            Path::new(&worktree.path).starts_with(root.join(".git")),
+            "worktree should stay under the repository git directory"
+        );
+
+        remove_worktree(
+            &registry,
+            &root_string,
+            &worktree.path,
+            &WorkspaceEnv::Local,
+        )
+        .expect("remove worktree");
+        assert!(!Path::new(&worktree.path).exists());
+        fs::remove_dir_all(root).expect("remove temp repo");
+    }
+
+    #[test]
+    fn rejects_unsafe_worktree_labels() {
+        for label in ["", "../escape", "Issue 1", "-flag", "name/branch"] {
+            assert!(validate_worktree_label(label).is_err(), "{label}");
+        }
+    }
 }

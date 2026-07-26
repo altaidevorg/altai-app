@@ -1515,7 +1515,8 @@ export async function dispatchToSession(
 
   const agentsState = useAgentsStore.getState();
   const activeAgent = agentsState.all().find((a) => a.id === (runConfig?.agentId ?? agentsState.activeId));
-  const workspacePath = currentWorkspaceFolder() ?? undefined;
+  const workspacePath =
+    runConfig?.workspacePath ?? currentWorkspaceFolder() ?? undefined;
   const instructions = combineAgentInstructions(
     activeAgent?.instructions?.trim() || undefined,
     await readProjectInstructions(workspacePath),
@@ -1565,7 +1566,11 @@ export async function dispatchToSession(
   // first background append and get clobbered.
   appendBackgroundMessage(chatId, "user", text);
 
-  const envBlock = buildEnvBlock(store.live);
+  const envBlock = runConfig?.workspacePath
+    ? `<env>\nworkspace_root: ${runConfig.workspacePath}\nactive_branch: ${
+        runConfig.branchName ?? "(unknown)"
+      }\nworkspace_mode: isolated-worktree\n</env>`
+    : buildEnvBlock(store.live);
   const payload = envBlock ? `${envBlock}\n\n${text}` : text;
   try {
     const acknowledgement = await native.agentSend(

@@ -14,6 +14,8 @@
 use std::sync::Mutex;
 use tauri::{AppHandle, WebviewUrl, WebviewWindowBuilder};
 
+use super::app_menu;
+
 #[cfg(target_os = "macos")]
 mod macos;
 #[cfg(target_os = "windows")]
@@ -91,6 +93,9 @@ pub fn set_recent_folders(
         *guard = folders.clone();
     }
     rebuild(&app, &folders);
+    if let Err(error) = app_menu::install(&app, &folders) {
+        log::error!("app_menu: failed to refresh recent folders: {error}");
+    }
 }
 
 /// Open a fresh ALTAI window (welcome screen). Callable from the frontend too.

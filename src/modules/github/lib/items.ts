@@ -123,16 +123,67 @@ export function createIssue(
   });
 }
 
+function acceptanceCriterion(line: string): string {
+  return line
+    .trim()
+    .replace(/^[-*+]\s+/, "")
+    .replace(/^\[(?:\s|x|X)\]\s*/, "")
+    .replace(/^\d+[.)]\s+/, "")
+    .trim();
+}
+
+/** Build a durable GitHub issue body from the free-form description and the
+ * structured acceptance-criteria field used by ALTAI's issue composer. */
+export function buildIssueBody(
+  description: string,
+  acceptanceCriteria: string,
+): string {
+  const body = description.trim();
+  const criteria = acceptanceCriteria
+    .split(/\r?\n/)
+    .map(acceptanceCriterion)
+    .filter(Boolean);
+
+  if (criteria.length === 0) return body;
+
+  const checklist = [
+    "## Acceptance criteria",
+    "",
+    ...criteria.map((criterion) => `- [ ] ${criterion}`),
+  ].join("\n");
+  return body ? `${body}\n\n${checklist}` : checklist;
+}
+
 export function createPull(
   slug: RepoSlug,
-  input: { title: string; body: string; base: string; head: string },
+  input: {
+    title: string;
+    body: string;
+    base: string;
+    head: string;
+    draft?: boolean;
+  },
 ): Promise<GHItem> {
   return github.api<GHItem>("POST", `${base(slug)}/pulls`, {
     title: input.title,
     body: input.body,
     base: input.base,
     head: input.head,
+    draft: input.draft ?? false,
   });
+}
+
+export async function findOpenPullForBranch(
+  slug: RepoSlug,
+  branch: string,
+): Promise<GHItem | null> {
+  const pulls = await github.api<GHItem[]>(
+    "GET",
+    `${base(slug)}/pulls?state=open&head=${encodeURIComponent(
+      `${slug.owner}:${branch}`,
+    )}&per_page=1`,
+  );
+  return pulls[0] ?? null;
 }
 
 export async function listBranches(slug: RepoSlug): Promise<string[]> {

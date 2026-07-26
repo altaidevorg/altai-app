@@ -43,6 +43,7 @@ import { useGlobalShortcuts } from "@/modules/shortcuts";
 export type FileExplorerHandle = {
   focus: () => void;
   isFocused: () => boolean;
+  openSearch: () => void;
 };
 
 type Props = {
@@ -231,6 +232,10 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(
           if (!c) return false;
           const active = document.activeElement;
           return active instanceof Node && c.contains(active);
+        },
+        openSearch: () => {
+          setIsSearchOpen(true);
+          requestAnimationFrame(() => searchRef.current?.focus());
         },
       }),
       [entryPaths, scrollEntryIntoView, selectedPath],

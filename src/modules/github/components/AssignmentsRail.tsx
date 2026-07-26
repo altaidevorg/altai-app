@@ -15,6 +15,7 @@ import {
 } from "@/modules/github/store/assignmentsStore";
 import { Cancel01Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { useEffect } from "react";
 
 const STATUS_META: Record<
@@ -77,6 +78,9 @@ export function AssignmentsRail() {
   const updateStatus = useAssignmentsStore((s) => s.updateStatus);
   const cancel = useAssignmentsStore((s) => s.cancel);
   const remove = useAssignmentsStore((s) => s.remove);
+  const publishDraftPullRequest = useAssignmentsStore(
+    (s) => s.publishDraftPullRequest,
+  );
 
   const runs = useAgentRunsStore((s) => s.runs);
   const activeSessionId = useChatStore((s) => s.activeSessionId);
@@ -133,6 +137,8 @@ export function AssignmentsRail() {
           const tokens = run ? run.tokens.input + run.tokens.output : 0;
           const subagents = run?.subagents ?? [];
           const isActive = a.sessionId === activeSessionId;
+          const pullDelivery =
+            a.delivery?.status === "draft-pr" ? a.delivery : null;
           return (
             <div
               key={a.id}
@@ -155,6 +161,14 @@ export function AssignmentsRail() {
                     <span className={meta.text}>{meta.label}</span>
                     {tokens > 0 ? ` · ${formatTokens(tokens)} tok` : ""}
                   </p>
+                  {a.runConfig?.branchName ? (
+                    <p
+                      className="mt-0.5 truncate font-mono text-[9.5px] text-emerald-500/80"
+                      title={a.runConfig.workspacePath}
+                    >
+                      {a.runConfig.branchName}
+                    </p>
+                  ) : null}
                 </div>
                 <button
                   type="button"
@@ -204,6 +218,16 @@ export function AssignmentsRail() {
                 </p>
               ) : null}
 
+              {a.delivery?.status === "failed" && a.delivery.error ? (
+                <p
+                  role="alert"
+                  className="line-clamp-2 rounded-lg bg-red-500/8 p-1.5 text-[10px] leading-snug text-red-500"
+                  title={a.delivery.error}
+                >
+                  Delivery failed: {a.delivery.error}
+                </p>
+              ) : null}
+
               {/* Actions */}
               <div className="flex items-center gap-1.5">
                 <button
@@ -221,6 +245,33 @@ export function AssignmentsRail() {
                     className="ml-auto rounded-md px-2 py-1 text-[10.5px] font-medium text-red-500 transition-colors hover:bg-red-500/10"
                   >
                     Cancel
+                  </button>
+                ) : null}
+                {status === "done" &&
+                a.source.kind === "issue" &&
+                a.delivery &&
+                a.delivery.status !== "draft-pr" ? (
+                  <button
+                    type="button"
+                    onClick={() => void publishDraftPullRequest(a.id)}
+                    disabled={a.delivery.status === "publishing"}
+                    className="ml-auto inline-flex items-center gap-1 rounded-md bg-violet-500/10 px-2 py-1 text-[10.5px] font-medium text-violet-500 transition-colors hover:bg-violet-500/15 disabled:opacity-50"
+                  >
+                    {a.delivery.status === "publishing" ? (
+                      <Spinner className="size-3" />
+                    ) : null}
+                    {a.delivery.status === "failed"
+                      ? "Retry draft PR"
+                      : "Create draft PR"}
+                  </button>
+                ) : null}
+                {pullDelivery ? (
+                  <button
+                    type="button"
+                    onClick={() => void openUrl(pullDelivery.pullUrl)}
+                    className="ml-auto rounded-md bg-violet-500/10 px-2 py-1 text-[10.5px] font-medium text-violet-500 transition-colors hover:bg-violet-500/15"
+                  >
+                    Open PR #{pullDelivery.pullNumber}
                   </button>
                 ) : null}
               </div>

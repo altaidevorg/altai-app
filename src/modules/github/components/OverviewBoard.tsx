@@ -1,12 +1,10 @@
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import { cn } from "@/lib/utils";
 import { useChatStore } from "@/modules/ai/store/chatStore";
 import { useTodosStore } from "@/modules/ai/store/todoStore";
-import {
-  buildItemSeed,
-  buildTodoSeed,
-} from "@/modules/github/lib/assignments";
+import { buildTodoSeed } from "@/modules/github/lib/assignments";
 import {
   BOARD_COLUMNS,
   type BoardItem,
@@ -16,9 +14,13 @@ import {
   todoToBoardItem,
 } from "@/modules/github/lib/boardModel";
 import { listItems, type GHItem, type RepoSlug } from "@/modules/github/lib/items";
-import { useAssignmentsStore } from "@/modules/github/store/assignmentsStore";
+import {
+  assignGitHubItem,
+  useAssignmentsStore,
+} from "@/modules/github/store/assignmentsStore";
 import {
   ArrowReloadHorizontalIcon,
+  PlusSignIcon,
   Robot01Icon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
@@ -51,12 +53,15 @@ export function OverviewBoard({ slug }: Props) {
   const [enabled, setEnabled] = useState<Set<AssignableSource>>(
     () => new Set(ALL_SOURCES),
   );
+  const [creatingTodo, setCreatingTodo] = useState(false);
+  const [todoDraft, setTodoDraft] = useState("");
 
   const activeSessionId = useChatStore((s) => s.activeSessionId);
   const todos = useTodosStore((s) =>
     activeSessionId ? s.bySession[activeSessionId] : undefined,
   );
   const hydrateTodos = useTodosStore((s) => s.hydrate);
+  const addTodo = useTodosStore((s) => s.addTodo);
 
   const assignments = useAssignmentsStore((s) => s.assignments);
   const assign = useAssignmentsStore((s) => s.assign);
@@ -124,6 +129,15 @@ export function OverviewBoard({ slug }: Props) {
       return next;
     });
 
+  const createTodo = () => {
+    const title = todoDraft.trim();
+    if (!title || !activeSessionId) return;
+    addTodo(activeSessionId, { title });
+    setTodoDraft("");
+    setCreatingTodo(false);
+    setEnabled((current) => new Set(current).add("todo"));
+  };
+
   const onAssign = async (card: BoardItem) => {
     setAssignError(null);
     try {
@@ -133,24 +147,13 @@ export function OverviewBoard({ slug }: Props) {
       ) {
         const arr = card.source === "issue" ? issues : pulls;
         const gh = arr.find((x) => x.number === card.number);
-        const seed = buildItemSeed({
+        await assignGitHubItem({
           kind: card.source,
-          owner: slug.owner,
-          repo: slug.repo,
+          slug,
           number: card.number,
           title: card.title,
           body: gh?.body ?? null,
-        });
-        await assign({
-          source: {
-            kind: card.source,
-            owner: slug.owner,
-            repo: slug.repo,
-            number: card.number,
-            url: card.url ?? "",
-          },
-          title: `🤖 ${SOURCE_META[card.source].label} #${card.number} · ${card.title}`,
-          seed,
+          url: card.url ?? "",
         });
       } else if (card.source === "todo") {
         const todoId = card.key.replace(/^todo-/, "");
@@ -191,6 +194,17 @@ export function OverviewBoard({ slug }: Props) {
             </button>
           );
         })}
+        {activeSessionId ? (
+          <Button
+            size="xs"
+            variant="ghost"
+            className="h-7 gap-1 text-[11px]"
+            onClick={() => setCreatingTodo(true)}
+          >
+            <HugeiconsIcon icon={PlusSignIcon} size={12} strokeWidth={2} />
+            New todo
+          </Button>
+        ) : null}
         <Button
           size="xs"
           variant="ghost"
@@ -207,6 +221,45 @@ export function OverviewBoard({ slug }: Props) {
           />
         </Button>
       </div>
+
+      {creatingTodo ? (
+        <div className="flex shrink-0 items-center gap-2 border-b border-border/50 bg-muted/15 px-4 py-2">
+          <Input
+            value={todoDraft}
+            onChange={(event) => setTodoDraft(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") createTodo();
+              if (event.key === "Escape") {
+                setTodoDraft("");
+                setCreatingTodo(false);
+              }
+            }}
+            autoFocus
+            aria-label="Todo title"
+            placeholder="What needs to be done?"
+            className="h-8 max-w-md text-[11.5px]"
+          />
+          <Button
+            size="xs"
+            className="h-7 text-[11px]"
+            onClick={createTodo}
+            disabled={!todoDraft.trim()}
+          >
+            Add todo
+          </Button>
+          <Button
+            size="xs"
+            variant="ghost"
+            className="h-7 text-[11px]"
+            onClick={() => {
+              setTodoDraft("");
+              setCreatingTodo(false);
+            }}
+          >
+            Cancel
+          </Button>
+        </div>
+      ) : null}
 
       {error || assignError ? (
         <div

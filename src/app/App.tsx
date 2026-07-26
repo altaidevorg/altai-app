@@ -15,6 +15,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
+import { useAppMenuCommands } from "@/modules/app-menu/useAppMenuCommands";
 import {
   AgentRunBridge,
   AiSidePanel,
@@ -1589,6 +1590,107 @@ export default function App() {
   );
 
   useGlobalShortcuts(shortcutHandlers, { isDisabled: shortcutsDisabled });
+
+  useAppMenuCommands((command) => {
+    switch (command.id) {
+      case "app.settings":
+        void openSettingsWindow();
+        break;
+      case "app.shortcuts":
+        setShortcutsOpen(true);
+        break;
+      case "file.newFile":
+        setNewEditorOpen(true);
+        break;
+      case "file.openFolder":
+        void (async () => {
+          const path = await useWorkspaceFolderStore.getState().pickFolder();
+          if (path) resetWorkspace(path);
+        })();
+        break;
+      case "file.openRecent":
+        if (command.path) {
+          const path = command.path;
+          void (async () => {
+            const opened =
+              await useWorkspaceFolderStore.getState().openRecent(path);
+            if (opened) resetWorkspace(path);
+          })();
+        }
+        break;
+      case "file.closeWorkspace":
+        closeFolder();
+        break;
+      case "file.save":
+        editorRefs.current.get(activeId)?.save();
+        break;
+      case "file.closeEditor":
+        handleCloseTabOrPane();
+        break;
+      case "edit.find":
+        searchInlineRef.current?.focus();
+        break;
+      case "edit.findInFiles": {
+        const panel = sidebarRef.current;
+        if (panel?.isCollapsed()) panel.resize(`${sidebarWidthRef.current}px`);
+        if (sidebarView !== "explorer") persistSidebarView("explorer");
+        requestAnimationFrame(() => explorerRef.current?.openSearch());
+        break;
+      }
+      case "edit.toggleComment":
+        editorRefs.current.get(activeId)?.toggleLineComment();
+        break;
+      case "view.explorer":
+        cycleSidebarView("explorer");
+        break;
+      case "view.sourceControl":
+        toggleSourceControl();
+        break;
+      case "view.agent":
+        togglePanelAndFocus();
+        break;
+      case "view.terminal":
+      case "terminal.toggle":
+        toggleTerminalDrawer();
+        break;
+      case "view.sidebar":
+        toggleSidebar();
+        break;
+      case "view.zoomIn":
+        zoomIn();
+        break;
+      case "view.zoomOut":
+        zoomOut();
+        break;
+      case "view.zoomReset":
+        zoomReset();
+        break;
+      case "go.nextTab":
+        cycleTab(1);
+        break;
+      case "go.previousTab":
+        cycleTab(-1);
+        break;
+      case "go.nextPane":
+        if (activeTerminalId != null) focusNextPaneInTab(activeTerminalId, 1);
+        break;
+      case "go.previousPane":
+        if (activeTerminalId != null) focusNextPaneInTab(activeTerminalId, -1);
+        break;
+      case "terminal.new":
+        openNewTab();
+        break;
+      case "terminal.newPrivate":
+        openNewPrivateTab();
+        break;
+      case "help.shortcuts":
+        setShortcutsOpen(true);
+        break;
+      case "terminal.split":
+        splitActivePaneInActiveTab("row");
+        break;
+    }
+  });
 
   // Queue of writes waiting for a specific leaf's PTY handle to register.
   // "Run in terminal" stuffs the install command in here right after

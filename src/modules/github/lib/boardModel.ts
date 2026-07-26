@@ -71,7 +71,7 @@ export function todoToBoardItem(todo: Todo, index: number): BoardItem {
     number: null,
     url: null,
     badge: null,
-    meta: "agent plan",
+    meta: todo.origin === "manual" ? "local todo" : "agent plan",
   };
 }
 
