@@ -6,16 +6,19 @@ use std::{
 };
 use tauri::State;
 
-// O1 lands the authoritative domain API before O2 wires it into the ledger and
-// coordinator. Keep the staged API compiled and tested without making the
-// intermediate PR fail `clippy -D warnings`; remove this allowance once O2
-// consumes the types in production code.
+// O3 wires the runner contract and the coordinator decision core against the
+// O1 domain model and the O2 ledger. These modules are exercised by tests; the
+// async driver and Tauri commands land in O4.
+#[allow(dead_code)]
+pub mod coordinator;
 #[allow(dead_code)]
 pub mod domain;
 // O2 stages the durable ledger before O4 wires it into the coordinator.
 // Keep it compiled and fully tested in this intermediate PR.
 #[allow(dead_code)]
 pub mod ledger;
+#[allow(dead_code)]
+pub mod runners;
 pub mod workflow;
 
 use workflow::WorkflowConfig;

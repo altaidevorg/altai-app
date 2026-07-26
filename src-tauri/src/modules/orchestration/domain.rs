@@ -397,6 +397,7 @@ impl AttemptState {
             (Started, AttemptTrigger::Complete) => Completed,
             (Started, AttemptTrigger::Fail) => Failed,
             (Started, AttemptTrigger::Stall) => Stalled,
+            (Heartbeat, AttemptTrigger::Heartbeat) => Heartbeat,
             (Heartbeat, AttemptTrigger::NeedInput) => InputRequired,
             (Heartbeat, AttemptTrigger::NeedApproval) => ApprovalRequired,
             (Heartbeat, AttemptTrigger::Steer) => Steered,
@@ -746,6 +747,14 @@ mod tests {
         s = s.transition(AttemptTrigger::Resume).unwrap();
         s = s.transition(AttemptTrigger::Complete).unwrap();
         assert_eq!(s, AttemptState::Completed);
+    }
+
+    #[test]
+    fn attempt_accepts_repeated_heartbeats() {
+        let s = AttemptState::Heartbeat
+            .transition(AttemptTrigger::Heartbeat)
+            .unwrap();
+        assert_eq!(s, AttemptState::Heartbeat);
     }
 
     // --- Lease --------------------------------------------------------------

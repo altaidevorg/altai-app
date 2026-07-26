@@ -284,7 +284,7 @@ impl OrchestrationLedger {
     }
 
     #[cfg(test)]
-    fn open_in_memory() -> LedgerResult<Self> {
+    pub(crate) fn open_in_memory() -> LedgerResult<Self> {
         Self::from_connection(Connection::open_in_memory()?)
     }
 
@@ -632,6 +632,16 @@ impl OrchestrationLedger {
                  WHERE attempt_id = ?1 AND terminal_at_ms IS NULL",
                 params![attempt_id, new_state.name(), now],
             )?
+        } else if new_state == AttemptState::Stalled {
+            transaction.execute(
+                "UPDATE orchestration_attempts
+                 SET state = ?2,
+                     lease_owner = NULL,
+                     lease_generation = NULL,
+                     lease_expires_at_ms = NULL
+                 WHERE attempt_id = ?1 AND terminal_at_ms IS NULL",
+                params![attempt_id, new_state.name()],
+            )?
         } else if let Some(lease) = renewed_lease {
             let stored_lease = decode_lease_values(
                 lease_owner,
@@ -728,6 +738,50 @@ impl OrchestrationLedger {
              ORDER BY attempt_no ASC",
         )?;
         let rows = statement.query_map(params![task_id], decode_attempt)?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(LedgerError::from)
+    }
+
+    pub fn attempt(&self, attempt_id: &str) -> LedgerResult<Option<AttemptRecord>> {
+        validate_nonempty(attempt_id, "attempt_id")?;
+        let connection = self
+            .connection
+            .lock()
+            .map_err(|_| LedgerError::LockPoisoned)?;
+        connection
+            .query_row(
+                "SELECT attempt_id, task_id, attempt_no, runner_kind,
+                        lease_owner, lease_generation, lease_expires_at_ms,
+                        state, terminal_outcome, idempotency_key,
+                        created_at_ms, started_at_ms, heartbeat_ms, terminal_at_ms
+                 FROM orchestration_attempts WHERE attempt_id = ?1",
+                params![attempt_id],
+                decode_attempt,
+            )
+            .optional()
+            .map_err(LedgerError::from)
+    }
+
+    /// Attempts whose lease has lapsed but which are not yet terminal. The
+    /// coordinator reconciles these on startup/tick (lost-lease recovery).
+    pub fn expired_lease_attempts(&self, now_ms: u64) -> LedgerResult<Vec<AttemptRecord>> {
+        let now = sqlite_u64(now_ms, "now_ms")?;
+        let connection = self
+            .connection
+            .lock()
+            .map_err(|_| LedgerError::LockPoisoned)?;
+        let mut statement = connection.prepare(
+            "SELECT attempt_id, task_id, attempt_no, runner_kind,
+                    lease_owner, lease_generation, lease_expires_at_ms,
+                    state, terminal_outcome, idempotency_key,
+                    created_at_ms, started_at_ms, heartbeat_ms, terminal_at_ms
+             FROM orchestration_attempts
+             WHERE state NOT IN ('completed','failed','cancelled','stalled')
+               AND lease_expires_at_ms IS NOT NULL
+               AND lease_expires_at_ms <= ?1
+             ORDER BY attempt_id ASC",
+        )?;
+        let rows = statement.query_map(params![now], decode_attempt)?;
         rows.collect::<Result<Vec<_>, _>>()
             .map_err(LedgerError::from)
     }
@@ -1118,11 +1172,11 @@ fn create_private_file(path: &Path) -> LedgerResult<()> {
             .mode(0o600)
             .custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW);
     }
-    let file = options.open(path)?;
+    let _file = options.open(path)?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        file.set_permissions(std::fs::Permissions::from_mode(0o600))?;
+        _file.set_permissions(std::fs::Permissions::from_mode(0o600))?;
     }
     Ok(())
 }
