@@ -154,6 +154,13 @@ pub enum WriteStatus {
     Duplicate,
 }
 
+impl WriteStatus {
+    /// True when the write actually persisted (not a duplicate no-op).
+    pub fn is_written(self) -> bool {
+        matches!(self, WriteStatus::Written)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct AttemptOutcome {
     pub attempt_id: String,
@@ -447,6 +454,25 @@ impl OrchestrationLedger {
              ORDER BY task_id ASC",
         )?;
         let rows = statement.query_map(params![workspace_key], decode_task)?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(LedgerError::from)
+    }
+
+    /// All non-terminal tasks across every workspace. Used by startup recovery
+    /// (O5) to reconcile orphaned or unresolved tasks without guessing.
+    pub fn non_terminal_tasks(&self) -> LedgerResult<Vec<TaskRecord>> {
+        let connection = self
+            .connection
+            .lock()
+            .map_err(|_| LedgerError::LockPoisoned)?;
+        let mut statement = connection.prepare(
+            "SELECT task_id, workspace_key, source_kind, source_ref, title, state,
+                    created_at_ms, updated_at_ms
+             FROM orchestration_tasks
+             WHERE state NOT IN ('done','cancelled','failed','abandoned')
+             ORDER BY task_id ASC",
+        )?;
+        let rows = statement.query_map([], decode_task)?;
         rows.collect::<Result<Vec<_>, _>>()
             .map_err(LedgerError::from)
     }
@@ -1455,10 +1481,20 @@ mod tests {
         ledger
             .upsert_task(&task("failed", TaskState::Failed))
             .expect("t");
+        ledger
+            .upsert_task(&task("needs-attention", TaskState::NeedsAttention))
+            .expect("t");
 
         let active = ledger.active_tasks("ws-1").expect("active");
         let ids: Vec<_> = active.iter().map(|t| t.task_id.as_str()).collect();
-        assert_eq!(ids, vec!["active", "queued"]);
+        assert_eq!(ids, vec!["active", "needs-attention", "queued"]);
+
+        let non_terminal = ledger.non_terminal_tasks().expect("non-terminal");
+        let ids: Vec<_> = non_terminal
+            .iter()
+            .map(|task| task.task_id.as_str())
+            .collect();
+        assert_eq!(ids, vec!["active", "needs-attention", "queued"]);
     }
 
     #[test]
