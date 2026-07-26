@@ -28,6 +28,8 @@ pub mod ledger;
 #[allow(dead_code)]
 pub mod runners;
 pub mod workflow;
+#[allow(dead_code)]
+pub mod workflow_v2;
 
 use workflow::WorkflowConfig;
 
