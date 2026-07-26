@@ -17,6 +17,10 @@ pub mod coordinator;
 pub mod actor;
 #[allow(dead_code)]
 pub mod domain;
+// O5 reconciles the durable ledger on startup: parks ambiguous tasks in
+// NeedsAttention and replays missed terminal reactions (crash safety).
+#[allow(dead_code)]
+pub mod recovery;
 // O2 stages the durable ledger before O4 wires it into the coordinator.
 // Keep it compiled and fully tested in this intermediate PR.
 #[allow(dead_code)]

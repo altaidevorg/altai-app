@@ -107,6 +107,10 @@ pub enum TaskState {
     Cancelled,
     Failed,
     Abandoned,
+    /// Recovery state for ambiguous tasks (e.g. an orphaned attempt after a
+    /// crash whose runner is gone). The coordinator never guesses; it parks
+    /// the task here for human/operator attention (§A3.6).
+    NeedsAttention,
 }
 
 impl TaskState {
@@ -140,6 +144,7 @@ impl TaskState {
             TaskState::Cancelled => "cancelled",
             TaskState::Failed => "failed",
             TaskState::Abandoned => "abandoned",
+            TaskState::NeedsAttention => "needs_attention",
         }
     }
 
@@ -164,6 +169,7 @@ impl TaskState {
             "cancelled" => TaskState::Cancelled,
             "failed" => TaskState::Failed,
             "abandoned" => TaskState::Abandoned,
+            "needs_attention" => TaskState::NeedsAttention,
             _ => return None,
         })
     }
@@ -240,6 +246,16 @@ impl TaskState {
             // A retrying or blocked task may be given up on directly.
             (Retrying, TaskTrigger::Abandon) => Abandoned,
             (Blocked, TaskTrigger::Abandon) => Abandoned,
+            // Recovery: an ambiguous in-flight state is parked for attention
+            // rather than guessed at (§A3.6). It may be resolved back to the
+            // queue, cancelled, or abandoned.
+            (
+                Running | AwaitingInput | AwaitingApproval | Retrying | Paused,
+                TaskTrigger::MarkNeedsAttention,
+            ) => NeedsAttention,
+            (NeedsAttention, TaskTrigger::Resolve) => Queued,
+            (NeedsAttention, TaskTrigger::Cancel) => Cancelled,
+            (NeedsAttention, TaskTrigger::Abandon) => Abandoned,
             // Everything else is undefined.
             (from, t) => {
                 return Err(TransitionError::Invalid {
@@ -278,6 +294,10 @@ pub enum TaskTrigger {
     Cancel,
     Fail,
     Abandon,
+    /// Park an ambiguous task for attention (recovery only).
+    MarkNeedsAttention,
+    /// Resolve a NeedsAttention task back to the queue.
+    Resolve,
 }
 
 impl TaskTrigger {
@@ -304,6 +324,8 @@ impl TaskTrigger {
             TaskTrigger::Cancel => "cancel",
             TaskTrigger::Fail => "fail",
             TaskTrigger::Abandon => "abandon",
+            TaskTrigger::MarkNeedsAttention => "mark_needs_attention",
+            TaskTrigger::Resolve => "resolve",
         }
     }
 }
