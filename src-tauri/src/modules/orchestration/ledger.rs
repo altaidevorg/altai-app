@@ -786,6 +786,40 @@ impl OrchestrationLedger {
             .map_err(LedgerError::from)
     }
 
+    /// Non-terminal attempts with expired leases, restricted to one workspace.
+    pub fn expired_lease_attempts_for_workspace(
+        &self,
+        workspace_key: &str,
+        now_ms: u64,
+    ) -> LedgerResult<Vec<AttemptRecord>> {
+        validate_nonempty(workspace_key, "workspace_key")?;
+        let now = sqlite_u64(now_ms, "now_ms")?;
+        let connection = self
+            .connection
+            .lock()
+            .map_err(|_| LedgerError::LockPoisoned)?;
+        let mut statement = connection.prepare(
+            "SELECT attempts.attempt_id, attempts.task_id, attempts.attempt_no,
+                    attempts.runner_kind, attempts.lease_owner,
+                    attempts.lease_generation, attempts.lease_expires_at_ms,
+                    attempts.state, attempts.terminal_outcome,
+                    attempts.idempotency_key, attempts.created_at_ms,
+                    attempts.started_at_ms, attempts.heartbeat_ms,
+                    attempts.terminal_at_ms
+             FROM orchestration_attempts AS attempts
+             INNER JOIN orchestration_tasks AS tasks
+                     ON tasks.task_id = attempts.task_id
+             WHERE tasks.workspace_key = ?1
+               AND attempts.state NOT IN ('completed','failed','cancelled','stalled')
+               AND attempts.lease_expires_at_ms IS NOT NULL
+               AND attempts.lease_expires_at_ms <= ?2
+             ORDER BY attempts.attempt_id ASC",
+        )?;
+        let rows = statement.query_map(params![workspace_key, now], decode_attempt)?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(LedgerError::from)
+    }
+
     // ----- events ----------------------------------------------------------
 
     /// Append an orchestration event. Idempotent by `event_id`: a replayed
