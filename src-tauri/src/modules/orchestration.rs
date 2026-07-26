@@ -26,6 +26,8 @@ pub mod recovery;
 #[allow(dead_code)]
 pub mod ledger;
 #[allow(dead_code)]
+pub mod projections;
+#[allow(dead_code)]
 pub mod runners;
 #[allow(dead_code)]
 pub mod sources;
