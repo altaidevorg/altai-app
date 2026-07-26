@@ -99,7 +99,7 @@ impl Default for RunnerConfig {
 pub struct AgentProfile {
     pub model_id: Option<String>,
     pub reasoning: Option<Reasoning>,
-    pub permissions: Option<String>,
+    pub permissions: Option<crate::modules::orchestration::workflow::PermissionMode>,
     pub tools: Option<Vec<String>>,
 }
 
@@ -117,6 +117,7 @@ pub struct EnvironmentConfig {
     pub executor: String,
     pub install: Option<String>,
     pub start: Option<String>,
+    pub terminals: Vec<TerminalConfig>,
     pub healthcheck: Option<String>,
 }
 
@@ -126,9 +127,17 @@ impl Default for EnvironmentConfig {
             executor: "local-worktree".into(),
             install: None,
             start: None,
+            terminals: Vec::new(),
             healthcheck: None,
         }
     }
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct TerminalConfig {
+    pub name: String,
+    pub command: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -273,6 +282,30 @@ pub fn validate(config: &WorkflowConfigV2) -> Result<(), String> {
             }
         }
     }
+    if config.environment.executor.trim().is_empty() {
+        return Err("environment.executor must be non-empty.".into());
+    }
+    for (index, terminal) in config.environment.terminals.iter().enumerate() {
+        if terminal.name.trim().is_empty() {
+            return Err(format!(
+                "environment.terminals[{index}].name must be non-empty."
+            ));
+        }
+        if terminal.command.trim().is_empty() {
+            return Err(format!(
+                "environment.terminals[{index}].command must be non-empty."
+            ));
+        }
+        if config.environment.terminals[..index]
+            .iter()
+            .any(|other| other.name == terminal.name)
+        {
+            return Err(format!(
+                "environment.terminals contains duplicate name `{}`.",
+                terminal.name
+            ));
+        }
+    }
     if config.budgets.warn_at_percent > 100 {
         return Err("budgets.warn_at_percent must be between 0 and 100.".into());
     }
@@ -316,25 +349,12 @@ pub fn to_v1(config: &WorkflowConfigV2) -> crate::modules::orchestration::workfl
         .as_ref()
         .map(|w| AgentConfig {
             model_id: w.model_id.clone(),
-            permission_mode: w.permissions.as_deref().and_then(parse_permission_mode),
+            permission_mode: w.permissions,
         })
         .unwrap_or_default();
     WorkflowConfig {
         orchestration: scheduler,
         agent,
-    }
-}
-
-fn parse_permission_mode(
-    s: &str,
-) -> Option<crate::modules::orchestration::workflow::PermissionMode> {
-    use crate::modules::orchestration::workflow::PermissionMode;
-    match s.trim() {
-        "ask" => Some(PermissionMode::Ask),
-        "auto-edit" => Some(PermissionMode::AutoEdit),
-        "plan" => Some(PermissionMode::Plan),
-        "bypass" => Some(PermissionMode::Bypass),
-        _ => None,
     }
 }
 
@@ -344,7 +364,6 @@ fn parse_permission_mode(
 pub fn migrate_from_v1(
     v1: &crate::modules::orchestration::workflow::WorkflowConfig,
 ) -> WorkflowConfigV2 {
-    use crate::modules::orchestration::workflow as wf;
     let mut config = WorkflowConfigV2 {
         version: V2_VERSION,
         orchestration: OrchestrationConfig {
@@ -364,18 +383,12 @@ pub fn migrate_from_v1(
         routing: None,
         handoff: None,
     };
-    if let Some(mode) = v1.agent.permission_mode {
-        let permissions = match mode {
-            wf::PermissionMode::Ask => "ask",
-            wf::PermissionMode::AutoEdit => "auto-edit",
-            wf::PermissionMode::Plan => "plan",
-            wf::PermissionMode::Bypass => "bypass",
-        }
-        .to_string();
+    if v1.agent.model_id.is_some() || v1.agent.permission_mode.is_some() {
         config.agents.worker = Some(AgentProfile {
             model_id: v1.agent.model_id.clone(),
-            reasoning: Some(Reasoning::High),
-            permissions: Some(permissions),
+            // v1 has no reasoning field, so migration must not invent one.
+            reasoning: None,
+            permissions: v1.agent.permission_mode,
             tools: None,
         });
     }
@@ -420,6 +433,9 @@ environment:
   executor: local-worktree
   install: pnpm install
   start: pnpm dev
+  terminals:
+    - name: app
+      command: pnpm dev
   healthcheck: http://127.0.0.1:1420
 
 quality:
@@ -451,6 +467,8 @@ budgets:
             config.agents.planner.as_ref().unwrap().reasoning,
             Some(Reasoning::Medium)
         );
+        assert_eq!(config.environment.terminals.len(), 1);
+        assert_eq!(config.environment.terminals[0].name, "app");
         assert_eq!(config.quality.commands.len(), 2);
         assert_eq!(config.budgets.warn_at_percent, 80);
     }
@@ -531,6 +549,40 @@ budgets:
         assert_eq!(v2.orchestration.max_attempts, 5);
         let worker = v2.agents.worker.expect("worker migrated");
         assert_eq!(worker.model_id.as_deref(), Some("gemini-2.5-pro"));
-        assert_eq!(worker.permissions.as_deref(), Some("auto-edit"));
+        assert_eq!(worker.permissions, Some(PermissionMode::AutoEdit));
+        assert_eq!(worker.reasoning, None);
+    }
+
+    #[test]
+    fn migration_preserves_model_without_permission_mode() {
+        use crate::modules::orchestration::workflow::{AgentConfig, WorkflowConfig};
+        let v1 = WorkflowConfig {
+            agent: AgentConfig {
+                model_id: Some("glm-5".into()),
+                permission_mode: None,
+            },
+            ..WorkflowConfig::default()
+        };
+
+        let v2 = migrate_from_v1(&v1);
+        let worker = v2.agents.worker.expect("model-only worker migrated");
+        assert_eq!(worker.model_id.as_deref(), Some("glm-5"));
+        assert_eq!(worker.permissions, None);
+        assert_eq!(worker.reasoning, None);
+    }
+
+    #[test]
+    fn rejects_invalid_permission_and_terminal_definitions() {
+        let permission = "version: 2\nagents:\n  worker:\n    permissions: unrestricted\n";
+        assert!(parse(permission).is_err());
+
+        let empty_command =
+            "version: 2\nenvironment:\n  terminals:\n    - name: app\n      command: ''\n";
+        let error = parse(empty_command).unwrap_err();
+        assert!(error.contains("terminals[0].command"), "{error}");
+
+        let duplicate = "version: 2\nenvironment:\n  terminals:\n    - name: app\n      command: first\n    - name: app\n      command: second\n";
+        let error = parse(duplicate).unwrap_err();
+        assert!(error.contains("duplicate name `app`"), "{error}");
     }
 }

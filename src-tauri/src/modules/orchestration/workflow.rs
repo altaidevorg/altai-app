@@ -134,19 +134,27 @@ pub fn parse_workflow(content: &str) -> Result<ParsedWorkflow, String> {
             .ok_or_else(|| "WORKFLOW.md front matter is missing its closing `---`.".to_string())?;
         let yaml = &rest[..end];
         let body = &rest[end + 5..];
-        // Detect version: an explicit `version: 2` opts into the v2 schema;
-        // anything else (including a missing version) is v1.
+        // A missing version is legacy v1. Any explicit version must be
+        // recognized so a future schema is never silently interpreted as v1.
         let version = serde_yaml::from_str::<VersionPeek>(yaml)
             .map_err(|error| format!("Invalid WORKFLOW.md front matter: {error}"))?
             .version;
-        if version == Some(workflow_v2::V2_VERSION) {
-            let v2 = workflow_v2::parse(yaml)?;
-            let v1 = workflow_v2::to_v1(&v2);
-            (v1, Some(v2), body.to_string())
-        } else {
-            let config = serde_yaml::from_str::<WorkflowConfig>(yaml)
-                .map_err(|error| format!("Invalid WORKFLOW.md front matter: {error}"))?;
-            (config, None, body.to_string())
+        match version {
+            Some(workflow_v2::V2_VERSION) => {
+                let v2 = workflow_v2::parse(yaml)?;
+                let v1 = workflow_v2::to_v1(&v2);
+                (v1, Some(v2), body.to_string())
+            }
+            Some(version) => {
+                return Err(format!(
+                    "Unsupported WORKFLOW.md version {version}; this build supports legacy v1 documents without a version field and explicit version 2."
+                ));
+            }
+            None => {
+                let config = serde_yaml::from_str::<WorkflowConfig>(yaml)
+                    .map_err(|error| format!("Invalid WORKFLOW.md front matter: {error}"))?;
+                (config, None, body.to_string())
+            }
         }
     } else {
         (WorkflowConfig::default(), None, normalized)
@@ -401,5 +409,15 @@ agents:\n  worker:\n    permissions: auto-edit\n\
     fn v2_rejects_unknown_field() {
         let doc = "---\nversion: 2\nbogus: 1\n---\nDo it.";
         assert!(parse_workflow(doc).is_err());
+    }
+
+    #[test]
+    fn rejects_unsupported_explicit_version_before_v1_fallback() {
+        let doc = "---\nversion: 3\n---\nDo it.";
+        let error = parse_workflow(doc).unwrap_err();
+        assert!(
+            error.contains("Unsupported WORKFLOW.md version 3"),
+            "{error}"
+        );
     }
 }
