@@ -1,14 +1,15 @@
 //! Smart routing engine (plan §H2).
 //!
-//! Routes task phases (planning, implementation, review) to the appropriate
-//! model and runner based on agent profiles, routing overrides, and runner
-//! availability. Produces explainable decisions with fallback chains and
-//! routing-attribution so the user can see exactly why a model was chosen.
+//! Routes task phases (planning, implementation, review) to configured agent
+//! profiles and runners. Model identifiers stay provider-agnostic: this module
+//! never invents a model when the selected profile has none.
 
 use serde::Serialize;
 
 use super::workflow::PermissionMode;
-use super::workflow_v2::{AgentsConfig, Reasoning, RoutingConfig, RunnerConfig, WorkflowConfigV2};
+use super::workflow_v2::{
+    AgentProfile, AgentRole, AgentsConfig, Reasoning, RoutingConfig, RunnerConfig, WorkflowConfigV2,
+};
 
 // ---------------------------------------------------------------------------
 // Task phase
@@ -33,23 +34,18 @@ impl TaskPhase {
     }
 }
 
-/// Fallback model used when no configuration specifies one.
-pub const DEFAULT_MODEL: &str = "gpt-4o";
-
 // ---------------------------------------------------------------------------
 // Routing decision
 // ---------------------------------------------------------------------------
 
-/// Which configuration layer produced the model choice.
+/// Which configuration layer selected the agent profile.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum RoutingSource {
-    /// Explicit model override in the `routing:` section of WORKFLOW.md.
+    /// Explicit profile selection in the `routing:` section of WORKFLOW.md.
     RoutingOverride,
-    /// The `agents:` profile for this role.
-    AgentProfile,
-    /// Hardcoded default (no config specified a model).
-    Default,
+    /// The phase's conventional profile (planner, worker, or reviewer).
+    PhaseDefault,
 }
 
 /// The resolved model, runner, and metadata for one task phase.
@@ -57,13 +53,17 @@ pub enum RoutingSource {
 #[serde(rename_all = "camelCase")]
 pub struct RoutingDecision {
     pub phase: TaskPhase,
-    pub model_id: String,
+    pub profile: AgentRole,
+    /// Optional workflow-level override. `None` delegates to the runtime's
+    /// configured provider/model selection.
+    pub model_id: Option<String>,
     pub runner_kind: String,
     /// Reasoning effort from the agent profile, if specified.
     pub reasoning: Option<Reasoning>,
     /// Permission mode from the agent profile, if specified.
     pub permissions: Option<PermissionMode>,
-    /// Models to try if the primary is unavailable (quality trade-off chain).
+    /// Reserved for explicit, policy-checked fallbacks. The current schema has
+    /// no fallback policy, so this is intentionally empty.
     pub fallback_models: Vec<String>,
     pub source: RoutingSource,
     /// Human-readable explanation of why this model was selected.
@@ -76,6 +76,11 @@ pub struct RoutingDecision {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RoutingError {
+    /// The selected profile is absent from the `agents:` section.
+    ProfileNotConfigured {
+        phase: TaskPhase,
+        profile: AgentRole,
+    },
     /// The resolved runner is not in the `runner.allow` list.
     RunnerNotAllowed {
         runner_kind: String,
@@ -86,6 +91,12 @@ pub enum RoutingError {
 impl std::fmt::Display for RoutingError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::ProfileNotConfigured { phase, profile } => write!(
+                f,
+                "no {:?} agent profile is configured for the {} phase",
+                profile,
+                phase.name()
+            ),
             Self::RunnerNotAllowed {
                 runner_kind,
                 allowed,
@@ -134,26 +145,23 @@ impl RoutingEngine {
 
     /// Resolve the routing for a single task phase.
     pub fn route(&self, phase: TaskPhase) -> RoutingResult {
-        let profile = self.profile_for(phase);
-        let routing_override = self.routing_override_for(phase);
+        let (selected_role, source) = self.selected_role(phase);
+        let profile = self.profile(selected_role);
+        if source == RoutingSource::RoutingOverride && profile.is_none() {
+            return Err(RoutingError::ProfileNotConfigured {
+                phase,
+                profile: selected_role,
+            });
+        }
+        let model_id = profile
+            .and_then(|profile| profile.model_id.as_deref())
+            .filter(|model| !model.trim().is_empty())
+            .map(str::to_owned);
 
-        // 1. Model resolution: routing override > agent profile > default.
-        let (model_id, source) = if let Some(m) = routing_override {
-            (m.to_string(), RoutingSource::RoutingOverride)
-        } else if let Some(p) = profile {
-            if let Some(m) = &p.model_id {
-                (m.clone(), RoutingSource::AgentProfile)
-            } else {
-                (DEFAULT_MODEL.to_string(), RoutingSource::Default)
-            }
-        } else {
-            (DEFAULT_MODEL.to_string(), RoutingSource::Default)
-        };
-
-        // 2. Runner resolution: always the configured default.
+        // Runner resolution uses the configured default.
         let runner_kind = self.runner.default.clone();
 
-        // 3. Validate runner is allowed.
+        // Validate runner is allowed.
         if !self.runner.allow.is_empty() && !self.runner.allow.contains(&runner_kind) {
             return Err(RoutingError::RunnerNotAllowed {
                 runner_kind,
@@ -161,33 +169,35 @@ impl RoutingEngine {
             });
         }
 
-        // 4. Build fallback chain from other configured models (excluding primary).
-        let fallback_models = self.collect_fallback_models(phase, &model_id);
+        // Automatic cross-profile fallback would silently change reasoning and
+        // permissions. Add fallbacks only once the schema can express and
+        // validate those constraints.
+        let fallback_models = Vec::new();
+        let reasoning = profile.and_then(|profile| profile.reasoning);
+        let permissions = profile.and_then(|profile| profile.permissions);
 
-        // 5. Extract profile metadata.
-        let reasoning = profile.and_then(|p| p.reasoning);
-        let permissions = profile.and_then(|p| p.permissions);
-
-        let reason = match source {
-            RoutingSource::RoutingOverride => {
-                format!(
-                    "model '{model_id}' from routing override for {}",
-                    phase.name()
-                )
-            }
-            RoutingSource::AgentProfile => {
-                format!("model '{model_id}' from {} agent profile", phase.name())
-            }
-            RoutingSource::Default => {
-                format!(
-                    "no model configured for {}; using default '{DEFAULT_MODEL}'",
-                    phase.name()
-                )
-            }
+        let profile_reason = match source {
+            RoutingSource::RoutingOverride => format!(
+                "{} routing explicitly selected the {:?} profile",
+                phase.name(),
+                selected_role
+            ),
+            RoutingSource::PhaseDefault => format!(
+                "{} uses its default {:?} profile",
+                phase.name(),
+                selected_role
+            ),
+        };
+        let reason = match &model_id {
+            Some(model_id) => format!("{profile_reason} with model override '{model_id}'"),
+            None => format!(
+                "{profile_reason}; provider and model resolve from the configured runtime target"
+            ),
         };
 
         Ok(RoutingDecision {
             phase,
+            profile: selected_role,
             model_id,
             runner_kind,
             reasoning,
@@ -199,70 +209,44 @@ impl RoutingEngine {
     }
 
     /// Route all three phases at once.
-    pub fn route_all(&self) -> Vec<RoutingDecision> {
+    pub fn route_all(&self) -> Result<Vec<RoutingDecision>, RoutingError> {
         [
             TaskPhase::Planning,
             TaskPhase::Implementation,
             TaskPhase::Review,
         ]
-        .iter()
-        .filter_map(|phase| self.route(*phase).ok())
+        .into_iter()
+        .map(|phase| self.route(phase))
         .collect()
     }
 
     // ----- helpers -----
 
-    fn profile_for(&self, phase: TaskPhase) -> Option<&super::workflow_v2::AgentProfile> {
-        match phase {
-            TaskPhase::Planning => self.agents.planner.as_ref(),
-            TaskPhase::Implementation => self.agents.worker.as_ref(),
-            TaskPhase::Review => self.agents.reviewer.as_ref(),
+    fn selected_role(&self, phase: TaskPhase) -> (AgentRole, RoutingSource) {
+        let configured = match phase {
+            TaskPhase::Planning => self.routing.planner,
+            TaskPhase::Implementation => self.routing.implementation,
+            TaskPhase::Review => self.routing.review,
+        };
+        match configured {
+            Some(role) => (role, RoutingSource::RoutingOverride),
+            None => (
+                match phase {
+                    TaskPhase::Planning => AgentRole::Planner,
+                    TaskPhase::Implementation => AgentRole::Worker,
+                    TaskPhase::Review => AgentRole::Reviewer,
+                },
+                RoutingSource::PhaseDefault,
+            ),
         }
     }
 
-    fn routing_override_for(&self, phase: TaskPhase) -> Option<&str> {
-        match phase {
-            TaskPhase::Planning => self.routing.planner.as_deref(),
-            TaskPhase::Implementation => self.routing.implementation.as_deref(),
-            TaskPhase::Review => self.routing.review.as_deref(),
+    fn profile(&self, role: AgentRole) -> Option<&AgentProfile> {
+        match role {
+            AgentRole::Planner => self.agents.planner.as_ref(),
+            AgentRole::Worker => self.agents.worker.as_ref(),
+            AgentRole::Reviewer => self.agents.reviewer.as_ref(),
         }
-    }
-
-    /// Collect all distinct configured models across all roles, excluding the
-    /// primary model, as a fallback chain.
-    fn collect_fallback_models(&self, _phase: TaskPhase, primary: &str) -> Vec<String> {
-        let mut models: Vec<String> = Vec::new();
-
-        for profile in [
-            self.agents.planner.as_ref(),
-            self.agents.worker.as_ref(),
-            self.agents.reviewer.as_ref(),
-        ]
-        .into_iter()
-        .flatten()
-        {
-            if let Some(m) = &profile.model_id {
-                if m != primary && !models.contains(m) {
-                    models.push(m.clone());
-                }
-            }
-        }
-
-        // Also include routing overrides as fallbacks.
-        for m in [
-            self.routing.planner.as_deref(),
-            self.routing.implementation.as_deref(),
-            self.routing.review.as_deref(),
-        ]
-        .into_iter()
-        .flatten()
-        {
-            if m != primary && !models.iter().any(|existing: &String| existing == m) {
-                models.push(m.to_string());
-            }
-        }
-
-        models
     }
 }
 
@@ -284,27 +268,6 @@ mod tests {
         RoutingEngine::new(agents, routing, runner)
     }
 
-    // ---- default routing ----
-
-    #[test]
-    fn default_engine_routes_to_default_model() {
-        let eng = RoutingEngine::default();
-        let d = eng.route(TaskPhase::Implementation).unwrap();
-        assert_eq!(d.model_id, DEFAULT_MODEL);
-        assert_eq!(d.source, RoutingSource::Default);
-        assert_eq!(d.runner_kind, "native");
-    }
-
-    #[test]
-    fn default_engine_routes_all_three_phases() {
-        let eng = RoutingEngine::default();
-        let decisions = eng.route_all();
-        assert_eq!(decisions.len(), 3);
-        assert!(decisions.iter().all(|d| d.model_id == DEFAULT_MODEL));
-    }
-
-    // ---- agent profile ----
-
     #[test]
     fn agent_profile_model_is_used() {
         let agents = AgentsConfig {
@@ -313,8 +276,9 @@ mod tests {
         };
         let eng = engine(agents, RoutingConfig::default(), RunnerConfig::default());
         let d = eng.route(TaskPhase::Implementation).unwrap();
-        assert_eq!(d.model_id, "claude-sonnet-4");
-        assert_eq!(d.source, RoutingSource::AgentProfile);
+        assert_eq!(d.model_id.as_deref(), Some("claude-sonnet-4"));
+        assert_eq!(d.profile, AgentRole::Worker);
+        assert_eq!(d.source, RoutingSource::PhaseDefault);
     }
 
     #[test]
@@ -325,7 +289,7 @@ mod tests {
         };
         let eng = engine(agents, RoutingConfig::default(), RunnerConfig::default());
         let d = eng.route(TaskPhase::Planning).unwrap();
-        assert_eq!(d.model_id, "o3");
+        assert_eq!(d.model_id.as_deref(), Some("o3"));
         assert_eq!(d.reasoning, Some(Reasoning::High));
     }
 
@@ -337,36 +301,85 @@ mod tests {
         };
         let eng = engine(agents, RoutingConfig::default(), RunnerConfig::default());
         let d = eng.route(TaskPhase::Review).unwrap();
-        assert_eq!(d.model_id, "o3-mini");
+        assert_eq!(d.model_id.as_deref(), Some("o3-mini"));
     }
 
-    // ---- routing override takes priority ----
-
     #[test]
-    fn routing_override_beats_agent_profile() {
+    fn routing_override_selects_a_named_profile() {
         let agents = AgentsConfig {
-            worker: Some(profile("claude-sonnet-4", None)),
+            planner: Some(profile("gemini-2.5-pro", Some(Reasoning::High))),
+            worker: Some(profile("glm-5", None)),
             ..AgentsConfig::default()
         };
         let routing = RoutingConfig {
-            implementation: Some("gpt-5".into()),
+            implementation: Some(AgentRole::Planner),
             ..RoutingConfig::default()
         };
         let eng = engine(agents, routing, RunnerConfig::default());
         let d = eng.route(TaskPhase::Implementation).unwrap();
-        assert_eq!(d.model_id, "gpt-5");
+        assert_eq!(d.model_id.as_deref(), Some("gemini-2.5-pro"));
+        assert_eq!(d.profile, AgentRole::Planner);
+        assert_eq!(d.reasoning, Some(Reasoning::High));
         assert_eq!(d.source, RoutingSource::RoutingOverride);
     }
 
-    // ---- runner validation ----
+    #[test]
+    fn missing_profile_is_an_explicit_error() {
+        let routing = RoutingConfig {
+            implementation: Some(AgentRole::Planner),
+            ..RoutingConfig::default()
+        };
+        let err = engine(AgentsConfig::default(), routing, RunnerConfig::default())
+            .route(TaskPhase::Implementation)
+            .unwrap_err();
+        assert_eq!(
+            err,
+            RoutingError::ProfileNotConfigured {
+                phase: TaskPhase::Implementation,
+                profile: AgentRole::Planner,
+            }
+        );
+    }
+
+    #[test]
+    fn missing_model_delegates_to_the_configured_runtime_target() {
+        let decision = RoutingEngine::default()
+            .route(TaskPhase::Implementation)
+            .unwrap();
+        assert_eq!(decision.profile, AgentRole::Worker);
+        assert_eq!(decision.model_id, None);
+        assert!(decision.reason.contains("configured runtime target"));
+    }
+
+    #[test]
+    fn route_all_preserves_the_first_routing_error() {
+        let routing = RoutingConfig {
+            implementation: Some(AgentRole::Reviewer),
+            ..RoutingConfig::default()
+        };
+        let err = engine(AgentsConfig::default(), routing, RunnerConfig::default())
+            .route_all()
+            .unwrap_err();
+        assert_eq!(
+            err,
+            RoutingError::ProfileNotConfigured {
+                phase: TaskPhase::Implementation,
+                profile: AgentRole::Reviewer,
+            }
+        );
+    }
 
     #[test]
     fn disallowed_runner_errors() {
+        let agents = AgentsConfig {
+            planner: Some(profile("glm-5", None)),
+            ..AgentsConfig::default()
+        };
         let runner = RunnerConfig {
             default: "codex".into(),
             allow: vec!["native".into()],
         };
-        let eng = engine(AgentsConfig::default(), RoutingConfig::default(), runner);
+        let eng = engine(agents, RoutingConfig::default(), runner);
         let err = eng.route(TaskPhase::Planning).unwrap_err();
         assert!(matches!(
             err,
@@ -376,81 +389,46 @@ mod tests {
 
     #[test]
     fn empty_allow_list_allows_any_runner() {
+        let agents = AgentsConfig {
+            planner: Some(profile("glm-5", None)),
+            ..AgentsConfig::default()
+        };
         let runner = RunnerConfig {
             default: "custom-runner".into(),
             allow: vec![],
         };
-        let eng = engine(AgentsConfig::default(), RoutingConfig::default(), runner);
+        let eng = engine(agents, RoutingConfig::default(), runner);
         let d = eng.route(TaskPhase::Planning).unwrap();
         assert_eq!(d.runner_kind, "custom-runner");
     }
 
-    // ---- fallback chain ----
-
     #[test]
-    fn fallback_chain_excludes_primary_and_deduplicates() {
+    fn does_not_invent_cross_profile_fallbacks() {
         let agents = AgentsConfig {
-            planner: Some(profile("o3", None)),
-            worker: Some(profile("claude-sonnet-4", None)),
-            reviewer: Some(profile("o3", None)), // duplicate
+            planner: Some(profile("gemini-2.5-pro", None)),
+            worker: Some(profile("glm-5", None)),
+            reviewer: Some(profile("claude-sonnet-4", None)),
         };
         let eng = engine(agents, RoutingConfig::default(), RunnerConfig::default());
         let d = eng.route(TaskPhase::Planning).unwrap();
-        // Primary is o3; fallback should be claude-sonnet-4 only (no dup).
-        assert_eq!(d.model_id, "o3");
-        assert_eq!(d.fallback_models, vec!["claude-sonnet-4".to_string()]);
+        assert!(d.fallback_models.is_empty());
     }
 
     #[test]
-    fn fallback_includes_routing_overrides() {
+    fn reason_for_routing_override() {
         let agents = AgentsConfig {
-            worker: Some(profile("claude-sonnet-4", None)),
+            planner: Some(profile("glm-5", None)),
             ..AgentsConfig::default()
         };
         let routing = RoutingConfig {
-            planner: Some("o3".into()),
+            implementation: Some(AgentRole::Planner),
             ..RoutingConfig::default()
         };
         let eng = engine(agents, routing, RunnerConfig::default());
         let d = eng.route(TaskPhase::Implementation).unwrap();
-        // Primary is claude-sonnet-4; fallback includes o3 from routing override.
-        assert!(d.fallback_models.contains(&"o3".to_string()));
+        assert!(d.reason.contains("explicitly selected"));
+        assert!(d.reason.contains("glm-5"));
     }
-
-    #[test]
-    fn no_fallbacks_when_only_one_model() {
-        let agents = AgentsConfig {
-            worker: Some(profile("claude-sonnet-4", None)),
-            ..AgentsConfig::default()
-        };
-        let eng = engine(agents, RoutingConfig::default(), RunnerConfig::default());
-        let d = eng.route(TaskPhase::Implementation).unwrap();
-        assert!(d.fallback_models.is_empty());
-    }
-
-    // ---- reason is human-readable ----
-
-    #[test]
-    fn reason_for_routing_override() {
-        let routing = RoutingConfig {
-            implementation: Some("gpt-5".into()),
-            ..RoutingConfig::default()
-        };
-        let eng = engine(AgentsConfig::default(), routing, RunnerConfig::default());
-        let d = eng.route(TaskPhase::Implementation).unwrap();
-        assert!(d.reason.contains("routing override"));
-        assert!(d.reason.contains("gpt-5"));
-    }
-
-    #[test]
-    fn reason_for_default() {
-        let eng = RoutingEngine::default();
-        let d = eng.route(TaskPhase::Review).unwrap();
-        assert!(d.reason.contains("no model configured"));
-        assert!(d.reason.contains(DEFAULT_MODEL));
-    }
-
-    // ---- permissions propagate ----
 
     #[test]
     fn permissions_propagate_from_profile() {
@@ -468,8 +446,6 @@ mod tests {
         assert_eq!(d.permissions, Some(PermissionMode::Ask));
     }
 
-    // ---- from_config_v2 ----
-
     #[test]
     fn from_config_v2_routes_correctly() {
         let config = WorkflowConfigV2 {
@@ -480,16 +456,16 @@ mod tests {
                 allow: vec!["native".into(), "codex".into()],
             },
             agents: AgentsConfig {
-                planner: Some(profile("o3", Some(Reasoning::High))),
-                worker: Some(profile("claude-sonnet-4", None)),
-                reviewer: None,
+                planner: Some(profile("gemini-2.5-pro", Some(Reasoning::High))),
+                worker: Some(profile("glm-5", None)),
+                reviewer: Some(profile("claude-sonnet-4", None)),
             },
             environment: Default::default(),
             quality: Default::default(),
             budgets: Default::default(),
             hooks: None,
             routing: Some(RoutingConfig {
-                implementation: Some("gpt-5".into()),
+                implementation: Some(AgentRole::Planner),
                 ..RoutingConfig::default()
             }),
             handoff: None,
@@ -498,16 +474,16 @@ mod tests {
 
         // Planning: planner profile.
         let planning = eng.route(TaskPhase::Planning).unwrap();
-        assert_eq!(planning.model_id, "o3");
+        assert_eq!(planning.model_id.as_deref(), Some("gemini-2.5-pro"));
         assert_eq!(planning.reasoning, Some(Reasoning::High));
 
-        // Implementation: routing override.
+        // Implementation: explicit planner-profile selection.
         let impl_d = eng.route(TaskPhase::Implementation).unwrap();
-        assert_eq!(impl_d.model_id, "gpt-5");
+        assert_eq!(impl_d.model_id.as_deref(), Some("gemini-2.5-pro"));
         assert_eq!(impl_d.source, RoutingSource::RoutingOverride);
 
-        // Review: no profile → default.
+        // Review: reviewer profile.
         let review = eng.route(TaskPhase::Review).unwrap();
-        assert_eq!(review.model_id, DEFAULT_MODEL);
+        assert_eq!(review.model_id.as_deref(), Some("claude-sonnet-4"));
     }
 }
