@@ -466,6 +466,26 @@ impl OrchestrationLedger {
             .map_err(LedgerError::from)
     }
 
+    /// Every task for a workspace, including terminal ones. Used by projections
+    /// to build workspace-scoped metrics and read-models.
+    pub fn tasks_for_workspace(&self, workspace_key: &str) -> LedgerResult<Vec<TaskRecord>> {
+        validate_nonempty(workspace_key, "workspace_key")?;
+        let connection = self
+            .connection
+            .lock()
+            .map_err(|_| LedgerError::LockPoisoned)?;
+        let mut statement = connection.prepare(
+            "SELECT task_id, workspace_key, source_kind, source_ref, title, description, state,
+                    created_at_ms, updated_at_ms
+             FROM orchestration_tasks
+             WHERE workspace_key = ?1
+             ORDER BY task_id ASC",
+        )?;
+        let rows = statement.query_map(params![workspace_key], decode_task)?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(LedgerError::from)
+    }
+
     /// All non-terminal tasks across every workspace. Used by startup recovery
     /// (O5) to reconcile orphaned or unresolved tasks without guessing.
     pub fn non_terminal_tasks(&self) -> LedgerResult<Vec<TaskRecord>> {
