@@ -32,6 +32,8 @@ pub mod context;
 #[allow(dead_code)]
 pub mod eval_lab;
 #[allow(dead_code)]
+pub mod gardening;
+#[allow(dead_code)]
 pub mod hooks;
 #[allow(dead_code)]
 pub mod ledger;
