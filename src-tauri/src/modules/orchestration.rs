@@ -44,6 +44,8 @@ pub mod projections;
 #[allow(dead_code)]
 pub mod prompt;
 #[allow(dead_code)]
+pub mod quality;
+#[allow(dead_code)]
 pub mod readiness;
 #[allow(dead_code)]
 pub mod routing;
