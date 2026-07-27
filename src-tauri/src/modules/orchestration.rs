@@ -55,6 +55,8 @@ pub mod runners;
 mod soak;
 #[allow(dead_code)]
 pub mod sources;
+#[allow(dead_code)]
+pub mod task_graph;
 pub mod workflow;
 #[allow(dead_code)]
 pub mod workflow_v2;
