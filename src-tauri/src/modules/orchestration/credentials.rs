@@ -52,6 +52,10 @@ pub trait CredentialStore: Send + Sync {
     fn store(&self, key: &CredentialKey, value: &str) -> Result<(), CredentialError>;
     fn retrieve(&self, key: &CredentialKey) -> Result<Option<String>, CredentialError>;
     fn revoke(&self, key: &CredentialKey) -> Result<bool, CredentialError>;
+    /// Returns whether a known credential is revoked.
+    ///
+    /// Implementations must return [`CredentialError::NotFound`] for unknown
+    /// keys so callers cannot mistake a missing credential for an active one.
     fn is_revoked(&self, key: &CredentialKey) -> Result<bool, CredentialError>;
     fn keys(&self) -> Result<Vec<CredentialKey>, CredentialError>;
 }
@@ -102,7 +106,7 @@ impl Default for InMemoryCredentialStore {
 
 impl CredentialStore for InMemoryCredentialStore {
     fn store(&self, key: &CredentialKey, value: &str) -> Result<(), CredentialError> {
-        let mut inner = self.inner.write().unwrap();
+        let mut inner = self.inner.write().map_err(|_| lock_poisoned())?;
         inner.insert(
             key.clone(),
             StoredCredential {
@@ -117,7 +121,7 @@ impl CredentialStore for InMemoryCredentialStore {
     }
 
     fn retrieve(&self, key: &CredentialKey) -> Result<Option<String>, CredentialError> {
-        let inner = self.inner.read().unwrap();
+        let inner = self.inner.read().map_err(|_| lock_poisoned())?;
         match inner.get(key) {
             Some(cred) if !cred.revoked => Ok(Some(cred.value.clone())),
             Some(_) => Ok(None), // revoked → treated as not found
@@ -126,7 +130,7 @@ impl CredentialStore for InMemoryCredentialStore {
     }
 
     fn revoke(&self, key: &CredentialKey) -> Result<bool, CredentialError> {
-        let mut inner = self.inner.write().unwrap();
+        let mut inner = self.inner.write().map_err(|_| lock_poisoned())?;
         match inner.get_mut(key) {
             Some(cred) if !cred.revoked => {
                 cred.revoked = true;
@@ -145,13 +149,25 @@ impl CredentialStore for InMemoryCredentialStore {
     }
 
     fn is_revoked(&self, key: &CredentialKey) -> Result<bool, CredentialError> {
-        let inner = self.inner.read().unwrap();
-        Ok(inner.get(key).is_some_and(|c| c.revoked))
+        let inner = self.inner.read().map_err(|_| lock_poisoned())?;
+        inner
+            .get(key)
+            .map(|credential| credential.revoked)
+            .ok_or_else(|| CredentialError::NotFound {
+                source: key.source.clone(),
+                name: key.name.clone(),
+            })
     }
 
     fn keys(&self) -> Result<Vec<CredentialKey>, CredentialError> {
-        let inner = self.inner.read().unwrap();
+        let inner = self.inner.read().map_err(|_| lock_poisoned())?;
         Ok(inner.keys().cloned().collect())
+    }
+}
+
+fn lock_poisoned() -> CredentialError {
+    CredentialError::StoreError {
+        detail: "Credential store lock poisoned".to_string(),
     }
 }
 
@@ -262,10 +278,11 @@ pub fn mask_credentials(
 ) -> Vec<MaskedCredential> {
     keys.iter()
         .filter_map(|key| {
+            let ref_id = format_credential_ref(key)?;
             // Only mask non-revoked credentials.
             match store.is_revoked(key) {
                 Ok(false) => Some(MaskedCredential {
-                    ref_id: format!("cred:{}:{}", key.source, key.name),
+                    ref_id,
                     label: format!("{} {}", key.source, key.name),
                     source: key.source.clone(),
                 }),
@@ -280,22 +297,36 @@ pub fn resolve_credential(
     store: &dyn CredentialStore,
     ref_id: &str,
 ) -> Result<String, CredentialError> {
-    // Parse "cred:source:name" format.
-    let parts: Vec<&str> = ref_id
-        .strip_prefix("cred:")
-        .unwrap_or(ref_id)
-        .splitn(2, ':')
-        .collect();
-    if parts.len() != 2 {
-        return Err(CredentialError::StoreError {
-            detail: format!("Invalid credential ref: {ref_id}"),
-        });
-    }
-    let key = CredentialKey::new(parts[0], parts[1]);
+    let key = parse_credential_ref(ref_id)?;
     store.retrieve(&key)?.ok_or(CredentialError::NotFound {
-        source: parts[0].to_string(),
-        name: parts[1].to_string(),
+        source: key.source,
+        name: key.name,
     })
+}
+
+fn format_credential_ref(key: &CredentialKey) -> Option<String> {
+    if key.source.is_empty()
+        || key.name.is_empty()
+        || key.source.contains(':')
+        || key.name.contains(':')
+    {
+        return None;
+    }
+    Some(format!("cred:{}:{}", key.source, key.name))
+}
+
+fn parse_credential_ref(ref_id: &str) -> Result<CredentialKey, CredentialError> {
+    let mut parts = ref_id.split(':');
+    match (parts.next(), parts.next(), parts.next(), parts.next()) {
+        (Some("cred"), Some(source), Some(name), None)
+            if !source.is_empty() && !name.is_empty() =>
+        {
+            Ok(CredentialKey::new(source, name))
+        }
+        _ => Err(CredentialError::StoreError {
+            detail: format!("Invalid credential ref format: {ref_id}"),
+        }),
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -344,7 +375,7 @@ pub fn redact_credentials(value: &mut Value, patterns: &[RedactionPattern]) {
         Value::String(s) => {
             // Also check for known credential prefixes in string values.
             for prefix in &["sk-", "ghp_", "gho_", "ghs_", "AKIA", "xoxb-"] {
-                if s.starts_with(prefix) && s.len() > prefix.len() + 4 {
+                if s.contains(prefix) && s.len() > prefix.len() + 4 {
                     *s = "[REDACTED]".to_string();
                     return;
                 }
@@ -359,14 +390,8 @@ fn redact_map(map: &mut Map<String, Value>, patterns: &[RedactionPattern]) {
         let key_lower = key.to_lowercase();
         let matched = patterns.iter().any(|p| key_lower.contains(&p.key_contains));
         if matched {
-            match val {
-                Value::String(s) if !s.is_empty() => {
-                    *val = Value::String("[REDACTED]".to_string());
-                }
-                Value::Object(_) | Value::Array(_) => {
-                    redact_credentials(val, patterns);
-                }
-                _ => {}
+            if !val.is_null() {
+                *val = Value::String("[REDACTED]".to_string());
             }
         } else {
             redact_credentials(val, patterns);
@@ -549,6 +574,41 @@ mod tests {
         assert_eq!(keys.len(), 2);
     }
 
+    #[test]
+    fn poisoned_store_lock_returns_errors_instead_of_panicking() {
+        let store = std::sync::Arc::new(InMemoryCredentialStore::new());
+        let poison_target = std::sync::Arc::clone(&store);
+        let poisoner = std::thread::spawn(move || {
+            let _guard = poison_target
+                .inner
+                .write()
+                .expect("test should acquire credential store lock");
+            panic!("poison credential store lock");
+        });
+        assert!(poisoner.join().is_err());
+
+        let key = CredentialKey::new("github", "token");
+        assert!(store.store(&key, "value").is_err());
+        assert!(store.retrieve(&key).is_err());
+        assert!(store.revoke(&key).is_err());
+        assert!(store.is_revoked(&key).is_err());
+        assert!(store.keys().is_err());
+    }
+
+    #[test]
+    fn missing_credential_is_not_reported_as_active() {
+        let store = InMemoryCredentialStore::new();
+        let key = CredentialKey::new("github", "missing");
+
+        assert!(matches!(
+            store.is_revoked(&key),
+            Err(CredentialError::NotFound { .. })
+        ));
+        assert_eq!(check_revocation(&store, &key), RevocationStatus::Unknown);
+        assert!(!gate_on_credentials(&store, std::slice::from_ref(&key)));
+        assert!(mask_credentials(&store, &[key]).is_empty());
+    }
+
     // ---- tool binding ----
 
     #[test]
@@ -652,6 +712,33 @@ mod tests {
         assert!(result.is_err());
     }
 
+    #[test]
+    fn resolve_rejects_malformed_credential_refs() {
+        let store = InMemoryCredentialStore::new();
+        for ref_id in [
+            "github:token",
+            "cred:github",
+            "cred::token",
+            "cred:github:",
+            "cred:github:token:extra",
+            "other:github:token",
+        ] {
+            assert!(
+                resolve_credential(&store, ref_id).is_err(),
+                "malformed ref should be rejected: {ref_id}"
+            );
+        }
+    }
+
+    #[test]
+    fn mask_skips_keys_that_cannot_be_represented_unambiguously() {
+        let store = InMemoryCredentialStore::new();
+        let key = CredentialKey::new("github:enterprise", "token");
+        store.store(&key, "value").unwrap();
+
+        assert!(mask_credentials(&store, &[key]).is_empty());
+    }
+
     // ---- redaction ----
 
     #[test]
@@ -702,6 +789,22 @@ mod tests {
         assert_eq!(payload["raw_token"], "[REDACTED]");
         // "slack" doesn't match a key pattern, but the value has "xoxb-" prefix.
         assert_eq!(payload["slack"], "[REDACTED]");
+    }
+
+    #[test]
+    fn redact_sensitive_containers_and_embedded_credentials() {
+        let patterns = default_redaction_patterns();
+        let mut payload = json!({
+            "credentials": {"value": "unprefixed-secret"},
+            "authorization": ["Bearer unprefixed-secret"],
+            "message": "request failed for token ghp_1234567890abcdef"
+        });
+
+        redact_credentials(&mut payload, &patterns);
+
+        assert_eq!(payload["credentials"], "[REDACTED]");
+        assert_eq!(payload["authorization"], "[REDACTED]");
+        assert_eq!(payload["message"], "[REDACTED]");
     }
 
     // ---- revocation gate ----
