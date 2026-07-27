@@ -42,6 +42,8 @@ pub mod integration;
 #[allow(dead_code)]
 pub mod ledger;
 #[allow(dead_code)]
+pub mod notifications;
+#[allow(dead_code)]
 pub mod plans;
 #[allow(dead_code)]
 pub mod policy;
