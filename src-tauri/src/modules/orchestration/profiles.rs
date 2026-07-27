@@ -134,6 +134,10 @@ impl ProfileRegistry {
     /// Register a profile under a scope.
     pub fn register(&mut self, profile: AgentProfileDef, scope: ProfileScope) {
         let entry = self.profiles.entry(profile.name.clone()).or_default();
+        // A scope owns a single definition for a profile. Re-registering is an
+        // update, not an additional layer whose result depends on insertion
+        // order.
+        entry.retain(|existing| existing.scope != scope);
         entry.push(ScopedProfile { profile, scope });
         // Keep sorted by scope precedence.
         entry.sort_by_key(|s| s.scope.rank());
@@ -141,7 +145,9 @@ impl ProfileRegistry {
 
     /// Get all profile names.
     pub fn names(&self) -> Vec<String> {
-        self.profiles.keys().cloned().collect()
+        let mut names: Vec<_> = self.profiles.keys().cloned().collect();
+        names.sort();
+        names
     }
 
     /// Resolve the effective profile by merging layers.
@@ -154,7 +160,7 @@ impl ProfileRegistry {
         let mut sources: Vec<ProfileSource> = Vec::new();
         let mut model_id = None;
         let mut reasoning = None;
-        let mut permissions = PermissionMode::Ask;
+        let mut permissions = None;
         let mut tools: Option<Vec<String>> = None;
         let mut skills: Vec<String> = Vec::new();
         let mut mcp_servers: Vec<String> = Vec::new();
@@ -180,16 +186,16 @@ impl ProfileRegistry {
                 contributed.push("reasoning".into());
             }
             if let Some(req_perms) = p.permissions {
-                // Managed permissions cannot be broadened.
-                if scoped_profile.scope == ProfileScope::Managed {
-                    permissions = req_perms;
+                // Permissions are cumulative restrictions rather than a
+                // last-writer-wins field. Every scope may narrow the current
+                // value, but no scope — including managed — may broaden a
+                // restriction already established by another layer.
+                if permissions
+                    .map(|current| is_more_restrictive(req_perms, current))
+                    .unwrap_or(true)
+                {
+                    permissions = Some(req_perms);
                     contributed.push("permissions".into());
-                } else {
-                    // Non-managed can only narrow (be more restrictive), not broaden.
-                    if is_more_restrictive(req_perms, permissions) {
-                        permissions = req_perms;
-                        contributed.push("permissions".into());
-                    }
                 }
             }
             if p.tools.is_some() {
@@ -227,7 +233,7 @@ impl ProfileRegistry {
             name: name.to_string(),
             model_id,
             reasoning,
-            permissions,
+            permissions: permissions.unwrap_or(PermissionMode::Ask),
             tools,
             skills,
             mcp_servers,
@@ -388,7 +394,11 @@ pub fn select_profile(
             registry
                 .profiles
                 .get(n)
-                .map(|scoped| scoped.iter().any(|s| s.profile.auto_selectable))
+                // Definitions are precedence-sorted, so a higher-precedence
+                // scope can disable automatic selection and a lower scope
+                // cannot re-enable it.
+                .and_then(|scoped| scoped.first())
+                .map(|scoped| scoped.profile.auto_selectable)
                 .unwrap_or(false)
         })
         .collect();
@@ -503,10 +513,37 @@ mod tests {
         assert!(reg.resolve("nonexistent").is_none());
     }
 
+    #[test]
+    fn reregistering_scope_replaces_its_previous_definition() {
+        let mut reg = ProfileRegistry::new();
+        let mut original = make_profile("worker", "original");
+        original.model_id = Some("old-model".into());
+        reg.register(original, ProfileScope::Project);
+
+        let mut updated = make_profile("worker", "updated");
+        updated.model_id = Some("new-model".into());
+        reg.register(updated, ProfileScope::Project);
+
+        assert_eq!(reg.profiles["worker"].len(), 1);
+        assert_eq!(
+            reg.resolve("worker").unwrap().model_id.as_deref(),
+            Some("new-model")
+        );
+    }
+
+    #[test]
+    fn profile_names_are_deterministic() {
+        let mut reg = ProfileRegistry::new();
+        reg.register(make_profile("zeta", ""), ProfileScope::Project);
+        reg.register(make_profile("alpha", ""), ProfileScope::Project);
+
+        assert_eq!(reg.names(), vec!["alpha", "zeta"]);
+    }
+
     // ---- scope precedence ----
 
     #[test]
-    fn project_overrides_user_model() {
+    fn user_overrides_project_model() {
         let mut reg = ProfileRegistry::new();
         let mut user_profile = make_profile("worker", "user");
         user_profile.model_id = Some("gpt-4".into());
@@ -517,10 +554,8 @@ mod tests {
         reg.register(project_profile, ProfileScope::Project);
 
         let eff = reg.resolve("worker").unwrap();
-        // Project has higher rank (lower precedence), but we process from
-        // project → user → managed, so user wins for model_id.
-        // Actually, we process from lowest precedence (project) to highest.
-        // So user should override project.
+        // Non-permission fields use normal precedence, so user overrides
+        // project after the low-to-high merge.
         assert_eq!(eff.model_id.as_deref(), Some("gpt-4"));
     }
 
@@ -553,6 +588,32 @@ mod tests {
 
         let eff = reg.resolve("worker").unwrap();
         assert_eq!(eff.permissions, PermissionMode::Ask);
+    }
+
+    #[test]
+    fn managed_scope_cannot_broaden_a_project_restriction() {
+        let mut reg = ProfileRegistry::new();
+        let mut managed = make_profile("worker", "managed");
+        managed.permissions = Some(PermissionMode::Bypass);
+        reg.register(managed, ProfileScope::Managed);
+
+        let mut project = make_profile("worker", "project");
+        project.permissions = Some(PermissionMode::Plan);
+        reg.register(project, ProfileScope::Project);
+
+        let eff = reg.resolve("worker").unwrap();
+        assert_eq!(eff.permissions, PermissionMode::Plan);
+    }
+
+    #[test]
+    fn explicit_permission_is_not_clamped_by_the_default() {
+        let mut reg = ProfileRegistry::new();
+        let mut project = make_profile("worker", "project");
+        project.permissions = Some(PermissionMode::AutoEdit);
+        reg.register(project, ProfileScope::Project);
+
+        let eff = reg.resolve("worker").unwrap();
+        assert_eq!(eff.permissions, PermissionMode::AutoEdit);
     }
 
     #[test]
@@ -689,6 +750,21 @@ mod tests {
 
         let sel = select_profile(&reg, None, "review the code", "worker");
         // Hidden profile should not be auto-selected.
+        assert_eq!(sel.source, SelectionSource::Default);
+    }
+
+    #[test]
+    fn lower_scope_cannot_reenable_automatic_selection() {
+        let mut reg = ProfileRegistry::new();
+        let mut managed = make_profile("hidden", "managed review");
+        managed.auto_selectable = false;
+        reg.register(managed, ProfileScope::Managed);
+
+        let mut project = make_profile("hidden", "project review");
+        project.auto_selectable = true;
+        reg.register(project, ProfileScope::Project);
+
+        let sel = select_profile(&reg, None, "review the code", "worker");
         assert_eq!(sel.source, SelectionSource::Default);
     }
 
