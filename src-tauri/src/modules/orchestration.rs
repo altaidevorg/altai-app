@@ -33,6 +33,8 @@ pub mod projections;
 pub mod prompt;
 #[allow(dead_code)]
 pub mod runners;
+#[cfg(test)]
+mod soak;
 #[allow(dead_code)]
 pub mod sources;
 pub mod workflow;
