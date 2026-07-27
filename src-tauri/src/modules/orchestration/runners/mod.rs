@@ -1,9 +1,10 @@
 //! O3 — Runner adapter contract.
 //!
-//! Defines the boundary between the orchestrator and any execution backend
-//! (the native ALTAI runtime, Codex App Server, or a future CLI runner). The
-//! coordinator (O3/O4) only ever talks to [`RunnerAdapter`]; provider-specific
-//! state never leaks past this trait.
+//! Defines the boundary between the orchestrator and the ALTAI/IsanAgent
+//! execution backend. Production uses only the native runner; [`MockRunner`]
+//! exists for deterministic tests. Do not add Codex App Server or other
+//! external agent CLIs as runners. The coordinator (O3/O4) only ever talks to
+//! [`RunnerAdapter`]; provider-specific state never leaks past this trait.
 //!
 //! Runner events are normalized into [`RunnerEventKind`] and then mapped to O1
 //! domain triggers (see [`event_to_trigger`]). See

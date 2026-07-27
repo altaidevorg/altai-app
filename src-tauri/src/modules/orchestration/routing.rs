@@ -8,7 +8,8 @@ use serde::Serialize;
 
 use super::workflow::PermissionMode;
 use super::workflow_v2::{
-    AgentProfile, AgentRole, AgentsConfig, Reasoning, RoutingConfig, RunnerConfig, WorkflowConfigV2,
+    AgentProfile, AgentRole, AgentsConfig, Reasoning, RoutingConfig, RunnerConfig,
+    WorkflowConfigV2, NATIVE_RUNNER,
 };
 
 // ---------------------------------------------------------------------------
@@ -158,14 +159,30 @@ impl RoutingEngine {
             .filter(|model| !model.trim().is_empty())
             .map(str::to_owned);
 
-        // Runner resolution uses the configured default.
+        // Runner resolution uses the configured default. Production allows only
+        // the ALTAI/IsanAgent native runner (MockRunner is tests-only).
         let runner_kind = self.runner.default.clone();
-
-        // Validate runner is allowed.
+        if runner_kind != NATIVE_RUNNER {
+            return Err(RoutingError::RunnerNotAllowed {
+                runner_kind,
+                allowed: vec![NATIVE_RUNNER.to_string()],
+            });
+        }
         if !self.runner.allow.is_empty() && !self.runner.allow.contains(&runner_kind) {
             return Err(RoutingError::RunnerNotAllowed {
                 runner_kind,
                 allowed: self.runner.allow.clone(),
+            });
+        }
+        if self
+            .runner
+            .allow
+            .iter()
+            .any(|allowed| allowed != NATIVE_RUNNER)
+        {
+            return Err(RoutingError::RunnerNotAllowed {
+                runner_kind,
+                allowed: vec![NATIVE_RUNNER.to_string()],
             });
         }
 
@@ -376,19 +393,19 @@ mod tests {
             ..AgentsConfig::default()
         };
         let runner = RunnerConfig {
-            default: "codex".into(),
+            default: "external".into(),
             allow: vec!["native".into()],
         };
         let eng = engine(agents, RoutingConfig::default(), runner);
         let err = eng.route(TaskPhase::Planning).unwrap_err();
         assert!(matches!(
             err,
-            RoutingError::RunnerNotAllowed { runner_kind, .. } if runner_kind == "codex"
+            RoutingError::RunnerNotAllowed { runner_kind, .. } if runner_kind == "external"
         ));
     }
 
     #[test]
-    fn empty_allow_list_allows_any_runner() {
+    fn empty_allow_list_still_requires_native() {
         let agents = AgentsConfig {
             planner: Some(profile("glm-5", None)),
             ..AgentsConfig::default()
@@ -398,8 +415,26 @@ mod tests {
             allow: vec![],
         };
         let eng = engine(agents, RoutingConfig::default(), runner);
-        let d = eng.route(TaskPhase::Planning).unwrap();
-        assert_eq!(d.runner_kind, "custom-runner");
+        let err = eng.route(TaskPhase::Planning).unwrap_err();
+        assert!(matches!(
+            err,
+            RoutingError::RunnerNotAllowed { runner_kind, .. } if runner_kind == "custom-runner"
+        ));
+    }
+
+    #[test]
+    fn allow_list_with_non_native_entry_errors() {
+        let agents = AgentsConfig {
+            planner: Some(profile("glm-5", None)),
+            ..AgentsConfig::default()
+        };
+        let runner = RunnerConfig {
+            default: "native".into(),
+            allow: vec!["native".into(), "external".into()],
+        };
+        let eng = engine(agents, RoutingConfig::default(), runner);
+        let err = eng.route(TaskPhase::Planning).unwrap_err();
+        assert!(matches!(err, RoutingError::RunnerNotAllowed { .. }));
     }
 
     #[test]
@@ -453,7 +488,7 @@ mod tests {
             orchestration: Default::default(),
             runner: RunnerConfig {
                 default: "native".into(),
-                allow: vec!["native".into(), "codex".into()],
+                allow: vec!["native".into()],
             },
             agents: AgentsConfig {
                 planner: Some(profile("gemini-2.5-pro", Some(Reasoning::High))),

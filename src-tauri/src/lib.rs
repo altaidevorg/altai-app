@@ -347,7 +347,7 @@ pub fn run() {
             github::commands::github_disconnect,
             github::commands::github_api_request,
             github::commands::github_create_repo,
-            // ALTAI — Symphony-style local project orchestration
+            // ALTAI — local project orchestration (ALTAI/IsanAgent runtime)
             orchestration::orchestration_snapshot,
             orchestration::orchestration_start,
             orchestration::orchestration_configure,

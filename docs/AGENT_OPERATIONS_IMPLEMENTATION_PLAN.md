@@ -5,8 +5,8 @@
 > Created: 2026-07-26
 >
 > Goal: evolve ALTAI from a local project board with background runs into a
-> local-first, durable, inspectable agent operations platform with Codex-class
-> execution quality.
+> local-first, durable, inspectable agent operations platform with
+> production-grade execution quality under the ALTAI/IsanAgent runtime.
 
 The Kilo Code + Z.AI GLM low-token execution profile for this roadmap is
 defined in `docs/KILO_GLM_IMPLEMENTATION_EXECUTION_PLAN.md`.
@@ -27,7 +27,7 @@ A user must be able to:
 5. Steer, pause, resume, retry, cancel, or reassign any run.
 6. Require deterministic quality and security gates before work can be handed
    off or applied.
-7. Use the built-in ALTAI runtime, Codex App Server, or a future runner without
+7. Execute all agent work through the built-in ALTAI/IsanAgent runtime without
    changing the project-management model.
 8. Recover correctly after renderer reloads, application restarts, runner
    crashes, transient provider failures, and interrupted Git operations.
@@ -45,10 +45,12 @@ ALTAI already has a substantial Rust agent runtime, a sequenced SQLite event
 journal, persisted assignments, permission gates, and Git worktree operations.
 This plan extends those contracts instead of creating a second agent loop.
 
-- The existing ALTAI/IsanAgent runtime becomes the first `RunnerAdapter`.
-- Codex App Server is added as a separate adapter.
+- The existing ALTAI/IsanAgent runtime is the sole production `RunnerAdapter`.
+- A `MockRunnerAdapter` exists only for deterministic tests.
+- Do not add Codex App Server, external agent CLIs, or any alternate agent
+  loop as a runner.
 - Scheduler state is stored through the existing SQLite migration approach.
-- Existing run events remain the source of truth for native agent execution.
+- Existing run events remain the source of truth for agent execution.
 - Existing worktree create, remove, and safe-apply operations remain the Git
   isolation boundary.
 
@@ -152,8 +154,8 @@ Do not replace the current orchestration flow in one release.
 └───────────────┬───────────┘  └──────────────────────────────────┘
                 ↓
 ┌─────────────────────────────────────────────────────────────────┐
-│ Runner Adapters                                                 │
-│ Native ALTAI · Codex App Server · future external CLI runners   │
+│ Runner Adapter                                                  │
+│ Native ALTAI / IsanAgent (MockRunner for tests only)            │
 └──────────────────────────────┬──────────────────────────────────┘
                                ↓
 ┌─────────────────────────────────────────────────────────────────┐
@@ -191,7 +193,7 @@ orchestration/
 ├── runners/
 │   ├── mod.rs
 │   ├── native.rs
-│   └── codex_app_server.rs
+│   └── mock.rs
 ├── sources/
 │   ├── mod.rs
 │   ├── local.rs
@@ -453,7 +455,7 @@ orchestration:
 
 runner:
   default: native
-  allow: [native, codex-app-server]
+  allow: [native]
 
 agents:
   planner:
@@ -662,29 +664,29 @@ Acceptance:
 - hook commands cannot escape the assigned workspace;
 - managed hooks cannot be disabled by repository configuration.
 
-#### B4. Codex App Server adapter
+#### B4. Native / IsanAgent runner hardening
 
-1. Detect and validate the installed `codex` binary and app-server protocol.
-2. Generate or vendor the targeted protocol schema; do not hand-maintain
-   guessed JSON-RPC payloads.
-3. Implement process lifecycle, initialization, thread start/resume, turn
-   start, streaming updates, cancellation, and shutdown.
-4. Preserve thread identity across continuation turns.
-5. Map approvals, input requests, usage, rate limits, file changes, and tool
-   calls into normalized events.
-6. Keep protocol stdout separate from diagnostics.
-7. Add read, silence, turn, and process-exit timeouts.
-8. Advertise only supported client tools.
+Deepen the sole production runner path. Do not introduce alternate agent
+runtimes.
+
+1. Wire `NativeRunnerAdapter` into the coordinator for production dispatch.
+2. Preserve durable reconnect to in-flight native runs across app restarts.
+3. Route cancellation, steering, clarification, and approvals only through
+   IsanAgent / the native runtime.
+4. Normalize native run events into orchestration events without duplicating
+   persistence.
+5. Surface runner capability gaps as operator-visible errors; when a capability
+   belongs in IsanAgent, land it upstream first per
+   `docs/ALTAI_CLAW_IMPLEMENTATION_PLAN.md`.
+6. Keep `MockRunnerAdapter` for deterministic coordinator and soak tests only.
 
 Acceptance:
 
-- incompatible protocol versions fail before a task is claimed;
-- a continuation uses the same thread and a new turn;
-- malformed/unsupported messages are bounded and operator-visible;
-- process exit and silence timeout schedule the correct retry kind;
-- tracker credentials are not inherited by the child process;
-- adapter conformance tests run against fixtures and an optional installed
-  Codex smoke test.
+- production attempts use only `runner.kind = native`;
+- crash after dispatch reconnects to the existing native run;
+- steering and cancellation never bypass the owning native session;
+- no Codex App Server, external agent CLI, or second agent loop is present;
+- native conformance and soak tests pass without an alternate runner.
 
 ### Milestone C — Operations UX
 
@@ -734,7 +736,8 @@ Acceptance:
 
 - every action is capability- and state-gated;
 - stale actions fail with a current-state response;
-- the inspector works for native and Codex runners through the same UI model.
+- the inspector works against the native ALTAI/IsanAgent runner through the
+  shared UI model.
 
 #### C3. Board evolution
 
@@ -1200,8 +1203,7 @@ Use property tests for transition invariants, idempotency, and event replay.
 
 - SQLite migration and concurrent first-open;
 - coordinator plus mock task source and mock runner;
-- native runner conformance;
-- Codex protocol fixture conformance;
+- native / IsanAgent runner conformance;
 - worktree create/run/retry/apply/cleanup;
 - crash and restart at every durable transition;
 - approval and input continuation;
@@ -1251,7 +1253,7 @@ Includes B2–B4 and C1–C3.
 
 Exit gate:
 
-- Codex App Server opt-in runner works;
+- native / IsanAgent runner is the only production execution path;
 - approvals and steering are durable;
 - complete activity timeline is available.
 
@@ -1326,6 +1328,10 @@ contracts are merged.
 
 - ALTAI does not execute while the desktop process is closed until the remote
   worker milestone exists.
+- No Codex App Server, OpenAI Codex CLI, or any third-party agent CLI as an
+  alternate runner. All agent execution stays under ALTAI/IsanAgent.
+- No second agent loop or competing runtime beside the native runner adapter
+  (MockRunner is tests-only).
 - No default autonomous merge to protected branches.
 - No arbitrary unreviewed code downloaded and executed as a hook.
 - No silent model/provider fallback that changes permissions or quality level.
@@ -1338,7 +1344,7 @@ contracts are merged.
 | Risk                                      | Mitigation                                                  |
 | ----------------------------------------- | ----------------------------------------------------------- |
 | Two schedulers claim the same task        | feature-gated single ownership, leases, idempotency keys    |
-| Codex protocol drift                      | generated versioned schemas and adapter conformance tests   |
+| Alternate runner pressure (Codex/CLIs)    | explicit non-goal; native-only allowlist; IsanAgent upstream|
 | Renderer becomes a hidden coordinator     | Rust service owns all decisions; UI is a projection         |
 | Agent completion is mistaken for delivery | verification, review, and handoff gates                     |
 | Parallel agents conflict                  | one worktree per attempt and integration coordinator        |
@@ -1361,19 +1367,18 @@ Start with these six PRs:
 5. **O5 — Legacy intent/assignment recovery migration**
 6. **O6 — Native runner adapter and v2 local-board opt-in**
 
-This sequence produces a reliable local foundation before adding Codex App
-Server, richer UI, multi-agent behavior, integrations, or remote execution.
+This sequence produces a reliable local foundation before richer Ops UI,
+multi-agent behavior, integrations, or remote workspace executors. Runtime
+capabilities stay on the ALTAI/IsanAgent path.
 
 ## 16. Primary references
 
-- OpenAI Symphony specification:
-  <https://github.com/openai/symphony/blob/main/SPEC.md>
-- OpenAI Symphony engineering overview:
-  <https://openai.com/index/open-source-codex-orchestration-symphony/>
-- OpenAI harness engineering:
+- ALTAI Claw / IsanAgent ownership rules:
+  `docs/ALTAI_CLAW_IMPLEMENTATION_PLAN.md`
+- Remote workspace executors (not alternate agent runtimes):
+  `docs/REMOTE_ROADMAP.md`
+- OpenAI harness engineering (pattern reference only):
   <https://openai.com/index/harness-engineering/>
-- OpenAI Codex safety controls:
-  <https://openai.com/index/running-codex-safely/>
 - GitHub Copilot custom agents and hooks:
   <https://docs.github.com/en/copilot/how-tos/copilot-sdk/features/custom-agents>
 - Google Jules API session/activity model:
