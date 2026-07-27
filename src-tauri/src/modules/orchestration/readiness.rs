@@ -5,6 +5,7 @@
 //! Scans are strictly read-only and never modify the repository.
 
 use std::path::{Path, PathBuf};
+use std::process::Stdio;
 
 use serde::Serialize;
 
@@ -315,7 +316,7 @@ fn check_test_build(repo: &Path) -> CategoryScore {
         "src/test/",
         "__tests__/",
         "spec/",
-        "src-tauri/src/",
+        "src-tauri/tests/",
     ];
     let test_found = test_indicators
         .iter()
@@ -475,15 +476,15 @@ fn check_security(repo: &Path) -> CategoryScore {
         });
     }
 
-    // Check for obvious secret files that are NOT gitignored.
+    // Check for obvious secret files that are not covered by gitignore.
     let risky = [".env", "secrets.json", "credentials.json"];
     let mut risky_found = false;
     for f in &risky {
-        if repo.join(f).exists() {
+        if repo.join(f).exists() && !is_gitignored(repo, f) {
             risky_found = true;
             evidence.push(Evidence {
                 path: f.to_string(),
-                detail: "Potential secret file detected — verify it is gitignored".into(),
+                detail: "Potential unignored secret file detected".into(),
             });
         }
     }
@@ -495,7 +496,7 @@ fn check_security(repo: &Path) -> CategoryScore {
         score += 30;
         evidence.push(Evidence {
             path: "(root)".into(),
-            detail: "No obvious uncommitted secret files detected".into(),
+            detail: "No obvious unignored secret files detected".into(),
         });
     }
 
@@ -676,6 +677,12 @@ fn glob_docs(repo: &Path, pattern: &str) -> Vec<PathBuf> {
     entries
         .filter_map(|e| e.ok())
         .filter(|e| {
+            let Ok(file_type) = e.file_type() else {
+                return false;
+            };
+            if !file_type.is_file() || file_type.is_symlink() {
+                return false;
+            }
             let name = e.file_name();
             let name = name.to_string_lossy();
             glob_match(&name, glob_pattern)
@@ -686,45 +693,55 @@ fn glob_docs(repo: &Path, pattern: &str) -> Vec<PathBuf> {
 
 /// Simple glob: '*' matches any characters, '?' matches one.
 fn glob_match(text: &str, pattern: &str) -> bool {
-    // Convert glob to regex-like matching manually.
-    let mut ti = text.chars().peekable();
-    let mut pi = pattern.chars().peekable();
+    let text: Vec<char> = text.chars().collect();
+    let mut previous = vec![false; text.len() + 1];
+    previous[0] = true;
 
-    while pi.peek().is_some() {
-        match pi.next() {
-            Some('*') => {
-                // '*' matches any remaining chars.
-                return true;
-            }
-            Some('?') => {
-                if ti.next().is_none() {
-                    return false;
-                }
-            }
-            Some(c) => {
-                if ti.next() != Some(c) {
-                    return false;
-                }
-            }
-            None => break,
+    for token in pattern.chars() {
+        let mut current = vec![false; text.len() + 1];
+        if token == '*' {
+            current[0] = previous[0];
         }
+        for index in 1..=text.len() {
+            current[index] = match token {
+                '*' => previous[index] || current[index - 1],
+                '?' => previous[index - 1],
+                literal => previous[index - 1] && text[index - 1] == literal,
+            };
+        }
+        previous = current;
     }
-    ti.peek().is_none()
+
+    previous[text.len()]
+}
+
+fn is_gitignored(repo: &Path, relative_path: &str) -> bool {
+    std::process::Command::new("git")
+        .args(["check-ignore", "--quiet", "--", relative_path])
+        .current_dir(repo)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map(|status| status.success())
+        .unwrap_or(false)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::fs;
+    use std::sync::atomic::{AtomicU64, Ordering};
 
     fn temp_repo() -> PathBuf {
+        static NEXT_TEMP_ID: AtomicU64 = AtomicU64::new(0);
         let dir = std::env::temp_dir().join(format!(
-            "altai-readiness-{}-{}",
+            "altai-readiness-{}-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
-                .as_nanos()
+                .as_nanos(),
+            NEXT_TEMP_ID.fetch_add(1, Ordering::Relaxed)
         ));
         fs::create_dir_all(&dir).unwrap();
         dir
@@ -860,6 +877,46 @@ mod tests {
         touch(&repo, ".gitignore");
         let report = scan(&repo);
         assert!(report.score_for(ReadinessCategory::Security).unwrap() >= 30);
+    }
+
+    #[test]
+    fn ignored_secret_file_is_not_flagged() {
+        let repo = temp_repo();
+        fs::write(repo.join(".gitignore"), ".env\n").unwrap();
+        touch(&repo, ".env");
+        std::process::Command::new("git")
+            .args(["init", "--quiet"])
+            .current_dir(&repo)
+            .status()
+            .unwrap();
+
+        let report = scan(&repo);
+        let sec = report
+            .categories
+            .iter()
+            .find(|c| c.category == ReadinessCategory::Security)
+            .unwrap();
+        assert!(!sec.notes.iter().any(|n| n.contains("secret")));
+        assert_eq!(sec.score, 60);
+    }
+
+    #[test]
+    fn source_directory_is_not_test_evidence() {
+        let repo = temp_repo();
+        touch(&repo, "Cargo.toml");
+        touch(&repo, "src-tauri/src/lib.rs");
+
+        let report = scan(&repo);
+        assert_eq!(report.score_for(ReadinessCategory::TestBuild).unwrap(), 40);
+    }
+
+    #[test]
+    fn glob_matches_the_entire_name() {
+        assert!(glob_match("AUTH_PLAN.md", "*PLAN*.md"));
+        assert!(glob_match("PLAN.md", "*PLAN*.md"));
+        assert!(!glob_match("AUTH_PLAN.txt", "*PLAN*.md"));
+        assert!(!glob_match("AUTH_PLAN.md.backup", "*PLAN*.md"));
+        assert!(glob_match("aβ.md", "??.md"));
     }
 
     // ---- worktree ----
