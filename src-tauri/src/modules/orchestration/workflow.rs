@@ -187,7 +187,7 @@ pub fn default_content() -> String {
     .join("\n")
 }
 
-fn workflow_path(
+pub(crate) fn workflow_path(
     registry: &WorkspaceRegistry,
     workspace_key: &str,
     workspace: &WorkspaceEnv,
@@ -211,7 +211,7 @@ fn modified_at_ms(path: &Path) -> Option<u64> {
         .map(|duration| duration.as_millis() as u64)
 }
 
-fn load_at(path: PathBuf) -> WorkflowDocument {
+pub(crate) fn load_at(path: PathBuf) -> WorkflowDocument {
     let display_path = path.to_string_lossy().replace('\\', "/");
     if !path.exists() {
         let content = default_content();

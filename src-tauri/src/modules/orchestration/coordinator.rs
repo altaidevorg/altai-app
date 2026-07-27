@@ -11,6 +11,7 @@
 use super::domain::{
     AttemptState, AttemptTrigger, Lease, LeaseError, TaskState, TaskTrigger, TransitionError,
 };
+use super::hooks::{HookAction, HookEvent, HookResult, HookRuntime};
 use super::ledger::{
     approval_action_hash, ApprovalDecidedBy, ApprovalRecord, ApprovalState, CreateApprovalRequest,
     CreateAttemptRequest, LedgerError, OrchestrationEvent, OrchestrationLedger,
@@ -159,6 +160,10 @@ pub enum CoordinatorError {
     Lease(LeaseError),
     Ledger(LedgerError),
     Runner(RunnerError),
+    HookDenied {
+        event: HookEvent,
+        reason: String,
+    },
 }
 
 impl fmt::Display for CoordinatorError {
@@ -188,6 +193,9 @@ impl fmt::Display for CoordinatorError {
             CoordinatorError::Lease(error) => write!(f, "coordinator: {error}"),
             CoordinatorError::Ledger(error) => write!(f, "coordinator: {error}"),
             CoordinatorError::Runner(error) => write!(f, "coordinator: {error}"),
+            CoordinatorError::HookDenied { event, reason } => {
+                write!(f, "coordinator: {} hook denied: {reason}", event.name())
+            }
         }
     }
 }
@@ -230,6 +238,7 @@ pub struct Coordinator<'a> {
     ledger: &'a OrchestrationLedger,
     policy: CoordinatorPolicy,
     action_policy: PolicyLayers,
+    hooks: Option<&'a HookRuntime>,
 }
 
 impl<'a> Coordinator<'a> {
@@ -238,6 +247,7 @@ impl<'a> Coordinator<'a> {
             ledger,
             policy,
             action_policy: PolicyLayers::default(),
+            hooks: None,
         }
     }
 
@@ -246,8 +256,71 @@ impl<'a> Coordinator<'a> {
         self
     }
 
+    pub fn with_hooks(mut self, hooks: &'a HookRuntime) -> Self {
+        self.hooks = Some(hooks);
+        self
+    }
+
     pub fn ledger(&self) -> &OrchestrationLedger {
         self.ledger
+    }
+
+    fn run_hooks<C>(
+        &self,
+        event: HookEvent,
+        task_id: &str,
+        attempt_id: &str,
+        action: Option<HookAction>,
+        event_id: &str,
+        clock: &C,
+    ) -> CoordinatorResult<HookResult>
+    where
+        C: Clock,
+    {
+        let Some(runtime) = self.hooks else {
+            return Ok(HookResult::NoHooks);
+        };
+        let result = runtime.run(event, task_id, attempt_id, action);
+        if result != HookResult::NoHooks {
+            self.ledger.record_event(&OrchestrationEvent {
+                event_id: event_id.to_string(),
+                task_id: task_id.to_string(),
+                seq: 0,
+                kind: match &result {
+                    HookResult::Denied { .. } => "hook.denied",
+                    HookResult::Allow { .. } => "hook.allowed",
+                    HookResult::NoHooks => unreachable!("filtered above"),
+                }
+                .into(),
+                payload: serde_json::json!({
+                    "attempt_id": attempt_id,
+                    "hook_event": event,
+                    "result": result,
+                }),
+                recorded_at_ms: clock.now_ms(),
+            })?;
+        }
+        Ok(result)
+    }
+
+    fn require_hooks<C>(
+        &self,
+        event: HookEvent,
+        task_id: &str,
+        attempt_id: &str,
+        action: Option<HookAction>,
+        event_id: &str,
+        clock: &C,
+    ) -> CoordinatorResult<()>
+    where
+        C: Clock,
+    {
+        if let HookResult::Denied { reason, .. } =
+            self.run_hooks(event, task_id, attempt_id, action, event_id, clock)?
+        {
+            return Err(CoordinatorError::HookDenied { event, reason });
+        }
+        Ok(())
     }
 
     /// Evaluate one exact runner action before execution. Every outcome is
@@ -471,6 +544,32 @@ impl<'a> Coordinator<'a> {
         }
         let attempt_id = outcome.attempt_id;
 
+        if let Err(error) = self.require_hooks(
+            HookEvent::SessionStart,
+            task_id,
+            &attempt_id,
+            None,
+            &format!("{attempt_id}:hook:session_start"),
+            clock,
+        ) {
+            let message = error.to_string();
+            self.ledger.set_attempt_state(
+                &attempt_id,
+                AttemptState::Failed,
+                Some(&message),
+                &format!("{attempt_id}:hook:session_start:failed"),
+                None,
+                now,
+            )?;
+            self.ledger.set_task_state(
+                task_id,
+                TaskState::NeedsAttention,
+                &format!("{attempt_id}:task:hook_denied"),
+                now,
+            )?;
+            return Err(error);
+        }
+
         self.ledger
             .set_task_state(task_id, running, &format!("{attempt_id}:task:running"), now)?;
         let identity = match runner.start_attempt(&AttemptSpec {
@@ -530,7 +629,7 @@ impl<'a> Coordinator<'a> {
         C: Clock,
     {
         let now = clock.now_ms();
-        let Some(event) = runner.poll_event(identity)? else {
+        let Some(mut event) = runner.poll_event(identity)? else {
             return Ok(PumpOutcome::Idle);
         };
         if event.attempt_id != identity.attempt_id {
@@ -547,6 +646,38 @@ impl<'a> Coordinator<'a> {
                 })?;
 
         if event.kind == RunnerEventKind::Output {
+            if let Some(hook_event) = after_event_for_payload(&event.payload) {
+                if let HookResult::Denied { reason, .. } = self.run_hooks(
+                    hook_event,
+                    &attempt.task_id,
+                    &identity.attempt_id,
+                    Some(hook_action_from_payload(&event.payload)),
+                    &format!(
+                        "{}:hook:{}:{}",
+                        identity.attempt_id,
+                        hook_event.name(),
+                        event.seq
+                    ),
+                    clock,
+                )? {
+                    let _ = runner.cancel(identity);
+                    self.ledger.set_attempt_state(
+                        &identity.attempt_id,
+                        AttemptState::Failed,
+                        Some(&reason),
+                        &format!("{}:hook:post:failed:{}", identity.attempt_id, event.seq),
+                        None,
+                        now,
+                    )?;
+                    self.ledger.set_task_state(
+                        &attempt.task_id,
+                        TaskState::NeedsAttention,
+                        &format!("{}:task:hook_denied:{}", identity.attempt_id, event.seq),
+                        now,
+                    )?;
+                    return Ok(PumpOutcome::Terminal(AttemptState::Failed));
+                }
+            }
             self.ledger.record_event(&OrchestrationEvent {
                 event_id: format!("{}:event:{}", identity.attempt_id, event.seq),
                 task_id: attempt.task_id,
@@ -563,6 +694,29 @@ impl<'a> Coordinator<'a> {
         }
 
         if event.kind == RunnerEventKind::ApprovalRequired {
+            let hook_events: &[HookEvent] = if payload_is_edit(&event.payload) {
+                &[HookEvent::BeforeEdit, HookEvent::BeforeApply]
+            } else {
+                &[HookEvent::BeforeTool]
+            };
+            for hook_event in hook_events {
+                if let HookResult::Denied { .. } = self.run_hooks(
+                    *hook_event,
+                    &attempt.task_id,
+                    &identity.attempt_id,
+                    Some(hook_action_from_payload(&event.payload)),
+                    &format!(
+                        "{}:hook:{}:{}",
+                        identity.attempt_id,
+                        hook_event.name(),
+                        event.seq
+                    ),
+                    clock,
+                )? {
+                    runner.steer(identity, "deny")?;
+                    return Ok(PumpOutcome::Progressed(attempt.state));
+                }
+            }
             let action = runner_action_descriptor(&event.payload);
             let approval_id = runner_approval_id(&identity.attempt_id, event.seq)?;
             let decision = self.gate_action(
@@ -589,6 +743,31 @@ impl<'a> Coordinator<'a> {
                     return Ok(PumpOutcome::Progressed(attempt.state));
                 }
             }
+        }
+
+        if event.kind == RunnerEventKind::Completed {
+            if let HookResult::Denied { .. } = self.run_hooks(
+                HookEvent::AfterRun,
+                &attempt.task_id,
+                &identity.attempt_id,
+                Some(hook_action_from_payload(&event.payload)),
+                &format!("{}:hook:after_run:{}", identity.attempt_id, event.seq),
+                clock,
+            )? {
+                event.kind = RunnerEventKind::Failed;
+            }
+        } else if matches!(
+            event.kind,
+            RunnerEventKind::Failed | RunnerEventKind::Stalled
+        ) {
+            let _ = self.run_hooks(
+                HookEvent::OnError,
+                &attempt.task_id,
+                &identity.attempt_id,
+                Some(hook_action_from_payload(&event.payload)),
+                &format!("{}:hook:on_error:{}", identity.attempt_id, event.seq),
+                clock,
+            )?;
         }
 
         let new_state = match (&event.kind, event_to_trigger(&event.kind)) {
@@ -711,6 +890,14 @@ impl<'a> Coordinator<'a> {
                 attempt_id: identity.attempt_id.clone(),
             });
         }
+        self.require_hooks(
+            HookEvent::BeforeCleanup,
+            &attempt.task_id,
+            &identity.attempt_id,
+            None,
+            &format!("{}:hook:before_cleanup", identity.attempt_id),
+            clock,
+        )?;
         runner.cancel(identity)?;
         let new_state = attempt.state.transition(AttemptTrigger::RequestCancel)?;
         self.ledger.set_attempt_state(
@@ -824,6 +1011,60 @@ fn runner_action_descriptor(payload: &serde_json::Value) -> ActionDescriptor {
     }
 }
 
+fn payload_is_edit(payload: &serde_json::Value) -> bool {
+    matches!(
+        payload.get("type").and_then(serde_json::Value::as_str),
+        Some("edit_diff")
+    ) || payload
+        .get("edit_diff")
+        .is_some_and(|value| !value.is_null())
+        || matches!(
+            payload
+                .get("action")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_ascii_lowercase)
+                .as_deref(),
+            Some("edit" | "write" | "write_file" | "apply_edit")
+        )
+}
+
+fn after_event_for_payload(payload: &serde_json::Value) -> Option<HookEvent> {
+    match payload.get("type").and_then(serde_json::Value::as_str) {
+        Some("tool_call_end") => Some(HookEvent::AfterTool),
+        Some("edit_diff") => Some(HookEvent::AfterEdit),
+        _ => None,
+    }
+}
+
+fn hook_action_from_payload(payload: &serde_json::Value) -> HookAction {
+    let event_type = payload
+        .get("type")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or_default();
+    let tool = payload
+        .get("name")
+        .or_else(|| payload.get("action"))
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or(event_type)
+        .to_string();
+    let description = payload
+        .get("content")
+        .or_else(|| payload.get("description"))
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or(&tool)
+        .to_string();
+    HookAction {
+        tool,
+        description,
+        category: if payload_is_edit(payload) {
+            "write_file"
+        } else {
+            event_type
+        }
+        .to_string(),
+    }
+}
+
 fn runner_approval_id(attempt_id: &str, runner_seq: u64) -> CoordinatorResult<String> {
     let identity = serde_json::json!({
         "attempt_id": attempt_id,
@@ -860,9 +1101,11 @@ fn outcome_payload(kind: &super::runners::RunnerEventKind) -> Option<&'static st
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::modules::orchestration::hooks::{HookRegistry, HookSpec};
     use crate::modules::orchestration::ledger::TaskRecord;
     use crate::modules::orchestration::runners::mock::MockRunner;
     use crate::modules::orchestration::runners::RunnerEventKind;
+    use std::path::Path;
 
     fn ledger() -> OrchestrationLedger {
         let ledger = OrchestrationLedger::open_in_memory().expect("ledger");
@@ -884,6 +1127,20 @@ mod tests {
 
     fn coord<'a>(ledger: &'a OrchestrationLedger) -> Coordinator<'a> {
         Coordinator::new(ledger, CoordinatorPolicy::default())
+    }
+
+    fn hook_runtime(workspace: &Path, event: HookEvent, command: &str) -> HookRuntime {
+        let mut registry = HookRegistry::new();
+        registry.add_project(
+            event,
+            vec![HookSpec {
+                event,
+                command: command.into(),
+                timeout_secs: 5,
+                blocking: true,
+            }],
+        );
+        HookRuntime::new(workspace, registry, Vec::new()).expect("hook runtime")
     }
 
     // --- Success path -------------------------------------------------------
@@ -915,6 +1172,34 @@ mod tests {
         let attempt = ledger.attempt("t1-att-1").unwrap().unwrap();
         assert_eq!(attempt.state, AttemptState::Completed);
         assert_eq!(attempt.terminal_outcome.as_deref(), Some("completed"));
+    }
+
+    #[test]
+    fn session_start_hook_denial_prevents_runner_dispatch() {
+        let ledger = ledger();
+        let workspace = tempfile::tempdir().expect("workspace");
+        let hooks = hook_runtime(workspace.path(), HookEvent::SessionStart, "exit 1");
+        let coord = coord(&ledger).with_hooks(&hooks);
+        let clock = ManualClock::new(2_000);
+        let mut runner = MockRunner::new();
+
+        assert!(matches!(
+            coord.claim_and_start("t1", "native", &mut runner, &clock),
+            Err(CoordinatorError::HookDenied {
+                event: HookEvent::SessionStart,
+                ..
+            })
+        ));
+        assert_eq!(
+            ledger.attempt("t1-att-1").unwrap().unwrap().state,
+            AttemptState::Failed
+        );
+        assert_eq!(
+            ledger.task("t1").unwrap().unwrap().state,
+            TaskState::NeedsAttention
+        );
+        let events = ledger.events_for_task("t1", 0, 20).unwrap();
+        assert!(events.iter().any(|event| event.kind == "hook.denied"));
     }
 
     #[test]
@@ -1304,6 +1589,43 @@ mod tests {
             AttemptState::Started
         );
         assert_eq!(runner.steers(), &[("t1-att-1".into(), "approve".into())]);
+    }
+
+    #[test]
+    fn blocking_before_tool_hook_denies_before_approval_is_created() {
+        let ledger = ledger();
+        let workspace = tempfile::tempdir().expect("workspace");
+        let hooks = hook_runtime(workspace.path(), HookEvent::BeforeTool, "exit 1");
+        let coord = coord(&ledger).with_hooks(&hooks);
+        let clock = ManualClock::new(2_000);
+        let mut runner = MockRunner::new();
+        runner.enqueue_event(
+            "t1-att-1",
+            RunnerEventKind::ApprovalRequired,
+            serde_json::json!({
+                "type": "approval_request",
+                "id": "native-approval",
+                "action": "run",
+                "payload": {"command": "cargo test"},
+            }),
+        );
+
+        let identity = coord
+            .claim_and_start("t1", "native", &mut runner, &clock)
+            .expect("claim");
+        assert_eq!(
+            coord.pump(&identity, &mut runner, &clock).unwrap(),
+            PumpOutcome::Progressed(AttemptState::Started)
+        );
+        assert!(ledger.pending_approvals().unwrap().is_empty());
+        assert_eq!(runner.steers().len(), 1);
+        assert_eq!(runner.steers()[0].0, "t1-att-1");
+        assert_eq!(runner.steers()[0].1, "deny");
+        let events = ledger.events_for_task("t1", 0, 20).unwrap();
+        assert!(events.iter().any(|event| {
+            event.kind == "hook.denied"
+                && event.payload["hook_event"] == serde_json::json!("before_tool")
+        }));
     }
 
     #[test]

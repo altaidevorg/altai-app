@@ -278,6 +278,7 @@ pub fn run() {
         .manage(os_menu::RecentFolders::default())
         .manage(mcp::McpStatusRegistry::new())
         .manage(orchestration::OrchestrationState::default())
+        .manage(orchestration::hooks::HookRegistry::new())
         .on_menu_event(app_menu::handle_event)
         .setup(|app| {
             altai::agent::runtime::init(app.handle().clone())?;
@@ -357,6 +358,7 @@ pub fn run() {
             orchestration::orchestration_record_terminal,
             orchestration::workflow::orchestration_workflow_load,
             orchestration::workflow::orchestration_workflow_save,
+            orchestration::hooks::orchestration_hooks_inspect,
             shell::shell_run_command,
             shell::shell_session_open,
             shell::shell_session_run,
