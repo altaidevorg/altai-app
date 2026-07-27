@@ -249,6 +249,18 @@ impl Mailbox {
         Some(msg)
     }
 
+    /// Deliver the oldest pending message for one recipient without consuming
+    /// messages addressed to other tasks.
+    pub fn deliver_for(&mut self, to_task: &str) -> Option<AgentMessage> {
+        let index = self
+            .messages
+            .iter()
+            .position(|message| message.to_task == to_task)?;
+        let msg = self.messages.remove(index)?;
+        self.remember_delivery(msg.id.clone());
+        Some(msg)
+    }
+
     fn remember_delivery(&mut self, message_id: String) {
         self.delivered_total = self.delivered_total.saturating_add(1);
         if !self.delivered.insert(message_id.clone()) {
@@ -831,6 +843,20 @@ mod tests {
         mb.post(make_msg("m3", "c", "other")).unwrap();
         assert_eq!(mb.pending_for("parent"), 2);
         assert_eq!(mb.pending_for("other"), 1);
+    }
+
+    #[test]
+    fn deliver_for_does_not_consume_another_recipients_message() {
+        let mut mailbox = Mailbox::new(10);
+        mailbox.post(make_msg("m1", "child", "other")).unwrap();
+        mailbox.post(make_msg("m2", "child", "parent")).unwrap();
+
+        assert_eq!(
+            mailbox.deliver_for("parent").map(|message| message.id),
+            Some("m2".into())
+        );
+        assert_eq!(mailbox.pending_for("other"), 1);
+        assert_eq!(mailbox.delivered_count(), 1);
     }
 
     // ---- file conflict detection ----

@@ -385,7 +385,7 @@ pub fn run() {
             orchestration::commands::orchestration_notify,
             orchestration::commands::orchestration_notifications_drain,
             orchestration::commands::orchestration_credential_store,
-            orchestration::commands::orchestration_credential_retrieve,
+            orchestration::commands::orchestration_credential_status,
             orchestration::commands::orchestration_credential_revoke,
             orchestration::commands::orchestration_check_gate,
             orchestration::commands::orchestration_review_evaluate,

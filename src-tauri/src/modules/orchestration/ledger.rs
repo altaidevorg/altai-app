@@ -446,6 +446,7 @@ pub struct CreateArtifactRequest {
 
 /// A recorded decision from the execution plan decision log.
 #[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct DecisionEntry {
     pub id: String,
     pub task_id: Option<String>,
@@ -459,6 +460,7 @@ pub struct DecisionEntry {
 
 /// Input for recording a decision.
 #[derive(Debug, Clone, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CreateDecisionRequest {
     pub task_id: Option<String>,
     pub attempt_id: Option<String>,
