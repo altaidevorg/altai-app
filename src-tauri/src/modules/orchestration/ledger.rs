@@ -23,7 +23,7 @@ use std::path::Path;
 use std::sync::Mutex;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-const SCHEMA_VERSION: i64 = 3;
+const SCHEMA_VERSION: i64 = 4;
 const MAX_EVENT_LIMIT: usize = 1_000;
 const MAX_EVENT_PAYLOAD_BYTES: usize = 256 * 1024;
 const MAX_APPROVAL_ID_CHARS: usize = 512;
@@ -139,6 +139,32 @@ CREATE INDEX IF NOT EXISTS orchestration_approvals_task
 
 CREATE INDEX IF NOT EXISTS orchestration_approvals_state
     ON orchestration_approvals (state, expires_at_ms);
+"#;
+
+const MIGRATION_V4: &str = r#"
+CREATE TABLE IF NOT EXISTS orchestration_artifacts (
+    artifact_id    TEXT PRIMARY KEY
+                   CHECK (length(trim(artifact_id)) BETWEEN 1 AND 512),
+    task_id        TEXT NOT NULL
+                   REFERENCES orchestration_tasks(task_id),
+    attempt_id     TEXT NOT NULL,
+    kind           TEXT NOT NULL
+                   CHECK (kind IN ('diff','log','test_output','screenshot','metrics','summary','other')),
+    checksum       TEXT NOT NULL
+                   CHECK (length(checksum) = 64),
+    size_bytes     INTEGER NOT NULL CHECK (size_bytes >= 0),
+    producer       TEXT NOT NULL
+                   CHECK (length(trim(producer)) BETWEEN 1 AND 256),
+    created_at_ms  INTEGER NOT NULL CHECK (created_at_ms >= 0),
+    pinned         INTEGER NOT NULL DEFAULT 0 CHECK (pinned IN (0,1)),
+    description    TEXT NOT NULL DEFAULT ''
+) WITHOUT ROWID;
+
+CREATE INDEX IF NOT EXISTS orchestration_artifacts_task
+    ON orchestration_artifacts (task_id);
+
+CREATE INDEX IF NOT EXISTS orchestration_artifacts_cleanup
+    ON orchestration_artifacts (pinned, created_at_ms);
 "#;
 
 // ---------------------------------------------------------------------------
@@ -297,6 +323,81 @@ pub struct ResolveApprovalRequest {
     pub decided_by: ApprovalDecidedBy,
     pub reason: Option<String>,
     pub now_ms: u64,
+}
+
+// ---------------------------------------------------------------------------
+// Artifacts (D3 — evidence store)
+// ---------------------------------------------------------------------------
+
+/// What kind of evidence an artifact represents.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ArtifactKind {
+    Diff,
+    Log,
+    TestOutput,
+    Screenshot,
+    Metrics,
+    Summary,
+    Other,
+}
+
+impl ArtifactKind {
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Diff => "diff",
+            Self::Log => "log",
+            Self::TestOutput => "test_output",
+            Self::Screenshot => "screenshot",
+            Self::Metrics => "metrics",
+            Self::Summary => "summary",
+            Self::Other => "other",
+        }
+    }
+
+    pub fn parse(value: &str) -> Option<Self> {
+        Some(match value {
+            "diff" => Self::Diff,
+            "log" => Self::Log,
+            "test_output" => Self::TestOutput,
+            "screenshot" => Self::Screenshot,
+            "metrics" => Self::Metrics,
+            "summary" => Self::Summary,
+            "other" => Self::Other,
+            _ => return None,
+        })
+    }
+}
+
+/// Durable metadata for a stored artifact. The blob content lives in
+/// content-addressed storage; this record holds the checksum, size, and
+/// provenance.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ArtifactRecord {
+    pub artifact_id: String,
+    pub task_id: String,
+    pub attempt_id: String,
+    pub kind: ArtifactKind,
+    pub checksum: String,
+    pub size_bytes: u64,
+    pub producer: String,
+    pub created_at_ms: u64,
+    pub pinned: bool,
+    pub description: String,
+}
+
+/// Input for recording an artifact's metadata in the ledger.
+#[derive(Debug, Clone)]
+pub struct CreateArtifactRequest {
+    pub artifact_id: String,
+    pub task_id: String,
+    pub attempt_id: String,
+    pub kind: ArtifactKind,
+    pub checksum: String,
+    pub size_bytes: u64,
+    pub producer: String,
+    pub created_at_ms: u64,
+    pub description: String,
 }
 
 /// Input for creating an attempt. The `idempotency_key` is the deduplication
@@ -1439,6 +1540,156 @@ impl OrchestrationLedger {
         rows.collect::<Result<Vec<_>, _>>()
             .map_err(LedgerError::from)
     }
+
+    // ----- artifacts (D3) --------------------------------------------------
+
+    /// Record artifact metadata. Idempotent by artifact_id.
+    pub fn create_artifact(&self, request: &CreateArtifactRequest) -> LedgerResult<WriteStatus> {
+        validate_nonempty(&request.artifact_id, "artifact_id")?;
+        validate_nonempty(&request.task_id, "task_id")?;
+        validate_nonempty(&request.attempt_id, "attempt_id")?;
+        validate_nonempty(&request.producer, "producer")?;
+        let now = sqlite_u64(request.created_at_ms, "created_at_ms")?;
+        let size = sqlite_u64(request.size_bytes, "size_bytes")?;
+        let connection = self
+            .connection
+            .lock()
+            .map_err(|_| LedgerError::LockPoisoned)?;
+        let inserted = connection.execute(
+            "INSERT OR IGNORE INTO orchestration_artifacts
+                (artifact_id, task_id, attempt_id, kind, checksum, size_bytes,
+                 producer, created_at_ms, pinned, description)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 0, ?9)",
+            params![
+                request.artifact_id,
+                request.task_id,
+                request.attempt_id,
+                request.kind.name(),
+                request.checksum,
+                size,
+                request.producer,
+                now,
+                request.description,
+            ],
+        )?;
+        if inserted == 0 {
+            Ok(WriteStatus::Duplicate)
+        } else {
+            Ok(WriteStatus::Written)
+        }
+    }
+
+    /// Fetch a single artifact by id.
+    pub fn artifact(&self, artifact_id: &str) -> LedgerResult<Option<ArtifactRecord>> {
+        validate_nonempty(artifact_id, "artifact_id")?;
+        let connection = self
+            .connection
+            .lock()
+            .map_err(|_| LedgerError::LockPoisoned)?;
+        let mut statement = connection.prepare(
+            "SELECT artifact_id, task_id, attempt_id, kind, checksum, size_bytes,
+                    producer, created_at_ms, pinned, description
+             FROM orchestration_artifacts WHERE artifact_id = ?1",
+        )?;
+        statement
+            .query_row(params![artifact_id], decode_artifact)
+            .optional()
+            .map_err(LedgerError::from)
+    }
+
+    /// All artifacts for a task, ordered by creation time.
+    pub fn artifacts_for_task(&self, task_id: &str) -> LedgerResult<Vec<ArtifactRecord>> {
+        validate_nonempty(task_id, "task_id")?;
+        let connection = self
+            .connection
+            .lock()
+            .map_err(|_| LedgerError::LockPoisoned)?;
+        let mut statement = connection.prepare(
+            "SELECT artifact_id, task_id, attempt_id, kind, checksum, size_bytes,
+                    producer, created_at_ms, pinned, description
+             FROM orchestration_artifacts
+             WHERE task_id = ?1
+             ORDER BY created_at_ms ASC",
+        )?;
+        let rows = statement.query_map(params![task_id], decode_artifact)?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(LedgerError::from)
+    }
+
+    /// Pin an artifact so it is never auto-cleaned.
+    pub fn pin_artifact(&self, artifact_id: &str) -> LedgerResult<WriteStatus> {
+        validate_nonempty(artifact_id, "artifact_id")?;
+        let connection = self
+            .connection
+            .lock()
+            .map_err(|_| LedgerError::LockPoisoned)?;
+        let updated = connection.execute(
+            "UPDATE orchestration_artifacts SET pinned = 1 WHERE artifact_id = ?1",
+            params![artifact_id],
+        )?;
+        if updated == 0 {
+            Ok(WriteStatus::Duplicate)
+        } else {
+            Ok(WriteStatus::Written)
+        }
+    }
+
+    /// Unpin an artifact (allow auto-cleanup).
+    pub fn unpin_artifact(&self, artifact_id: &str) -> LedgerResult<WriteStatus> {
+        validate_nonempty(artifact_id, "artifact_id")?;
+        let connection = self
+            .connection
+            .lock()
+            .map_err(|_| LedgerError::LockPoisoned)?;
+        let updated = connection.execute(
+            "UPDATE orchestration_artifacts SET pinned = 0 WHERE artifact_id = ?1",
+            params![artifact_id],
+        )?;
+        if updated == 0 {
+            Ok(WriteStatus::Duplicate)
+        } else {
+            Ok(WriteStatus::Written)
+        }
+    }
+
+    /// Unpinned artifacts older than `cutoff_ms` — candidates for cleanup.
+    pub fn cleanup_candidates(
+        &self,
+        cutoff_ms: u64,
+        limit: usize,
+    ) -> LedgerResult<Vec<ArtifactRecord>> {
+        let cutoff = sqlite_u64(cutoff_ms, "cutoff_ms")?;
+        let limit = i64::try_from(limit).unwrap_or(1000);
+        let connection = self
+            .connection
+            .lock()
+            .map_err(|_| LedgerError::LockPoisoned)?;
+        let mut statement = connection.prepare(
+            "SELECT artifact_id, task_id, attempt_id, kind, checksum, size_bytes,
+                    producer, created_at_ms, pinned, description
+             FROM orchestration_artifacts
+             WHERE pinned = 0 AND created_at_ms < ?1
+             ORDER BY created_at_ms ASC LIMIT ?2",
+        )?;
+        let rows = statement.query_map(params![cutoff, limit], decode_artifact)?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(LedgerError::from)
+    }
+
+    /// Delete an artifact record (does not delete the blob). Returns whether
+    /// a row was actually removed.
+    pub fn delete_artifact(&self, artifact_id: &str) -> LedgerResult<bool> {
+        validate_nonempty(artifact_id, "artifact_id")?;
+        let connection = self
+            .connection
+            .lock()
+            .map_err(|_| LedgerError::LockPoisoned)?;
+        let deleted = connection.execute(
+            "DELETE FROM orchestration_artifacts WHERE artifact_id = ?1",
+            params![artifact_id],
+        )?;
+        Ok(deleted > 0)
+    }
 }
 
 fn append_event_tx(
@@ -1759,6 +2010,30 @@ fn decode_approval(row: &rusqlite::Row<'_>) -> rusqlite::Result<ApprovalRecord> 
     })
 }
 
+fn decode_artifact(row: &rusqlite::Row<'_>) -> rusqlite::Result<ArtifactRecord> {
+    let kind_str: String = row.get(3)?;
+    let kind = ArtifactKind::parse(&kind_str).ok_or_else(|| {
+        rusqlite::Error::FromSqlConversionFailure(
+            3,
+            rusqlite::types::Type::Text,
+            format!("unknown artifact kind: {kind_str}").into(),
+        )
+    })?;
+    let pinned: i64 = row.get(8)?;
+    Ok(ArtifactRecord {
+        artifact_id: row.get(0)?,
+        task_id: row.get(1)?,
+        attempt_id: row.get(2)?,
+        kind,
+        checksum: row.get(4)?,
+        size_bytes: decode_u64(row, 5, "size_bytes")?,
+        producer: row.get(6)?,
+        created_at_ms: decode_u64(row, 7, "created_at_ms")?,
+        pinned: pinned != 0,
+        description: row.get(9)?,
+    })
+}
+
 fn fetch_approval_tx(
     transaction: &Transaction<'_>,
     approval_id: &str,
@@ -1945,6 +2220,14 @@ fn migrate(connection: &mut Connection) -> LedgerResult<()> {
             params![applied_at_ms],
         )?;
     }
+    if current < 4 {
+        let applied_at_ms = now_ms();
+        transaction.execute_batch(MIGRATION_V4)?;
+        transaction.execute(
+            "INSERT INTO orchestration_migrations (version, applied_at_ms) VALUES (4, ?1)",
+            params![applied_at_ms],
+        )?;
+    }
     transaction.commit()?;
     Ok(())
 }
@@ -2029,11 +2312,11 @@ mod tests {
         let temp = tempfile::tempdir().expect("tempdir");
         let path = temp.path().join("ledger.sqlite3");
         let ledger = OrchestrationLedger::open(&path).expect("open");
-        assert_eq!(ledger.schema_version().expect("schema"), 3);
+        assert_eq!(ledger.schema_version().expect("schema"), 4);
         drop(ledger);
         // Reopening must not re-apply or fail.
         let reopened = OrchestrationLedger::open(&path).expect("reopen");
-        assert_eq!(reopened.schema_version().expect("schema"), 3);
+        assert_eq!(reopened.schema_version().expect("schema"), 4);
     }
 
     #[test]
@@ -2068,7 +2351,7 @@ mod tests {
         drop(connection);
 
         let ledger = OrchestrationLedger::open(&path).expect("upgrade");
-        assert_eq!(ledger.schema_version().expect("schema"), 3);
+        assert_eq!(ledger.schema_version().expect("schema"), 4);
         let task = ledger.task("t1").expect("lookup").expect("task");
         assert_eq!(task.title, "Legacy task");
         assert_eq!(task.description, "");
