@@ -52,6 +52,13 @@ impl MockRunner {
         self.started.iter().any(|id| id == attempt_id)
     }
 
+    pub fn start_count(&self, attempt_id: &str) -> usize {
+        self.started
+            .iter()
+            .filter(|started| started.as_str() == attempt_id)
+            .count()
+    }
+
     pub fn started_input(&self, attempt_id: &str) -> Option<&str> {
         self.started_inputs.get(attempt_id).map(String::as_str)
     }

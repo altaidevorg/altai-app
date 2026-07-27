@@ -1,9 +1,10 @@
 //! Soak and integration tests for the Preview 1 exit gate (plan §10, §A3).
 //!
-//! These verify the critical correctness invariants that the v2 orchestration
-//! stack must hold: zero duplicate dispatch, crash recovery, lease reclamation,
-//! and idempotent reconciliation — all exercised across the real coordinator,
-//! ledger, recovery, and mock runner (no mocks of internal logic).
+//! These verify the critical correctness invariants currently supported by the
+//! v2 orchestration core: concurrent duplicate-dispatch prevention, durable
+//! ledger recovery, lease reclamation, and idempotent reconciliation. Native
+//! runner reattachment after a full application-process restart is not claimed
+//! here because `RunnerAdapter` does not yet expose a durable reconnect API.
 
 #![cfg(test)]
 
@@ -12,12 +13,22 @@ use super::domain::{AttemptState, Lease, TaskState};
 use super::ledger::{OrchestrationLedger, TaskRecord, WriteStatus};
 use super::recovery::{self, RecoveryReport};
 use super::runners::mock::MockRunner;
-use super::runners::RunnerEventKind;
+use super::runners::{
+    AttemptIdentity, AttemptSpec, RunnerAdapter, RunnerCapabilities, RunnerError, RunnerEvent,
+    RunnerEventKind, RunnerResult,
+};
 
 use serde_json::json;
+use std::collections::HashMap;
+use std::sync::{Arc, Barrier, Mutex};
 
 fn mk_ledger_with_task(id: &str) -> OrchestrationLedger {
     let ledger = OrchestrationLedger::open_in_memory().unwrap();
+    seed_task(&ledger, id);
+    ledger
+}
+
+fn seed_task(ledger: &OrchestrationLedger, id: &str) {
     ledger
         .upsert_task(&TaskRecord {
             task_id: id.into(),
@@ -31,7 +42,6 @@ fn mk_ledger_with_task(id: &str) -> OrchestrationLedger {
             updated_at_ms: 1_000,
         })
         .unwrap();
-    ledger
 }
 
 fn short_lease_policy() -> CoordinatorPolicy {
@@ -43,71 +53,166 @@ fn short_lease_policy() -> CoordinatorPolicy {
 }
 
 // ===========================================================================
-// §A3.1 — Crash after claim but before dispatch → no duplicate
+// Coordinator restart after dispatch → reconnect without duplicate dispatch
 // ===========================================================================
 
 #[test]
-fn crash_after_claim_no_duplicate_dispatch() {
+fn coordinator_restart_reconnects_to_existing_run() {
     let ledger = mk_ledger_with_task("t-1");
     let clock = ManualClock::new(1_000);
     let mut runner = MockRunner::new();
 
-    // Coordinator A claims and starts.
+    // Coordinator A dispatches the run, then disappears before it can pump
+    // the completion event.
     let coord_a = Coordinator::new(&ledger, short_lease_policy());
     let identity = coord_a
         .claim_and_start("t-1", "mock", &mut runner, &clock)
         .unwrap();
-    assert!(runner.was_started(&identity.attempt_id));
+    runner.enqueue_event(
+        &identity.attempt_id,
+        RunnerEventKind::Completed,
+        json!({ "result": "success" }),
+    );
+    assert_eq!(runner.start_count(&identity.attempt_id), 1);
+    drop(coord_a);
 
-    // Simulate crash: coordinator A is gone. Coordinator B starts fresh
-    // (same ledger, same task — e.g. after app restart).
+    // A fresh coordinator reconnects to the still-live runner identity.
     let coord_b = Coordinator::new(&ledger, short_lease_policy());
     let identity_b = coord_b
         .claim_and_start("t-1", "mock", &mut runner, &clock)
         .unwrap();
 
-    // Must return the SAME attempt — no new dispatch.
     assert_eq!(identity_b.attempt_id, identity.attempt_id);
-    assert!(!runner.was_started(&format!("{}-dup", identity.attempt_id)));
+    assert_eq!(
+        runner.start_count(&identity.attempt_id),
+        1,
+        "reconnect must not dispatch the existing attempt again"
+    );
 
-    // Exactly one attempt in the ledger.
+    let outcome = coord_b.pump(&identity_b, &mut runner, &clock).unwrap();
+    assert!(matches!(
+        outcome,
+        PumpOutcome::Terminal(AttemptState::Completed)
+    ));
+    assert_eq!(
+        ledger.task("t-1").unwrap().unwrap().state,
+        TaskState::Verifying
+    );
     let attempts = ledger.attempts_for_task("t-1").unwrap();
     assert_eq!(attempts.len(), 1);
 }
 
 // ===========================================================================
-// Concurrent claim → idempotency prevents double dispatch
+// Preview 1 soak gate — 1,000 tasks, eight concurrent workers, no duplicates
 // ===========================================================================
 
+#[derive(Clone)]
+struct CountingRunner {
+    starts: Arc<Mutex<HashMap<String, usize>>>,
+}
+
+impl RunnerAdapter for CountingRunner {
+    fn capabilities(&self) -> RunnerCapabilities {
+        RunnerCapabilities::default()
+    }
+
+    fn start_attempt(&mut self, spec: &AttemptSpec) -> RunnerResult<AttemptIdentity> {
+        let mut starts = self.starts.lock().expect("start counter");
+        *starts.entry(spec.attempt_id.clone()).or_default() += 1;
+        Ok(AttemptIdentity {
+            attempt_id: spec.attempt_id.clone(),
+            handle: spec.attempt_id.clone(),
+        })
+    }
+
+    fn poll_event(&mut self, _identity: &AttemptIdentity) -> RunnerResult<Option<RunnerEvent>> {
+        Ok(None)
+    }
+
+    fn steer(&mut self, _identity: &AttemptIdentity, _message: &str) -> RunnerResult<()> {
+        Err(RunnerError::Unsupported { action: "steer" })
+    }
+
+    fn cancel(&mut self, _identity: &AttemptIdentity) -> RunnerResult<()> {
+        Err(RunnerError::Unsupported { action: "cancel" })
+    }
+
+    fn shutdown(&mut self) {}
+}
+
 #[test]
-fn concurrent_claim_is_idempotent() {
-    let ledger = mk_ledger_with_task("t-1");
-    let clock = ManualClock::new(1_000);
-    let mut runner = MockRunner::new();
+fn thousand_tasks_eight_workers_have_zero_duplicate_dispatches() {
+    const TASK_COUNT: usize = 1_000;
+    const WORKER_COUNT: usize = 8;
 
-    let coord = Coordinator::new(&ledger, short_lease_policy());
+    let ledger = Arc::new(OrchestrationLedger::open_in_memory().unwrap());
+    for index in 0..TASK_COUNT {
+        let task_id = format!("soak-{index}");
+        ledger
+            .upsert_task(&TaskRecord {
+                task_id: task_id.clone(),
+                workspace_key: "ws-soak".into(),
+                source_kind: "local".into(),
+                source_ref: task_id.clone(),
+                title: task_id,
+                description: "soak".into(),
+                state: TaskState::Queued,
+                created_at_ms: 1_000,
+                updated_at_ms: 1_000,
+            })
+            .unwrap();
+    }
 
-    // Two "coordinators" share the same ledger. The second claim returns the
-    // existing attempt's identity without re-dispatching.
-    let id1 = coord
-        .claim_and_start("t-1", "mock", &mut runner, &clock)
-        .unwrap();
-    let id2 = coord
-        .claim_and_start("t-1", "mock", &mut runner, &clock)
-        .unwrap();
+    let starts = Arc::new(Mutex::new(HashMap::new()));
+    let barrier = Arc::new(Barrier::new(WORKER_COUNT));
+    let workers = (0..WORKER_COUNT)
+        .map(|_| {
+            let ledger = Arc::clone(&ledger);
+            let starts = Arc::clone(&starts);
+            let barrier = Arc::clone(&barrier);
+            std::thread::spawn(move || {
+                let coordinator = Coordinator::new(&ledger, short_lease_policy());
+                let clock = ManualClock::new(1_000);
+                let mut runner = CountingRunner { starts };
+                for index in 0..TASK_COUNT {
+                    barrier.wait();
+                    coordinator
+                        .claim_and_start(&format!("soak-{index}"), "counting", &mut runner, &clock)
+                        .unwrap();
+                }
+            })
+        })
+        .collect::<Vec<_>>();
 
-    assert_eq!(id1.attempt_id, id2.attempt_id);
+    for worker in workers {
+        worker.join().expect("soak worker");
+    }
 
-    let attempts = ledger.attempts_for_task("t-1").unwrap();
-    assert_eq!(attempts.len(), 1, "exactly one attempt, not two");
+    let starts = starts.lock().expect("start counter");
+    assert_eq!(starts.len(), TASK_COUNT);
+    assert_eq!(starts.values().sum::<usize>(), TASK_COUNT);
+    for index in 0..TASK_COUNT {
+        let task_id = format!("soak-{index}");
+        let attempt_id = format!("{task_id}-att-1");
+        assert_eq!(
+            starts.get(&attempt_id),
+            Some(&1),
+            "{attempt_id} must be dispatched exactly once"
+        );
+        assert_eq!(
+            ledger.attempts_for_task(&task_id).unwrap().len(),
+            1,
+            "{task_id} must have exactly one attempt"
+        );
+    }
 }
 
 // ===========================================================================
-// §A3.2 — Crash after dispatch, before completion → reconnect via recovery
+// Expired runner recovery → park ambiguous work for operator attention
 // ===========================================================================
 
 #[test]
-fn crash_after_dispatch_recovery_reclaims_and_retries() {
+fn expired_run_is_reclaimed_and_parked_for_attention() {
     let ledger = mk_ledger_with_task("t-1");
     let clock = ManualClock::new(1_000);
     let mut runner = MockRunner::new();
@@ -182,84 +287,91 @@ fn full_lifecycle_claim_pump_complete() {
 
 #[test]
 fn crash_after_completion_recovery_replays_once() {
-    let ledger = mk_ledger_with_task("t-1");
+    let temp = tempfile::tempdir().unwrap();
+    let path = temp.path().join("ledger.sqlite3");
     let clock = ManualClock::new(1_000);
 
-    // Simulate: attempt completed but task projection NOT yet updated (crash
-    // between attempt terminal and task terminal). We do this by writing the
-    // attempt terminal directly without the coordinator's task update.
-    ledger
-        .create_attempt(&super::ledger::CreateAttemptRequest {
-            attempt_id: "t-1-att-1".into(),
-            task_id: "t-1".into(),
-            attempt_no: 1,
-            runner_kind: "mock".into(),
-            lease: Some(Lease {
-                owner: "coordinator".into(),
-                generation: 1,
-                expires_at_ms: 6_000,
-            }),
-            idempotency_key: "t-1:1:mock".into(),
-            now_ms: 1_000,
-        })
-        .unwrap();
-    ledger
-        .set_attempt_state(
-            "t-1-att-1",
-            AttemptState::Completed,
-            Some("done"),
-            "t-1-att-1:completed",
-            None,
-            2_000,
-        )
-        .unwrap();
-    // Task is still Running (projection missed).
-    ledger
-        .set_task_state("t-1", TaskState::Running, "t-1:running", 1_000)
-        .unwrap();
+    {
+        let ledger = OrchestrationLedger::open(&path).unwrap();
+        seed_task(&ledger, "t-1");
+        // Simulate: attempt completed but task projection NOT yet updated
+        // (crash between attempt terminal and task terminal).
+        ledger
+            .create_attempt(&super::ledger::CreateAttemptRequest {
+                attempt_id: "t-1-att-1".into(),
+                task_id: "t-1".into(),
+                attempt_no: 1,
+                runner_kind: "mock".into(),
+                lease: Some(Lease {
+                    owner: "coordinator".into(),
+                    generation: 1,
+                    expires_at_ms: 6_000,
+                }),
+                idempotency_key: "t-1:1:mock".into(),
+                now_ms: 1_000,
+            })
+            .unwrap();
+        ledger
+            .set_attempt_state(
+                "t-1-att-1",
+                AttemptState::Completed,
+                Some("done"),
+                "t-1-att-1:completed",
+                None,
+                2_000,
+            )
+            .unwrap();
+        ledger
+            .set_task_state("t-1", TaskState::Running, "t-1:running", 1_000)
+            .unwrap();
+    }
 
-    // Recovery should replay the terminal projection.
+    // Reopen the durable ledger after the simulated process crash.
+    let ledger = OrchestrationLedger::open(&path).unwrap();
     let report = recovery::run(&ledger, &clock).unwrap();
     assert_eq!(report.replays, 1);
-
     let task = ledger.task("t-1").unwrap().unwrap();
     assert_eq!(task.state, TaskState::Verifying);
+    drop(ledger);
 
-    // Second recovery run is idempotent (no additional replays).
-    let report2 = recovery::run(&ledger, &clock).unwrap();
+    // A second restart is idempotent.
+    let reopened = OrchestrationLedger::open(&path).unwrap();
+    let report2 = recovery::run(&reopened, &clock).unwrap();
     assert_eq!(report2.replays, 0);
 }
 
 // ===========================================================================
-// §A3 acceptance — crash recovery success: idempotent recovery
+// Durable restart recovery is idempotent across database reopens
 // ===========================================================================
 
 #[test]
-fn recovery_is_idempotent() {
-    let ledger = mk_ledger_with_task("t-1");
-    let clock = ManualClock::new(1_000);
-    let mut runner = MockRunner::new();
+fn recovery_is_idempotent_across_database_reopens() {
+    let temp = tempfile::tempdir().unwrap();
+    let path = temp.path().join("ledger.sqlite3");
+    {
+        let ledger = OrchestrationLedger::open(&path).unwrap();
+        seed_task(&ledger, "t-1");
+        let clock = ManualClock::new(1_000);
+        let mut runner = MockRunner::new();
+        let coord = Coordinator::new(&ledger, short_lease_policy());
+        coord
+            .claim_and_start("t-1", "mock", &mut runner, &clock)
+            .unwrap();
+    }
 
-    let coord = Coordinator::new(&ledger, short_lease_policy());
-    let identity = coord
-        .claim_and_start("t-1", "mock", &mut runner, &clock)
-        .unwrap();
-
-    clock.advance(10_000);
-
-    // First recovery.
+    let clock = ManualClock::new(11_000);
+    let ledger = OrchestrationLedger::open(&path).unwrap();
     let report1 = recovery::run(&ledger, &clock).unwrap();
     assert!(report1.leased_reclaimed > 0 || report1.needs_attention > 0);
+    drop(ledger);
 
-    // Second recovery: nothing changes.
-    let report2 = recovery::run(&ledger, &clock).unwrap();
+    let reopened = OrchestrationLedger::open(&path).unwrap();
+    let report2 = recovery::run(&reopened, &clock).unwrap();
     assert_eq!(
         report2,
         RecoveryReport::default(),
-        "second recovery must be a no-op"
+        "recovery after a second process restart must be a no-op"
     );
-
-    let _ = identity;
 }
 
 // ===========================================================================
