@@ -7,12 +7,20 @@
 //! - systematic crash injection at every state transition;
 //! - deterministic failure matrices with seeds.
 
+use std::collections::HashSet;
+
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 
-use super::domain::{AttemptState, TaskState};
-use super::ledger::{OrchestrationEvent, OrchestrationLedger, TaskRecord};
+use super::domain::{AttemptState, AttemptTrigger, TaskState, TaskTrigger};
+use super::ledger::{
+    LedgerError, LedgerResult, OrchestrationEvent, OrchestrationLedger, TaskRecord,
+};
 use super::runners::RunnerEventKind;
+
+const EVENT_PAGE_SIZE: usize = 1_000;
+const MAX_SUPPORT_BUNDLE_TASKS: usize = 1_000;
+const MAX_SUPPORT_BUNDLE_EVENTS: usize = 100_000;
 
 // ---------------------------------------------------------------------------
 // Sanitizer
@@ -52,8 +60,13 @@ pub fn default_sanitize_rules() -> Vec<SanitizeRule> {
     .collect()
 }
 
-/// Sanitize a single event's payload in place.
+/// Sanitize a single event's metadata and payload in place.
 pub fn sanitize_event(event: &mut OrchestrationEvent, rules: &[SanitizeRule]) {
+    let redactor = isanagent::redact::shared();
+    event.event_id = redactor.redact(&event.event_id).into_owned();
+    event.task_id = redactor.redact(&event.task_id).into_owned();
+    event.kind = redactor.redact(&event.kind).into_owned();
+    sanitize_formatted_secrets(&mut event.payload);
     sanitize_value(&mut event.payload, rules);
 }
 
@@ -76,26 +89,61 @@ fn sanitize_value(value: &mut Value, rules: &[SanitizeRule]) {
     }
 }
 
+fn sanitize_formatted_secrets(value: &mut Value) {
+    match value {
+        Value::String(value) => {
+            *value = isanagent::redact::shared().redact(value).into_owned();
+        }
+        Value::Array(values) => {
+            for value in values {
+                sanitize_formatted_secrets(value);
+            }
+        }
+        Value::Object(values) => {
+            for value in values.values_mut() {
+                sanitize_formatted_secrets(value);
+            }
+        }
+        Value::Null | Value::Bool(_) | Value::Number(_) => {}
+    }
+}
+
 fn sanitize_map(map: &mut Map<String, Value>, rules: &[SanitizeRule]) {
     for (key, val) in map.iter_mut() {
         let key_lower = key.to_lowercase();
-        let matched = rules.iter().any(|r| key_lower.contains(&r.key_pattern));
-        if matched {
-            // Only redact if the value looks like a secret (non-empty string or
-            // a non-trivial structure). Leave empty/null values alone.
-            match val {
-                Value::String(s) if !s.is_empty() => {
-                    *val = Value::String("[REDACTED]".to_string());
-                }
-                Value::Object(_) | Value::Array(_) => {
-                    sanitize_value(val, rules);
-                }
-                _ => {}
+        let matched = rules.iter().find(|rule| {
+            !rule.key_pattern.is_empty() && key_lower.contains(&rule.key_pattern.to_lowercase())
+        });
+        if let Some(rule) = matched {
+            // Redact the complete value. Recursing into a secret-named object
+            // would leave values under ordinary child keys exposed.
+            if !is_empty_value(val) {
+                *val = Value::String(rule.replacement.clone());
             }
         } else {
             sanitize_value(val, rules);
         }
     }
+}
+
+fn is_empty_value(value: &Value) -> bool {
+    match value {
+        Value::Null => true,
+        Value::String(value) => value.is_empty(),
+        Value::Array(value) => value.is_empty(),
+        Value::Object(value) => value.is_empty(),
+        Value::Bool(_) | Value::Number(_) => false,
+    }
+}
+
+fn sanitize_task(task: &mut TaskRecord) {
+    let redactor = isanagent::redact::shared();
+    task.task_id = redactor.redact(&task.task_id).into_owned();
+    task.workspace_key = redactor.redact(&task.workspace_key).into_owned();
+    task.source_kind = redactor.redact(&task.source_kind).into_owned();
+    task.source_ref = redactor.redact(&task.source_ref).into_owned();
+    task.title = redactor.redact(&task.title).into_owned();
+    task.description = redactor.redact(&task.description).into_owned();
 }
 
 // ---------------------------------------------------------------------------
@@ -115,85 +163,194 @@ pub struct SupportBundle {
 }
 
 /// Export a support bundle from the ledger for the given task IDs.
-/// When `sanitize` is true, sensitive fields in event payloads are redacted.
+/// When `sanitize` is true, sensitive fields in events, tasks, and source
+/// metadata are redacted.
 pub fn export_support_bundle(
     ledger: &OrchestrationLedger,
     task_ids: &[&str],
     sanitize: bool,
     source: &str,
-) -> SupportBundle {
+) -> LedgerResult<SupportBundle> {
+    if task_ids.len() > MAX_SUPPORT_BUNDLE_TASKS {
+        return Err(LedgerError::InvalidField("task_ids"));
+    }
+
     let mut all_events = Vec::new();
     let mut tasks = Vec::new();
+    let mut seen = HashSet::new();
 
     for &task_id in task_ids {
-        if let Ok(Some(task)) = ledger.task(task_id) {
-            tasks.push(task);
+        if !seen.insert(task_id) {
+            continue;
         }
-        if let Ok(events) = ledger.events_for_task(task_id, 0, 1000) {
-            all_events.extend(events);
+        let task = ledger
+            .task(task_id)?
+            .ok_or_else(|| LedgerError::UnknownTask {
+                task_id: task_id.to_string(),
+            })?;
+        tasks.push(task);
+
+        let mut after_seq = 0;
+        loop {
+            let page = ledger.events_for_task(task_id, after_seq, EVENT_PAGE_SIZE)?;
+            if page.is_empty() {
+                break;
+            }
+            if all_events.len().saturating_add(page.len()) > MAX_SUPPORT_BUNDLE_EVENTS {
+                return Err(LedgerError::InvalidField("events"));
+            }
+            after_seq = page.last().map(|event| event.seq).unwrap_or(after_seq);
+            all_events.extend(page);
         }
     }
 
     if sanitize {
         sanitize_events(&mut all_events, &default_sanitize_rules());
+        for task in &mut tasks {
+            sanitize_task(task);
+        }
     }
 
-    SupportBundle {
+    let source = if sanitize {
+        isanagent::redact::shared().redact(source).into_owned()
+    } else {
+        source.to_string()
+    };
+
+    Ok(SupportBundle {
         schema_version: 1,
         created_at_ms: now_ms(),
         events: all_events,
         tasks,
         sanitized: sanitize,
-        source: source.to_string(),
-    }
+        source,
+    })
 }
 
 // ---------------------------------------------------------------------------
 // Crash injection matrix
 // ---------------------------------------------------------------------------
 
-/// A single point in the execution lifecycle where a crash can be injected.
+/// A legal state-machine transition after which a crash can be injected.
 #[derive(Clone, Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct CrashPoint {
-    pub label: String,
-    pub task_state: TaskState,
-    pub attempt_state: AttemptState,
+#[serde(tag = "aggregate", rename_all = "snake_case")]
+pub enum CrashPoint {
+    Task {
+        label: String,
+        from: TaskState,
+        trigger: TaskTrigger,
+        to: TaskState,
+    },
+    Attempt {
+        label: String,
+        from: AttemptState,
+        trigger: AttemptTrigger,
+        to: AttemptState,
+    },
 }
 
-/// Build the complete matrix of crash injection points — every (task_state,
-/// attempt_state) combination that represents a durable transition.
+/// Build a crash point for every legal task and attempt transition.
 pub fn build_crash_matrix() -> Vec<CrashPoint> {
     let task_states = [
+        TaskState::Draft,
         TaskState::Queued,
+        TaskState::Planning,
+        TaskState::AwaitingPlanApproval,
         TaskState::Running,
+        TaskState::AwaitingInput,
+        TaskState::AwaitingApproval,
         TaskState::Verifying,
         TaskState::Reviewing,
+        TaskState::ReadyForHandoff,
+        TaskState::Done,
+        TaskState::Blocked,
+        TaskState::Retrying,
+        TaskState::Paused,
+        TaskState::Cancelled,
+        TaskState::Failed,
+        TaskState::Abandoned,
         TaskState::NeedsAttention,
     ];
+    let task_triggers = [
+        TaskTrigger::Queue,
+        TaskTrigger::StartPlanning,
+        TaskTrigger::RequestPlanApproval,
+        TaskTrigger::ApprovePlan,
+        TaskTrigger::RevisePlan,
+        TaskTrigger::StartRun,
+        TaskTrigger::NeedInput,
+        TaskTrigger::NeedApproval,
+        TaskTrigger::Resume,
+        TaskTrigger::Retry,
+        TaskTrigger::StartVerify,
+        TaskTrigger::StartReview,
+        TaskTrigger::ReadyForHandoff,
+        TaskTrigger::Rework,
+        TaskTrigger::Complete,
+        TaskTrigger::Pause,
+        TaskTrigger::Block,
+        TaskTrigger::Unblock,
+        TaskTrigger::Cancel,
+        TaskTrigger::Fail,
+        TaskTrigger::Abandon,
+        TaskTrigger::MarkNeedsAttention,
+        TaskTrigger::Resolve,
+    ];
     let attempt_states = [
+        AttemptState::Created,
         AttemptState::Started,
         AttemptState::Heartbeat,
         AttemptState::InputRequired,
         AttemptState::ApprovalRequired,
+        AttemptState::Steered,
+        AttemptState::CancelRequested,
         AttemptState::Completed,
         AttemptState::Failed,
         AttemptState::Stalled,
         AttemptState::Cancelled,
     ];
+    let attempt_triggers = [
+        AttemptTrigger::Start,
+        AttemptTrigger::Heartbeat,
+        AttemptTrigger::NeedInput,
+        AttemptTrigger::NeedApproval,
+        AttemptTrigger::Steer,
+        AttemptTrigger::Resume,
+        AttemptTrigger::RequestCancel,
+        AttemptTrigger::Cancel,
+        AttemptTrigger::Complete,
+        AttemptTrigger::Fail,
+        AttemptTrigger::Stall,
+    ];
 
     let mut points = Vec::new();
-    for &ts in &task_states {
-        for &as_ in &attempt_states {
-            // Skip nonsensical combinations.
-            if ts == TaskState::Queued && as_ != AttemptState::Started {
-                continue;
+    for &from in &task_states {
+        for &trigger in &task_triggers {
+            if let Ok(to) = from.transition(trigger) {
+                points.push(CrashPoint::Task {
+                    label: format!("task:{}--{}-->{}", from.name(), trigger.name(), to.name()),
+                    from,
+                    trigger,
+                    to,
+                });
             }
-            points.push(CrashPoint {
-                label: format!("{:?}+{:?}", ts, as_),
-                task_state: ts,
-                attempt_state: as_,
-            });
+        }
+    }
+    for &from in &attempt_states {
+        for &trigger in &attempt_triggers {
+            if let Ok(to) = from.transition(trigger) {
+                points.push(CrashPoint::Attempt {
+                    label: format!(
+                        "attempt:{}--{}-->{}",
+                        from.name(),
+                        trigger.name(),
+                        to.name()
+                    ),
+                    from,
+                    trigger,
+                    to,
+                });
+            }
         }
     }
     points
@@ -244,7 +401,8 @@ pub struct ScenarioBuilder {
 #[derive(Clone, Debug)]
 pub struct ScenarioEvent {
     pub attempt_id: String,
-    pub kind: RunnerEventKind,
+    /// `None` deliberately represents an unparseable/unknown runner kind.
+    pub kind: Option<RunnerEventKind>,
     pub payload: Value,
 }
 
@@ -256,7 +414,7 @@ impl ScenarioBuilder {
     pub fn start(mut self, attempt_id: &str) -> Self {
         self.events.push(ScenarioEvent {
             attempt_id: attempt_id.to_string(),
-            kind: RunnerEventKind::Started,
+            kind: Some(RunnerEventKind::Started),
             payload: json!({}),
         });
         self
@@ -265,7 +423,7 @@ impl ScenarioBuilder {
     pub fn heartbeat(mut self, attempt_id: &str) -> Self {
         self.events.push(ScenarioEvent {
             attempt_id: attempt_id.to_string(),
-            kind: RunnerEventKind::Heartbeat,
+            kind: Some(RunnerEventKind::Heartbeat),
             payload: json!({}),
         });
         self
@@ -274,7 +432,7 @@ impl ScenarioBuilder {
     pub fn output(mut self, attempt_id: &str, message: &str) -> Self {
         self.events.push(ScenarioEvent {
             attempt_id: attempt_id.to_string(),
-            kind: RunnerEventKind::Output,
+            kind: Some(RunnerEventKind::Output),
             payload: json!({ "message": message }),
         });
         self
@@ -283,7 +441,7 @@ impl ScenarioBuilder {
     pub fn need_input(mut self, attempt_id: &str, prompt: &str) -> Self {
         self.events.push(ScenarioEvent {
             attempt_id: attempt_id.to_string(),
-            kind: RunnerEventKind::InputRequired,
+            kind: Some(RunnerEventKind::InputRequired),
             payload: json!({ "prompt": prompt }),
         });
         self
@@ -292,7 +450,7 @@ impl ScenarioBuilder {
     pub fn need_approval(mut self, attempt_id: &str, description: &str) -> Self {
         self.events.push(ScenarioEvent {
             attempt_id: attempt_id.to_string(),
-            kind: RunnerEventKind::ApprovalRequired,
+            kind: Some(RunnerEventKind::ApprovalRequired),
             payload: json!({ "description": description }),
         });
         self
@@ -301,7 +459,7 @@ impl ScenarioBuilder {
     pub fn complete(mut self, attempt_id: &str) -> Self {
         self.events.push(ScenarioEvent {
             attempt_id: attempt_id.to_string(),
-            kind: RunnerEventKind::Completed,
+            kind: Some(RunnerEventKind::Completed),
             payload: json!({}),
         });
         self
@@ -310,7 +468,7 @@ impl ScenarioBuilder {
     pub fn fail(mut self, attempt_id: &str, error: &str) -> Self {
         self.events.push(ScenarioEvent {
             attempt_id: attempt_id.to_string(),
-            kind: RunnerEventKind::Failed,
+            kind: Some(RunnerEventKind::Failed),
             payload: json!({ "error": error }),
         });
         self
@@ -319,7 +477,7 @@ impl ScenarioBuilder {
     pub fn cancel(mut self, attempt_id: &str) -> Self {
         self.events.push(ScenarioEvent {
             attempt_id: attempt_id.to_string(),
-            kind: RunnerEventKind::Cancelled,
+            kind: Some(RunnerEventKind::Cancelled),
             payload: json!({}),
         });
         self
@@ -328,18 +486,17 @@ impl ScenarioBuilder {
     pub fn stall(mut self, attempt_id: &str) -> Self {
         self.events.push(ScenarioEvent {
             attempt_id: attempt_id.to_string(),
-            kind: RunnerEventKind::Stalled,
+            kind: Some(RunnerEventKind::Stalled),
             payload: json!({}),
         });
         self
     }
 
-    /// Inject a malformed event (invalid kind, garbage payload) for testing
-    /// coordinator robustness.
+    /// Inject an event with an unknown kind and malformed payload.
     pub fn inject_malformed(mut self, attempt_id: &str) -> Self {
         self.events.push(ScenarioEvent {
             attempt_id: attempt_id.to_string(),
-            kind: RunnerEventKind::Output,
+            kind: None,
             payload: Value::String("{{{malformed}}}".to_string()),
         });
         self
@@ -384,7 +541,7 @@ pub struct ReplayResult {
     pub passed: bool,
     pub task_id: String,
     pub expected: String,
-    pub actual: String,
+    pub actual: Option<String>,
     pub event_count: usize,
 }
 
@@ -392,29 +549,35 @@ pub struct ReplayResult {
 pub fn verify_replay(
     ledger: &OrchestrationLedger,
     expectations: &[ReplayExpectation],
-) -> Vec<ReplayResult> {
-    expectations
-        .iter()
-        .map(|exp| {
-            let actual = ledger
-                .task(&exp.task_id)
-                .ok()
-                .flatten()
-                .map(|t| t.state)
-                .unwrap_or(TaskState::Abandoned);
-            let passed = actual == exp.expected_state;
-            ReplayResult {
-                passed,
-                task_id: exp.task_id.clone(),
-                expected: format!("{:?}", exp.expected_state),
-                actual: format!("{:?}", actual),
-                event_count: ledger
-                    .events_for_task(&exp.task_id, 0, 1000)
-                    .map(|e| e.len())
-                    .unwrap_or(0),
-            }
-        })
-        .collect()
+) -> LedgerResult<Vec<ReplayResult>> {
+    let mut results = Vec::with_capacity(expectations.len());
+    for expectation in expectations {
+        let actual = ledger.task(&expectation.task_id)?.map(|task| task.state);
+        let event_count = count_events(ledger, &expectation.task_id)?;
+        results.push(ReplayResult {
+            passed: actual == Some(expectation.expected_state),
+            task_id: expectation.task_id.clone(),
+            expected: expectation.expected_state.name().to_string(),
+            actual: actual.map(|state| state.name().to_string()),
+            event_count,
+        });
+    }
+    Ok(results)
+}
+
+fn count_events(ledger: &OrchestrationLedger, task_id: &str) -> LedgerResult<usize> {
+    let mut count = 0usize;
+    let mut after_seq = 0;
+    loop {
+        let page = ledger.events_for_task(task_id, after_seq, EVENT_PAGE_SIZE)?;
+        if page.is_empty() {
+            return Ok(count);
+        }
+        count = count
+            .checked_add(page.len())
+            .ok_or(LedgerError::NumericOverflow("event_count"))?;
+        after_seq = page.last().map(|event| event.seq).unwrap_or(after_seq);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -436,6 +599,20 @@ fn now_ms() -> u64 {
 mod tests {
     use super::*;
     use crate::modules::orchestration::ledger::OrchestrationLedger;
+
+    fn task_record(task_id: &str, state: TaskState) -> TaskRecord {
+        TaskRecord {
+            task_id: task_id.into(),
+            workspace_key: "workspace".into(),
+            source_kind: "local".into(),
+            source_ref: "board".into(),
+            title: "Test task".into(),
+            description: String::new(),
+            state,
+            created_at_ms: 1,
+            updated_at_ms: 1,
+        }
+    }
 
     // ---- sanitizer ----
 
@@ -549,30 +726,74 @@ mod tests {
         assert_eq!(events[1].payload["password"], "[REDACTED]");
     }
 
+    #[test]
+    fn redacts_complete_structured_and_non_string_secret_values() {
+        let rules = vec![SanitizeRule {
+            key_pattern: "AUTHORIZATION".into(),
+            replacement: "[CUSTOM]".into(),
+        }];
+        let mut event = OrchestrationEvent {
+            event_id: "e1".into(),
+            task_id: "t1".into(),
+            seq: 1,
+            kind: "test".into(),
+            payload: json!({
+                "authorization": {"bearer": "short-secret"},
+                "AuthorizationCount": 42,
+                "message": "key sk-abcdefghijklmnop"
+            }),
+            recorded_at_ms: 100,
+        };
+
+        sanitize_event(&mut event, &rules);
+
+        assert_eq!(event.payload["authorization"], "[CUSTOM]");
+        assert_eq!(event.payload["AuthorizationCount"], "[CUSTOM]");
+        assert!(!event.payload["message"]
+            .as_str()
+            .unwrap()
+            .contains("sk-abcdefghijklmnop"));
+    }
+
     // ---- crash matrix ----
 
     #[test]
     fn crash_matrix_covers_all_states() {
         let matrix = build_crash_matrix();
         assert!(!matrix.is_empty(), "should have crash points");
-        // Verify it covers the Running+Started combination.
-        assert!(matrix.iter().any(|p| {
-            p.task_state == TaskState::Running && p.attempt_state == AttemptState::Started
-        }));
+        assert!(matrix.iter().any(|point| matches!(
+            point,
+            CrashPoint::Task {
+                from: TaskState::Running,
+                trigger: TaskTrigger::StartVerify,
+                to: TaskState::Verifying,
+                ..
+            }
+        )));
+        assert!(matrix.iter().any(|point| matches!(
+            point,
+            CrashPoint::Attempt {
+                from: AttemptState::Created,
+                trigger: AttemptTrigger::Start,
+                to: AttemptState::Started,
+                ..
+            }
+        )));
     }
 
     #[test]
-    fn crash_matrix_skips_nonsensical_combos() {
+    fn every_crash_point_is_a_legal_transition() {
         let matrix = build_crash_matrix();
-        // Queued task should only have Started attempt.
-        let queued = matrix
-            .iter()
-            .filter(|p| p.task_state == TaskState::Queued)
-            .collect::<Vec<_>>();
-        assert!(!queued.is_empty());
-        assert!(queued
-            .iter()
-            .all(|p| p.attempt_state == AttemptState::Started));
+        for point in matrix {
+            match point {
+                CrashPoint::Task {
+                    from, trigger, to, ..
+                } => assert_eq!(from.transition(trigger).unwrap(), to),
+                CrashPoint::Attempt {
+                    from, trigger, to, ..
+                } => assert_eq!(from.transition(trigger).unwrap(), to),
+            }
+        }
     }
 
     // ---- failure matrix ----
@@ -607,9 +828,9 @@ mod tests {
             .complete("att-1")
             .build();
         assert_eq!(events.len(), 3);
-        assert_eq!(events[0].kind, RunnerEventKind::Started);
-        assert_eq!(events[1].kind, RunnerEventKind::Output);
-        assert_eq!(events[2].kind, RunnerEventKind::Completed);
+        assert_eq!(events[0].kind, Some(RunnerEventKind::Started));
+        assert_eq!(events[1].kind, Some(RunnerEventKind::Output));
+        assert_eq!(events[2].kind, Some(RunnerEventKind::Completed));
     }
 
     #[test]
@@ -619,7 +840,7 @@ mod tests {
             .fail("att-1", "OOM")
             .build();
         assert_eq!(events.len(), 2);
-        assert_eq!(events[1].kind, RunnerEventKind::Failed);
+        assert_eq!(events[1].kind, Some(RunnerEventKind::Failed));
         assert_eq!(events[1].payload["error"], "OOM");
     }
 
@@ -631,8 +852,8 @@ mod tests {
             .need_approval("att-1", "Merge to main?")
             .build();
         assert_eq!(events.len(), 3);
-        assert_eq!(events[1].kind, RunnerEventKind::InputRequired);
-        assert_eq!(events[2].kind, RunnerEventKind::ApprovalRequired);
+        assert_eq!(events[1].kind, Some(RunnerEventKind::InputRequired));
+        assert_eq!(events[2].kind, Some(RunnerEventKind::ApprovalRequired));
     }
 
     #[test]
@@ -643,6 +864,7 @@ mod tests {
             .complete("att-1")
             .build();
         assert_eq!(events.len(), 3);
+        assert!(events[1].kind.is_none());
         assert!(events[1].payload.is_string());
     }
 
@@ -666,7 +888,7 @@ mod tests {
         let ledger = OrchestrationLedger::open_in_memory().unwrap();
         // We can't easily create tasks in the ledger without the full create
         // flow, so just test the sanitizer path with empty data.
-        let bundle = export_support_bundle(&ledger, &[], true, "test");
+        let bundle = export_support_bundle(&ledger, &[], true, "test").unwrap();
         assert!(bundle.sanitized);
         assert_eq!(bundle.schema_version, 1);
         assert!(bundle.events.is_empty());
@@ -675,9 +897,46 @@ mod tests {
     #[test]
     fn support_bundle_export_unsanitized() {
         let ledger = OrchestrationLedger::open_in_memory().unwrap();
-        let bundle = export_support_bundle(&ledger, &[], false, "prod");
+        let bundle = export_support_bundle(&ledger, &[], false, "prod").unwrap();
         assert!(!bundle.sanitized);
         assert_eq!(bundle.source, "prod");
+    }
+
+    #[test]
+    fn support_bundle_propagates_unknown_tasks() {
+        let ledger = OrchestrationLedger::open_in_memory().unwrap();
+        assert!(matches!(
+            export_support_bundle(&ledger, &["missing"], true, "test"),
+            Err(LedgerError::UnknownTask { task_id }) if task_id == "missing"
+        ));
+    }
+
+    #[test]
+    fn support_bundle_sanitizes_metadata_and_paginates_all_events() {
+        let ledger = OrchestrationLedger::open_in_memory().unwrap();
+        let mut task = task_record("t-1", TaskState::Running);
+        task.description = "credential sk-abcdefghijklmnop".into();
+        ledger.upsert_task(&task).unwrap();
+        for index in 0..1_001 {
+            ledger
+                .record_event(&OrchestrationEvent {
+                    event_id: format!("event-{index}"),
+                    task_id: "t-1".into(),
+                    seq: 0,
+                    kind: "test".into(),
+                    payload: json!({"index": index}),
+                    recorded_at_ms: index,
+                })
+                .unwrap();
+        }
+
+        let bundle =
+            export_support_bundle(&ledger, &["t-1", "t-1"], true, "sk-abcdefghijklmnop").unwrap();
+
+        assert_eq!(bundle.tasks.len(), 1);
+        assert_eq!(bundle.events.len(), 1_001);
+        assert!(!bundle.tasks[0].description.contains("sk-abcdefghijklmnop"));
+        assert!(!bundle.source.contains("sk-abcdefghijklmnop"));
     }
 
     // ---- replay verifier ----
@@ -689,11 +948,44 @@ mod tests {
             &ledger,
             &[ReplayExpectation {
                 task_id: "nonexistent".into(),
-                expected_state: TaskState::Done,
+                expected_state: TaskState::Abandoned,
             }],
-        );
+        )
+        .unwrap();
         assert_eq!(results.len(), 1);
         assert!(!results[0].passed);
+        assert_eq!(results[0].actual, None);
+    }
+
+    #[test]
+    fn verify_replay_reports_state_and_all_events() {
+        let ledger = OrchestrationLedger::open_in_memory().unwrap();
+        ledger
+            .upsert_task(&task_record("t-1", TaskState::Running))
+            .unwrap();
+        ledger
+            .record_event(&OrchestrationEvent {
+                event_id: "event-1".into(),
+                task_id: "t-1".into(),
+                seq: 0,
+                kind: "test".into(),
+                payload: json!({}),
+                recorded_at_ms: 1,
+            })
+            .unwrap();
+
+        let results = verify_replay(
+            &ledger,
+            &[ReplayExpectation {
+                task_id: "t-1".into(),
+                expected_state: TaskState::Running,
+            }],
+        )
+        .unwrap();
+
+        assert!(results[0].passed);
+        assert_eq!(results[0].actual.as_deref(), Some("running"));
+        assert_eq!(results[0].event_count, 1);
     }
 
     // ---- H3 acceptance: no paid model calls ----
@@ -709,17 +1001,19 @@ mod tests {
             .build();
         for e in &events {
             assert!(matches!(
-                e.kind,
-                RunnerEventKind::Started
-                    | RunnerEventKind::Output
-                    | RunnerEventKind::Completed
-                    | RunnerEventKind::Failed
-                    | RunnerEventKind::Heartbeat
-                    | RunnerEventKind::InputRequired
-                    | RunnerEventKind::ApprovalRequired
-                    | RunnerEventKind::CancelRequested
-                    | RunnerEventKind::Cancelled
-                    | RunnerEventKind::Stalled
+                e.kind.as_ref(),
+                Some(
+                    RunnerEventKind::Started
+                        | RunnerEventKind::Output
+                        | RunnerEventKind::Completed
+                        | RunnerEventKind::Failed
+                        | RunnerEventKind::Heartbeat
+                        | RunnerEventKind::InputRequired
+                        | RunnerEventKind::ApprovalRequired
+                        | RunnerEventKind::CancelRequested
+                        | RunnerEventKind::Cancelled
+                        | RunnerEventKind::Stalled
+                )
             ));
         }
     }
