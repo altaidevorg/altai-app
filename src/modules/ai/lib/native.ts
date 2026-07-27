@@ -377,6 +377,210 @@ export type GardeningRunResult = {
   schedule: GardeningSchedule;
 };
 
+// --- Orchestration v2 types (C1-C3 frontend) ---
+
+export type ReadinessCategory =
+  | "instructions"
+  | "architecture"
+  | "test_build"
+  | "environment"
+  | "dependencies"
+  | "security"
+  | "stale_instructions"
+  | "worktree"
+  | "browser";
+
+export type Evidence = { path: string; detail: string };
+
+export type CategoryScore = {
+  category: ReadinessCategory;
+  score: number;
+  evidence: Evidence[];
+  notes: string[];
+};
+
+export type ReadinessReport = {
+  repoPath: string;
+  overallScore: number;
+  categories: CategoryScore[];
+  recommendations: string[];
+};
+
+export type QualityMetrics = {
+  totalTasks: number;
+  firstAttemptSuccess: number;
+  tasksWithRetries: number;
+  abandoned: number;
+  firstAttemptSuccessRate: number | null;
+  retryRate: number | null;
+  abandonmentRate: number | null;
+  duplicateDispatchCount: number;
+  recoveryAttempts: number;
+  recoverySuccesses: number;
+  recoverySuccessRate: number | null;
+  medianTimeToFirstActivityMs: number | null;
+  medianTimeToHandoffMs: number | null;
+  verificationFailures: number;
+  verificationFailureRate: number | null;
+  approvalsRequested: number;
+  approvalsGranted: number;
+  approvalsDenied: number;
+  approvalsExpired: number;
+  steeringFrequency: number;
+  staleTaskCount: number;
+  staleThresholdMs: number;
+  computedAtMs: number;
+};
+
+export type DocRole =
+  | "agent_map"
+  | "architecture"
+  | "product"
+  | "reliability"
+  | "security"
+  | "execution_plan"
+  | "test"
+  | "readme"
+  | "other";
+
+export type ContextEntry = {
+  path: string;
+  revision: string;
+  bytes: number;
+  role: DocRole;
+  included: boolean;
+  relevance: number;
+  reason: string;
+};
+
+export type StaleLink = { source: string; linkTarget: string };
+
+export type ContextPack = {
+  taskSummary: string;
+  manifest: ContextEntry[];
+  totalBytes: number;
+  budgetBytes: number;
+  truncated: boolean;
+  warnings: string[];
+  staleLinks: StaleLink[];
+};
+
+export type CheckStatus =
+  | "passed"
+  | "failed"
+  | "timeout"
+  | "skipped"
+  | "unavailable";
+
+export type CheckResult = {
+  name: string;
+  status: CheckStatus;
+  durationMs: number;
+  output: string;
+  exitCode: number | null;
+  attempts: number;
+  required?: boolean;
+};
+
+export type GateResult = {
+  passed: boolean;
+  total: number;
+  passedCount: number;
+  failedCount: number;
+  skippedCount: number;
+  blockingFailures: string[];
+};
+
+export type FindingSeverity =
+  | "info"
+  | "style"
+  | "warning"
+  | "error"
+  | "blocker";
+
+export type ReviewFinding = {
+  id: string;
+  severity: FindingSeverity;
+  file: string;
+  line: number | null;
+  message: string;
+  evidence: string;
+  suggestedFix: string | null;
+  iteration: number;
+  resolved: boolean;
+  resolvedBy: string | null;
+};
+
+export type ReviewResult = {
+  findings: ReviewFinding[];
+  iteration: number;
+  blockingCount: number;
+  styleOnly: boolean;
+};
+
+export type SelectionSource = "manual" | "inferred" | "default";
+
+export type ProfileSelection = {
+  profileName: string;
+  source: SelectionSource;
+  reason: string;
+};
+
+export type AttemptOutcome =
+  | "success"
+  | "failure"
+  | "expensive"
+  | "abandoned";
+
+export type SignalKind =
+  | "high_retry_count"
+  | "slow_start"
+  | "rapid_failure"
+  | "missing_context"
+  | "excessive_output"
+  | "repeated_error"
+  | "long_running";
+
+export type AnalysisSignal = { kind: SignalKind; detail: string };
+
+export type AttemptAnalysis = {
+  taskId: string;
+  outcome: AttemptOutcome;
+  attemptCount: number;
+  durationMs: number | null;
+  signals: AnalysisSignal[];
+  errorSummary: string | null;
+};
+
+export type ChildDiff = {
+  taskId: string;
+  commitId: string;
+  modifiedFiles: string[];
+  addedFiles: string[];
+  deletedFiles: string[];
+};
+
+export type OverlapSeverity =
+  | "modify_modify"
+  | "add_delete"
+  | "delete_delete";
+
+export type DiffOverlap = {
+  taskA: string;
+  taskB: string;
+  overlappingFiles: string[];
+  severity: OverlapSeverity;
+};
+
+export type SupportBundle = {
+  schemaVersion: number;
+  createdAtMs: number;
+  events: unknown[];
+  tasks: unknown[];
+  sanitized: boolean;
+  source: string;
+};
+
 export const native = {
   workspaceCurrentDir: () => invoke<string>("workspace_current_dir"),
   /** Mirror the recent-folders list into the OS taskbar/Dock menu. */
@@ -1125,4 +1329,115 @@ export const native = {
       content,
       workspace: currentWorkspaceEnv(),
     }),
+
+  // --- Orchestration v2 commands (C1-C3 frontend) ---
+
+  orchestrationQualityMetrics: (
+    dbPath: string,
+    workspaceKey: string,
+    staleThresholdMs: number,
+  ) =>
+    invoke<QualityMetrics>("orchestration_quality_metrics", {
+      dbPath,
+      workspaceKey,
+      staleThresholdMs,
+      workspace: currentWorkspaceEnv(),
+    }),
+
+  orchestrationReadinessScan: (repoPath: string) =>
+    invoke<ReadinessReport>("orchestration_readiness_scan", {
+      repoPath,
+      workspace: currentWorkspaceEnv(),
+    }),
+
+  orchestrationContextPack: (
+    repoPath: string,
+    taskDescription: string,
+    budgetBytes?: number,
+  ) =>
+    invoke<ContextPack>("orchestration_context_pack", {
+      repoPath,
+      taskDescription,
+      budgetBytes: budgetBytes ?? null,
+      workspace: currentWorkspaceEnv(),
+    }),
+
+  orchestrationGraphEligible: (workspaceKey: string, completed: string[]) =>
+    invoke<string[]>("orchestration_graph_eligible", {
+      workspaceKey,
+      completed,
+      workspace: currentWorkspaceEnv(),
+    }),
+
+  orchestrationGraphBlockedReason: (
+    workspaceKey: string,
+    taskId: string,
+    completed: string[],
+  ) =>
+    invoke<string[] | null>("orchestration_graph_blocked_reason", {
+      workspaceKey,
+      taskId,
+      completed,
+      workspace: currentWorkspaceEnv(),
+    }),
+
+  orchestrationProfileSelect: (
+    workspaceKey: string,
+    manualChoice: string | null,
+    taskDescription: string,
+    defaultProfile: string,
+  ) =>
+    invoke<ProfileSelection>("orchestration_profile_select", {
+      workspaceKey,
+      manualChoice,
+      taskDescription,
+      defaultProfile,
+      workspace: currentWorkspaceEnv(),
+    }),
+
+  orchestrationCheckGate: (results: CheckResult[]) =>
+    invoke<GateResult>("orchestration_check_gate", { results }),
+
+  orchestrationReviewEvaluate: (
+    findings: ReviewFinding[],
+    allowStyleBlocking: boolean,
+  ) =>
+    invoke<ReviewResult>("orchestration_review_evaluate", {
+      findings,
+      allowStyleBlocking,
+    }),
+
+  orchestrationUsageShouldStop: (workspaceKey: string, taskId: string) =>
+    invoke<boolean>("orchestration_usage_should_stop", {
+      workspaceKey,
+      taskId,
+      workspace: currentWorkspaceEnv(),
+    }),
+
+  orchestrationDetectOverlaps: (diffs: ChildDiff[]) =>
+    invoke<DiffOverlap[]>("orchestration_detect_overlaps", { diffs }),
+
+  orchestrationSessionAnalyze: (dbPath: string, workspaceKey: string) =>
+    invoke<AttemptAnalysis[]>("orchestration_session_analyze", {
+      dbPath,
+      workspaceKey,
+      workspace: currentWorkspaceEnv(),
+    }),
+
+  orchestrationSupportBundle: (
+    dbPath: string,
+    workspaceKey: string,
+    taskIds: string[],
+    source: string,
+  ) =>
+    invoke<SupportBundle>("orchestration_support_bundle", {
+      dbPath,
+      workspaceKey,
+      taskIds,
+      source,
+      workspace: currentWorkspaceEnv(),
+    }),
+
+  orchestrationSchemaVersion: () =>
+    invoke<number>("orchestration_schema_version"),
 };
