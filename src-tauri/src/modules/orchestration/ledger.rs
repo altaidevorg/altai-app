@@ -213,7 +213,7 @@ CREATE INDEX IF NOT EXISTS orchestration_decisions_recent
 // Records
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct TaskRecord {
     pub task_id: String,
     pub workspace_key: String,
