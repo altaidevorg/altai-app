@@ -22,7 +22,7 @@ use std::path::Path;
 use std::sync::Mutex;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-const SCHEMA_VERSION: i64 = 2;
+const SCHEMA_VERSION: i64 = 3;
 const MAX_EVENT_LIMIT: usize = 1_000;
 const MAX_EVENT_PAYLOAD_BYTES: usize = 256 * 1024;
 
@@ -93,6 +93,33 @@ ALTER TABLE orchestration_tasks
 ADD COLUMN description TEXT NOT NULL DEFAULT '';
 "#;
 
+const MIGRATION_V3: &str = r#"
+CREATE TABLE IF NOT EXISTS orchestration_approvals (
+    approval_id      TEXT PRIMARY KEY,
+    task_id          TEXT NOT NULL,
+    attempt_id       TEXT NOT NULL,
+    action_desc      TEXT NOT NULL,
+    risk_level       TEXT NOT NULL CHECK (risk_level IN ('none','medium','high')),
+    state            TEXT NOT NULL CHECK (state IN ('pending','approved','denied','expired','auto_resolved')),
+    requested_at_ms  INTEGER NOT NULL CHECK (requested_at_ms >= 0),
+    expires_at_ms    INTEGER CHECK (expires_at_ms IS NULL OR expires_at_ms >= 0),
+    decided_at_ms    INTEGER CHECK (decided_at_ms IS NULL OR decided_at_ms >= 0),
+    decided_by       TEXT,
+    decision_reason  TEXT,
+    CHECK (
+        (state = 'pending' AND decided_at_ms IS NULL AND decided_by IS NULL)
+        OR
+        (state != 'pending' AND decided_at_ms IS NOT NULL AND decided_by IS NOT NULL)
+    )
+) WITHOUT ROWID;
+
+CREATE INDEX IF NOT EXISTS orchestration_approvals_task
+    ON orchestration_approvals (task_id);
+
+CREATE INDEX IF NOT EXISTS orchestration_approvals_state
+    ON orchestration_approvals (state);
+"#;
+
 // ---------------------------------------------------------------------------
 // Records
 // ---------------------------------------------------------------------------
@@ -134,6 +161,113 @@ pub struct OrchestrationEvent {
     pub kind: String,
     pub payload: Value,
     pub recorded_at_ms: u64,
+}
+
+// ---------------------------------------------------------------------------
+// Approvals (B2 — policy & approval engine)
+// ---------------------------------------------------------------------------
+
+/// Lifecycle of an approval request persisted to the ledger.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ApprovalState {
+    Pending,
+    Approved,
+    Denied,
+    Expired,
+    AutoResolved,
+}
+
+impl ApprovalState {
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Pending => "pending",
+            Self::Approved => "approved",
+            Self::Denied => "denied",
+            Self::Expired => "expired",
+            Self::AutoResolved => "auto_resolved",
+        }
+    }
+
+    pub fn parse(value: &str) -> Option<Self> {
+        Some(match value {
+            "pending" => Self::Pending,
+            "approved" => Self::Approved,
+            "denied" => Self::Denied,
+            "expired" => Self::Expired,
+            "auto_resolved" => Self::AutoResolved,
+            _ => return None,
+        })
+    }
+
+    pub fn is_terminal(self) -> bool {
+        !matches!(self, Self::Pending)
+    }
+}
+
+/// Who or what resolved an approval.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ApprovalDecidedBy {
+    Human,
+    Timeout,
+    Policy,
+}
+
+impl ApprovalDecidedBy {
+    pub fn name(&self) -> &'static str {
+        match self {
+            Self::Human => "human",
+            Self::Timeout => "timeout",
+            Self::Policy => "policy",
+        }
+    }
+
+    pub fn parse(value: &str) -> Self {
+        match value {
+            "timeout" => Self::Timeout,
+            "policy" => Self::Policy,
+            _ => Self::Human,
+        }
+    }
+}
+
+/// The durable record of an approval request and its resolution (B2 §4).
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ApprovalRecord {
+    pub approval_id: String,
+    pub task_id: String,
+    pub attempt_id: String,
+    pub action_desc: String,
+    pub risk_level: String,
+    pub state: ApprovalState,
+    pub requested_at_ms: u64,
+    pub expires_at_ms: Option<u64>,
+    pub decided_at_ms: Option<u64>,
+    pub decided_by: Option<ApprovalDecidedBy>,
+    pub decision_reason: Option<String>,
+}
+
+/// Input for creating an approval request.
+#[derive(Debug, Clone)]
+pub struct CreateApprovalRequest {
+    pub approval_id: String,
+    pub task_id: String,
+    pub attempt_id: String,
+    pub action_desc: String,
+    pub risk_level: String,
+    pub expires_at_ms: Option<u64>,
+    pub now_ms: u64,
+}
+
+/// Input for resolving a pending approval (first decision wins).
+#[derive(Debug, Clone)]
+pub struct ResolveApprovalRequest {
+    pub approval_id: String,
+    pub approved: bool,
+    pub decided_by: ApprovalDecidedBy,
+    pub reason: Option<String>,
+    pub now_ms: u64,
 }
 
 /// Input for creating an attempt. The `idempotency_key` is the deduplication
@@ -205,6 +339,13 @@ pub enum LedgerError {
         task_id: String,
         attempt_no: u32,
     },
+    UnknownApproval {
+        approval_id: String,
+    },
+    ApprovalAlreadyResolved {
+        approval_id: String,
+        state: String,
+    },
     LockPoisoned,
 }
 
@@ -251,6 +392,12 @@ impl fmt::Display for LedgerError {
                 f,
                 "attempt number {attempt_no} already exists for task {task_id}"
             ),
+            LedgerError::UnknownApproval { approval_id } => {
+                write!(f, "unknown approval {approval_id}")
+            }
+            LedgerError::ApprovalAlreadyResolved { approval_id, state } => {
+                write!(f, "approval {approval_id} already resolved as {state}")
+            }
             LedgerError::LockPoisoned => write!(f, "ledger connection lock is poisoned"),
         }
     }
@@ -918,11 +1065,196 @@ impl OrchestrationLedger {
         rows.collect::<Result<Vec<_>, _>>()
             .map_err(LedgerError::from)
     }
-}
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
+    // ----- approvals -------------------------------------------------------
+
+    /// Create a pending approval request. Returns `Duplicate` if an approval
+    /// with the same id already exists (idempotent replay).
+    pub fn create_approval_request(
+        &self,
+        request: &CreateApprovalRequest,
+    ) -> LedgerResult<WriteStatus> {
+        validate_nonempty(&request.approval_id, "approval_id")?;
+        validate_nonempty(&request.task_id, "task_id")?;
+        validate_nonempty(&request.attempt_id, "attempt_id")?;
+        validate_nonempty(&request.action_desc, "action_desc")?;
+        let now = sqlite_u64(request.now_ms, "now_ms")?;
+        let expires = match request.expires_at_ms {
+            Some(ms) => Some(sqlite_u64(ms, "expires_at_ms")?),
+            None => None,
+        };
+        let connection = self
+            .connection
+            .lock()
+            .map_err(|_| LedgerError::LockPoisoned)?;
+        let inserted = connection.execute(
+            "INSERT OR IGNORE INTO orchestration_approvals
+                (approval_id, task_id, attempt_id, action_desc, risk_level, state,
+                 requested_at_ms, expires_at_ms, decided_at_ms, decided_by, decision_reason)
+             VALUES (?1, ?2, ?3, ?4, ?5, 'pending', ?6, ?7, NULL, NULL, NULL)",
+            params![
+                request.approval_id,
+                request.task_id,
+                request.attempt_id,
+                request.action_desc,
+                request.risk_level,
+                now,
+                expires,
+            ],
+        )?;
+        if inserted == 0 {
+            Ok(WriteStatus::Duplicate)
+        } else {
+            Ok(WriteStatus::Written)
+        }
+    }
+
+    /// Resolve a pending approval. First decision wins: a second call on an
+    /// already-resolved approval returns `ApprovalAlreadyResolved`.
+    pub fn resolve_approval(
+        &self,
+        request: &ResolveApprovalRequest,
+    ) -> LedgerResult<ApprovalRecord> {
+        validate_nonempty(&request.approval_id, "approval_id")?;
+        let now = sqlite_u64(request.now_ms, "now_ms")?;
+        let new_state = if request.approved {
+            "approved"
+        } else {
+            "denied"
+        };
+        let mut connection = self
+            .connection
+            .lock()
+            .map_err(|_| LedgerError::LockPoisoned)?;
+        let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let current_state: Option<String> = transaction
+            .query_row(
+                "SELECT state FROM orchestration_approvals WHERE approval_id = ?1",
+                params![request.approval_id],
+                |row| row.get(0),
+            )
+            .optional()?;
+        let Some(current_state) = current_state else {
+            return Err(LedgerError::UnknownApproval {
+                approval_id: request.approval_id.clone(),
+            });
+        };
+        if current_state != "pending" {
+            return Err(LedgerError::ApprovalAlreadyResolved {
+                approval_id: request.approval_id.clone(),
+                state: current_state,
+            });
+        }
+        let updated = transaction.execute(
+            "UPDATE orchestration_approvals
+                SET state = ?1, decided_at_ms = ?2, decided_by = ?3, decision_reason = ?4
+              WHERE approval_id = ?5 AND state = 'pending'",
+            params![
+                new_state,
+                now,
+                request.decided_by.name(),
+                request.reason,
+                request.approval_id,
+            ],
+        )?;
+        if updated == 0 {
+            return Err(LedgerError::ApprovalAlreadyResolved {
+                approval_id: request.approval_id.clone(),
+                state: "pending".into(),
+            });
+        }
+        let record = fetch_approval_tx(&transaction, &request.approval_id)?;
+        transaction.commit()?;
+        Ok(record)
+    }
+
+    /// Mark all pending approvals whose expiry has passed as `expired`.
+    /// Returns the IDs that transitioned.
+    pub fn expire_pending_approvals(&self, now_ms: u64) -> LedgerResult<Vec<String>> {
+        let now = sqlite_u64(now_ms, "now_ms")?;
+        let mut connection = self
+            .connection
+            .lock()
+            .map_err(|_| LedgerError::LockPoisoned)?;
+        let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let updated = transaction.execute(
+            "UPDATE orchestration_approvals
+                SET state = 'expired', decided_at_ms = ?1, decided_by = 'timeout',
+                    decision_reason = 'approval expired'
+              WHERE state = 'pending'
+                AND expires_at_ms IS NOT NULL
+                AND expires_at_ms <= ?1",
+            params![now],
+        )?;
+        if updated == 0 {
+            return Ok(Vec::new());
+        }
+        let ids: Vec<String> = transaction
+            .prepare(
+                "SELECT approval_id FROM orchestration_approvals
+                  WHERE state = 'expired' AND decided_at_ms = ?1",
+            )?
+            .query_map(params![now], |row| row.get::<_, String>(0))?
+            .collect::<Result<Vec<_>, _>>()?;
+        transaction.commit()?;
+        Ok(ids)
+    }
+
+    /// Fetch a single approval by id.
+    pub fn approval(&self, approval_id: &str) -> LedgerResult<Option<ApprovalRecord>> {
+        validate_nonempty(approval_id, "approval_id")?;
+        let connection = self
+            .connection
+            .lock()
+            .map_err(|_| LedgerError::LockPoisoned)?;
+        let mut statement = connection.prepare(
+            "SELECT approval_id, task_id, attempt_id, action_desc, risk_level, state,
+                    requested_at_ms, expires_at_ms, decided_at_ms, decided_by, decision_reason
+             FROM orchestration_approvals WHERE approval_id = ?1",
+        )?;
+        statement
+            .query_row(params![approval_id], decode_approval)
+            .optional()
+            .map_err(LedgerError::from)
+    }
+
+    /// All pending approvals, ordered by request time (oldest first).
+    pub fn pending_approvals(&self) -> LedgerResult<Vec<ApprovalRecord>> {
+        let connection = self
+            .connection
+            .lock()
+            .map_err(|_| LedgerError::LockPoisoned)?;
+        let mut statement = connection.prepare(
+            "SELECT approval_id, task_id, attempt_id, action_desc, risk_level, state,
+                    requested_at_ms, expires_at_ms, decided_at_ms, decided_by, decision_reason
+             FROM orchestration_approvals
+             WHERE state = 'pending'
+             ORDER BY requested_at_ms ASC",
+        )?;
+        let rows = statement.query_map([], decode_approval)?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(LedgerError::from)
+    }
+
+    /// All approvals for a task (pending and resolved), ordered by request time.
+    pub fn approvals_for_task(&self, task_id: &str) -> LedgerResult<Vec<ApprovalRecord>> {
+        validate_nonempty(task_id, "task_id")?;
+        let connection = self
+            .connection
+            .lock()
+            .map_err(|_| LedgerError::LockPoisoned)?;
+        let mut statement = connection.prepare(
+            "SELECT approval_id, task_id, attempt_id, action_desc, risk_level, state,
+                    requested_at_ms, expires_at_ms, decided_at_ms, decided_by, decision_reason
+             FROM orchestration_approvals
+             WHERE task_id = ?1
+             ORDER BY requested_at_ms ASC",
+        )?;
+        let rows = statement.query_map(params![task_id], decode_approval)?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(LedgerError::from)
+    }
+}
 
 fn append_event_tx(
     transaction: &Transaction<'_>,
@@ -1200,6 +1532,47 @@ fn decode_event(row: &rusqlite::Row<'_>) -> rusqlite::Result<OrchestrationEvent>
     })
 }
 
+fn decode_approval(row: &rusqlite::Row<'_>) -> rusqlite::Result<ApprovalRecord> {
+    let state_str: String = row.get(5)?;
+    let state = ApprovalState::parse(&state_str).ok_or_else(|| {
+        rusqlite::Error::FromSqlConversionFailure(
+            5,
+            rusqlite::types::Type::Text,
+            format!("unknown approval state: {state_str}").into(),
+        )
+    })?;
+    let decided_by_str: Option<String> = row.get(9)?;
+    let decided_by = decided_by_str.map(|s| ApprovalDecidedBy::parse(&s));
+    Ok(ApprovalRecord {
+        approval_id: row.get(0)?,
+        task_id: row.get(1)?,
+        attempt_id: row.get(2)?,
+        action_desc: row.get(3)?,
+        risk_level: row.get(4)?,
+        state,
+        requested_at_ms: decode_u64(row, 6, "requested_at_ms")?,
+        expires_at_ms: decode_optional_u64(row, 7, "expires_at_ms")?,
+        decided_at_ms: decode_optional_u64(row, 8, "decided_at_ms")?,
+        decided_by,
+        decision_reason: row.get(10)?,
+    })
+}
+
+fn fetch_approval_tx(
+    transaction: &Transaction<'_>,
+    approval_id: &str,
+) -> LedgerResult<ApprovalRecord> {
+    transaction
+        .query_row(
+            "SELECT approval_id, task_id, attempt_id, action_desc, risk_level, state,
+                    requested_at_ms, expires_at_ms, decided_at_ms, decided_by, decision_reason
+             FROM orchestration_approvals WHERE approval_id = ?1",
+            params![approval_id],
+            decode_approval,
+        )
+        .map_err(LedgerError::from)
+}
+
 fn validate_nonempty(value: &str, field: &'static str) -> LedgerResult<()> {
     if value.trim().is_empty() {
         return Err(LedgerError::InvalidField(field));
@@ -1236,6 +1609,14 @@ fn migrate(connection: &mut Connection) -> LedgerResult<()> {
         transaction.execute_batch(MIGRATION_V2)?;
         transaction.execute(
             "INSERT INTO orchestration_migrations (version, applied_at_ms) VALUES (2, ?1)",
+            params![applied_at_ms],
+        )?;
+    }
+    if current < 3 {
+        let applied_at_ms = now_ms();
+        transaction.execute_batch(MIGRATION_V3)?;
+        transaction.execute(
+            "INSERT INTO orchestration_migrations (version, applied_at_ms) VALUES (3, ?1)",
             params![applied_at_ms],
         )?;
     }
@@ -1323,11 +1704,11 @@ mod tests {
         let temp = tempfile::tempdir().expect("tempdir");
         let path = temp.path().join("ledger.sqlite3");
         let ledger = OrchestrationLedger::open(&path).expect("open");
-        assert_eq!(ledger.schema_version().expect("schema"), 2);
+        assert_eq!(ledger.schema_version().expect("schema"), 3);
         drop(ledger);
         // Reopening must not re-apply or fail.
         let reopened = OrchestrationLedger::open(&path).expect("reopen");
-        assert_eq!(reopened.schema_version().expect("schema"), 2);
+        assert_eq!(reopened.schema_version().expect("schema"), 3);
     }
 
     #[test]
@@ -1362,7 +1743,7 @@ mod tests {
         drop(connection);
 
         let ledger = OrchestrationLedger::open(&path).expect("upgrade");
-        assert_eq!(ledger.schema_version().expect("schema"), 2);
+        assert_eq!(ledger.schema_version().expect("schema"), 3);
         let task = ledger.task("t1").expect("lookup").expect("task");
         assert_eq!(task.title, "Legacy task");
         assert_eq!(task.description, "");
@@ -1958,5 +2339,271 @@ mod tests {
             std::fs::read(&target).expect("target remains readable"),
             b"not a database"
         );
+    }
+
+    // ----- approval store tests (B2) ---------------------------------------
+
+    fn approval_req(id: &str, task: &str, attempt: &str) -> CreateApprovalRequest {
+        CreateApprovalRequest {
+            approval_id: id.into(),
+            task_id: task.into(),
+            attempt_id: attempt.into(),
+            action_desc: "git push --force origin main".into(),
+            risk_level: "high".into(),
+            expires_at_ms: None,
+            now_ms: 5_000,
+        }
+    }
+
+    #[test]
+    fn create_and_fetch_approval() {
+        let ledger = OrchestrationLedger::open_in_memory().unwrap();
+        ledger
+            .upsert_task(&task("t-1", TaskState::Running))
+            .unwrap();
+
+        let status = ledger
+            .create_approval_request(&approval_req("ap-1", "t-1", "t-1-att-1"))
+            .unwrap();
+        assert_eq!(status, WriteStatus::Written);
+
+        let rec = ledger.approval("ap-1").unwrap().expect("present");
+        assert_eq!(rec.task_id, "t-1");
+        assert_eq!(rec.state, ApprovalState::Pending);
+        assert_eq!(rec.risk_level, "high");
+        assert!(rec.decided_at_ms.is_none());
+    }
+
+    #[test]
+    fn create_approval_idempotent() {
+        let ledger = OrchestrationLedger::open_in_memory().unwrap();
+        ledger
+            .upsert_task(&task("t-1", TaskState::Running))
+            .unwrap();
+
+        ledger
+            .create_approval_request(&approval_req("ap-1", "t-1", "t-1-att-1"))
+            .unwrap();
+        let status = ledger
+            .create_approval_request(&approval_req("ap-1", "t-1", "t-1-att-1"))
+            .unwrap();
+        assert_eq!(status, WriteStatus::Duplicate);
+    }
+
+    #[test]
+    fn resolve_approval_first_decision_wins() {
+        let ledger = OrchestrationLedger::open_in_memory().unwrap();
+        ledger
+            .upsert_task(&task("t-1", TaskState::Running))
+            .unwrap();
+        ledger
+            .create_approval_request(&approval_req("ap-1", "t-1", "t-1-att-1"))
+            .unwrap();
+
+        let rec = ledger
+            .resolve_approval(&ResolveApprovalRequest {
+                approval_id: "ap-1".into(),
+                approved: true,
+                decided_by: ApprovalDecidedBy::Human,
+                reason: Some("looks good".into()),
+                now_ms: 6_000,
+            })
+            .unwrap();
+        assert_eq!(rec.state, ApprovalState::Approved);
+        assert_eq!(rec.decided_by, Some(ApprovalDecidedBy::Human));
+        assert_eq!(rec.decision_reason, Some("looks good".into()));
+
+        // Second resolution fails.
+        let err = ledger
+            .resolve_approval(&ResolveApprovalRequest {
+                approval_id: "ap-1".into(),
+                approved: false,
+                decided_by: ApprovalDecidedBy::Human,
+                reason: None,
+                now_ms: 7_000,
+            })
+            .unwrap_err();
+        assert!(matches!(
+            err,
+            LedgerError::ApprovalAlreadyResolved { approval_id, state }
+                if approval_id == "ap-1" && state == "approved"
+        ));
+    }
+
+    #[test]
+    fn resolve_unknown_approval_errors() {
+        let ledger = OrchestrationLedger::open_in_memory().unwrap();
+        let err = ledger
+            .resolve_approval(&ResolveApprovalRequest {
+                approval_id: "nope".into(),
+                approved: true,
+                decided_by: ApprovalDecidedBy::Human,
+                reason: None,
+                now_ms: 1_000,
+            })
+            .unwrap_err();
+        assert!(matches!(
+            err,
+            LedgerError::UnknownApproval { approval_id } if approval_id == "nope"
+        ));
+    }
+
+    #[test]
+    fn deny_resolution_persists() {
+        let ledger = OrchestrationLedger::open_in_memory().unwrap();
+        ledger
+            .upsert_task(&task("t-1", TaskState::Running))
+            .unwrap();
+        ledger
+            .create_approval_request(&approval_req("ap-1", "t-1", "t-1-att-1"))
+            .unwrap();
+
+        let rec = ledger
+            .resolve_approval(&ResolveApprovalRequest {
+                approval_id: "ap-1".into(),
+                approved: false,
+                decided_by: ApprovalDecidedBy::Human,
+                reason: Some("dangerous".into()),
+                now_ms: 6_000,
+            })
+            .unwrap();
+        assert_eq!(rec.state, ApprovalState::Denied);
+    }
+
+    #[test]
+    fn pending_approvals_lists_only_pending() {
+        let ledger = OrchestrationLedger::open_in_memory().unwrap();
+        ledger
+            .upsert_task(&task("t-1", TaskState::Running))
+            .unwrap();
+
+        for i in 1..=3 {
+            ledger
+                .create_approval_request(&approval_req(&format!("ap-{i}"), "t-1", "t-1-att-1"))
+                .unwrap();
+        }
+        // Resolve one.
+        ledger
+            .resolve_approval(&ResolveApprovalRequest {
+                approval_id: "ap-2".into(),
+                approved: true,
+                decided_by: ApprovalDecidedBy::Human,
+                reason: None,
+                now_ms: 6_000,
+            })
+            .unwrap();
+
+        let pending = ledger.pending_approvals().unwrap();
+        assert_eq!(pending.len(), 2);
+        // Ordered by request time; both have the same now_ms so by id insertion.
+        let ids: Vec<_> = pending.iter().map(|a| a.approval_id.as_str()).collect();
+        assert!(ids.contains(&"ap-1"));
+        assert!(ids.contains(&"ap-3"));
+        assert!(!ids.contains(&"ap-2"));
+    }
+
+    #[test]
+    fn approvals_for_task_includes_resolved() {
+        let ledger = OrchestrationLedger::open_in_memory().unwrap();
+        ledger
+            .upsert_task(&task("t-1", TaskState::Running))
+            .unwrap();
+        ledger
+            .upsert_task(&task("t-2", TaskState::Running))
+            .unwrap();
+
+        ledger
+            .create_approval_request(&approval_req("ap-1", "t-1", "t-1-att-1"))
+            .unwrap();
+        ledger
+            .create_approval_request(&approval_req("ap-2", "t-2", "t-2-att-1"))
+            .unwrap();
+        ledger
+            .resolve_approval(&ResolveApprovalRequest {
+                approval_id: "ap-1".into(),
+                approved: true,
+                decided_by: ApprovalDecidedBy::Policy,
+                reason: None,
+                now_ms: 6_000,
+            })
+            .unwrap();
+
+        let for_t1 = ledger.approvals_for_task("t-1").unwrap();
+        assert_eq!(for_t1.len(), 1);
+        assert_eq!(for_t1[0].state, ApprovalState::Approved);
+        assert_eq!(for_t1[0].decided_by, Some(ApprovalDecidedBy::Policy));
+
+        let for_t2 = ledger.approvals_for_task("t-2").unwrap();
+        assert_eq!(for_t2.len(), 1);
+        assert_eq!(for_t2[0].state, ApprovalState::Pending);
+    }
+
+    #[test]
+    fn expire_pending_approvals_transitions_expired() {
+        let ledger = OrchestrationLedger::open_in_memory().unwrap();
+        ledger
+            .upsert_task(&task("t-1", TaskState::Running))
+            .unwrap();
+
+        // Create one with an expiry.
+        let mut req = approval_req("ap-1", "t-1", "t-1-att-1");
+        req.expires_at_ms = Some(10_000);
+        ledger.create_approval_request(&req).unwrap();
+
+        // Create one without expiry.
+        ledger
+            .create_approval_request(&approval_req("ap-2", "t-1", "t-1-att-1"))
+            .unwrap();
+
+        // Before expiry: nothing transitions.
+        let expired = ledger.expire_pending_approvals(9_000).unwrap();
+        assert!(expired.is_empty());
+
+        // After expiry: only ap-1 transitions.
+        let expired = ledger.expire_pending_approvals(11_000).unwrap();
+        assert_eq!(expired, vec!["ap-1".to_string()]);
+
+        let rec = ledger.approval("ap-1").unwrap().unwrap();
+        assert_eq!(rec.state, ApprovalState::Expired);
+        assert_eq!(rec.decided_by, Some(ApprovalDecidedBy::Timeout));
+
+        // ap-2 is still pending.
+        let rec2 = ledger.approval("ap-2").unwrap().unwrap();
+        assert_eq!(rec2.state, ApprovalState::Pending);
+    }
+
+    #[test]
+    fn resolved_approval_cannot_be_expired() {
+        let ledger = OrchestrationLedger::open_in_memory().unwrap();
+        ledger
+            .upsert_task(&task("t-1", TaskState::Running))
+            .unwrap();
+
+        let mut req = approval_req("ap-1", "t-1", "t-1-att-1");
+        req.expires_at_ms = Some(10_000);
+        ledger.create_approval_request(&req).unwrap();
+
+        // Approve it.
+        ledger
+            .resolve_approval(&ResolveApprovalRequest {
+                approval_id: "ap-1".into(),
+                approved: true,
+                decided_by: ApprovalDecidedBy::Human,
+                reason: None,
+                now_ms: 6_000,
+            })
+            .unwrap();
+
+        // Expiry sweep finds nothing.
+        let expired = ledger.expire_pending_approvals(20_000).unwrap();
+        assert!(expired.is_empty());
+    }
+
+    #[test]
+    fn migration_v3_adds_approvals_table() {
+        let ledger = OrchestrationLedger::open_in_memory().unwrap();
+        // If the table exists, we can query it without error.
+        let pending = ledger.pending_approvals().unwrap();
+        assert!(pending.is_empty());
     }
 }
