@@ -123,11 +123,24 @@ fn classify(
     warnings: &mut Vec<BudgetAlert>,
     exceeded: &mut Vec<BudgetAlert>,
 ) {
-    if limit <= 0.0 {
+    if limit < 0.0 {
         return;
     }
-    let ratio = (current / limit).clamp(0.0, 1.0);
-    let percent = (ratio * 100.0).round() as u8;
+    if limit == 0.0 {
+        if current > 0.0 {
+            exceeded.push(BudgetAlert {
+                dimension,
+                current,
+                limit,
+                percent: u8::MAX,
+            });
+        }
+        return;
+    }
+
+    let ratio = (current / limit).max(0.0);
+    let raw_percent = ratio * 100.0;
+    let percent = raw_percent.min(u8::MAX as f64).round() as u8;
     let alert = BudgetAlert {
         dimension,
         current,
@@ -136,7 +149,7 @@ fn classify(
     };
     if ratio >= 1.0 {
         exceeded.push(alert);
-    } else if percent >= warn_pct {
+    } else if raw_percent >= f64::from(warn_pct) {
         warnings.push(alert);
     }
 }
@@ -224,10 +237,40 @@ mod tests {
     }
 
     #[test]
+    fn task_minutes_overage_reports_actual_percent() {
+        let cfg = config(Some(100), None, None, 80);
+        let status = check_task(&usage(150 * 60_000, 0, 0.0), &cfg);
+        match status {
+            BudgetStatus::Exceeded { alerts } => assert_eq!(alerts[0].percent, 150),
+            other => panic!("expected Exceeded, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn task_minutes_extreme_overage_caps_percent_at_u8_max() {
+        let cfg = config(Some(1), None, None, 80);
+        let status = check_task(&usage(10 * 60_000, 0, 0.0), &cfg);
+        match status {
+            BudgetStatus::Exceeded { alerts } => {
+                assert_eq!(alerts[0].percent, u8::MAX);
+            }
+            other => panic!("expected Exceeded, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn task_minutes_below_warning_threshold_is_ok() {
         let cfg = config(Some(100), None, None, 80);
         // 79 minutes of 100 → 79% → ok (below 80% threshold)
         let status = check_task(&usage(79 * 60_000, 0, 0.0), &cfg);
+        assert_eq!(status, BudgetStatus::Ok);
+    }
+
+    #[test]
+    fn rounded_display_percent_does_not_trigger_warning_early() {
+        let cfg = config(Some(100), None, None, 80);
+        // 79.6% rounds to 80 for display, but remains below the actual threshold.
+        let status = check_task(&usage(79 * 60_000 + 36_000, 0, 0.0), &cfg);
         assert_eq!(status, BudgetStatus::Ok);
     }
 
@@ -255,6 +298,18 @@ mod tests {
         assert_eq!(status, BudgetStatus::Ok);
     }
 
+    #[test]
+    fn zero_attempt_token_limit_is_a_hard_stop() {
+        let cfg = config(None, Some(0), None, 80);
+        assert_eq!(check_attempt_tokens(0, &cfg), BudgetStatus::Ok);
+        match check_attempt_tokens(1, &cfg) {
+            BudgetStatus::Exceeded { alerts } => {
+                assert_eq!(alerts[0].percent, u8::MAX);
+            }
+            other => panic!("expected Exceeded, got {other:?}"),
+        }
+    }
+
     // ---- cost ----
 
     #[test]
@@ -270,6 +325,18 @@ mod tests {
         let cfg = config(None, None, Some(5.0), 80);
         let status = check_task(&usage(0, 0, 5.5), &cfg);
         assert!(matches!(status, BudgetStatus::Exceeded { .. }));
+    }
+
+    #[test]
+    fn zero_task_limits_are_hard_stops() {
+        let cfg = config(Some(0), None, Some(0.0), 80);
+        assert_eq!(check_task(&usage(0, 0, 0.0), &cfg), BudgetStatus::Ok);
+
+        let minutes_status = check_task(&usage(1, 0, 0.0), &cfg);
+        assert!(matches!(minutes_status, BudgetStatus::Exceeded { alerts } if alerts.len() == 1));
+
+        let cost_status = check_task(&usage(0, 0, 0.01), &cfg);
+        assert!(matches!(cost_status, BudgetStatus::Exceeded { alerts } if alerts.len() == 1));
     }
 
     // ---- multiple dimensions simultaneously ----
