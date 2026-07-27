@@ -5,11 +5,16 @@
 //! long tasks can resume from repository artifacts. Decisions remain
 //! reviewable after session cleanup.
 
+use std::io::{self, ErrorKind};
 use std::path::Path;
 
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 
 use super::ledger::{CreateDecisionRequest, DecisionEntry, LedgerResult, OrchestrationLedger};
+
+const MAX_PLAN_BYTES: u64 = 1024 * 1024;
+const MAX_PLAN_ITEM_ID_CHARS: usize = 64;
 
 // ---------------------------------------------------------------------------
 // Plan types
@@ -131,7 +136,11 @@ impl PlanCounts {
         if self.total == 0 {
             return 0;
         }
-        ((self.done as f64 / self.total as f64) * 100.0) as u8
+        self.done
+            .saturating_mul(100)
+            .checked_div(self.total)
+            .unwrap_or(0)
+            .min(100) as u8
     }
 }
 
@@ -173,8 +182,12 @@ pub fn parse_plan(source_path: &str, revision: &str, content: &str) -> Execution
 
         // Detect header lines: "#### ID. Title" or "### ID. Title" etc.
         if let Some(rest) = strip_header(trimmed) {
+            // Any Markdown heading ends the preceding plan section. Only
+            // headings with the explicit "ID. Title" form start a new one.
+            current_header_id = None;
+            current_header_title = None;
             let (id, title) = split_header(rest);
-            if !id.is_empty() {
+            if !id.is_empty() && !title.is_empty() {
                 current_header_id = Some(id.clone());
                 current_header_title = Some(title.clone());
                 items.push(PlanItem {
@@ -243,33 +256,44 @@ pub fn parse_plan(source_path: &str, revision: &str, content: &str) -> Execution
 
 /// Strip leading `#` characters from a header line. Returns the rest, or None.
 fn strip_header(line: &str) -> Option<&str> {
-    let rest = line.trim_start_matches('#').trim_start();
-    if !line.starts_with('#') || rest.is_empty() {
+    let marker_count = line.bytes().take_while(|byte| *byte == b'#').count();
+    if !(1..=6).contains(&marker_count) {
         return None;
     }
-    Some(rest)
+    let rest = &line[marker_count..];
+    if !rest.chars().next().is_some_and(char::is_whitespace) {
+        return None;
+    }
+    let rest = rest.trim();
+    (!rest.is_empty()).then_some(rest)
 }
 
-/// Split "ID. Title" or "ID Title" into (id, title).
+/// Split an explicit "ID. Title" or "ID: Title" heading into (id, title).
 fn split_header(text: &str) -> (String, String) {
-    // Look for a short ID token followed by a separator.
-    // IDs: alphanumeric + hyphens, e.g., "G3", "O1", "B2-3".
+    // IDs are ASCII alphanumeric + hyphens, e.g., "G3", "O1", "B2-3".
     let mut id_end = 0;
     for (i, ch) in text.char_indices() {
-        if ch.is_alphanumeric() || ch == '-' {
+        if ch.is_ascii_alphanumeric() || ch == '-' {
             id_end = i + ch.len_utf8();
         } else {
             break;
         }
     }
-    if id_end == 0 {
-        return (String::new(), text.to_string());
+    if id_end == 0 || text[..id_end].chars().count() > MAX_PLAN_ITEM_ID_CHARS {
+        return (String::new(), String::new());
     }
-    let id = text[..id_end].to_string();
-    let rest = text[id_end..]
-        .trim_start_matches(['.', ':', ' ', '\t'])
-        .to_string();
-    (id, rest)
+    let suffix = &text[id_end..];
+    let Some(rest) = suffix
+        .strip_prefix('.')
+        .or_else(|| suffix.strip_prefix(':'))
+    else {
+        return (String::new(), String::new());
+    };
+    let title = rest.trim();
+    if title.is_empty() {
+        return (String::new(), String::new());
+    }
+    (text[..id_end].to_string(), title.to_string())
 }
 
 /// Parse "- [x] text" → ('x', "text"). Returns None if not a checkbox line.
@@ -347,23 +371,38 @@ fn now_ms() -> u64 {
         .unwrap_or(0)
 }
 
-/// Compute a simple content revision (hash) for plan content when git is not
-/// available. Uses a basic FNV-1a hash.
+/// Compute a collision-resistant content revision when git is unavailable.
 pub fn content_revision(content: &str) -> String {
-    let mut hash: u64 = 0xcbf29ce484222325;
-    for byte in content.bytes() {
-        hash ^= byte as u64;
-        hash = hash.wrapping_mul(0x100000001b3);
-    }
-    format!("{hash:016x}")
+    let mut hash = Sha256::new();
+    hash.update(content.as_bytes());
+    hex::encode(hash.finalize())
 }
 
 /// Load and parse a plan from a file path.
-pub fn load_plan_file(path: &Path) -> ExecutionPlan {
-    let content = std::fs::read_to_string(path).unwrap_or_default();
+pub fn load_plan_file(path: &Path) -> io::Result<ExecutionPlan> {
+    let metadata = std::fs::symlink_metadata(path)?;
+    if metadata.file_type().is_symlink() || !metadata.is_file() {
+        return Err(io::Error::new(
+            ErrorKind::InvalidInput,
+            "plan path must be a regular file, not a symlink",
+        ));
+    }
+    if metadata.len() > MAX_PLAN_BYTES {
+        return Err(io::Error::new(
+            ErrorKind::InvalidData,
+            "plan file exceeds the 1 MiB limit",
+        ));
+    }
+    let content = std::fs::read_to_string(path)?;
+    if content.len() as u64 > MAX_PLAN_BYTES {
+        return Err(io::Error::new(
+            ErrorKind::InvalidData,
+            "plan file exceeds the 1 MiB limit",
+        ));
+    }
     let source = path.to_string_lossy().to_string();
     let revision = content_revision(&content);
-    parse_plan(&source, &revision, &content)
+    Ok(parse_plan(&source, &revision, &content))
 }
 
 // ---------------------------------------------------------------------------
@@ -373,7 +412,7 @@ pub fn load_plan_file(path: &Path) -> ExecutionPlan {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::modules::orchestration::ledger::OrchestrationLedger;
+    use crate::modules::orchestration::ledger::{LedgerError, OrchestrationLedger};
 
     // ---- parsing: headers + checkboxes ----
 
@@ -432,6 +471,25 @@ mod tests {
             .collect();
         assert_eq!(g1_items.len(), 3);
         assert_eq!(g1_items[2].status, PlanStatus::Pending);
+    }
+
+    #[test]
+    fn ordinary_heading_is_not_a_plan_item_or_section() {
+        let plan = parse_plan(
+            "PLAN.md",
+            "rev1",
+            "#### G1. First section\n- [x] Nested\n# Just a title\n- [ ] Standalone\n",
+        );
+        assert!(plan.find("Just").is_none());
+        assert_eq!(plan.items.last().unwrap().id, "item-2");
+        assert_eq!(plan.items.last().unwrap().title, "Standalone");
+    }
+
+    #[test]
+    fn malformed_markdown_heading_is_ignored() {
+        let plan = parse_plan("PLAN.md", "rev1", "####### G1. Too deep\n- [ ] Todo\n");
+        assert_eq!(plan.items.len(), 1);
+        assert_eq!(plan.items[0].id, "item-1");
     }
 
     #[test]
@@ -518,6 +576,7 @@ mod tests {
     fn content_revision_deterministic() {
         assert_eq!(content_revision("hello"), content_revision("hello"));
         assert_ne!(content_revision("hello"), content_revision("world"));
+        assert_eq!(content_revision("hello").len(), 64);
     }
 
     // ---- find by id ----
@@ -582,23 +641,99 @@ mod tests {
         assert_eq!(log.recent(3).unwrap().len(), 3);
     }
 
+    #[test]
+    fn decision_log_rejects_invalid_fields() {
+        let ledger = OrchestrationLedger::open_in_memory().unwrap();
+        let log = DecisionLog::new(&ledger);
+        let mut request = CreateDecisionRequest {
+            task_id: Some(" ".into()),
+            attempt_id: None,
+            plan_item_id: None,
+            decision: "Choose a bounded format".into(),
+            rationale: String::new(),
+            alternatives: vec![],
+        };
+
+        assert!(matches!(
+            log.record(&request),
+            Err(LedgerError::InvalidField("task_id"))
+        ));
+
+        request.task_id = None;
+        request.decision = " ".into();
+        assert!(matches!(
+            log.record(&request),
+            Err(LedgerError::InvalidField("decision"))
+        ));
+
+        request.decision = "valid".into();
+        request.alternatives = vec![" ".into()];
+        assert!(matches!(
+            log.record(&request),
+            Err(LedgerError::InvalidField("alternatives"))
+        ));
+
+        assert!(matches!(
+            log.for_task(" "),
+            Err(LedgerError::InvalidField("task_id"))
+        ));
+        assert!(matches!(
+            log.for_plan_item(" "),
+            Err(LedgerError::InvalidField("plan_item_id"))
+        ));
+    }
+
+    #[test]
+    fn decision_log_caps_untrusted_recent_limit() {
+        let ledger = OrchestrationLedger::open_in_memory().unwrap();
+        let log = DecisionLog::new(&ledger);
+        assert!(log.recent(usize::MAX).unwrap().is_empty());
+    }
+
     // ---- load from file ----
 
     #[test]
     fn load_plan_file_roundtrip() {
-        let dir = std::env::temp_dir().join(format!(
-            "altai-plan-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        std::fs::create_dir_all(&dir).unwrap();
-        let path = dir.join("PLAN.md");
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("PLAN.md");
         std::fs::write(&path, "#### X1. Test\n- [x] Done\n").unwrap();
 
-        let plan = load_plan_file(&path);
+        let plan = load_plan_file(&path).unwrap();
         assert_eq!(plan.find("X1").unwrap().status, PlanStatus::Done);
+    }
+
+    #[test]
+    fn load_plan_file_reports_missing_and_oversized_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let missing = dir.path().join("missing.md");
+        assert_eq!(
+            load_plan_file(&missing).unwrap_err().kind(),
+            ErrorKind::NotFound
+        );
+
+        let oversized = dir.path().join("large.md");
+        let file = std::fs::File::create(&oversized).unwrap();
+        file.set_len(MAX_PLAN_BYTES + 1).unwrap();
+        assert_eq!(
+            load_plan_file(&oversized).unwrap_err().kind(),
+            ErrorKind::InvalidData
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn load_plan_file_rejects_symlinks() {
+        use std::os::unix::fs::symlink;
+
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("target.md");
+        let link = dir.path().join("link.md");
+        std::fs::write(&target, "#### X1. Test\n").unwrap();
+        symlink(&target, &link).unwrap();
+
+        assert_eq!(
+            load_plan_file(&link).unwrap_err().kind(),
+            ErrorKind::InvalidInput
+        );
     }
 }
