@@ -63,6 +63,8 @@ mod soak;
 pub mod sources;
 #[allow(dead_code)]
 pub mod task_graph;
+#[allow(dead_code)]
+pub mod team;
 pub mod workflow;
 #[allow(dead_code)]
 pub mod workflow_v2;
