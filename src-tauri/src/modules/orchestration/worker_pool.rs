@@ -67,7 +67,10 @@ pub struct WorkerState {
 pub struct WorkerPool {
     hosts: HashMap<String, WorkerHost>,
     states: HashMap<String, WorkerState>,
+    /// Active task assignment: task_id → host_id.
+    assignments: HashMap<String, String>,
     heartbeat_timeout_ms: u64,
+    preferred_labels: Vec<String>,
 }
 
 /// Result of attempting to assign work to a worker.
@@ -101,7 +104,9 @@ impl WorkerPool {
         Self {
             hosts: HashMap::new(),
             states: HashMap::new(),
+            assignments: HashMap::new(),
             heartbeat_timeout_ms: config.heartbeat_timeout_ms,
+            preferred_labels: config.preferred_labels.clone(),
         }
     }
 
@@ -112,9 +117,17 @@ impl WorkerPool {
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_millis() as u64)
             .unwrap_or(0);
-        self.states.insert(
-            host_id.clone(),
-            WorkerState {
+        self.states
+            .entry(host_id.clone())
+            .and_modify(|state| {
+                state.last_heartbeat_ms = now;
+                state.health = if state.env_drift_detected {
+                    WorkerHealth::Degraded
+                } else {
+                    WorkerHealth::Healthy
+                };
+            })
+            .or_insert_with(|| WorkerState {
                 host_id: host_id.clone(),
                 health: WorkerHealth::Healthy,
                 active_attempts: 0,
@@ -123,13 +136,20 @@ impl WorkerPool {
                 last_heartbeat_ms: now,
                 env_drift_detected: false,
                 sticky_tasks: vec![],
-            },
-        );
+            });
         self.hosts.insert(host_id, host);
     }
 
-    /// Remove a worker host.
+    /// Remove an idle worker host. Active hosts must go through
+    /// [`Self::handle_host_loss`] first so assignments cannot disappear.
     pub fn deregister(&mut self, host_id: &str) -> Option<WorkerHost> {
+        if self
+            .assignments
+            .values()
+            .any(|assigned_host| assigned_host == host_id)
+        {
+            return None;
+        }
         self.states.remove(host_id);
         self.hosts.remove(host_id)
     }
@@ -138,8 +158,15 @@ impl WorkerPool {
     pub fn heartbeat(&mut self, host_id: &str, now_ms: u64) {
         if let Some(state) = self.states.get_mut(host_id) {
             state.last_heartbeat_ms = now_ms;
-            if state.health == WorkerHealth::Unhealthy {
-                state.health = WorkerHealth::Healthy;
+            if matches!(
+                state.health,
+                WorkerHealth::Unhealthy | WorkerHealth::Offline
+            ) {
+                state.health = if state.env_drift_detected {
+                    WorkerHealth::Degraded
+                } else {
+                    WorkerHealth::Healthy
+                };
             }
         }
     }
@@ -150,7 +177,7 @@ impl WorkerPool {
         for (id, state) in &mut self.states {
             if now_ms > state.last_heartbeat_ms {
                 let elapsed = now_ms - state.last_heartbeat_ms;
-                if elapsed > self.heartbeat_timeout_ms * 2 {
+                if elapsed > self.heartbeat_timeout_ms.saturating_mul(2) {
                     if state.health != WorkerHealth::Offline {
                         state.health = WorkerHealth::Offline;
                         changed.push(id.clone());
@@ -170,7 +197,9 @@ impl WorkerPool {
     pub fn mark_env_drift(&mut self, host_id: &str) {
         if let Some(state) = self.states.get_mut(host_id) {
             state.env_drift_detected = true;
-            state.health = WorkerHealth::Degraded;
+            if state.health == WorkerHealth::Healthy {
+                state.health = WorkerHealth::Degraded;
+            }
         }
     }
 
@@ -187,6 +216,14 @@ impl WorkerPool {
     /// Attempt to assign a task to a worker. Prefers sticky placement, then
     /// least-loaded healthy worker, then label preferences.
     pub fn assign(&mut self, task_id: &str, _now_ms: u64) -> AssignmentResult {
+        // Assignment is idempotent per active task. A retry cannot increment
+        // capacity or launch the same task twice.
+        if let Some(host_id) = self.assignments.get(task_id) {
+            return AssignmentResult::Assigned {
+                host_id: host_id.clone(),
+            };
+        }
+
         let available: Vec<String> = self
             .states
             .iter()
@@ -210,30 +247,44 @@ impl WorkerPool {
         let sticky = available.iter().find(|id| {
             self.states
                 .get(*id)
-                .is_some_and(|s| s.sticky_tasks.contains(&task_id.to_string()))
+                .is_some_and(|s| s.sticky_tasks.iter().any(|task| task == task_id))
         });
 
         let chosen = sticky.cloned().or_else(|| {
-            // Least-loaded worker.
+            // Least-loaded worker; configured labels and worker ID provide
+            // deterministic tie-breakers.
             available.into_iter().min_by_key(|id| {
-                self.states
+                let active = self
+                    .states
                     .get(id)
                     .map(|s| s.active_attempts)
-                    .unwrap_or(usize::MAX)
+                    .unwrap_or(usize::MAX);
+                let label_rank = self
+                    .hosts
+                    .get(id)
+                    .and_then(|host| {
+                        self.preferred_labels
+                            .iter()
+                            .position(|preferred| host.labels.contains(preferred))
+                    })
+                    .unwrap_or(usize::MAX);
+                (active, label_rank, id.clone())
             })
         });
 
         match chosen {
             Some(host_id) => {
                 if let Some(state) = self.states.get_mut(&host_id) {
-                    state.active_attempts += 1;
-                    if !state.sticky_tasks.contains(&task_id.to_string()) {
+                    state.active_attempts = state.active_attempts.saturating_add(1);
+                    if !state.sticky_tasks.iter().any(|task| task == task_id) {
                         state.sticky_tasks.push(task_id.to_string());
                         if state.sticky_tasks.len() > 10 {
                             state.sticky_tasks.remove(0);
                         }
                     }
                 }
+                self.assignments
+                    .insert(task_id.to_string(), host_id.clone());
                 AssignmentResult::Assigned { host_id }
             }
             None => AssignmentResult::NoCapacity,
@@ -241,13 +292,17 @@ impl WorkerPool {
     }
 
     /// Release an attempt from a worker (completed or failed).
-    pub fn release(&mut self, host_id: &str, _task_id: &str, success: bool) {
+    pub fn release(&mut self, host_id: &str, task_id: &str, success: bool) {
+        if self.assignments.get(task_id).map(String::as_str) != Some(host_id) {
+            return;
+        }
+        self.assignments.remove(task_id);
         if let Some(state) = self.states.get_mut(host_id) {
             state.active_attempts = state.active_attempts.saturating_sub(1);
             if success {
-                state.completed_attempts += 1;
+                state.completed_attempts = state.completed_attempts.saturating_add(1);
             } else {
-                state.failed_attempts += 1;
+                state.failed_attempts = state.failed_attempts.saturating_add(1);
             }
         }
     }
@@ -256,17 +311,21 @@ impl WorkerPool {
     /// need reassignment. Loss of a host cannot duplicate an active attempt
     /// because the original assignment is atomically revoked.
     pub fn handle_host_loss(&mut self, host_id: &str) -> Vec<String> {
-        let orphaned = self
-            .states
-            .get_mut(host_id)
-            .map(|s| {
-                s.health = WorkerHealth::Offline;
-                let tasks = s.sticky_tasks.clone();
-                s.active_attempts = 0;
-                s.sticky_tasks.clear();
-                tasks
-            })
-            .unwrap_or_default();
+        let mut orphaned: Vec<String> = self
+            .assignments
+            .iter()
+            .filter(|(_, assigned_host)| assigned_host.as_str() == host_id)
+            .map(|(task_id, _)| task_id.clone())
+            .collect();
+        orphaned.sort();
+        for task_id in &orphaned {
+            self.assignments.remove(task_id);
+        }
+        if let Some(state) = self.states.get_mut(host_id) {
+            state.health = WorkerHealth::Offline;
+            state.active_attempts = 0;
+            state.sticky_tasks.clear();
+        }
         orphaned
     }
 
@@ -281,12 +340,15 @@ impl WorkerPool {
                     .map(|h| h.max_concurrency.saturating_sub(s.active_attempts))
                     .unwrap_or(0)
             })
-            .sum()
+            .fold(0usize, usize::saturating_add)
     }
 
     /// Total active assignments across all workers.
     pub fn total_active(&self) -> usize {
-        self.states.values().map(|s| s.active_attempts).sum()
+        self.states
+            .values()
+            .map(|s| s.active_attempts)
+            .fold(0usize, usize::saturating_add)
     }
 
     /// Get the state of a specific worker.
@@ -296,7 +358,9 @@ impl WorkerPool {
 
     /// List all worker IDs.
     pub fn worker_ids(&self) -> Vec<String> {
-        self.hosts.keys().cloned().collect()
+        let mut ids: Vec<String> = self.hosts.keys().cloned().collect();
+        ids.sort();
+        ids
     }
 
     /// Count workers by health status.
@@ -334,7 +398,10 @@ pub struct HealthCounts {
 
 impl HealthCounts {
     pub fn total(self) -> usize {
-        self.healthy + self.degraded + self.unhealthy + self.offline
+        self.healthy
+            .saturating_add(self.degraded)
+            .saturating_add(self.unhealthy)
+            .saturating_add(self.offline)
     }
 }
 
@@ -433,6 +500,34 @@ mod tests {
         assert!(pool.worker_ids().is_empty());
     }
 
+    #[test]
+    fn reregister_preserves_active_assignments() {
+        let mut pool = make_pool(&[("w1", 2)]);
+        pool.assign("t1", 0).unwrap_assigned();
+        pool.register(make_host("w1", 4));
+
+        assert_eq!(pool.state("w1").unwrap().active_attempts, 1);
+        assert_eq!(pool.total_capacity(), 3);
+    }
+
+    #[test]
+    fn reregister_revives_an_offline_worker() {
+        let mut pool = make_pool(&[("w1", 2)]);
+        pool.handle_host_loss("w1");
+        pool.register(make_host("w1", 2));
+
+        assert_eq!(pool.state("w1").unwrap().health, WorkerHealth::Healthy);
+    }
+
+    #[test]
+    fn active_worker_cannot_be_deregistered_silently() {
+        let mut pool = make_pool(&[("w1", 1)]);
+        pool.assign("t1", 0).unwrap_assigned();
+
+        assert!(pool.deregister("w1").is_none());
+        assert!(pool.state("w1").is_some());
+    }
+
     // ---- assignment ----
 
     #[test]
@@ -449,6 +544,17 @@ mod tests {
         pool.assign("t1", 0).unwrap_assigned();
         let result = pool.assign("t2", 0);
         assert!(matches!(result, AssignmentResult::NoCapacity));
+    }
+
+    #[test]
+    fn assigning_the_same_active_task_is_idempotent() {
+        let mut pool = make_pool(&[("w1", 2)]);
+        let first = pool.assign("t1", 0).unwrap_assigned();
+        let second = pool.assign("t1", 0).unwrap_assigned();
+
+        assert_eq!(first, second);
+        assert_eq!(pool.state("w1").unwrap().active_attempts, 1);
+        assert_eq!(pool.total_active(), 1);
     }
 
     #[test]
@@ -479,6 +585,21 @@ mod tests {
         let r3 = pool.assign("t1", 0);
         let host3 = r3.unwrap_assigned();
         assert_eq!(host3, host1, "sticky placement should prefer original host");
+    }
+
+    #[test]
+    fn preferred_label_breaks_equal_load_ties() {
+        let config = PoolConfig {
+            preferred_labels: vec!["gpu".into()],
+            ..Default::default()
+        };
+        let mut pool = WorkerPool::new(&config);
+        pool.register(make_host("cpu", 2));
+        let mut gpu = make_host("gpu", 2);
+        gpu.labels.push("gpu".into());
+        pool.register(gpu);
+
+        assert_eq!(pool.assign("t1", 0).unwrap_assigned(), "gpu");
     }
 
     #[test]
@@ -516,6 +637,20 @@ mod tests {
         assert_eq!(pool.state("w1").unwrap().failed_attempts, 1);
     }
 
+    #[test]
+    fn wrong_or_duplicate_release_is_a_noop() {
+        let mut pool = make_pool(&[("w1", 2), ("w2", 2)]);
+        let host = pool.assign("t1", 0).unwrap_assigned();
+        let wrong_host = if host == "w1" { "w2" } else { "w1" };
+
+        pool.release(wrong_host, "t1", true);
+        assert_eq!(pool.total_active(), 1);
+        pool.release(&host, "t1", true);
+        pool.release(&host, "t1", true);
+        assert_eq!(pool.total_active(), 0);
+        assert_eq!(pool.state(&host).unwrap().completed_attempts, 1);
+    }
+
     // ---- health checking ----
 
     #[test]
@@ -544,6 +679,15 @@ mod tests {
         assert_eq!(pool.state("w1").unwrap().health, WorkerHealth::Unhealthy);
         pool.heartbeat("w1", 201_000);
         assert_eq!(pool.state("w1").unwrap().health, WorkerHealth::Healthy);
+    }
+
+    #[test]
+    fn env_drift_cannot_revive_an_offline_worker() {
+        let mut pool = make_pool(&[("w1", 2)]);
+        pool.handle_host_loss("w1");
+        pool.mark_env_drift("w1");
+
+        assert_eq!(pool.state("w1").unwrap().health, WorkerHealth::Offline);
     }
 
     // ---- env drift ----
@@ -576,6 +720,16 @@ mod tests {
         assert!(orphaned.contains(&"t1".to_string()));
         assert_eq!(pool.state(&host).unwrap().health, WorkerHealth::Offline);
         assert_eq!(pool.state(&host).unwrap().active_attempts, 0);
+    }
+
+    #[test]
+    fn host_loss_orphans_only_active_tasks() {
+        let mut pool = make_pool(&[("w1", 2)]);
+        let host = pool.assign("completed", 0).unwrap_assigned();
+        pool.release(&host, "completed", true);
+        pool.assign("active", 0).unwrap_assigned();
+
+        assert_eq!(pool.handle_host_loss(&host), vec!["active"]);
     }
 
     #[test]

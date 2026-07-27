@@ -28,7 +28,7 @@ pub struct UsageEvent {
 
 impl UsageEvent {
     pub fn total_tokens(&self) -> u64 {
-        self.input_tokens + self.output_tokens
+        self.input_tokens.saturating_add(self.output_tokens)
     }
 }
 
@@ -41,8 +41,17 @@ impl UsageEvent {
 pub struct UsageTracker {
     /// task_id → accumulated usage.
     usage: std::collections::HashMap<String, TaskUsage>,
+    /// (task_id, attempt_id) → latest absolute counters for that attempt.
+    attempts: std::collections::HashMap<(String, String), AttemptUsage>,
     /// task_id → last budget status.
     last_status: std::collections::HashMap<String, BudgetStatus>,
+}
+
+#[derive(Clone, Debug, Default)]
+struct AttemptUsage {
+    elapsed_ms: u64,
+    total_tokens: u64,
+    total_cost_usd: f64,
 }
 
 /// Result of processing a usage event.
@@ -63,38 +72,48 @@ impl UsageTracker {
 
     /// Process a usage event and check against budget config.
     pub fn process(&mut self, event: &UsageEvent, config: &BudgetsConfig) -> UsageResult {
-        let usage = self
-            .usage
-            .entry(event.task_id.clone())
-            .or_insert_with(|| TaskUsage {
-                task_id: event.task_id.clone(),
-                elapsed_ms: 0,
-                total_tokens: 0,
-                total_cost_usd: 0.0,
-                attempt_count: 0,
-            });
+        let attempt_key = (event.task_id.clone(), event.attempt_id.clone());
+        let event_cost = if event.cost_usd.is_finite() && event.cost_usd >= 0.0 {
+            event.cost_usd
+        } else {
+            // Invalid telemetry must fail closed rather than bypassing a cost
+            // budget through NaN, infinity, or a negative value. Keep the
+            // sentinel finite so UsageResult remains JSON-serializable.
+            f64::MAX
+        };
+        let current_attempt_tokens = {
+            let attempt = self.attempts.entry(attempt_key).or_default();
+            // Runner counters are absolute within one attempt, so repeated
+            // events take the max. Different attempts are summed below.
+            attempt.elapsed_ms = attempt.elapsed_ms.max(event.duration_ms);
+            attempt.total_tokens = attempt.total_tokens.max(event.total_tokens());
+            attempt.total_cost_usd = attempt.total_cost_usd.max(event_cost);
+            attempt.total_tokens
+        };
 
-        // Accumulate (absolute values from runner — not incremental).
-        usage.elapsed_ms = usage.elapsed_ms.max(event.duration_ms);
-        usage.total_tokens = usage.total_tokens.max(event.total_tokens());
-        usage.total_cost_usd = usage.total_cost_usd.max(event.cost_usd);
-        usage.attempt_count += 1;
+        let mut usage = TaskUsage {
+            task_id: event.task_id.clone(),
+            elapsed_ms: 0,
+            total_tokens: 0,
+            total_cost_usd: 0.0,
+            attempt_count: 0,
+        };
+        for ((task_id, _), attempt) in &self.attempts {
+            if task_id != &event.task_id {
+                continue;
+            }
+            usage.elapsed_ms = usage.elapsed_ms.saturating_add(attempt.elapsed_ms);
+            usage.total_tokens = usage.total_tokens.saturating_add(attempt.total_tokens);
+            usage.total_cost_usd =
+                finite_saturating_add(usage.total_cost_usd, attempt.total_cost_usd);
+            usage.attempt_count = usage.attempt_count.saturating_add(1);
+        }
+        self.usage.insert(event.task_id.clone(), usage.clone());
 
         // Check budget — both task-level (minutes/cost) and attempt tokens.
-        let task_status = super::budget::check_task(usage, config);
-        let token_status = super::budget::check_attempt_tokens(usage.total_tokens, config);
-        // Merge: exceeded wins, then warning, then ok.
-        let status = if task_status.is_exceeded() || token_status.is_exceeded() {
-            if task_status.is_exceeded() {
-                task_status
-            } else {
-                token_status
-            }
-        } else if matches!(token_status, BudgetStatus::Warning { .. }) {
-            token_status
-        } else {
-            task_status
-        };
+        let task_status = super::budget::check_task(&usage, config);
+        let token_status = super::budget::check_attempt_tokens(current_attempt_tokens, config);
+        let status = merge_statuses(task_status, token_status);
         let prev_status = self
             .last_status
             .insert(event.task_id.clone(), status.clone())
@@ -132,7 +151,7 @@ impl UsageTracker {
             status,
             new_alerts,
             should_stop,
-            current_usage: usage.clone(),
+            current_usage: usage,
         }
     }
 
@@ -150,11 +169,43 @@ impl UsageTracker {
     pub fn clear(&mut self, task_id: &str) {
         self.usage.remove(task_id);
         self.last_status.remove(task_id);
+        self.attempts
+            .retain(|(tracked_task_id, _), _| tracked_task_id != task_id);
     }
 
     /// Get all tracked task IDs.
     pub fn tracked_tasks(&self) -> Vec<String> {
-        self.usage.keys().cloned().collect()
+        let mut tasks: Vec<String> = self.usage.keys().cloned().collect();
+        tasks.sort();
+        tasks
+    }
+}
+
+fn merge_statuses(task: BudgetStatus, attempt: BudgetStatus) -> BudgetStatus {
+    let mut warnings = Vec::new();
+    let mut exceeded = Vec::new();
+    for status in [task, attempt] {
+        match status {
+            BudgetStatus::Ok => {}
+            BudgetStatus::Warning { alerts } => warnings.extend(alerts),
+            BudgetStatus::Exceeded { alerts } => exceeded.extend(alerts),
+        }
+    }
+    if !exceeded.is_empty() {
+        BudgetStatus::Exceeded { alerts: exceeded }
+    } else if !warnings.is_empty() {
+        BudgetStatus::Warning { alerts: warnings }
+    } else {
+        BudgetStatus::Ok
+    }
+}
+
+fn finite_saturating_add(left: f64, right: f64) -> f64 {
+    let sum = left + right;
+    if sum.is_finite() {
+        sum
+    } else {
+        f64::MAX
     }
 }
 
@@ -203,9 +254,19 @@ mod tests {
     }
 
     fn make_event(task: &str, tokens: u64, duration_min: u64, cost: f64) -> UsageEvent {
+        make_attempt_event(task, &format!("{task}-att-1"), tokens, duration_min, cost)
+    }
+
+    fn make_attempt_event(
+        task: &str,
+        attempt: &str,
+        tokens: u64,
+        duration_min: u64,
+        cost: f64,
+    ) -> UsageEvent {
         UsageEvent {
             task_id: task.into(),
-            attempt_id: format!("{task}-att-1"),
+            attempt_id: attempt.into(),
             input_tokens: tokens / 2,
             output_tokens: tokens / 2,
             duration_ms: duration_min * 60_000,
@@ -235,10 +296,48 @@ mod tests {
         tracker.process(&make_event("t1", 50_000, 10, 0.5), &config);
         let result = tracker.process(&make_event("t1", 80_000, 15, 0.8), &config);
 
-        // Max tokens: 80_000, max duration: 15min, attempt_count: 2.
+        // Max tokens: 80_000, max duration: 15min, one unique attempt.
         assert_eq!(result.current_usage.total_tokens, 80_000);
         assert_eq!(result.current_usage.elapsed_ms, 900_000);
+        assert_eq!(result.current_usage.attempt_count, 1);
+    }
+
+    #[test]
+    fn different_attempts_are_summed_without_double_counting_updates() {
+        let mut tracker = UsageTracker::new();
+        let config = make_config(120, 200_000);
+
+        tracker.process(&make_attempt_event("t1", "att-1", 40_000, 5, 0.4), &config);
+        tracker.process(&make_attempt_event("t1", "att-2", 30_000, 3, 0.3), &config);
+        let result = tracker.process(&make_attempt_event("t1", "att-1", 50_000, 6, 0.5), &config);
+
+        assert_eq!(result.current_usage.total_tokens, 80_000);
+        assert_eq!(result.current_usage.elapsed_ms, 9 * 60_000);
+        assert_eq!(result.current_usage.total_cost_usd, 0.8);
         assert_eq!(result.current_usage.attempt_count, 2);
+    }
+
+    #[test]
+    fn attempt_token_limit_checks_only_the_current_attempt() {
+        let mut tracker = UsageTracker::new();
+        let config = make_config(120, 100_000);
+
+        tracker.process(&make_attempt_event("t1", "att-1", 60_000, 1, 0.1), &config);
+        let result = tracker.process(&make_attempt_event("t1", "att-2", 60_000, 1, 0.1), &config);
+
+        assert_eq!(result.current_usage.total_tokens, 120_000);
+        assert!(!result.should_stop);
+    }
+
+    #[test]
+    fn invalid_cost_telemetry_fails_closed() {
+        let mut tracker = UsageTracker::new();
+        let mut config = make_config(120, 100_000);
+        config.max_task_cost_usd = Some(10.0);
+
+        let result = tracker.process(&make_event("t1", 1_000, 1, f64::NAN), &config);
+        assert!(result.should_stop);
+        assert!(serde_json::to_string(&result).is_ok());
     }
 
     // ---- budget enforcement ----

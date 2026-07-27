@@ -27,6 +27,8 @@ pub struct CheckSpec {
 #[serde(rename_all = "camelCase")]
 pub struct CheckResult {
     pub name: String,
+    /// Whether this check is required to pass the handoff gate.
+    pub required: bool,
     pub status: CheckStatus,
     pub duration_ms: u64,
     pub output: String,
@@ -47,7 +49,7 @@ pub enum CheckStatus {
 
 impl CheckStatus {
     pub fn is_blocking(self) -> bool {
-        matches!(self, Self::Failed | Self::Timeout)
+        matches!(self, Self::Failed | Self::Timeout | Self::Unavailable)
     }
 
     pub fn is_success(self) -> bool {
@@ -68,7 +70,7 @@ pub struct GateResult {
 }
 
 /// Evaluate whether the gate passes given a set of check results.
-/// Required checks that fail or timeout block handoff.
+/// Required checks that fail, time out, or are unavailable block handoff.
 pub fn evaluate_gate(results: &[CheckResult]) -> GateResult {
     let total = results.len();
     let mut passed_count = 0;
@@ -82,16 +84,20 @@ pub fn evaluate_gate(results: &[CheckResult]) -> GateResult {
             CheckStatus::Skipped => skipped_count += 1,
             CheckStatus::Failed | CheckStatus::Timeout => {
                 failed_count += 1;
-                blocking.push(result.name.clone());
+                if result.required {
+                    blocking.push(result.name.clone());
+                }
             }
             CheckStatus::Unavailable => {
                 failed_count += 1;
-                blocking.push(result.name.clone());
+                if result.required {
+                    blocking.push(result.name.clone());
+                }
             }
         }
     }
 
-    let passed = failed_count == 0;
+    let passed = blocking.is_empty();
     GateResult {
         passed,
         total,
@@ -180,17 +186,28 @@ pub fn deduplicate_findings(findings: Vec<ReviewFinding>) -> Vec<ReviewFinding> 
         let key = (finding.file.clone(), finding.line, finding.message.clone());
         seen.entry(key)
             .and_modify(|existing| {
+                let was_resolved = existing.resolved;
+                let previous_resolved_by = existing.resolved_by.clone();
                 // Keep the higher iteration number.
                 if finding.iteration > existing.iteration {
                     *existing = finding.clone();
-                    // Preserve resolved status.
-                    existing.resolved = existing.resolved || finding.resolved;
+                }
+                // Resolution is monotonic across review iterations.
+                existing.resolved = was_resolved || finding.resolved;
+                if existing.resolved_by.is_none() {
+                    existing.resolved_by =
+                        previous_resolved_by.or_else(|| finding.resolved_by.clone());
                 }
             })
             .or_insert(finding);
     }
     let mut result: Vec<ReviewFinding> = seen.into_values().collect();
-    result.sort_by(|a, b| a.file.cmp(&b.file).then(a.line.cmp(&b.line)));
+    result.sort_by(|a, b| {
+        a.file
+            .cmp(&b.file)
+            .then(a.line.cmp(&b.line))
+            .then(a.message.cmp(&b.message))
+    });
     result
 }
 
@@ -270,6 +287,7 @@ mod tests {
     fn make_result(name: &str, status: CheckStatus) -> CheckResult {
         CheckResult {
             name: name.into(),
+            required: true,
             status,
             duration_ms: 100,
             output: "".into(),
@@ -347,6 +365,17 @@ mod tests {
         let results = vec![make_result("coverage", CheckStatus::Unavailable)];
         let gate = evaluate_gate(&results);
         assert!(!gate.passed);
+    }
+
+    #[test]
+    fn optional_failure_is_reported_but_does_not_block() {
+        let mut optional = make_result("coverage", CheckStatus::Failed);
+        optional.required = false;
+
+        let gate = evaluate_gate(&[optional]);
+        assert!(gate.passed);
+        assert_eq!(gate.failed_count, 1);
+        assert!(gate.blocking_failures.is_empty());
     }
 
     // ---- D1: evidence validity ----
@@ -489,6 +518,19 @@ mod tests {
         assert!(deduped[0].resolved);
     }
 
+    #[test]
+    fn dedup_does_not_reopen_a_finding_resolved_in_an_older_iteration() {
+        let mut resolved = make_finding("f1", FindingSeverity::Error, "a.rs", Some(10), "Bug", 1);
+        resolved.resolved = true;
+        resolved.resolved_by = Some("attempt-1".into());
+        let newer = make_finding("f2", FindingSeverity::Error, "a.rs", Some(10), "Bug", 2);
+
+        let deduped = deduplicate_findings(vec![resolved, newer]);
+        assert_eq!(deduped.len(), 1);
+        assert!(deduped[0].resolved);
+        assert_eq!(deduped[0].resolved_by.as_deref(), Some("attempt-1"));
+    }
+
     // ---- D2: correction loop ----
 
     #[test]
@@ -548,5 +590,6 @@ mod tests {
         assert!(!FindingSeverity::Warning.is_blocking());
         assert!(FindingSeverity::Error.is_blocking());
         assert!(FindingSeverity::Blocker.is_blocking());
+        assert!(CheckStatus::Unavailable.is_blocking());
     }
 }
