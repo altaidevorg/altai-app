@@ -40,7 +40,7 @@ pub enum SignalKind {
 }
 
 /// A single signal detected during analysis.
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AnalysisSignal {
     pub kind: SignalKind,
@@ -48,7 +48,7 @@ pub struct AnalysisSignal {
 }
 
 /// Analysis result for a single attempt (or task-level aggregation).
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AttemptAnalysis {
     pub task_id: String,

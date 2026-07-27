@@ -161,6 +161,12 @@ pub struct NotificationDispatcher {
     queue: Vec<Notification>,
 }
 
+impl Default for NotificationDispatcher {
+    fn default() -> Self {
+        Self::new(NotificationConfig::default())
+    }
+}
+
 /// Result of a dispatch attempt.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
