@@ -28,6 +28,8 @@ pub mod artifact;
 #[allow(dead_code)]
 pub mod budget;
 #[allow(dead_code)]
+pub mod checks;
+#[allow(dead_code)]
 pub mod context;
 #[allow(dead_code)]
 pub mod credentials;
@@ -71,6 +73,10 @@ pub mod sources;
 pub mod task_graph;
 #[allow(dead_code)]
 pub mod team;
+#[allow(dead_code)]
+pub mod usage_wiring;
+#[allow(dead_code)]
+pub mod worker_pool;
 pub mod workflow;
 #[allow(dead_code)]
 pub mod workflow_v2;
