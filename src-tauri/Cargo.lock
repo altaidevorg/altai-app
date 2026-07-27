@@ -142,6 +142,7 @@ dependencies = [
  "base64 0.22.1",
  "bytes",
  "dirs 5.0.1",
+ "filetime",
  "flate2",
  "futures-util",
  "globset",

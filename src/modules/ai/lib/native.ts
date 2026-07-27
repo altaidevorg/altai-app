@@ -317,6 +317,66 @@ export type OrchestrationWorkflowDocument = {
   modifiedAtMs: number | null;
 };
 
+export type GardeningCheck =
+  | "stale_docs"
+  | "architecture_violations"
+  | "flaky_tests"
+  | "dead_code"
+  | "dependency_drift"
+  | "stale_worktrees"
+  | "evidence_retention"
+  | "repeated_agent_failures";
+
+export type GardeningSchedule = {
+  intervalMs: number;
+  lastRunMs: number;
+  budgetMinutes: number;
+  quietHours: { startHour: number; endHour: number } | null;
+};
+
+export type GardeningConfig = {
+  enabledChecks: GardeningCheck[];
+  schedule: GardeningSchedule;
+  staleDocDays: number;
+  evidenceRetentionDays: number;
+  staleWorktreeDays: number;
+};
+
+export type GardeningFinding = {
+  check: GardeningCheck;
+  severity: "info" | "warning" | "critical";
+  file: string;
+  detail: string;
+  recommendation: string;
+  recoverable: boolean;
+};
+
+export type GardeningReport = {
+  findings: GardeningFinding[];
+  runAtMs: number;
+  withinBudget: boolean;
+  checksRun: GardeningCheck[];
+  checksSkipped: GardeningCheck[];
+  elapsedMs: number;
+};
+
+export type GardeningTaskProposal = {
+  id: string;
+  title: string;
+  description: string;
+  citedFiles: string[];
+  severity: "info" | "warning" | "critical";
+  status: "pending";
+};
+
+export type GardeningRunResult = {
+  ran: boolean;
+  skipReason: string | null;
+  report: GardeningReport | null;
+  proposals: GardeningTaskProposal[];
+  schedule: GardeningSchedule;
+};
+
 export const native = {
   workspaceCurrentDir: () => invoke<string>("workspace_current_dir"),
   /** Mirror the recent-folders list into the OS taskbar/Dock menu. */
@@ -1001,6 +1061,27 @@ export const native = {
     invoke<OrchestrationWorkflowDocument>("orchestration_workflow_save", {
       workspaceKey,
       content,
+      workspace: currentWorkspaceEnv(),
+    }),
+  orchestrationGardeningTick: (
+    repoPath: string,
+    config: GardeningConfig,
+    options: {
+      nowMs: number;
+      nowHour: number;
+      force?: boolean;
+      recentFailures?: Array<{ taskId: string; fingerprint: string }>;
+    },
+  ) =>
+    invoke<GardeningRunResult>("orchestration_gardening_tick", {
+      request: {
+        repoPath,
+        config,
+        nowMs: options.nowMs,
+        nowHour: options.nowHour,
+        force: options.force ?? false,
+        recentFailures: options.recentFailures ?? [],
+      },
       workspace: currentWorkspaceEnv(),
     }),
   orchestrationDispatchResult: (
