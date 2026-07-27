@@ -5,7 +5,7 @@
 //! long tasks can resume from repository artifacts. Decisions remain
 //! reviewable after session cleanup.
 
-use std::io::{self, ErrorKind};
+use std::io::{self, ErrorKind, Read};
 use std::path::Path;
 
 use serde::{Deserialize, Serialize};
@@ -393,7 +393,10 @@ pub fn load_plan_file(path: &Path) -> io::Result<ExecutionPlan> {
             "plan file exceeds the 1 MiB limit",
         ));
     }
-    let content = std::fs::read_to_string(path)?;
+    let mut content = String::new();
+    std::fs::File::open(path)?
+        .take(MAX_PLAN_BYTES + 1)
+        .read_to_string(&mut content)?;
     if content.len() as u64 > MAX_PLAN_BYTES {
         return Err(io::Error::new(
             ErrorKind::InvalidData,
@@ -600,9 +603,9 @@ mod tests {
                 task_id: Some("t-1".into()),
                 attempt_id: Some("t-1-att-1".into()),
                 plan_item_id: Some("G3".into()),
-                decision: "Use FNV-1a for content hashing".into(),
-                rationale: "Deterministic and dependency-free".into(),
-                alternatives: vec!["SHA-256".into()],
+                decision: "Use SHA-256 for content revisions".into(),
+                rationale: "Deterministic and collision-resistant".into(),
+                alternatives: vec!["FNV-1a".into()],
             })
             .unwrap();
 
@@ -610,7 +613,7 @@ mod tests {
 
         let for_task = log.for_task("t-1").unwrap();
         assert_eq!(for_task.len(), 1);
-        assert_eq!(for_task[0].decision, "Use FNV-1a for content hashing");
+        assert_eq!(for_task[0].decision, "Use SHA-256 for content revisions");
 
         let for_plan = log.for_plan_item("G3").unwrap();
         assert_eq!(for_plan.len(), 1);

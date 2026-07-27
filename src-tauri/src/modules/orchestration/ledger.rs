@@ -3748,4 +3748,31 @@ mod tests {
         let pending = ledger.pending_approvals().unwrap();
         assert!(pending.is_empty());
     }
+
+    #[test]
+    fn decision_methods_report_a_poisoned_connection_lock() {
+        let ledger = std::sync::Arc::new(OrchestrationLedger::open_in_memory().unwrap());
+        let worker_ledger = std::sync::Arc::clone(&ledger);
+        let worker = std::thread::spawn(move || {
+            let _connection = worker_ledger.connection.lock().unwrap();
+            panic!("poison the connection lock for the test");
+        });
+        assert!(worker.join().is_err());
+
+        assert!(matches!(
+            ledger.recent_decisions(1),
+            Err(LedgerError::LockPoisoned)
+        ));
+        assert!(matches!(
+            ledger.create_decision(&CreateDecisionRequest {
+                task_id: None,
+                attempt_id: None,
+                plan_item_id: None,
+                decision: "This cannot be persisted".into(),
+                rationale: String::new(),
+                alternatives: vec![],
+            }),
+            Err(LedgerError::LockPoisoned)
+        ));
+    }
 }
