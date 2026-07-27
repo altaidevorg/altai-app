@@ -156,8 +156,8 @@ pub fn should_notify(
 #[derive(Clone, Debug)]
 pub struct NotificationDispatcher {
     config: NotificationConfig,
-    /// (trigger, task_id) → last notification time, for dedup.
-    last_sent: HashMap<(NotificationTrigger, String), u64>,
+    /// (trigger, task_id, attempt_id) → last notification time, for dedup.
+    last_sent: HashMap<(NotificationTrigger, String, Option<String>), u64>,
     queue: Vec<Notification>,
 }
 
@@ -196,17 +196,23 @@ impl NotificationDispatcher {
             return DispatchResult::Suppressed;
         }
 
-        // Dedup check.
-        let dedup_key = (trigger, task_id.to_string());
+        // Keep only entries that can still participate in deduplication so
+        // long-running dispatchers do not retain every task forever.
+        self.last_sent
+            .retain(|_, last| now_ms.saturating_sub(*last) < self.config.dedup_window_ms);
+
+        // Dedup check. Attempts are isolated so a new attempt on the same task
+        // cannot lose an actionable notification.
+        let dedup_key = (trigger, task_id.to_string(), attempt_id.map(str::to_string));
         if let Some(&last) = self.last_sent.get(&dedup_key) {
-            if now_ms < last + self.config.dedup_window_ms {
+            if now_ms.saturating_sub(last) < self.config.dedup_window_ms {
                 return DispatchResult::Deduplicated;
             }
         }
 
         // Queue the notification.
         let notif = Notification {
-            id: format!("notif-{now_ms}-{}", self.queue.len()),
+            id: format!("notif-{now_ms}-{}", uuid::Uuid::new_v4()),
             trigger,
             task_id: task_id.to_string(),
             attempt_id: attempt_id.map(|s| s.to_string()),
@@ -286,14 +292,14 @@ impl ReplyTokenStore {
         now_ms: u64,
         ttl_ms: u64,
     ) -> ReplyToken {
-        let token = format!("rt-{}-{}", now_ms, self.tokens.len());
+        let token = format!("rt-{now_ms}-{}", uuid::Uuid::new_v4());
         let reply = ReplyToken {
             token: token.clone(),
             task_id: task_id.to_string(),
             attempt_id: attempt_id.map(|s| s.to_string()),
             runtime_id: runtime_id.to_string(),
             created_at_ms: now_ms,
-            expires_at_ms: now_ms + ttl_ms,
+            expires_at_ms: now_ms.saturating_add(ttl_ms),
             used: false,
         };
         self.tokens.insert(token, reply.clone());
@@ -313,7 +319,7 @@ impl ReplyTokenStore {
         if reply.used {
             return Err(ReplyError::AlreadyUsed);
         }
-        if now_ms > reply.expires_at_ms {
+        if now_ms >= reply.expires_at_ms {
             return Err(ReplyError::Expired);
         }
         if reply.runtime_id != runtime_id {
@@ -324,13 +330,13 @@ impl ReplyTokenStore {
         }
 
         reply.used = true;
-        Ok(self.tokens.get(token).cloned().unwrap())
+        Ok(reply.clone())
     }
 
     /// Check if a token is valid (not used, not expired, correct runtime).
     pub fn is_valid(&self, token: &str, runtime_id: &str, now_ms: u64) -> bool {
         match self.tokens.get(token) {
-            Some(r) => !r.used && now_ms <= r.expires_at_ms && r.runtime_id == runtime_id,
+            Some(r) => !r.used && now_ms < r.expires_at_ms && r.runtime_id == runtime_id,
             None => false,
         }
     }
@@ -609,6 +615,35 @@ mod tests {
     }
 
     #[test]
+    fn dispatch_different_attempts_not_deduplicated() {
+        let mut dispatcher = NotificationDispatcher::new(NotificationConfig {
+            dedup_window_ms: 5000,
+            ..Default::default()
+        });
+        dispatcher.dispatch(
+            NotificationTrigger::ApprovalRequired,
+            "t1",
+            Some("attempt-1"),
+            "First",
+            "",
+            1000,
+            12,
+        );
+        let result = dispatcher.dispatch(
+            NotificationTrigger::ApprovalRequired,
+            "t1",
+            Some("attempt-2"),
+            "Second",
+            "",
+            2000,
+            12,
+        );
+
+        assert_eq!(result, DispatchResult::Queued);
+        assert_eq!(dispatcher.pending(), 2);
+    }
+
+    #[test]
     fn dispatch_suppressed_by_config() {
         let mut dispatcher = NotificationDispatcher::new(NotificationConfig {
             suppressed_triggers: HashSet::from([NotificationTrigger::TaskCompleted]),
@@ -651,6 +686,61 @@ mod tests {
         let notifs = dispatcher.drain();
         assert_eq!(notifs.len(), 2);
         assert_eq!(dispatcher.pending(), 0);
+    }
+
+    #[test]
+    fn notification_ids_remain_unique_after_drain() {
+        let mut dispatcher = NotificationDispatcher::new(NotificationConfig::default());
+        dispatcher.dispatch(
+            NotificationTrigger::TaskFailed,
+            "t1",
+            None,
+            "First",
+            "",
+            1000,
+            12,
+        );
+        let first_id = dispatcher.drain()[0].id.clone();
+        dispatcher.dispatch(
+            NotificationTrigger::TaskFailed,
+            "t2",
+            None,
+            "Second",
+            "",
+            1000,
+            12,
+        );
+        let second_id = dispatcher.drain()[0].id.clone();
+
+        assert_ne!(first_id, second_id);
+    }
+
+    #[test]
+    fn dedup_window_math_does_not_overflow() {
+        let mut dispatcher = NotificationDispatcher::new(NotificationConfig {
+            dedup_window_ms: 10,
+            ..Default::default()
+        });
+        dispatcher.dispatch(
+            NotificationTrigger::TaskFailed,
+            "t1",
+            None,
+            "First",
+            "",
+            u64::MAX - 5,
+            12,
+        );
+        let result = dispatcher.dispatch(
+            NotificationTrigger::TaskFailed,
+            "t1",
+            None,
+            "Second",
+            "",
+            u64::MAX,
+            12,
+        );
+
+        assert_eq!(result, DispatchResult::Deduplicated);
     }
 
     #[test]
@@ -699,6 +789,29 @@ mod tests {
 
         let result = store.consume(&token.token, "rt-1", 70_000);
         assert_eq!(result.unwrap_err(), ReplyError::Expired);
+    }
+
+    #[test]
+    fn token_expires_at_the_exact_deadline() {
+        let mut store = ReplyTokenStore::new();
+        let token = store.issue("t1", None, "rt-1", 1000, 60_000);
+
+        assert!(!store.is_valid(&token.token, "rt-1", 61_000));
+        assert_eq!(
+            store.consume(&token.token, "rt-1", 61_000).unwrap_err(),
+            ReplyError::Expired
+        );
+    }
+
+    #[test]
+    fn token_expiry_saturates_and_tokens_are_unique() {
+        let mut store = ReplyTokenStore::new();
+        let first = store.issue("t1", None, "rt-1", u64::MAX - 5, 10);
+        let second = store.issue("t1", None, "rt-1", u64::MAX - 5, 10);
+
+        assert_eq!(first.expires_at_ms, u64::MAX);
+        assert_ne!(first.token, second.token);
+        assert!(store.is_valid(&first.token, "rt-1", u64::MAX - 1));
     }
 
     #[test]
