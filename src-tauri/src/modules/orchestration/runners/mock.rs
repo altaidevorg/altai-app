@@ -15,7 +15,7 @@ use std::collections::{HashMap, VecDeque};
 /// kinds; [`RunnerAdapter::poll_event`] pops the next one.
 #[derive(Default)]
 pub struct MockRunner {
-    queues: HashMap<String, VecDeque<RunnerEventKind>>,
+    queues: HashMap<String, VecDeque<(RunnerEventKind, Value)>>,
     seq: HashMap<String, u64>,
     started: Vec<String>,
     started_inputs: HashMap<String, String>,
@@ -38,7 +38,14 @@ impl MockRunner {
         self.queues
             .entry(attempt_id.to_string())
             .or_default()
-            .extend(kinds);
+            .extend(kinds.into_iter().map(|kind| (kind, Value::Null)));
+    }
+
+    pub fn enqueue_event(&mut self, attempt_id: &str, kind: RunnerEventKind, payload: Value) {
+        self.queues
+            .entry(attempt_id.to_string())
+            .or_default()
+            .push_back((kind, payload));
     }
 
     pub fn was_started(&self, attempt_id: &str) -> bool {
@@ -99,13 +106,13 @@ impl RunnerAdapter for MockRunner {
                 attempt_id: identity.attempt_id.clone(),
             });
         };
-        Ok(queue.pop_front().map(|kind| {
+        Ok(queue.pop_front().map(|(kind, payload)| {
             let seq = self.next_seq(&identity.attempt_id);
             RunnerEvent {
                 attempt_id: identity.attempt_id.clone(),
                 kind,
                 seq,
-                payload: Value::Null,
+                payload,
             }
         }))
     }

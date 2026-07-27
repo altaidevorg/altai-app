@@ -7,8 +7,9 @@
 //! Layering rules:
 //! - **Deny wins**: if any managed requirement says Deny, the answer is Deny
 //!   regardless of user preferences.
-//! - **Ask upgrades**: if any layer says Ask, the final decision is at least
-//!   Ask (never silently downgraded to Allow).
+//! - **Specific overrides win**: run > profile > workflow > settings > default.
+//! - **Parent ceiling**: a child may choose a stricter mode but cannot exceed
+//!   the authority inherited from its parent.
 //! - **Managed floor**: hardcoded safety requirements that can never be
 //!   relaxed by repository or app configuration.
 //! - **Bypass gate**: the global bypass mode is preserved as a safety escape
@@ -16,7 +17,7 @@
 
 use serde::Serialize;
 
-use super::ledger::ApprovalState;
+use super::ledger::{approval_action_hash, ApprovalRecord, ApprovalState};
 use super::workflow::PermissionMode;
 
 // ---------------------------------------------------------------------------
@@ -48,8 +49,10 @@ impl ActionCategory {
     pub fn default_risk(self) -> RiskLevel {
         match self {
             Self::Read | Self::Planning => RiskLevel::None,
-            Self::WriteFile | Self::RunCommand => RiskLevel::Medium,
-            Self::NetworkAccess | Self::GitOperation | Self::Destructive => RiskLevel::High,
+            Self::WriteFile => RiskLevel::Medium,
+            Self::RunCommand | Self::NetworkAccess | Self::GitOperation | Self::Destructive => {
+                RiskLevel::High
+            }
         }
     }
 }
@@ -87,12 +90,26 @@ impl RiskLevel {
 #[serde(rename_all = "snake_case")]
 pub enum DecisionSource {
     Managed,
+    Parent,
     Settings,
     Workflow,
     Profile,
     Override,
-    Bypass,
     Default,
+}
+
+impl DecisionSource {
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Managed => "managed",
+            Self::Parent => "parent",
+            Self::Settings => "settings",
+            Self::Workflow => "workflow",
+            Self::Profile => "profile",
+            Self::Override => "override",
+            Self::Default => "default",
+        }
+    }
 }
 
 /// Managed (hardcoded) safety requirements. These are the non-negotiable floor:
@@ -101,10 +118,9 @@ pub enum DecisionSource {
 pub struct ManagedRequirements {
     /// Branch patterns that must never receive a force-push.
     pub protected_branches: Vec<String>,
-    /// When true, High-risk actions are denied even in bypass mode (e.g.
-    /// unattended runs).
-    pub deny_high_risk_unattended: bool,
-    /// When true, destructive git operations are always denied.
+    /// When true, destructive operations are always denied.
+    pub deny_destructive: bool,
+    /// When true, force pushes are always denied.
     pub deny_force_push: bool,
 }
 
@@ -116,6 +132,9 @@ pub struct AppPolicySettings {
     /// Whether the current run is attended (a human is present). Unattended
     /// runs cannot ask for approval — they auto-deny.
     pub attended: bool,
+    /// Allow medium-risk AutoEdit actions immediately, but require a
+    /// post-hoc reviewer pass.
+    pub auto_review_medium: bool,
 }
 
 /// The full set of layers consulted during policy evaluation. Layers are
@@ -123,6 +142,9 @@ pub struct AppPolicySettings {
 #[derive(Clone, Debug)]
 pub struct PolicyLayers {
     pub managed: ManagedRequirements,
+    /// Maximum authority inherited from the parent agent/run. A child may
+    /// choose a stricter mode, but can never exceed this one.
+    pub parent_mode: Option<PermissionMode>,
     pub settings: AppPolicySettings,
     pub workflow_mode: Option<PermissionMode>,
     pub profile_mode: Option<PermissionMode>,
@@ -133,6 +155,7 @@ impl Default for PolicyLayers {
     fn default() -> Self {
         Self {
             managed: ManagedRequirements::default(),
+            parent_mode: None,
             settings: AppPolicySettings {
                 attended: true,
                 ..AppPolicySettings::default()
@@ -145,14 +168,43 @@ impl Default for PolicyLayers {
 }
 
 impl PolicyLayers {
-    /// Resolve the effective permission mode after layering.
-    /// Override > Profile > Workflow > Settings > Default(AutoEdit).
+    /// Resolve the effective permission mode after layering and applying the
+    /// inherited parent-authority ceiling.
     pub fn effective_mode(&self) -> PermissionMode {
-        self.run_override
-            .or(self.profile_mode)
-            .or(self.workflow_mode)
-            .or(self.settings.default_mode)
-            .unwrap_or(PermissionMode::AutoEdit)
+        self.effective_mode_with_source().0
+    }
+
+    /// Override > Profile > Workflow > Settings > Default(AutoEdit), then
+    /// clamp the result to the parent mode when the child requested more
+    /// authority.
+    fn effective_mode_with_source(&self) -> (PermissionMode, DecisionSource) {
+        let selected = if let Some(mode) = self.run_override {
+            (mode, DecisionSource::Override)
+        } else if let Some(mode) = self.profile_mode {
+            (mode, DecisionSource::Profile)
+        } else if let Some(mode) = self.workflow_mode {
+            (mode, DecisionSource::Workflow)
+        } else if let Some(mode) = self.settings.default_mode {
+            (mode, DecisionSource::Settings)
+        } else {
+            (PermissionMode::AutoEdit, DecisionSource::Default)
+        };
+
+        match self.parent_mode {
+            Some(parent) if authority_rank(selected.0) > authority_rank(parent) => {
+                (parent, DecisionSource::Parent)
+            }
+            _ => selected,
+        }
+    }
+}
+
+fn authority_rank(mode: PermissionMode) -> u8 {
+    match mode {
+        PermissionMode::Plan => 0,
+        PermissionMode::Ask => 1,
+        PermissionMode::AutoEdit => 2,
+        PermissionMode::Bypass => 3,
     }
 }
 
@@ -181,6 +233,17 @@ pub enum PolicyDecision {
     AutoReview { source: DecisionSource },
 }
 
+impl PolicyDecision {
+    pub fn source(&self) -> DecisionSource {
+        match self {
+            Self::Allow { source }
+            | Self::Deny { source, .. }
+            | Self::Ask { source, .. }
+            | Self::AutoReview { source } => *source,
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Evaluation
 // ---------------------------------------------------------------------------
@@ -198,7 +261,7 @@ pub struct ActionDescriptor {
 }
 
 impl ActionDescriptor {
-    fn risk(&self) -> RiskLevel {
+    pub fn risk(&self) -> RiskLevel {
         self.category.default_risk()
     }
 }
@@ -219,7 +282,7 @@ pub fn evaluate(action: &ActionDescriptor, layers: &PolicyLayers) -> PolicyDecis
     }
 
     let risk = action.risk();
-    let mode = layers.effective_mode();
+    let (mode, mode_source) = layers.effective_mode_with_source();
 
     // 2. Bypass gate — attended bypass allows everything not denied by managed.
     if mode == PermissionMode::Bypass {
@@ -230,7 +293,7 @@ pub fn evaluate(action: &ActionDescriptor, layers: &PolicyLayers) -> PolicyDecis
             };
         }
         return PolicyDecision::Allow {
-            source: DecisionSource::Bypass,
+            source: mode_source,
         };
     }
 
@@ -246,7 +309,7 @@ pub fn evaluate(action: &ActionDescriptor, layers: &PolicyLayers) -> PolicyDecis
     if mode == PermissionMode::Plan {
         return PolicyDecision::Deny {
             reason: "plan mode blocks all side-effecting actions".into(),
-            source: DecisionSource::Default,
+            source: mode_source,
         };
     }
 
@@ -255,14 +318,30 @@ pub fn evaluate(action: &ActionDescriptor, layers: &PolicyLayers) -> PolicyDecis
         (RiskLevel::None, _) => PolicyDecision::Allow {
             source: DecisionSource::Default,
         },
-        (RiskLevel::Medium, PermissionMode::AutoEdit) => PolicyDecision::Allow {
-            source: DecisionSource::Default,
-        },
-        (RiskLevel::Medium, _) => PolicyDecision::Ask {
-            risk,
-            prompt: action.description.clone(),
-            source: DecisionSource::Default,
-        },
+        (RiskLevel::Medium, PermissionMode::AutoEdit) => {
+            if layers.settings.auto_review_medium {
+                PolicyDecision::AutoReview {
+                    source: DecisionSource::Settings,
+                }
+            } else {
+                PolicyDecision::Allow {
+                    source: mode_source,
+                }
+            }
+        }
+        (RiskLevel::Medium, _) => {
+            if !layers.settings.attended {
+                return PolicyDecision::Deny {
+                    reason: "approval-required action denied: run is unattended".into(),
+                    source: DecisionSource::Settings,
+                };
+            }
+            PolicyDecision::Ask {
+                risk,
+                prompt: action.description.clone(),
+                source: mode_source,
+            }
+        }
         (RiskLevel::High, _) => {
             // Unattended runs cannot ask — auto-deny instead of stalling.
             if !layers.settings.attended {
@@ -274,7 +353,7 @@ pub fn evaluate(action: &ActionDescriptor, layers: &PolicyLayers) -> PolicyDecis
             PolicyDecision::Ask {
                 risk,
                 prompt: action.description.clone(),
-                source: DecisionSource::Default,
+                source: mode_source,
             }
         }
     }
@@ -307,7 +386,7 @@ fn managed_check(
         }
     }
 
-    if action.category == ActionCategory::Destructive && managed.deny_high_risk_unattended {
+    if action.category == ActionCategory::Destructive && managed.deny_destructive {
         return Some(PolicyDecision::Deny {
             reason: "destructive action blocked by managed policy".into(),
             source: DecisionSource::Managed,
@@ -317,33 +396,58 @@ fn managed_check(
     None
 }
 
-/// Simple glob match: `*` matches any sequence.
+/// Simple glob match: `*` matches any sequence. Character indices avoid
+/// slicing at invalid UTF-8 boundaries and the backtracking cursor is always
+/// bounded by the branch length.
 fn branch_matches(branch: &str, pattern: &str) -> bool {
-    if !pattern.contains('*') {
-        return false;
-    }
-    let parts: Vec<&str> = pattern.split('*').collect();
-    let mut pos = 0;
-    for (i, part) in parts.iter().enumerate() {
-        if i == 0 {
-            if !branch[pos..].starts_with(part) {
-                return false;
-            }
-            pos += part.len();
-        } else if i == parts.len() - 1 {
-            return branch[pos..].ends_with(part);
-        } else if let Some(found) = branch[pos..].find(part) {
-            pos += found + part.len();
+    let branch: Vec<char> = branch.chars().collect();
+    let pattern: Vec<char> = pattern.chars().collect();
+    let (mut branch_index, mut pattern_index) = (0, 0);
+    let (mut last_star, mut star_match) = (None, 0);
+
+    while branch_index < branch.len() {
+        if pattern_index < pattern.len()
+            && pattern[pattern_index] != '*'
+            && pattern[pattern_index] == branch[branch_index]
+        {
+            branch_index += 1;
+            pattern_index += 1;
+        } else if pattern_index < pattern.len() && pattern[pattern_index] == '*' {
+            last_star = Some(pattern_index);
+            star_match = branch_index;
+            pattern_index += 1;
+        } else if let Some(star_index) = last_star {
+            star_match += 1;
+            branch_index = star_match;
+            pattern_index = star_index + 1;
         } else {
             return false;
         }
     }
-    true
+
+    pattern[pattern_index..]
+        .iter()
+        .all(|character| *character == '*')
 }
 
-/// Map an approval outcome back to whether the action should proceed.
-pub fn approval_allows(state: ApprovalState) -> bool {
-    matches!(state, ApprovalState::Approved | ApprovalState::AutoResolved)
+/// Confirm that a durable approval authorizes this exact task, attempt, action,
+/// and time. Any mismatch or hashing failure denies execution.
+pub fn approval_allows(
+    approval: &ApprovalRecord,
+    task_id: &str,
+    attempt_id: &str,
+    action: &serde_json::Value,
+    now_ms: u64,
+) -> bool {
+    matches!(
+        approval.state,
+        ApprovalState::Approved | ApprovalState::AutoResolved
+    ) && approval.task_id == task_id
+        && approval.attempt_id == attempt_id
+        && now_ms < approval.expires_at_ms
+        && approval_action_hash(action)
+            .map(|hash| hash == approval.action_hash)
+            .unwrap_or(false)
 }
 
 #[cfg(test)]
@@ -363,15 +467,6 @@ mod tests {
     fn write_action(desc: &str) -> ActionDescriptor {
         ActionDescriptor {
             category: ActionCategory::WriteFile,
-            description: desc.into(),
-            git_branch: None,
-            git_force: false,
-        }
-    }
-
-    fn command_action(desc: &str) -> ActionDescriptor {
-        ActionDescriptor {
-            category: ActionCategory::RunCommand,
             description: desc.into(),
             git_branch: None,
             git_force: false,
@@ -414,9 +509,9 @@ mod tests {
     }
 
     #[test]
-    fn writefile_and_command_are_medium_risk() {
+    fn writes_are_medium_but_commands_are_high_risk() {
         assert_eq!(ActionCategory::WriteFile.default_risk(), RiskLevel::Medium);
-        assert_eq!(ActionCategory::RunCommand.default_risk(), RiskLevel::Medium);
+        assert_eq!(ActionCategory::RunCommand.default_risk(), RiskLevel::High);
     }
 
     #[test]
@@ -453,6 +548,31 @@ mod tests {
             PolicyLayers::default().effective_mode(),
             PermissionMode::AutoEdit
         );
+    }
+
+    #[test]
+    fn parent_authority_clamps_a_more_permissive_child_override() {
+        let mut layers = PolicyLayers::default();
+        layers.parent_mode = Some(PermissionMode::Ask);
+        layers.run_override = Some(PermissionMode::Bypass);
+
+        assert_eq!(layers.effective_mode(), PermissionMode::Ask);
+        let decision = evaluate(&write_action("edit file.rs"), &layers);
+        assert!(matches!(
+            decision,
+            PolicyDecision::Ask {
+                source: DecisionSource::Parent,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn child_may_choose_a_stricter_mode_than_its_parent() {
+        let mut layers = PolicyLayers::default();
+        layers.parent_mode = Some(PermissionMode::Bypass);
+        layers.run_override = Some(PermissionMode::Plan);
+        assert_eq!(layers.effective_mode(), PermissionMode::Plan);
     }
 
     // ---- evaluate: read actions always allowed ----
@@ -533,7 +653,7 @@ mod tests {
         assert!(matches!(
             d,
             PolicyDecision::Allow {
-                source: DecisionSource::Bypass
+                source: DecisionSource::Override
             }
         ));
     }
@@ -562,7 +682,7 @@ mod tests {
         assert!(matches!(
             d,
             PolicyDecision::Allow {
-                source: DecisionSource::Bypass
+                source: DecisionSource::Override
             }
         ));
     }
@@ -584,12 +704,18 @@ mod tests {
     }
 
     #[test]
-    fn unattended_medium_risk_still_asks() {
+    fn unattended_medium_risk_that_needs_approval_is_denied() {
         let mut layers = PolicyLayers::default();
         layers.settings.default_mode = Some(PermissionMode::Ask);
         layers.settings.attended = false;
-        let d = evaluate(&command_action("cargo test"), &layers);
-        assert!(matches!(d, PolicyDecision::Ask { .. }));
+        let d = evaluate(&write_action("edit file.rs"), &layers);
+        assert!(matches!(
+            d,
+            PolicyDecision::Deny {
+                source: DecisionSource::Settings,
+                ..
+            }
+        ));
     }
 
     // ---- managed floor ----
@@ -655,7 +781,7 @@ mod tests {
         let mut layers = PolicyLayers::default();
         layers.run_override = Some(PermissionMode::Bypass);
         layers.settings.attended = true;
-        layers.managed.deny_high_risk_unattended = true;
+        layers.managed.deny_destructive = true;
         let d = evaluate(&destructive_action(), &layers);
         assert!(matches!(
             d,
@@ -669,12 +795,61 @@ mod tests {
     // ---- approval_allows helper ----
 
     #[test]
-    fn approval_allows_approved_and_auto_resolved() {
-        assert!(approval_allows(ApprovalState::Approved));
-        assert!(approval_allows(ApprovalState::AutoResolved));
-        assert!(!approval_allows(ApprovalState::Denied));
-        assert!(!approval_allows(ApprovalState::Expired));
-        assert!(!approval_allows(ApprovalState::Pending));
+    fn approval_allows_only_the_exact_unexpired_action() {
+        let action = serde_json::json!({"command": "git push"});
+        let mut approval = ApprovalRecord {
+            approval_id: "ap-1".into(),
+            task_id: "task-1".into(),
+            attempt_id: "attempt-1".into(),
+            action_desc: "Push changes".into(),
+            action_payload: action.clone(),
+            action_hash: approval_action_hash(&action).unwrap(),
+            risk_level: "high".into(),
+            policy_source: "default".into(),
+            state: ApprovalState::Approved,
+            requested_at_ms: 1_000,
+            expires_at_ms: 2_000,
+            decided_at_ms: Some(1_100),
+            decided_by: None,
+            decision_reason: None,
+        };
+
+        assert!(approval_allows(
+            &approval,
+            "task-1",
+            "attempt-1",
+            &action,
+            1_500
+        ));
+        assert!(!approval_allows(
+            &approval,
+            "another-task",
+            "attempt-1",
+            &action,
+            1_500
+        ));
+        assert!(!approval_allows(
+            &approval,
+            "task-1",
+            "attempt-1",
+            &serde_json::json!({"command": "git push --force"}),
+            1_500
+        ));
+        assert!(!approval_allows(
+            &approval,
+            "task-1",
+            "attempt-1",
+            &action,
+            2_000
+        ));
+        approval.state = ApprovalState::Denied;
+        assert!(!approval_allows(
+            &approval,
+            "task-1",
+            "attempt-1",
+            &action,
+            1_500
+        ));
     }
 
     // ---- decision source attribution ----
@@ -687,8 +862,71 @@ mod tests {
         assert!(matches!(
             d,
             PolicyDecision::Allow {
-                source: DecisionSource::Bypass
+                source: DecisionSource::Override
             }
         ));
+    }
+
+    #[test]
+    fn decisions_preserve_the_selected_layer_source() {
+        let mut layers = PolicyLayers::default();
+        layers.settings.default_mode = Some(PermissionMode::Ask);
+        assert!(matches!(
+            evaluate(&write_action("settings"), &layers),
+            PolicyDecision::Ask {
+                source: DecisionSource::Settings,
+                ..
+            }
+        ));
+
+        layers.workflow_mode = Some(PermissionMode::Ask);
+        assert!(matches!(
+            evaluate(&write_action("workflow"), &layers),
+            PolicyDecision::Ask {
+                source: DecisionSource::Workflow,
+                ..
+            }
+        ));
+
+        layers.profile_mode = Some(PermissionMode::Ask);
+        assert!(matches!(
+            evaluate(&write_action("profile"), &layers),
+            PolicyDecision::Ask {
+                source: DecisionSource::Profile,
+                ..
+            }
+        ));
+
+        layers.run_override = Some(PermissionMode::Ask);
+        assert!(matches!(
+            evaluate(&write_action("override"), &layers),
+            PolicyDecision::Ask {
+                source: DecisionSource::Override,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn auto_review_is_reachable_for_medium_risk_auto_edit() {
+        let mut layers = PolicyLayers::default();
+        layers.settings.auto_review_medium = true;
+        assert!(matches!(
+            evaluate(&write_action("review this edit"), &layers),
+            PolicyDecision::AutoReview {
+                source: DecisionSource::Settings
+            }
+        ));
+    }
+
+    #[test]
+    fn glob_matching_handles_leading_trailing_repeated_and_unicode_stars() {
+        assert!(branch_matches("feature/main", "*main"));
+        assert!(branch_matches("release/v2", "release/*"));
+        assert!(branch_matches("feature/ödeme-v2", "*ödeme*"));
+        assert!(branch_matches("abc", "a**c"));
+        assert!(branch_matches("anything", "*"));
+        assert!(!branch_matches("feature/main-old", "*main"));
+        assert!(!branch_matches("main", "release/*"));
     }
 }

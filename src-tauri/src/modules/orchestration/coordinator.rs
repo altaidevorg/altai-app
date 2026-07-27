@@ -12,8 +12,11 @@ use super::domain::{
     AttemptState, AttemptTrigger, Lease, LeaseError, TaskState, TaskTrigger, TransitionError,
 };
 use super::ledger::{
-    CreateAttemptRequest, LedgerError, OrchestrationEvent, OrchestrationLedger, WriteStatus,
+    approval_action_hash, ApprovalDecidedBy, ApprovalRecord, ApprovalState, CreateApprovalRequest,
+    CreateAttemptRequest, LedgerError, OrchestrationEvent, OrchestrationLedger,
+    ResolveApprovalRequest, WriteStatus,
 };
+use super::policy::{evaluate, ActionCategory, ActionDescriptor, PolicyDecision, PolicyLayers};
 use super::runners::{
     event_to_trigger, AttemptIdentity, AttemptSpec, RunnerAdapter, RunnerError, RunnerEventKind,
 };
@@ -82,6 +85,7 @@ pub struct CoordinatorPolicy {
     pub retry_max_ms: u64,
     pub max_attempts: u32,
     pub lease_ttl_ms: u64,
+    pub approval_ttl_ms: u64,
 }
 
 impl Default for CoordinatorPolicy {
@@ -91,6 +95,7 @@ impl Default for CoordinatorPolicy {
             retry_max_ms: 300_000,
             max_attempts: 4,
             lease_ttl_ms: 60_000,
+            approval_ttl_ms: 5 * 60_000,
         }
     }
 }
@@ -119,6 +124,15 @@ pub enum PumpOutcome {
     Terminal(AttemptState),
     /// The attempt failed and a retry was scheduled for `retry_at_ms`.
     RetryScheduled { retry_at_ms: u64 },
+}
+
+pub struct ActionGateRequest<'a> {
+    pub task_id: &'a str,
+    pub attempt_id: &'a str,
+    pub approval_id: &'a str,
+    pub event_id: &'a str,
+    pub action: &'a ActionDescriptor,
+    pub action_payload: &'a serde_json::Value,
 }
 
 #[derive(Debug)]
@@ -215,15 +229,177 @@ pub type CoordinatorResult<T> = Result<T, CoordinatorError>;
 pub struct Coordinator<'a> {
     ledger: &'a OrchestrationLedger,
     policy: CoordinatorPolicy,
+    action_policy: PolicyLayers,
 }
 
 impl<'a> Coordinator<'a> {
     pub fn new(ledger: &'a OrchestrationLedger, policy: CoordinatorPolicy) -> Self {
-        Self { ledger, policy }
+        Self {
+            ledger,
+            policy,
+            action_policy: PolicyLayers::default(),
+        }
+    }
+
+    pub fn with_action_policy(mut self, action_policy: PolicyLayers) -> Self {
+        self.action_policy = action_policy;
+        self
     }
 
     pub fn ledger(&self) -> &OrchestrationLedger {
         self.ledger
+    }
+
+    /// Evaluate one exact runner action before execution. Every outcome is
+    /// audited; `Ask` additionally creates a durable, expiring approval bound
+    /// to the task, attempt, and structured action hash.
+    pub fn gate_action<C>(
+        &self,
+        request: &ActionGateRequest<'_>,
+        clock: &C,
+    ) -> CoordinatorResult<PolicyDecision>
+    where
+        C: Clock,
+    {
+        let attempt =
+            self.ledger
+                .attempt(request.attempt_id)?
+                .ok_or(CoordinatorError::UnknownAttempt {
+                    attempt_id: request.attempt_id.to_string(),
+                })?;
+        if attempt.task_id != request.task_id {
+            return Err(CoordinatorError::Ledger(
+                LedgerError::ApprovalAttemptMismatch {
+                    task_id: request.task_id.to_string(),
+                    attempt_id: request.attempt_id.to_string(),
+                },
+            ));
+        }
+
+        let now = clock.now_ms();
+        let decision = evaluate(request.action, &self.action_policy);
+        let source = decision.source().name();
+        let action_hash = approval_action_hash(request.action_payload)?;
+        if matches!(decision, PolicyDecision::Ask { .. }) {
+            let expires_at_ms = now
+                .checked_add(self.policy.approval_ttl_ms)
+                .ok_or(LedgerError::NumericOverflow("approval expiry"))?;
+            self.ledger
+                .create_approval_request(&CreateApprovalRequest {
+                    approval_id: request.approval_id.to_string(),
+                    event_id: request.event_id.to_string(),
+                    task_id: request.task_id.to_string(),
+                    attempt_id: request.attempt_id.to_string(),
+                    action_desc: if request.action.description.trim().is_empty() {
+                        "Runner action requires approval".into()
+                    } else {
+                        request.action.description.clone()
+                    },
+                    action_payload: (*request.action_payload).clone(),
+                    risk_level: request.action.risk().name().into(),
+                    policy_source: source.into(),
+                    expires_at_ms,
+                    now_ms: now,
+                })?;
+        } else {
+            self.ledger.record_event(&OrchestrationEvent {
+                event_id: request.event_id.to_string(),
+                task_id: request.task_id.to_string(),
+                seq: 0,
+                kind: match &decision {
+                    PolicyDecision::Allow { .. } => "policy.allowed",
+                    PolicyDecision::Deny { .. } => "policy.denied",
+                    PolicyDecision::AutoReview { .. } => "policy.auto_review",
+                    PolicyDecision::Ask { .. } => unreachable!("handled above"),
+                }
+                .into(),
+                payload: serde_json::json!({
+                    "attempt_id": request.attempt_id,
+                    "action_hash": action_hash,
+                    "risk_level": request.action.risk().name(),
+                    "policy_source": source,
+                    "decision": &decision,
+                }),
+                recorded_at_ms: now,
+            })?;
+        }
+        Ok(decision)
+    }
+
+    /// Deliver a human decision to the waiting runner and resume the attempt.
+    /// Replaying the same decision is safe: the durable first decision is
+    /// reused and delivery can be retried after a transient runner failure.
+    pub fn resolve_action_approval<R, C>(
+        &self,
+        identity: &AttemptIdentity,
+        approval_id: &str,
+        approved: bool,
+        reason: Option<String>,
+        runner: &mut R,
+        clock: &C,
+    ) -> CoordinatorResult<ApprovalRecord>
+    where
+        R: RunnerAdapter,
+        C: Clock,
+    {
+        let attempt =
+            self.ledger
+                .attempt(&identity.attempt_id)?
+                .ok_or(CoordinatorError::UnknownAttempt {
+                    attempt_id: identity.attempt_id.clone(),
+                })?;
+        let existing = self
+            .ledger
+            .approval(approval_id)?
+            .ok_or(CoordinatorError::Ledger(LedgerError::UnknownApproval {
+                approval_id: approval_id.to_string(),
+            }))?;
+        if existing.attempt_id != identity.attempt_id || existing.task_id != attempt.task_id {
+            return Err(CoordinatorError::Ledger(
+                LedgerError::ApprovalAttemptMismatch {
+                    task_id: attempt.task_id,
+                    attempt_id: identity.attempt_id.clone(),
+                },
+            ));
+        }
+
+        let record = if existing.state == ApprovalState::Pending {
+            self.ledger.resolve_approval(&ResolveApprovalRequest {
+                approval_id: approval_id.to_string(),
+                event_id: format!("{}:decision", approval_id),
+                approved,
+                decided_by: ApprovalDecidedBy::Human,
+                reason,
+                now_ms: clock.now_ms(),
+            })?
+        } else {
+            let persisted_approval = matches!(
+                existing.state,
+                ApprovalState::Approved | ApprovalState::AutoResolved
+            );
+            if persisted_approval != approved {
+                return Err(CoordinatorError::Ledger(
+                    LedgerError::ApprovalAlreadyResolved {
+                        approval_id: approval_id.to_string(),
+                        state: existing.state.name().into(),
+                    },
+                ));
+            }
+            existing
+        };
+
+        runner.steer(identity, if approved { "approve" } else { "deny" })?;
+        if attempt.state == AttemptState::ApprovalRequired {
+            self.ledger.set_attempt_state(
+                &identity.attempt_id,
+                attempt.state.transition(AttemptTrigger::Resume)?,
+                None,
+                &format!("{}:delivered", approval_id),
+                None,
+                clock.now_ms(),
+            )?;
+        }
+        Ok(record)
     }
 
     /// Claim an eligible task, create an attempt with a fresh lease, and start
@@ -384,6 +560,35 @@ impl<'a> Coordinator<'a> {
                 recorded_at_ms: now,
             })?;
             return Ok(PumpOutcome::Progressed(attempt.state));
+        }
+
+        if event.kind == RunnerEventKind::ApprovalRequired {
+            let action = runner_action_descriptor(&event.payload);
+            let approval_id = runner_approval_id(&identity.attempt_id, event.seq)?;
+            let decision = self.gate_action(
+                &ActionGateRequest {
+                    task_id: &attempt.task_id,
+                    attempt_id: &identity.attempt_id,
+                    approval_id: &approval_id,
+                    event_id: &format!("{}:policy:{}", identity.attempt_id, event.seq),
+                    action: &action,
+                    action_payload: &event.payload,
+                },
+                clock,
+            )?;
+            match decision {
+                PolicyDecision::Ask { .. } => {
+                    // Continue below and park the attempt in ApprovalRequired.
+                }
+                PolicyDecision::Allow { .. } | PolicyDecision::AutoReview { .. } => {
+                    runner.steer(identity, "approve")?;
+                    return Ok(PumpOutcome::Progressed(attempt.state));
+                }
+                PolicyDecision::Deny { .. } => {
+                    runner.steer(identity, "deny")?;
+                    return Ok(PumpOutcome::Progressed(attempt.state));
+                }
+            }
         }
 
         let new_state = match (&event.kind, event_to_trigger(&event.kind)) {
@@ -568,6 +773,63 @@ impl<'a> Coordinator<'a> {
         }
         Ok(reclaimed)
     }
+}
+
+fn runner_action_descriptor(payload: &serde_json::Value) -> ActionDescriptor {
+    let event_type = payload
+        .get("type")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or_default();
+    let action_name = payload
+        .get("action")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or_default();
+    let normalized_action = action_name.to_ascii_lowercase();
+    let category = if event_type == "clarification"
+        && payload
+            .get("edit_diff")
+            .is_some_and(|value| !value.is_null())
+    {
+        ActionCategory::WriteFile
+    } else {
+        match normalized_action.as_str() {
+            "edit" | "write" | "write_file" | "apply_edit" => ActionCategory::WriteFile,
+            "run" | "command" | "shell" | "execute" => ActionCategory::RunCommand,
+            "network" | "http" | "fetch" => ActionCategory::NetworkAccess,
+            "git" | "push" | "commit" | "merge" => ActionCategory::GitOperation,
+            "delete" | "remove" | "destructive" | "force" => ActionCategory::Destructive,
+            // Approval requests are side-effecting by definition. Unknown
+            // provider actions are classified High instead of trusting a
+            // model-provided label to downgrade risk.
+            _ => ActionCategory::Destructive,
+        }
+    };
+    let action_payload = payload.get("payload").unwrap_or(payload);
+    ActionDescriptor {
+        category,
+        description: payload
+            .get("content")
+            .and_then(serde_json::Value::as_str)
+            .or_else(|| (!action_name.is_empty()).then_some(action_name))
+            .unwrap_or("Runner action requires approval")
+            .to_string(),
+        git_branch: action_payload
+            .get("branch")
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_string),
+        git_force: action_payload
+            .get("force")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false),
+    }
+}
+
+fn runner_approval_id(attempt_id: &str, runner_seq: u64) -> CoordinatorResult<String> {
+    let identity = serde_json::json!({
+        "attempt_id": attempt_id,
+        "runner_seq": runner_seq,
+    });
+    Ok(format!("runner:{}", approval_action_hash(&identity)?))
 }
 
 fn advance_to_running(state: TaskState) -> Option<TaskState> {
@@ -991,6 +1253,124 @@ mod tests {
         assert_eq!(first.attempt_id, "t1-att-1");
         assert_eq!(second.attempt_id, "t1-att-1");
         assert_eq!(ledger.attempts_for_task("t1").unwrap().len(), 1);
+    }
+
+    // --- Policy and durable approval integration ---------------------------
+
+    #[test]
+    fn runner_approval_is_persisted_and_human_decision_resumes_attempt() {
+        let ledger = ledger();
+        let coord = coord(&ledger);
+        let clock = ManualClock::new(2_000);
+        let mut runner = MockRunner::new();
+        runner.enqueue_event(
+            "t1-att-1",
+            RunnerEventKind::ApprovalRequired,
+            serde_json::json!({
+                "type": "approval_request",
+                "id": "native-approval",
+                "action": "run",
+                "payload": {"command": "cargo test"},
+            }),
+        );
+
+        let identity = coord
+            .claim_and_start("t1", "native", &mut runner, &clock)
+            .expect("claim");
+        assert_eq!(
+            coord.pump(&identity, &mut runner, &clock).unwrap(),
+            PumpOutcome::Progressed(AttemptState::ApprovalRequired)
+        );
+        let pending = ledger.pending_approvals().unwrap();
+        assert_eq!(pending.len(), 1);
+        assert_eq!(pending[0].attempt_id, "t1-att-1");
+        assert_eq!(pending[0].risk_level, "high");
+        assert!(runner.steers().is_empty());
+
+        clock.advance(1_000);
+        let resolved = coord
+            .resolve_action_approval(
+                &identity,
+                &pending[0].approval_id,
+                true,
+                Some("approved by test".into()),
+                &mut runner,
+                &clock,
+            )
+            .unwrap();
+        assert_eq!(resolved.state, ApprovalState::Approved);
+        assert_eq!(
+            ledger.attempt("t1-att-1").unwrap().unwrap().state,
+            AttemptState::Started
+        );
+        assert_eq!(runner.steers(), &[("t1-att-1".into(), "approve".into())]);
+    }
+
+    #[test]
+    fn auto_edit_approves_structured_edit_request_without_parking() {
+        let ledger = ledger();
+        let coord = coord(&ledger);
+        let clock = ManualClock::new(2_000);
+        let mut runner = MockRunner::new();
+        runner.enqueue_event(
+            "t1-att-1",
+            RunnerEventKind::ApprovalRequired,
+            serde_json::json!({
+                "type": "clarification",
+                "content": "Apply this edit?",
+                "edit_diff": {"file": "src/lib.rs", "diff": "@@", "truncated": false},
+            }),
+        );
+
+        let identity = coord
+            .claim_and_start("t1", "native", &mut runner, &clock)
+            .unwrap();
+        assert_eq!(
+            coord.pump(&identity, &mut runner, &clock).unwrap(),
+            PumpOutcome::Progressed(AttemptState::Started)
+        );
+        assert!(ledger.pending_approvals().unwrap().is_empty());
+        assert_eq!(runner.steers(), &[("t1-att-1".into(), "approve".into())]);
+        assert!(ledger
+            .events_for_task("t1", 0, 100)
+            .unwrap()
+            .iter()
+            .any(|event| event.kind == "policy.allowed"));
+    }
+
+    #[test]
+    fn unattended_runner_approval_is_denied_and_never_waits() {
+        let ledger = ledger();
+        let mut layers = PolicyLayers::default();
+        layers.settings.attended = false;
+        let coord =
+            Coordinator::new(&ledger, CoordinatorPolicy::default()).with_action_policy(layers);
+        let clock = ManualClock::new(2_000);
+        let mut runner = MockRunner::new();
+        runner.enqueue_event(
+            "t1-att-1",
+            RunnerEventKind::ApprovalRequired,
+            serde_json::json!({
+                "type": "approval_request",
+                "action": "run",
+                "payload": {"command": "cargo test"},
+            }),
+        );
+
+        let identity = coord
+            .claim_and_start("t1", "native", &mut runner, &clock)
+            .unwrap();
+        assert_eq!(
+            coord.pump(&identity, &mut runner, &clock).unwrap(),
+            PumpOutcome::Progressed(AttemptState::Started)
+        );
+        assert!(ledger.pending_approvals().unwrap().is_empty());
+        assert_eq!(runner.steers(), &[("t1-att-1".into(), "deny".into())]);
+        assert!(ledger
+            .events_for_task("t1", 0, 100)
+            .unwrap()
+            .iter()
+            .any(|event| event.kind == "policy.denied"));
     }
 
     // --- Determinism helpers ------------------------------------------------
