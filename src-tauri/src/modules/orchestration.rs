@@ -28,6 +28,8 @@ pub mod artifact;
 #[allow(dead_code)]
 pub mod budget;
 #[allow(dead_code)]
+pub mod context;
+#[allow(dead_code)]
 pub mod hooks;
 #[allow(dead_code)]
 pub mod ledger;
