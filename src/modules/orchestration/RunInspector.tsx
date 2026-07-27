@@ -3,7 +3,7 @@
  * and support bundle export.
  */
 
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { useInspectorStore } from "./inspectorStore";
 import type { AttemptOutcome } from "@/modules/ai/lib/native";
 import { cn } from "@/lib/utils";
@@ -38,10 +38,9 @@ export function RunInspector({
     exportBundle,
     selectTask,
   } = useInspectorStore();
-  const [sanitize, setSanitize] = useState(true);
 
   useEffect(() => {
-    loadAnalysis(dbPath, workspaceKey);
+    void loadAnalysis(dbPath, workspaceKey);
   }, [dbPath, workspaceKey, loadAnalysis]);
 
   if (loading && analyses.length === 0) {
@@ -69,10 +68,10 @@ export function RunInspector({
         <button
           className="rounded-md border bg-background px-2 py-1 text-xs hover:bg-accent"
           onClick={() =>
-            exportBundle(
+            void exportBundle(
               dbPath,
+              workspaceKey,
               selectedTaskId ? [selectedTaskId] : [],
-              sanitize,
             )
           }
         >
@@ -174,14 +173,9 @@ export function RunInspector({
               {bundle.events.length} events
             </span>
           </div>
-          <label className="flex items-center gap-1 text-[10px] text-muted-foreground">
-            <input
-              type="checkbox"
-              checked={sanitize}
-              onChange={(e) => setSanitize(e.target.checked)}
-            />
-            Sanitize on export
-          </label>
+          <p className="text-[10px] text-muted-foreground">
+            Exports from the UI are always sanitized.
+          </p>
         </div>
       )}
     </div>

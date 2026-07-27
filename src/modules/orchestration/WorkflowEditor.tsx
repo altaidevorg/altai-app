@@ -13,17 +13,39 @@ function scoreColor(score: number): string {
   return "text-red-600";
 }
 
+function errorMessage(error: unknown): string {
+  if (error instanceof Error && error.message.trim()) return error.message;
+  if (typeof error === "string" && error.trim()) return error;
+  return "Readiness scan failed.";
+}
+
 export function WorkflowEditor({ repoPath }: { repoPath: string }) {
   const [readiness, setReadiness] = useState<ReadinessReport | null>(null);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    let cancelled = false;
     setLoading(true);
+    setError(null);
     native
       .orchestrationReadinessScan(repoPath)
-      .then((r) => setReadiness(r))
-      .catch(() => setReadiness(null))
-      .finally(() => setLoading(false));
+      .then((report) => {
+        if (cancelled) return;
+        setReadiness(report);
+      })
+      .catch((cause) => {
+        console.error("Readiness scan failed:", cause);
+        if (cancelled) return;
+        setReadiness(null);
+        setError(errorMessage(cause));
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [repoPath]);
 
   return (
@@ -37,6 +59,11 @@ export function WorkflowEditor({ repoPath }: { repoPath: string }) {
         </h3>
         {loading && (
           <p className="text-xs text-muted-foreground">Scanning…</p>
+        )}
+        {error && !loading && (
+          <p className="text-xs text-destructive" role="alert">
+            {error}
+          </p>
         )}
         {readiness && !loading && (
           <div className="space-y-2">
@@ -87,7 +114,7 @@ export function WorkflowEditor({ repoPath }: { repoPath: string }) {
             )}
           </div>
         )}
-        {!readiness && !loading && (
+        {!readiness && !loading && !error && (
           <p className="text-xs text-muted-foreground">
             No readiness data. Set a valid repo path.
           </p>

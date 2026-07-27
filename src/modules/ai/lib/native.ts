@@ -1341,10 +1341,14 @@ export const native = {
       dbPath,
       workspaceKey,
       staleThresholdMs,
+      workspace: currentWorkspaceEnv(),
     }),
 
   orchestrationReadinessScan: (repoPath: string) =>
-    invoke<ReadinessReport>("orchestration_readiness_scan", { repoPath }),
+    invoke<ReadinessReport>("orchestration_readiness_scan", {
+      repoPath,
+      workspace: currentWorkspaceEnv(),
+    }),
 
   orchestrationContextPack: (
     repoPath: string,
@@ -1355,29 +1359,40 @@ export const native = {
       repoPath,
       taskDescription,
       budgetBytes: budgetBytes ?? null,
+      workspace: currentWorkspaceEnv(),
     }),
 
-  orchestrationGraphEligible: (completed: string[]) =>
-    invoke<string[]>("orchestration_graph_eligible", { completed }),
+  orchestrationGraphEligible: (workspaceKey: string, completed: string[]) =>
+    invoke<string[]>("orchestration_graph_eligible", {
+      workspaceKey,
+      completed,
+      workspace: currentWorkspaceEnv(),
+    }),
 
   orchestrationGraphBlockedReason: (
+    workspaceKey: string,
     taskId: string,
     completed: string[],
   ) =>
     invoke<string[] | null>("orchestration_graph_blocked_reason", {
+      workspaceKey,
       taskId,
       completed,
+      workspace: currentWorkspaceEnv(),
     }),
 
   orchestrationProfileSelect: (
+    workspaceKey: string,
     manualChoice: string | null,
     taskDescription: string,
     defaultProfile: string,
   ) =>
     invoke<ProfileSelection>("orchestration_profile_select", {
+      workspaceKey,
       manualChoice,
       taskDescription,
       defaultProfile,
+      workspace: currentWorkspaceEnv(),
     }),
 
   orchestrationCheckGate: (results: CheckResult[]) =>
@@ -1392,8 +1407,12 @@ export const native = {
       allowStyleBlocking,
     }),
 
-  orchestrationUsageShouldStop: (taskId: string) =>
-    invoke<boolean>("orchestration_usage_should_stop", { taskId }),
+  orchestrationUsageShouldStop: (workspaceKey: string, taskId: string) =>
+    invoke<boolean>("orchestration_usage_should_stop", {
+      workspaceKey,
+      taskId,
+      workspace: currentWorkspaceEnv(),
+    }),
 
   orchestrationDetectOverlaps: (diffs: ChildDiff[]) =>
     invoke<DiffOverlap[]>("orchestration_detect_overlaps", { diffs }),
@@ -1402,19 +1421,21 @@ export const native = {
     invoke<AttemptAnalysis[]>("orchestration_session_analyze", {
       dbPath,
       workspaceKey,
+      workspace: currentWorkspaceEnv(),
     }),
 
   orchestrationSupportBundle: (
     dbPath: string,
+    workspaceKey: string,
     taskIds: string[],
-    sanitize: boolean,
     source: string,
   ) =>
     invoke<SupportBundle>("orchestration_support_bundle", {
       dbPath,
+      workspaceKey,
       taskIds,
-      sanitize,
       source,
+      workspace: currentWorkspaceEnv(),
     }),
 
   orchestrationSchemaVersion: () =>

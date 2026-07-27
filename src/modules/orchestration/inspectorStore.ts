@@ -29,8 +29,8 @@ type InspectorState = {
   loadAnalysis: (dbPath: string, workspaceKey: string) => Promise<void>;
   exportBundle: (
     dbPath: string,
+    workspaceKey: string,
     taskIds: string[],
-    sanitize: boolean,
   ) => Promise<void>;
   selectTask: (taskId: string | null) => void;
   clear: () => void;
@@ -53,26 +53,35 @@ export const useInspectorStore = create<InspectorState>((set) => ({
       );
       set({ analyses, loading: false });
     } catch (e) {
+      console.error("Run inspector analysis failed:", e);
       set({ loading: false, error: String(e) });
     }
   },
 
-  exportBundle: async (dbPath, taskIds, sanitize) => {
+  exportBundle: async (dbPath, workspaceKey, taskIds) => {
     set({ loading: true, error: null });
     try {
+      // IPC always redacts secrets; unsanitized export is Rust-only.
       const bundle = await native.orchestrationSupportBundle(
         dbPath,
+        workspaceKey,
         taskIds,
-        sanitize,
         "inspector",
       );
       set({ bundle, loading: false });
     } catch (e) {
+      console.error("Support bundle export failed:", e);
       set({ loading: false, error: String(e) });
     }
   },
 
   selectTask: (taskId) => set({ selectedTaskId: taskId }),
   clear: () =>
-    set({ events: [], analyses: [], bundle: null, error: null, selectedTaskId: null }),
+    set({
+      events: [],
+      analyses: [],
+      bundle: null,
+      error: null,
+      selectedTaskId: null,
+    }),
 }));
