@@ -5,9 +5,16 @@
 //! and evidence retention. Gardening produces small reviewable findings —
 //! never auto-merges. Schedules honor budgets and quiet hours.
 
-use std::path::Path;
+use std::{
+    collections::{HashMap, HashSet},
+    path::{Path, PathBuf},
+    time::{Duration, Instant},
+};
 
 use serde::{Deserialize, Serialize};
+use tauri::State;
+
+use crate::modules::workspace::{resolve_path, WorkspaceEnv, WorkspaceRegistry};
 
 // ---------------------------------------------------------------------------
 // Configuration
@@ -24,6 +31,7 @@ pub enum GardeningCheck {
     DependencyDrift,
     StaleWorktrees,
     EvidenceRetention,
+    RepeatedAgentFailures,
 }
 
 impl GardeningCheck {
@@ -36,6 +44,7 @@ impl GardeningCheck {
             Self::DependencyDrift,
             Self::StaleWorktrees,
             Self::EvidenceRetention,
+            Self::RepeatedAgentFailures,
         ]
     }
 
@@ -48,6 +57,7 @@ impl GardeningCheck {
             Self::DependencyDrift => "dependency_drift",
             Self::StaleWorktrees => "stale_worktrees",
             Self::EvidenceRetention => "evidence_retention",
+            Self::RepeatedAgentFailures => "repeated_agent_failures",
         }
     }
 }
@@ -63,8 +73,21 @@ pub struct QuietHours {
 }
 
 impl QuietHours {
+    fn validate(&self) -> Result<(), String> {
+        if self.start_hour > 23 || self.end_hour > 23 {
+            return Err("Quiet hours must use values from 0 through 23.".into());
+        }
+        if self.start_hour == self.end_hour {
+            return Err("Quiet-hours start and end must be different.".into());
+        }
+        Ok(())
+    }
+
     /// Check if the given hour falls within quiet hours.
     pub fn is_quiet(&self, hour: u8) -> bool {
+        if hour > 23 || self.validate().is_err() {
+            return false;
+        }
         if self.start_hour <= self.end_hour {
             hour >= self.start_hour && hour < self.end_hour
         } else {
@@ -119,6 +142,24 @@ impl Default for GardeningConfig {
     }
 }
 
+impl GardeningConfig {
+    pub fn validate(&self) -> Result<(), String> {
+        if self.schedule.interval_ms == 0 {
+            return Err("Gardening interval must be greater than zero.".into());
+        }
+        if self.schedule.budget_minutes == 0 {
+            return Err("Gardening budget must be at least one minute.".into());
+        }
+        if let Some(quiet_hours) = &self.schedule.quiet_hours {
+            quiet_hours.validate()?;
+        }
+        if self.enabled_checks.len() > 64 {
+            return Err("Gardening cannot configure more than 64 checks.".into());
+        }
+        Ok(())
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Findings
 // ---------------------------------------------------------------------------
@@ -152,7 +193,53 @@ pub struct GardeningReport {
     pub run_at_ms: u64,
     pub within_budget: bool,
     pub checks_run: Vec<GardeningCheck>,
+    pub checks_skipped: Vec<GardeningCheck>,
     pub elapsed_ms: u64,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GardeningRunResult {
+    pub ran: bool,
+    pub skip_reason: Option<String>,
+    pub report: Option<GardeningReport>,
+    pub proposals: Vec<GardeningTaskProposal>,
+    /// The caller persists this schedule; `lastRunMs` advances only after a run.
+    pub schedule: Schedule,
+}
+
+/// A bounded, review-only task proposal. Gardening never writes task files,
+/// opens pull requests, or applies changes on its own.
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GardeningTaskProposal {
+    pub id: String,
+    pub title: String,
+    pub description: String,
+    pub cited_files: Vec<String>,
+    pub severity: Severity,
+    pub status: &'static str,
+}
+
+/// A redacted, stable failure fingerprint supplied by the orchestration
+/// projection. Raw logs are deliberately not accepted or emitted.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentFailureSample {
+    pub task_id: String,
+    pub fingerprint: String,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GardeningTickRequest {
+    pub repo_path: String,
+    pub config: GardeningConfig,
+    pub now_ms: u64,
+    pub now_hour: u8,
+    pub force: bool,
+    #[serde(default)]
+    pub recent_failures: Vec<AgentFailureSample>,
 }
 
 // ---------------------------------------------------------------------------
@@ -161,6 +248,9 @@ pub struct GardeningReport {
 
 /// Determine whether gardening should run now based on the schedule.
 pub fn should_run_now(schedule: &Schedule, now_ms: u64, now_hour: u8) -> bool {
+    if now_hour > 23 {
+        return false;
+    }
     // Check quiet hours.
     if let Some(ref quiet) = schedule.quiet_hours {
         if quiet.is_quiet(now_hour) {
@@ -168,7 +258,82 @@ pub fn should_run_now(schedule: &Schedule, now_ms: u64, now_hour: u8) -> bool {
         }
     }
     // Check interval.
-    now_ms >= schedule.last_run_ms + schedule.interval_ms
+    now_ms >= schedule.last_run_ms.saturating_add(schedule.interval_ms)
+}
+
+/// Public tick endpoint for manual and scheduled callers. The command is
+/// intentionally side-effect free apart from reading the selected repository:
+/// it returns the advanced schedule so the existing settings layer can persist
+/// it only after a completed run.
+#[tauri::command]
+pub async fn orchestration_gardening_tick(
+    request: GardeningTickRequest,
+    workspace: WorkspaceEnv,
+    registry: State<'_, WorkspaceRegistry>,
+) -> Result<GardeningRunResult, String> {
+    let resolved = resolve_path(request.repo_path.trim(), &workspace);
+    let repo_path = registry
+        .canonicalize_cached(&resolved)
+        .map_err(|error| format!("Cannot resolve gardening repository: {error}"))?;
+    if !repo_path.is_dir() || !registry.is_authorized(&repo_path) {
+        return Err("Gardening repository is outside the authorized workspace.".into());
+    }
+    gardening_tick_at(
+        repo_path,
+        request.config,
+        request.now_ms,
+        request.now_hour,
+        request.force,
+        request.recent_failures,
+    )
+    .await
+}
+
+async fn gardening_tick_at(
+    repo_path: PathBuf,
+    config: GardeningConfig,
+    now_ms: u64,
+    now_hour: u8,
+    force: bool,
+    recent_failures: Vec<AgentFailureSample>,
+) -> Result<GardeningRunResult, String> {
+    config.validate()?;
+    if recent_failures.len() > 10_000
+        || recent_failures
+            .iter()
+            .any(|sample| sample.task_id.len() > 512 || sample.fingerprint.len() > 256)
+    {
+        return Err("Recent failure samples exceed the gardening input limits.".into());
+    }
+    if now_hour > 23 {
+        return Err("Current local hour must be from 0 through 23.".into());
+    }
+
+    if !force && !should_run_now(&config.schedule, now_ms, now_hour) {
+        return Ok(GardeningRunResult {
+            ran: false,
+            skip_reason: Some("The interval has not elapsed or quiet hours are active.".into()),
+            report: None,
+            proposals: Vec::new(),
+            schedule: config.schedule,
+        });
+    }
+
+    let mut schedule = config.schedule.clone();
+    let report = tauri::async_runtime::spawn_blocking(move || {
+        run_gardening_with_failures(&repo_path, &config, now_ms, &recent_failures)
+    })
+    .await
+    .map_err(|error| format!("Gardening worker failed: {error}"))?;
+    schedule.last_run_ms = now_ms;
+    let proposals = propose_gardening_tasks(&report, 5);
+    Ok(GardeningRunResult {
+        ran: true,
+        skip_reason: None,
+        report: Some(report),
+        proposals,
+        schedule,
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -177,76 +342,280 @@ pub fn should_run_now(schedule: &Schedule, now_ms: u64, now_hour: u8) -> bool {
 
 /// Run all enabled gardening checks against a repository.
 pub fn run_gardening(repo_path: &Path, config: &GardeningConfig, now_ms: u64) -> GardeningReport {
-    let start = std::time::Instant::now();
-    let mut findings = Vec::new();
+    run_gardening_with_failures(repo_path, config, now_ms, &[])
+}
 
-    for &check in &config.enabled_checks {
+pub fn run_gardening_with_failures(
+    repo_path: &Path,
+    config: &GardeningConfig,
+    now_ms: u64,
+    recent_failures: &[AgentFailureSample],
+) -> GardeningReport {
+    let start = Instant::now();
+    let deadline = start
+        .checked_add(Duration::from_secs(
+            u64::from(config.schedule.budget_minutes).saturating_mul(60),
+        ))
+        .unwrap_or(start);
+    let mut findings = Vec::new();
+    let mut checks_run = Vec::new();
+    let mut seen = HashSet::new();
+    let enabled_checks: Vec<_> = config
+        .enabled_checks
+        .iter()
+        .copied()
+        .filter(|check| seen.insert(*check))
+        .collect();
+
+    for &check in &enabled_checks {
+        if Instant::now() >= deadline {
+            break;
+        }
         let check_findings = match check {
-            GardeningCheck::StaleDocs => check_stale_docs(repo_path, config, now_ms),
-            GardeningCheck::ArchitectureViolations => check_architecture(repo_path),
-            GardeningCheck::FlakyTests => check_flaky_tests(repo_path),
-            GardeningCheck::DeadCode => check_dead_code(repo_path),
-            GardeningCheck::DependencyDrift => check_dependency_drift(repo_path),
-            GardeningCheck::StaleWorktrees => check_stale_worktrees(repo_path, config, now_ms),
-            GardeningCheck::EvidenceRetention => {
-                check_evidence_retention(repo_path, config, now_ms)
+            GardeningCheck::StaleDocs => check_stale_docs(repo_path, config, now_ms, deadline),
+            GardeningCheck::ArchitectureViolations => check_architecture(repo_path, deadline),
+            GardeningCheck::FlakyTests => check_flaky_tests(repo_path, deadline),
+            GardeningCheck::DeadCode => check_dead_code(repo_path, deadline),
+            GardeningCheck::DependencyDrift => check_dependency_drift(repo_path, deadline),
+            GardeningCheck::StaleWorktrees => {
+                check_stale_worktrees(repo_path, config, now_ms, deadline)
             }
+            GardeningCheck::EvidenceRetention => {
+                check_evidence_retention(repo_path, config, now_ms, deadline)
+            }
+            GardeningCheck::RepeatedAgentFailures => check_repeated_agent_failures(recent_failures),
         };
         findings.extend(check_findings);
+        checks_run.push(check);
     }
 
     let elapsed = start.elapsed().as_millis() as u64;
     let budget_ms = config.schedule.budget_minutes as u64 * 60_000;
+    let checks_skipped = enabled_checks
+        .iter()
+        .copied()
+        .filter(|check| !checks_run.contains(check))
+        .collect::<Vec<_>>();
 
     GardeningReport {
         findings,
         run_at_ms: now_ms,
-        within_budget: elapsed <= budget_ms,
-        checks_run: config.enabled_checks.clone(),
+        within_budget: checks_skipped.is_empty()
+            && Instant::now() < deadline
+            && elapsed <= budget_ms,
+        checks_run,
+        checks_skipped,
         elapsed_ms: elapsed,
     }
 }
 
-fn check_stale_docs(repo: &Path, config: &GardeningConfig, now_ms: u64) -> Vec<GardeningFinding> {
+fn check_repeated_agent_failures(samples: &[AgentFailureSample]) -> Vec<GardeningFinding> {
+    const REPEAT_THRESHOLD: usize = 3;
+    let mut grouped: HashMap<&str, HashSet<&str>> = HashMap::new();
+    for sample in samples {
+        let fingerprint = sample.fingerprint.trim();
+        let task_id = sample.task_id.trim();
+        if fingerprint.is_empty() || task_id.is_empty() {
+            continue;
+        }
+        grouped.entry(fingerprint).or_default().insert(task_id);
+    }
+
+    let mut findings = grouped
+        .into_values()
+        .filter(|task_ids| task_ids.len() >= REPEAT_THRESHOLD)
+        .map(|task_ids| {
+            let mut task_ids = task_ids.into_iter().collect::<Vec<_>>();
+            task_ids.sort_unstable();
+            GardeningFinding {
+                check: GardeningCheck::RepeatedAgentFailures,
+                severity: Severity::Warning,
+                file: ".altai/tasks".into(),
+                detail: format!(
+                    "The same redacted failure fingerprint affected {} tasks: {}",
+                    task_ids.len(),
+                    task_ids.join(", ")
+                ),
+                recommendation: "Create a reviewable task to address the shared failure pattern"
+                    .into(),
+                recoverable: true,
+            }
+        })
+        .collect::<Vec<_>>();
+    findings.sort_by(|left, right| left.detail.cmp(&right.detail));
+    findings
+}
+
+/// Convert findings into bounded, reviewable task proposals. At most one task
+/// is proposed per check, so a large repository cannot flood the project board
+/// with one task per file.
+pub fn propose_gardening_tasks(
+    report: &GardeningReport,
+    max_proposals: usize,
+) -> Vec<GardeningTaskProposal> {
+    let mut proposals = Vec::new();
+    for &check in GardeningCheck::all() {
+        if proposals.len() >= max_proposals {
+            break;
+        }
+        let matching = report
+            .findings
+            .iter()
+            .filter(|finding| finding.check == check)
+            .collect::<Vec<_>>();
+        if matching.is_empty() {
+            continue;
+        }
+        let severity = if matching
+            .iter()
+            .any(|finding| finding.severity == Severity::Critical)
+        {
+            Severity::Critical
+        } else if matching
+            .iter()
+            .any(|finding| finding.severity == Severity::Warning)
+        {
+            Severity::Warning
+        } else {
+            Severity::Info
+        };
+        let mut cited_files = matching
+            .iter()
+            .map(|finding| finding.file.clone())
+            .collect::<Vec<_>>();
+        cited_files.sort();
+        cited_files.dedup();
+        proposals.push(GardeningTaskProposal {
+            id: format!("gardening-{}-{}", check.name(), report.run_at_ms),
+            title: format!("Repository gardening: {}", check.name().replace('_', " ")),
+            description: format!(
+                "Review and address {} {} finding(s). No changes have been applied.",
+                matching.len(),
+                check.name()
+            ),
+            cited_files,
+            severity,
+            status: "pending",
+        });
+    }
+    proposals
+}
+
+const SKIPPED_DIRECTORIES: &[&str] = &[
+    ".git",
+    "node_modules",
+    "target",
+    "dist",
+    "build",
+    ".next",
+    ".turbo",
+];
+
+fn relative_display(repo: &Path, path: &Path) -> String {
+    path.strip_prefix(repo)
+        .unwrap_or(path)
+        .to_string_lossy()
+        .replace('\\', "/")
+}
+
+/// Walk regular files without following symlinks. Returning `false` means the
+/// budget expired before the walk completed.
+fn walk_files(root: &Path, deadline: Instant, mut visit: impl FnMut(&Path)) -> bool {
+    if !root.is_dir() {
+        return true;
+    }
+    let mut pending = vec![root.to_path_buf()];
+    while let Some(directory) = pending.pop() {
+        if Instant::now() >= deadline {
+            return false;
+        }
+        let Ok(entries) = std::fs::read_dir(&directory) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            if Instant::now() >= deadline {
+                return false;
+            }
+            let path = entry.path();
+            let Ok(metadata) = std::fs::symlink_metadata(&path) else {
+                continue;
+            };
+            if metadata.file_type().is_symlink() {
+                continue;
+            }
+            if metadata.is_dir() {
+                let skipped = path
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .is_some_and(|name| SKIPPED_DIRECTORIES.contains(&name));
+                if !skipped {
+                    pending.push(path);
+                }
+            } else if metadata.is_file() {
+                visit(&path);
+            }
+        }
+    }
+    true
+}
+
+fn collect_named_files(repo: &Path, file_name: &str, deadline: Instant) -> Vec<PathBuf> {
+    let mut files = Vec::new();
+    walk_files(repo, deadline, |path| {
+        if path.file_name().and_then(|name| name.to_str()) == Some(file_name) {
+            files.push(path.to_path_buf());
+        }
+    });
+    files.sort();
+    files.dedup();
+    files
+}
+
+fn read_source_text(path: &Path) -> Option<String> {
+    const MAX_SOURCE_BYTES: u64 = 4 * 1024 * 1024;
+    let metadata = std::fs::metadata(path).ok()?;
+    if metadata.len() > MAX_SOURCE_BYTES {
+        return None;
+    }
+    std::fs::read_to_string(path).ok()
+}
+
+fn rust_roots(repo: &Path, deadline: Instant) -> Vec<PathBuf> {
+    collect_named_files(repo, "Cargo.toml", deadline)
+        .into_iter()
+        .filter_map(|manifest| manifest.parent().map(Path::to_path_buf))
+        .collect()
+}
+
+fn check_stale_docs(
+    repo: &Path,
+    config: &GardeningConfig,
+    now_ms: u64,
+    deadline: Instant,
+) -> Vec<GardeningFinding> {
     let mut findings = Vec::new();
     let threshold_ms = config.stale_doc_days as u64 * 24 * 3600 * 1000;
 
     let doc_dirs = ["docs", "doc", "documentation"];
     for dir in &doc_dirs {
+        if Instant::now() >= deadline {
+            break;
+        }
         let dir_path = repo.join(dir);
         if !dir_path.is_dir() {
             continue;
         }
-        let entries = match std::fs::read_dir(&dir_path) {
-            Ok(e) => e,
-            Err(_) => {
-                findings.push(GardeningFinding {
-                    check: GardeningCheck::StaleDocs,
-                    severity: Severity::Warning,
-                    file: dir.to_string(),
-                    detail: "Cannot read documentation directory".into(),
-                    recommendation: "Check directory permissions".into(),
-                    recoverable: false,
-                });
-                continue;
-            }
-        };
-
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if !path.is_file() {
-                continue;
-            }
+        walk_files(&dir_path, deadline, |path| {
             let name = path
                 .file_name()
                 .map(|n| n.to_string_lossy().to_string())
                 .unwrap_or_default();
             if !name.ends_with(".md") && !name.ends_with(".rst") && !name.ends_with(".txt") {
-                continue;
+                return;
             }
-            let metadata = match std::fs::metadata(&path) {
+            let metadata = match std::fs::metadata(path) {
                 Ok(m) => m,
-                Err(_) => continue,
+                Err(_) => return,
             };
             let modified = metadata
                 .modified()
@@ -259,63 +628,44 @@ fn check_stale_docs(repo: &Path, config: &GardeningConfig, now_ms: u64) -> Vec<G
                 findings.push(GardeningFinding {
                     check: GardeningCheck::StaleDocs,
                     severity: Severity::Warning,
-                    file: format!("{dir}/{name}"),
+                    file: relative_display(repo, path),
                     detail: format!("Document not updated in {age_days} days"),
                     recommendation: "Review for accuracy or mark as archived".into(),
                     recoverable: true,
                 });
             }
-        }
+        });
     }
 
     findings
 }
 
-fn check_architecture(repo: &Path) -> Vec<GardeningFinding> {
+fn check_architecture(repo: &Path, deadline: Instant) -> Vec<GardeningFinding> {
     let mut findings = Vec::new();
-
-    // Check for circular module dependencies (simplified: look for mod.rs files
-    // that import from child modules that also import back).
-    // For now, check for obvious violations: source files in docs/, or test
-    // files in src root.
-
-    let check_patterns = [
-        ("src/test_*.rs", "Test file in src root — move to tests/"),
-        (
-            "src/**/test_*.rs",
-            "Test file in source directory — move to tests/ or #[cfg(test)]",
-        ),
-    ];
-
-    for (pattern, msg) in &check_patterns {
-        // Simplified check: look for test files in src/.
-        let src = repo.join("src");
-        if !src.is_dir() {
-            continue;
-        }
-        if let Ok(entries) = std::fs::read_dir(&src) {
-            for entry in entries.flatten() {
-                let name = entry.file_name();
-                let name_str = name.to_string_lossy();
-                if name_str.starts_with("test_") && name_str.ends_with(".rs") {
-                    findings.push(GardeningFinding {
-                        check: GardeningCheck::ArchitectureViolations,
-                        severity: Severity::Warning,
-                        file: format!("src/{name_str}"),
-                        detail: msg.to_string(),
-                        recommendation: "Move to tests/ directory".into(),
-                        recoverable: true,
-                    });
-                }
+    for root in rust_roots(repo, deadline) {
+        let source_root = root.join("src");
+        walk_files(&source_root, deadline, |path| {
+            let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
+                return;
+            };
+            if name.starts_with("test_") && name.ends_with(".rs") {
+                findings.push(GardeningFinding {
+                    check: GardeningCheck::ArchitectureViolations,
+                    severity: Severity::Warning,
+                    file: relative_display(repo, path),
+                    detail: "Test file in a source directory".into(),
+                    recommendation: "Move it to tests/ or use an inline #[cfg(test)] module".into(),
+                    recoverable: true,
+                });
             }
-        }
-        let _ = pattern; // pattern reserved for future glob matching
+        });
     }
-
+    findings.sort_by(|left, right| left.file.cmp(&right.file));
+    findings.dedup_by(|left, right| left.file == right.file);
     findings
 }
 
-fn check_flaky_tests(repo: &Path) -> Vec<GardeningFinding> {
+fn check_flaky_tests(repo: &Path, deadline: Instant) -> Vec<GardeningFinding> {
     let mut findings = Vec::new();
 
     // Look for common flaky test indicators: sleeps, random without seed,
@@ -335,120 +685,112 @@ fn check_flaky_tests(repo: &Path) -> Vec<GardeningFinding> {
         ),
     ];
 
-    let tests_dir = repo.join("tests");
-    let dirs_to_check = if tests_dir.is_dir() {
-        vec![tests_dir]
-    } else {
-        vec![repo.join("src")]
-    };
-
-    for dir in dirs_to_check {
-        let Ok(entries) = std::fs::read_dir(&dir) else {
-            continue;
-        };
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if !path.is_file() || path.extension().is_none_or(|e| e != "rs") {
-                continue;
-            }
-            let Ok(content) = std::fs::read_to_string(&path) else {
-                continue;
-            };
-            let name = path
-                .file_name()
-                .map(|n| n.to_string_lossy().to_string())
-                .unwrap_or_default();
-            for (indicator, msg) in &flaky_indicators {
-                if content.contains(indicator) && content.contains("#[test]") {
-                    findings.push(GardeningFinding {
-                        check: GardeningCheck::FlakyTests,
-                        severity: Severity::Warning,
-                        file: name.clone(),
-                        detail: msg.to_string(),
-                        recommendation: "Use deterministic time/seed or mock".into(),
-                        recoverable: true,
-                    });
+    for root in rust_roots(repo, deadline) {
+        for dir in [root.join("src"), root.join("tests")] {
+            walk_files(&dir, deadline, |path| {
+                if path.extension().is_none_or(|extension| extension != "rs") {
+                    return;
                 }
-            }
+                let Some(content) = read_source_text(path) else {
+                    return;
+                };
+                if !content.contains("#[test]") {
+                    return;
+                }
+                for (indicator, msg) in &flaky_indicators {
+                    if content.contains(indicator) {
+                        findings.push(GardeningFinding {
+                            check: GardeningCheck::FlakyTests,
+                            severity: Severity::Warning,
+                            file: relative_display(repo, path),
+                            detail: msg.to_string(),
+                            recommendation: "Use deterministic time/seed or mock".into(),
+                            recoverable: true,
+                        });
+                    }
+                }
+            });
         }
     }
 
     findings
 }
 
-fn check_dead_code(repo: &Path) -> Vec<GardeningFinding> {
+fn check_dead_code(repo: &Path, deadline: Instant) -> Vec<GardeningFinding> {
     let mut findings = Vec::new();
-
-    // Check for #[allow(dead_code)] annotations (potential dead code).
-    let src = repo.join("src");
-    if !src.is_dir() {
-        return findings;
-    }
-
-    fn scan_dir(dir: &Path, findings: &mut Vec<GardeningFinding>) {
-        let Ok(entries) = std::fs::read_dir(dir) else {
-            return;
-        };
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.is_dir() {
-                scan_dir(&path, findings);
-            } else if path.is_file() && path.extension().is_some_and(|e| e == "rs") {
-                let Ok(content) = std::fs::read_to_string(&path) else {
-                    continue;
+    for root in rust_roots(repo, deadline) {
+        walk_files(&root.join("src"), deadline, |path| {
+            if path.extension().is_some_and(|extension| extension == "rs") {
+                let Some(content) = read_source_text(path) else {
+                    return;
                 };
                 let allow_count = content.matches("#[allow(dead_code)]").count();
                 if allow_count >= 3 {
-                    let rel = path
-                        .file_name()
-                        .map(|n| n.to_string_lossy().to_string())
-                        .unwrap_or_default();
                     findings.push(GardeningFinding {
                         check: GardeningCheck::DeadCode,
                         severity: Severity::Info,
-                        file: rel,
+                        file: relative_display(repo, path),
                         detail: format!("{allow_count} #[allow(dead_code)] annotations"),
                         recommendation: "Run cargo clippy and remove genuinely dead code".into(),
                         recoverable: true,
                     });
                 }
             }
-        }
+        });
     }
-
-    scan_dir(&src, &mut findings);
     findings
 }
 
-fn check_dependency_drift(repo: &Path) -> Vec<GardeningFinding> {
+fn ancestor_has_file(start: &Path, repo: &Path, names: &[&str]) -> bool {
+    let mut current = Some(start);
+    while let Some(directory) = current {
+        if names.iter().any(|name| directory.join(name).is_file()) {
+            return true;
+        }
+        if directory == repo {
+            break;
+        }
+        current = directory.parent();
+    }
+    false
+}
+
+fn check_dependency_drift(repo: &Path, deadline: Instant) -> Vec<GardeningFinding> {
     let mut findings = Vec::new();
-
-    // Check for outdated lock file vs manifest.
-    // Simplified: check if Cargo.lock exists and is not older than Cargo.toml.
-    let manifest = repo.join("Cargo.toml");
-    let lockfile = repo.join("Cargo.lock");
-
-    if manifest.exists() && !lockfile.exists() {
+    for manifest in collect_named_files(repo, "Cargo.toml", deadline) {
+        let Some(package_root) = manifest.parent() else {
+            continue;
+        };
+        if ancestor_has_file(package_root, repo, &["Cargo.lock"]) {
+            continue;
+        }
         findings.push(GardeningFinding {
             check: GardeningCheck::DependencyDrift,
             severity: Severity::Critical,
-            file: "Cargo.lock".into(),
-            detail: "Lock file missing — dependencies not pinned".into(),
+            file: relative_display(repo, &package_root.join("Cargo.lock")),
+            detail: format!("No Cargo.lock covers {}", relative_display(repo, &manifest)),
             recommendation: "Run cargo generate-lockfile".into(),
             recoverable: true,
         });
     }
 
-    // Check for package.json without lock file.
-    let pkg_json = repo.join("package.json");
     let pkg_locks = ["package-lock.json", "yarn.lock", "pnpm-lock.yaml"];
-    if pkg_json.exists() && !pkg_locks.iter().any(|l| repo.join(l).exists()) {
+    for manifest in collect_named_files(repo, "package.json", deadline) {
+        let Some(package_root) = manifest.parent() else {
+            continue;
+        };
+        if ancestor_has_file(package_root, repo, &pkg_locks) {
+            continue;
+        }
         findings.push(GardeningFinding {
             check: GardeningCheck::DependencyDrift,
             severity: Severity::Critical,
-            file: "package-lock.json".into(),
-            detail: "No JS lock file found".into(),
-            recommendation: "Run npm install / yarn install".into(),
+            file: relative_display(repo, &package_root.join("package-lock.json")),
+            detail: format!(
+                "No JavaScript lock file covers {}",
+                relative_display(repo, &manifest)
+            ),
+            recommendation: "Generate the lock file with the repository's package manager".into(),
             recoverable: true,
         });
     }
@@ -460,12 +802,15 @@ fn check_stale_worktrees(
     repo: &Path,
     config: &GardeningConfig,
     now_ms: u64,
+    deadline: Instant,
 ) -> Vec<GardeningFinding> {
     let mut findings = Vec::new();
     let threshold_ms = config.stale_worktree_days as u64 * 24 * 3600 * 1000;
 
-    // Check for .git/worktrees entries.
-    let worktrees_dir = repo.join(".git").join("worktrees");
+    let Some(common_git_dir) = resolve_common_git_dir(repo) else {
+        return findings;
+    };
+    let worktrees_dir = common_git_dir.join("worktrees");
     if !worktrees_dir.is_dir() {
         return findings;
     }
@@ -475,13 +820,26 @@ fn check_stale_worktrees(
     };
 
     for entry in entries.flatten() {
+        if Instant::now() >= deadline {
+            break;
+        }
         let path = entry.path();
         let name = path
             .file_name()
             .map(|n| n.to_string_lossy().to_string())
             .unwrap_or_default();
+        let worktree_path = read_git_path(&path.join("gitdir"))
+            .and_then(|git_file| git_file.parent().map(Path::to_path_buf));
+        if worktree_path
+            .as_ref()
+            .and_then(|worktree| std::fs::canonicalize(worktree).ok())
+            .zip(std::fs::canonicalize(repo).ok())
+            .is_some_and(|(worktree, current)| worktree == current)
+        {
+            continue;
+        }
 
-        // Check the HEAD file modification time.
+        // HEAD mtime measures worktree metadata activity, not filesystem access.
         let head = path.join("HEAD");
         let metadata = match std::fs::metadata(&head) {
             Ok(m) => m,
@@ -498,10 +856,14 @@ fn check_stale_worktrees(
             findings.push(GardeningFinding {
                 check: GardeningCheck::StaleWorktrees,
                 severity: Severity::Warning,
-                file: name,
-                detail: format!("Worktree not accessed in {age_days} days"),
-                recommendation: "Remove with: git worktree remove".into(),
-                recoverable: true,
+                file: worktree_path
+                    .as_ref()
+                    .map_or(name, |worktree| worktree.to_string_lossy().to_string()),
+                detail: format!("Worktree metadata has not changed in {age_days} days"),
+                recommendation:
+                    "Inspect for uncommitted work, then remove with `git worktree remove <path>`"
+                        .into(),
+                recoverable: false,
             });
         }
     }
@@ -513,6 +875,7 @@ fn check_evidence_retention(
     repo: &Path,
     config: &GardeningConfig,
     now_ms: u64,
+    deadline: Instant,
 ) -> Vec<GardeningFinding> {
     let mut findings = Vec::new();
     let threshold_ms = config.evidence_retention_days as u64 * 24 * 3600 * 1000;
@@ -523,22 +886,10 @@ fn check_evidence_retention(
         return findings;
     }
 
-    let Ok(entries) = std::fs::read_dir(&artifacts_dir) else {
-        return findings;
-    };
-
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if !path.is_file() {
-            continue;
-        }
-        let name = path
-            .file_name()
-            .map(|n| n.to_string_lossy().to_string())
-            .unwrap_or_default();
-        let metadata = match std::fs::metadata(&path) {
+    walk_files(&artifacts_dir, deadline, |path| {
+        let metadata = match std::fs::metadata(path) {
             Ok(m) => m,
-            Err(_) => continue,
+            Err(_) => return,
         };
         let modified = metadata
             .modified()
@@ -551,15 +902,51 @@ fn check_evidence_retention(
             findings.push(GardeningFinding {
                 check: GardeningCheck::EvidenceRetention,
                 severity: Severity::Info,
-                file: format!(".altai/artifacts/{name}"),
+                file: relative_display(repo, path),
                 detail: format!("Artifact older than retention policy ({age_days} days)"),
                 recommendation: "Consider cleanup or archival".into(),
                 recoverable: true,
             });
         }
-    }
+    });
 
     findings
+}
+
+fn read_git_path(path: &Path) -> Option<PathBuf> {
+    let value = std::fs::read_to_string(path).ok()?;
+    let value = value
+        .trim()
+        .strip_prefix("gitdir: ")
+        .unwrap_or(value.trim());
+    let candidate = PathBuf::from(value);
+    Some(if candidate.is_absolute() {
+        candidate
+    } else {
+        path.parent()?.join(candidate)
+    })
+}
+
+fn resolve_common_git_dir(repo: &Path) -> Option<PathBuf> {
+    let dot_git = repo.join(".git");
+    let git_dir = if dot_git.is_dir() {
+        dot_git
+    } else {
+        read_git_path(&dot_git)?
+    };
+    let common_dir_file = git_dir.join("commondir");
+    let common_dir = if !common_dir_file.is_file() {
+        git_dir
+    } else {
+        let value = std::fs::read_to_string(common_dir_file).ok()?;
+        let candidate = PathBuf::from(value.trim());
+        if candidate.is_absolute() {
+            candidate
+        } else {
+            git_dir.join(candidate)
+        }
+    };
+    Some(std::fs::canonicalize(&common_dir).unwrap_or(common_dir))
 }
 
 // ---------------------------------------------------------------------------
@@ -612,6 +999,32 @@ mod tests {
         };
         assert!(should_run_now(&schedule, 6001, 12));
         assert!(!should_run_now(&schedule, 5999, 12));
+    }
+
+    #[test]
+    fn schedule_math_saturates_instead_of_overflowing() {
+        let schedule = Schedule {
+            interval_ms: 10,
+            last_run_ms: u64::MAX - 5,
+            budget_minutes: 10,
+            quiet_hours: None,
+        };
+        assert!(should_run_now(&schedule, u64::MAX, 12));
+    }
+
+    #[test]
+    fn invalid_quiet_hours_are_rejected() {
+        let config = GardeningConfig {
+            schedule: Schedule {
+                quiet_hours: Some(QuietHours {
+                    start_hour: 24,
+                    end_hour: 6,
+                }),
+                ..GardeningConfig::default().schedule
+            },
+            ..GardeningConfig::default()
+        };
+        assert!(config.validate().is_err());
     }
 
     #[test]
@@ -703,11 +1116,32 @@ mod tests {
             .any(|f| f.check == GardeningCheck::StaleDocs));
     }
 
+    #[test]
+    fn nested_stale_docs_are_detected() {
+        let repo = temp_repo();
+        write_file(&repo, "docs/guides/old.md", "# Old guide\n");
+        let path = repo.join("docs/guides/old.md");
+        let old_time =
+            std::time::SystemTime::now() - std::time::Duration::from_secs(100 * 24 * 3600);
+        filetime::set_file_mtime(&path, filetime::FileTime::from_system_time(old_time)).unwrap();
+
+        let report = run_gardening(
+            &repo,
+            &GardeningConfig {
+                enabled_checks: vec![GardeningCheck::StaleDocs],
+                ..GardeningConfig::default()
+            },
+            now_ms(),
+        );
+        assert_eq!(report.findings[0].file, "docs/guides/old.md");
+    }
+
     // ---- architecture violations ----
 
     #[test]
     fn test_file_in_src_detected() {
         let repo = temp_repo();
+        write_file(&repo, "Cargo.toml", "[package]\nname = \"test\"\n");
         write_file(&repo, "src/test_helper.rs", "fn helper() {}\n");
 
         let config = GardeningConfig {
@@ -715,10 +1149,48 @@ mod tests {
             ..GardeningConfig::default()
         };
         let report = run_gardening(&repo, &config, now_ms());
-        assert!(report
+        let architecture_findings = report
             .findings
             .iter()
-            .any(|f| f.check == GardeningCheck::ArchitectureViolations));
+            .filter(|finding| finding.check == GardeningCheck::ArchitectureViolations)
+            .collect::<Vec<_>>();
+        assert_eq!(architecture_findings.len(), 1);
+        assert_eq!(architecture_findings[0].file, "src/test_helper.rs");
+    }
+
+    #[test]
+    fn nested_rust_source_is_scanned_once() {
+        let repo = temp_repo();
+        write_file(
+            &repo,
+            "src-tauri/Cargo.toml",
+            "[package]\nname = \"test\"\n",
+        );
+        write_file(
+            &repo,
+            "src-tauri/src/nested/test_helper.rs",
+            "fn helper() {}\n",
+        );
+        let report = run_gardening(
+            &repo,
+            &GardeningConfig {
+                enabled_checks: vec![
+                    GardeningCheck::ArchitectureViolations,
+                    GardeningCheck::ArchitectureViolations,
+                ],
+                ..GardeningConfig::default()
+            },
+            now_ms(),
+        );
+        assert_eq!(report.findings.len(), 1);
+        assert_eq!(
+            report.findings[0].file,
+            "src-tauri/src/nested/test_helper.rs"
+        );
+        assert_eq!(
+            report.checks_run,
+            vec![GardeningCheck::ArchitectureViolations]
+        );
     }
 
     // ---- dead code ----
@@ -727,7 +1199,12 @@ mod tests {
     fn many_dead_code_allows_detected() {
         let repo = temp_repo();
         let content = "#[allow(dead_code)]\nfn a() {}\n#[allow(dead_code)]\nfn b() {}\n#[allow(dead_code)]\nfn c() {}\n";
-        write_file(&repo, "src/lib.rs", content);
+        write_file(
+            &repo,
+            "src-tauri/Cargo.toml",
+            "[package]\nname = \"test\"\n",
+        );
+        write_file(&repo, "src-tauri/src/lib.rs", content);
 
         let config = GardeningConfig {
             enabled_checks: vec![GardeningCheck::DeadCode],
@@ -738,6 +1215,43 @@ mod tests {
             .findings
             .iter()
             .any(|f| f.check == GardeningCheck::DeadCode));
+    }
+
+    #[test]
+    fn flaky_tests_scan_nested_src_and_tests_directories() {
+        let repo = temp_repo();
+        write_file(
+            &repo,
+            "src-tauri/Cargo.toml",
+            "[package]\nname = \"test\"\n",
+        );
+        write_file(
+            &repo,
+            "src-tauri/src/nested.rs",
+            "#[test]\nfn unit() { std::thread::sleep(std::time::Duration::ZERO); }\n",
+        );
+        write_file(
+            &repo,
+            "src-tauri/tests/integration.rs",
+            "#[test]\nfn integration() { let _ = std::time::SystemTime::now(); }\n",
+        );
+        let report = run_gardening(
+            &repo,
+            &GardeningConfig {
+                enabled_checks: vec![GardeningCheck::FlakyTests],
+                ..GardeningConfig::default()
+            },
+            now_ms(),
+        );
+        assert_eq!(report.findings.len(), 2);
+        assert!(report
+            .findings
+            .iter()
+            .any(|finding| finding.file == "src-tauri/src/nested.rs"));
+        assert!(report
+            .findings
+            .iter()
+            .any(|finding| finding.file == "src-tauri/tests/integration.rs"));
     }
 
     // ---- dependency drift ----
@@ -756,6 +1270,26 @@ mod tests {
             .findings
             .iter()
             .any(|f| f.check == GardeningCheck::DependencyDrift));
+    }
+
+    #[test]
+    fn nested_cargo_manifest_uses_nested_lock_file() {
+        let repo = temp_repo();
+        write_file(
+            &repo,
+            "src-tauri/Cargo.toml",
+            "[package]\nname = \"test\"\n",
+        );
+        write_file(&repo, "src-tauri/Cargo.lock", "version = 3\n");
+        let report = run_gardening(
+            &repo,
+            &GardeningConfig {
+                enabled_checks: vec![GardeningCheck::DependencyDrift],
+                ..GardeningConfig::default()
+            },
+            now_ms(),
+        );
+        assert!(report.findings.is_empty());
     }
 
     #[test]
@@ -814,6 +1348,83 @@ mod tests {
             .any(|f| f.check == GardeningCheck::EvidenceRetention));
     }
 
+    #[test]
+    fn nested_artifact_is_detected() {
+        let repo = temp_repo();
+        write_file(&repo, ".altai/artifacts/task/attempt/old.log", "data\n");
+        let path = repo.join(".altai/artifacts/task/attempt/old.log");
+        let old_time =
+            std::time::SystemTime::now() - std::time::Duration::from_secs(60 * 24 * 3600);
+        filetime::set_file_mtime(&path, filetime::FileTime::from_system_time(old_time)).unwrap();
+        let report = run_gardening(
+            &repo,
+            &GardeningConfig {
+                enabled_checks: vec![GardeningCheck::EvidenceRetention],
+                ..GardeningConfig::default()
+            },
+            now_ms(),
+        );
+        assert_eq!(
+            report.findings[0].file,
+            ".altai/artifacts/task/attempt/old.log"
+        );
+    }
+
+    #[test]
+    fn linked_worktree_resolves_common_git_directory() {
+        let root = temp_repo();
+        let repo = root.join("linked");
+        let stale_worktree = root.join("stale");
+        let common_git = root.join("main/.git");
+        let current_admin = common_git.join("worktrees/current");
+        let stale_admin = common_git.join("worktrees/stale");
+        fs::create_dir_all(&repo).unwrap();
+        fs::create_dir_all(&stale_worktree).unwrap();
+        fs::create_dir_all(&current_admin).unwrap();
+        fs::create_dir_all(&stale_admin).unwrap();
+        write_file(
+            &root,
+            "linked/.git",
+            &format!("gitdir: {}\n", current_admin.display()),
+        );
+        write_file(&root, "main/.git/worktrees/current/commondir", "../..\n");
+        write_file(
+            &root,
+            "main/.git/worktrees/current/gitdir",
+            &format!("{}\n", repo.join(".git").display()),
+        );
+        write_file(&root, "main/.git/worktrees/current/HEAD", "ref: current\n");
+        write_file(
+            &root,
+            "main/.git/worktrees/stale/gitdir",
+            &format!("{}\n", stale_worktree.join(".git").display()),
+        );
+        write_file(&root, "main/.git/worktrees/stale/HEAD", "ref: stale\n");
+        let old_time =
+            std::time::SystemTime::now() - std::time::Duration::from_secs(30 * 24 * 3600);
+        filetime::set_file_mtime(
+            stale_admin.join("HEAD"),
+            filetime::FileTime::from_system_time(old_time),
+        )
+        .unwrap();
+
+        assert_eq!(
+            resolve_common_git_dir(&repo).unwrap(),
+            fs::canonicalize(&common_git).unwrap()
+        );
+        let report = run_gardening(
+            &repo,
+            &GardeningConfig {
+                enabled_checks: vec![GardeningCheck::StaleWorktrees],
+                ..GardeningConfig::default()
+            },
+            now_ms(),
+        );
+        assert_eq!(report.findings.len(), 1);
+        assert_eq!(report.findings[0].file, stale_worktree.to_string_lossy());
+        assert!(!report.findings[0].recoverable);
+    }
+
     // ---- general report structure ----
 
     #[test]
@@ -850,5 +1461,100 @@ mod tests {
         write_file(&repo, "docs/test.md", "# Test\n");
         let report = run_gardening(&repo, &GardeningConfig::default(), now_ms());
         assert!(report.within_budget, "small repo should be within budget");
+    }
+
+    #[test]
+    fn zero_budget_skips_every_check() {
+        let repo = temp_repo();
+        let config = GardeningConfig {
+            schedule: Schedule {
+                budget_minutes: 0,
+                ..GardeningConfig::default().schedule
+            },
+            ..GardeningConfig::default()
+        };
+        let report = run_gardening(&repo, &config, now_ms());
+        assert!(!report.within_budget);
+        assert!(report.checks_run.is_empty());
+        assert_eq!(report.checks_skipped.len(), GardeningCheck::all().len());
+    }
+
+    #[test]
+    fn repeated_failures_use_redacted_fingerprints_without_raw_logs() {
+        let repo = temp_repo();
+        let samples = ["task-a", "task-b", "task-c"]
+            .into_iter()
+            .map(|task_id| AgentFailureSample {
+                task_id: task_id.into(),
+                fingerprint: "redacted:dependency-missing".into(),
+            })
+            .collect::<Vec<_>>();
+        let report = run_gardening_with_failures(
+            &repo,
+            &GardeningConfig {
+                enabled_checks: vec![GardeningCheck::RepeatedAgentFailures],
+                ..GardeningConfig::default()
+            },
+            now_ms(),
+            &samples,
+        );
+        assert_eq!(report.findings.len(), 1);
+        assert!(report.findings[0].detail.contains("3 tasks"));
+        assert!(!report.findings[0].detail.contains("dependency-missing"));
+    }
+
+    #[test]
+    fn findings_become_bounded_pending_task_proposals() {
+        let report = GardeningReport {
+            findings: vec![
+                GardeningFinding {
+                    check: GardeningCheck::StaleDocs,
+                    severity: Severity::Warning,
+                    file: "docs/a.md".into(),
+                    detail: "stale".into(),
+                    recommendation: "review".into(),
+                    recoverable: true,
+                },
+                GardeningFinding {
+                    check: GardeningCheck::StaleDocs,
+                    severity: Severity::Warning,
+                    file: "docs/b.md".into(),
+                    detail: "stale".into(),
+                    recommendation: "review".into(),
+                    recoverable: true,
+                },
+                GardeningFinding {
+                    check: GardeningCheck::DeadCode,
+                    severity: Severity::Info,
+                    file: "src/lib.rs".into(),
+                    detail: "dead".into(),
+                    recommendation: "review".into(),
+                    recoverable: true,
+                },
+            ],
+            run_at_ms: 42,
+            within_budget: true,
+            checks_run: vec![GardeningCheck::StaleDocs, GardeningCheck::DeadCode],
+            checks_skipped: Vec::new(),
+            elapsed_ms: 1,
+        };
+        let proposals = propose_gardening_tasks(&report, 1);
+        assert_eq!(proposals.len(), 1);
+        assert_eq!(proposals[0].status, "pending");
+        assert_eq!(
+            proposals[0].cited_files,
+            vec!["docs/a.md".to_string(), "docs/b.md".to_string()]
+        );
+    }
+
+    #[tokio::test]
+    async fn tick_exposes_manual_run_and_advances_schedule() {
+        let repo = temp_repo();
+        let result = gardening_tick_at(repo, GardeningConfig::default(), 42, 12, true, Vec::new())
+            .await
+            .unwrap();
+        assert!(result.ran);
+        assert!(result.report.is_some());
+        assert_eq!(result.schedule.last_run_ms, 42);
     }
 }

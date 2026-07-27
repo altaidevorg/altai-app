@@ -359,6 +359,7 @@ pub fn run() {
             orchestration::workflow::orchestration_workflow_load,
             orchestration::workflow::orchestration_workflow_save,
             orchestration::hooks::orchestration_hooks_inspect,
+            orchestration::gardening::orchestration_gardening_tick,
             shell::shell_run_command,
             shell::shell_session_open,
             shell::shell_session_run,
