@@ -320,15 +320,19 @@ pub fn propose_playbooks(analyses: &[AttemptAnalysis]) -> Vec<PlaybookProposal> 
                 .any(|s| s.kind == SignalKind::HighRetryCount)
         })
         .collect();
-    if !high_retry.is_empty() {
-        let avg_retries: u32 =
-            high_retry.iter().map(|a| a.attempt_count).sum::<u32>() / high_retry.len() as u32;
+    if let Some(high_retry_count) = std::num::NonZeroUsize::new(high_retry.len()) {
+        let total_retries = high_retry
+            .iter()
+            .map(|analysis| u64::from(analysis.attempt_count))
+            .fold(0_u64, u64::saturating_add);
+        let divisor = u64::try_from(high_retry_count.get()).unwrap_or(u64::MAX);
+        let avg_retries = u32::try_from(total_retries / divisor).unwrap_or(u32::MAX);
         proposals.push(PlaybookProposal {
             id: "pb-retry-policy".into(),
             title: "Adjust retry policy for frequently-retried tasks".into(),
             trigger: "Task requires 3+ attempts".into(),
             action: PlaybookAction::RetryPolicy {
-                max_retries: avg_retries + 2,
+                max_retries: avg_retries.saturating_add(2),
                 backoff_base_ms: 10_000,
             },
             cited_task_ids: high_retry.iter().map(|a| a.task_id.clone()).collect(),
