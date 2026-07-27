@@ -931,7 +931,21 @@ impl OrchestrationLedger {
             });
         }
         if let Some(existing) = attempt_for_key(&transaction, &request.idempotency_key)? {
-            transaction.rollback()?;
+            append_event_tx(
+                &transaction,
+                &OrchestrationEvent {
+                    event_id: format!("{}:attempt.duplicate_dispatch", request.attempt_id),
+                    task_id: request.task_id.clone(),
+                    seq: 0,
+                    kind: "attempt.duplicate_dispatch".to_string(),
+                    payload: serde_json::json!({
+                        "requested_attempt_id": request.attempt_id,
+                        "existing_attempt_id": &existing,
+                    }),
+                    recorded_at_ms: request.now_ms,
+                },
+            )?;
+            transaction.commit()?;
             return Ok(AttemptOutcome {
                 attempt_id: existing,
                 status: WriteStatus::Duplicate,
@@ -2838,6 +2852,28 @@ mod tests {
         assert_eq!(outcome.attempt_id, "t1-att-1");
 
         assert_eq!(ledger.attempts_for_task("t1").expect("history").len(), 1);
+        let events = ledger.events_for_task("t1", 0, 100).unwrap();
+        assert_eq!(
+            events
+                .iter()
+                .filter(|event| event.kind == "attempt.duplicate_dispatch")
+                .count(),
+            1
+        );
+
+        // Replaying the exact same duplicate request is itself idempotent.
+        assert_eq!(
+            ledger.create_attempt(&replay).unwrap().status,
+            WriteStatus::Duplicate
+        );
+        let events = ledger.events_for_task("t1", 0, 100).unwrap();
+        assert_eq!(
+            events
+                .iter()
+                .filter(|event| event.kind == "attempt.duplicate_dispatch")
+                .count(),
+            1
+        );
     }
 
     #[test]

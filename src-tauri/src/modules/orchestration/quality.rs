@@ -4,12 +4,12 @@
 //! All metrics are read-only — dashboards never affect orchestration
 //! correctness. No raw prompts or credentials are included in metrics.
 
-use std::collections::HashMap;
-
 use serde::Serialize;
 
-use super::domain::TaskState;
+use super::domain::{AttemptState, TaskState};
 use super::ledger::{ApprovalState, AttemptRecord, LedgerResult, OrchestrationLedger, TaskRecord};
+
+const EVENT_PAGE_SIZE: usize = 1_000;
 
 // ---------------------------------------------------------------------------
 // Quality metrics
@@ -27,27 +27,31 @@ pub struct QualityMetrics {
     pub tasks_with_retries: usize,
     /// Tasks that ended in Abandoned state.
     pub abandoned: usize,
-    /// Percentage helpers.
+    /// First-attempt successes divided by tasks that reached Done.
     pub first_attempt_success_rate: Option<f64>,
+    /// Tasks with retries divided by tasks that have at least one attempt.
     pub retry_rate: Option<f64>,
+    /// Abandoned tasks divided by all terminal tasks.
     pub abandonment_rate: Option<f64>,
 
     /// Duplicate dispatch attempts detected (same idempotency key replayed).
     pub duplicate_dispatch_count: usize,
 
-    /// Recovery: tasks that were in NeedsAttention and later reached a
-    /// terminal state (Done, Cancelled, Failed, Abandoned).
+    /// Recovery: tasks that entered NeedsAttention and later reached Done.
     pub recovery_attempts: usize,
     pub recovery_successes: usize,
+    /// Recovery successes divided by recovery attempts.
     pub recovery_success_rate: Option<f64>,
 
     /// Median time from task creation to first attempt start (ms).
     pub median_time_to_first_activity_ms: Option<u64>,
-    /// Median time from task creation to handoff (terminal state) (ms).
+    /// Median time from task creation to the ReadyForHandoff transition (ms).
     pub median_time_to_handoff_ms: Option<u64>,
 
-    /// Attempts that reached Verifying but then went backwards (failed verify).
+    /// Verification cycles and cycles that exited anywhere except Reviewing.
+    pub verification_attempts: usize,
     pub verification_failures: usize,
+    /// Verification failures divided by verification attempts.
     pub verification_failure_rate: Option<f64>,
 
     /// Human approvals requested / granted / denied.
@@ -90,24 +94,32 @@ pub fn compute_quality_metrics(
         ..QualityMetrics::default()
     };
 
-    let terminal_states = [
-        TaskState::Done,
-        TaskState::Failed,
-        TaskState::Cancelled,
-        TaskState::Abandoned,
-    ];
-
     let mut first_activity_durations: Vec<u64> = Vec::new();
     let mut handoff_durations: Vec<u64> = Vec::new();
-    let mut seen_idempotency_keys: HashMap<String, usize> = HashMap::new();
-    let mut recovery_attempted = false;
+    let mut attempted_tasks = 0usize;
+    let mut successful_tasks = 0usize;
+    let mut terminal_tasks = 0usize;
 
     for task in &tasks {
         let attempts = ledger.attempts_for_task(&task.task_id)?;
+        let event_summary = summarize_events(ledger, &task.task_id)?;
 
         // --- first attempt success ---
-        let terminal = terminal_states.contains(&task.state);
-        if task.state == TaskState::Done && attempts.len() == 1 {
+        let terminal = task.state.is_terminal();
+        if terminal {
+            terminal_tasks += 1;
+        }
+        if task.state == TaskState::Done {
+            successful_tasks += 1;
+        }
+        if !attempts.is_empty() {
+            attempted_tasks += 1;
+        }
+        if task.state == TaskState::Done
+            && attempts.len() == 1
+            && attempts[0].attempt_no == 1
+            && attempts[0].state == AttemptState::Completed
+        {
             metrics.first_attempt_success += 1;
         }
 
@@ -122,11 +134,7 @@ pub fn compute_quality_metrics(
         }
 
         // --- duplicate dispatch ---
-        for att in &attempts {
-            *seen_idempotency_keys
-                .entry(att.idempotency_key.clone())
-                .or_default() += 1;
-        }
+        metrics.duplicate_dispatch_count += event_summary.duplicate_dispatches;
 
         // --- time to first activity ---
         if let Some(first) = attempts.iter().min_by_key(|a| a.attempt_no) {
@@ -138,47 +146,26 @@ pub fn compute_quality_metrics(
         }
 
         // --- time to handoff ---
-        if terminal {
-            if let Some(last) = attempts.iter().max_by_key(|a| a.attempt_no) {
-                if let Some(terminal_at) = last.terminal_at_ms {
-                    if terminal_at >= task.created_at_ms {
-                        handoff_durations.push(terminal_at - task.created_at_ms);
-                    }
-                }
+        if let Some(handoff_at) = event_summary.ready_for_handoff_at_ms {
+            if handoff_at >= task.created_at_ms {
+                handoff_durations.push(handoff_at - task.created_at_ms);
             }
         }
 
         // --- verification failures ---
-        // An attempt that reached Completed but the task didn't end in Done
-        // indicates a verification failure.
-        let had_completed_attempt = attempts
-            .iter()
-            .any(|a| a.state == super::domain::AttemptState::Completed);
-        if had_completed_attempt && task.state != TaskState::Done && terminal {
-            metrics.verification_failures += 1;
-        }
+        metrics.verification_attempts += event_summary.verification_attempts;
+        metrics.verification_failures += event_summary.verification_failures;
 
         // --- recovery tracking ---
-        // Look at events to detect NeedsAttention in the history.
-        let events = ledger.events_for_task(&task.task_id, 0, 500)?;
-        let had_needs_attention = events
-            .iter()
-            .any(|e| e.kind.contains("needs_attention") || e.kind.contains("NeedsAttention"));
-        if had_needs_attention {
+        if event_summary.had_needs_attention {
             metrics.recovery_attempts += 1;
-            recovery_attempted = true;
-            if terminal {
+            if task.state == TaskState::Done {
                 metrics.recovery_successes += 1;
             }
         }
 
         // --- steering frequency ---
-        // Count CancelRequested events as steering interventions.
-        for e in &events {
-            if e.kind.contains("cancel") || e.kind.contains("steer") {
-                metrics.steering_frequency += 1;
-            }
-        }
+        metrics.steering_frequency += event_summary.steering_events;
 
         // --- approvals ---
         let approvals = ledger.approvals_for_task(&task.task_id)?;
@@ -198,20 +185,16 @@ pub fn compute_quality_metrics(
         }
     }
 
-    // --- duplicate dispatch count ---
-    for count in seen_idempotency_keys.values() {
-        if *count > 1 {
-            metrics.duplicate_dispatch_count += count - 1;
-        }
-    }
-
     // --- rates ---
-    let total = metrics.total_tasks;
-    if total > 0 {
+    if successful_tasks > 0 {
         metrics.first_attempt_success_rate =
-            Some(metrics.first_attempt_success as f64 / total as f64);
-        metrics.retry_rate = Some(metrics.tasks_with_retries as f64 / total as f64);
-        metrics.abandonment_rate = Some(metrics.abandoned as f64 / total as f64);
+            Some(metrics.first_attempt_success as f64 / successful_tasks as f64);
+    }
+    if attempted_tasks > 0 {
+        metrics.retry_rate = Some(metrics.tasks_with_retries as f64 / attempted_tasks as f64);
+    }
+    if terminal_tasks > 0 {
+        metrics.abandonment_rate = Some(metrics.abandoned as f64 / terminal_tasks as f64);
     }
 
     if metrics.recovery_attempts > 0 {
@@ -219,14 +202,9 @@ pub fn compute_quality_metrics(
             Some(metrics.recovery_successes as f64 / metrics.recovery_attempts as f64);
     }
 
-    if recovery_attempted || metrics.verification_failures > 0 {
-        let verified_total = metrics.first_attempt_success
-            + metrics.tasks_with_retries
-            + metrics.verification_failures;
-        if verified_total > 0 {
-            metrics.verification_failure_rate =
-                Some(metrics.verification_failures as f64 / verified_total as f64);
-        }
+    if metrics.verification_attempts > 0 {
+        metrics.verification_failure_rate =
+            Some(metrics.verification_failures as f64 / metrics.verification_attempts as f64);
     }
 
     // --- medians ---
@@ -240,6 +218,59 @@ pub fn compute_quality_metrics(
 // Helpers
 // ---------------------------------------------------------------------------
 
+#[derive(Default)]
+struct TaskEventSummary {
+    duplicate_dispatches: usize,
+    had_needs_attention: bool,
+    ready_for_handoff_at_ms: Option<u64>,
+    steering_events: usize,
+    verification_attempts: usize,
+    verification_failures: usize,
+}
+
+fn summarize_events(ledger: &OrchestrationLedger, task_id: &str) -> LedgerResult<TaskEventSummary> {
+    let mut summary = TaskEventSummary::default();
+    let mut after_seq = 0;
+    let mut verification_pending = false;
+
+    loop {
+        let events = ledger.events_for_task(task_id, after_seq, EVENT_PAGE_SIZE)?;
+        if events.is_empty() {
+            break;
+        }
+        after_seq = events.last().map(|event| event.seq).unwrap_or(after_seq);
+
+        for event in events {
+            match event.kind.as_str() {
+                "attempt.duplicate_dispatch" => summary.duplicate_dispatches += 1,
+                "task.needs_attention" => summary.had_needs_attention = true,
+                "task.ready_for_handoff" => {
+                    summary
+                        .ready_for_handoff_at_ms
+                        .get_or_insert(event.recorded_at_ms);
+                }
+                "attempt.cancel_requested" | "attempt.steered" => {
+                    summary.steering_events += 1;
+                }
+                "task.verifying" => {
+                    summary.verification_attempts += 1;
+                    verification_pending = true;
+                }
+                "task.reviewing" if verification_pending => {
+                    verification_pending = false;
+                }
+                kind if verification_pending && kind.starts_with("task.") => {
+                    summary.verification_failures += 1;
+                    verification_pending = false;
+                }
+                _ => {}
+            }
+        }
+    }
+
+    Ok(summary)
+}
+
 fn median(values: &mut [u64]) -> Option<u64> {
     if values.is_empty() {
         return None;
@@ -247,7 +278,7 @@ fn median(values: &mut [u64]) -> Option<u64> {
     values.sort_unstable();
     let mid = values.len() / 2;
     if values.len().is_multiple_of(2) {
-        Some((values[mid - 1] + values[mid]) / 2)
+        Some(values[mid - 1] + (values[mid] - values[mid - 1]) / 2)
     } else {
         Some(values[mid])
     }
@@ -280,8 +311,9 @@ pub fn is_terminal(task: &TaskRecord) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::modules::orchestration::domain::AttemptState;
-    use crate::modules::orchestration::ledger::{CreateAttemptRequest, OrchestrationLedger};
+    use crate::modules::orchestration::ledger::{
+        CreateAttemptRequest, OrchestrationEvent, OrchestrationLedger, WriteStatus,
+    };
 
     fn fresh_ledger() -> OrchestrationLedger {
         OrchestrationLedger::open_in_memory().unwrap()
@@ -367,6 +399,25 @@ mod tests {
         }
     }
 
+    fn seed_event(
+        ledger: &OrchestrationLedger,
+        task_id: &str,
+        event_id: &str,
+        kind: &str,
+        recorded_at_ms: u64,
+    ) {
+        ledger
+            .record_event(&OrchestrationEvent {
+                event_id: event_id.into(),
+                task_id: task_id.into(),
+                seq: 0,
+                kind: kind.into(),
+                payload: serde_json::json!({}),
+                recorded_at_ms,
+            })
+            .unwrap();
+    }
+
     // ---- empty workspace ----
 
     #[test]
@@ -432,6 +483,7 @@ mod tests {
         let ledger = fresh_ledger();
         seed_task(&ledger, "t1", "ws", "T1", TaskState::Done, 1000);
         seed_attempt(&ledger, "a1", "t1", 1, "mock", 1100, Some(5000), "k1");
+        seed_event(&ledger, "t1", "evt-ready", "task.ready_for_handoff", 5000);
 
         let m = compute_quality_metrics(&ledger, "ws", 3_600_000).unwrap();
         assert_eq!(m.median_time_to_handoff_ms, Some(4000));
@@ -443,6 +495,92 @@ mod tests {
         assert_eq!(median(&mut vals), Some(200));
         let mut vals = vec![100, 200, 300, 400];
         assert_eq!(median(&mut vals), Some(250));
+        let mut vals = vec![u64::MAX - 1, u64::MAX];
+        assert_eq!(median(&mut vals), Some(u64::MAX - 1));
+    }
+
+    #[test]
+    fn metrics_scan_events_beyond_the_first_page() {
+        let ledger = fresh_ledger();
+        seed_task(&ledger, "t1", "ws", "T1", TaskState::Done, 1);
+        for index in 0..1_001 {
+            seed_event(
+                &ledger,
+                "t1",
+                &format!("filler-{index}"),
+                "attempt.output",
+                index + 1,
+            );
+        }
+        seed_event(
+            &ledger,
+            "t1",
+            "needs-attention",
+            "task.needs_attention",
+            2_000,
+        );
+        seed_event(
+            &ledger,
+            "t1",
+            "cancel-requested",
+            "attempt.cancel_requested",
+            2_001,
+        );
+
+        let metrics = compute_quality_metrics(&ledger, "ws", 3_600_000).unwrap();
+        assert_eq!(metrics.recovery_attempts, 1);
+        assert_eq!(metrics.recovery_successes, 1);
+        assert_eq!(metrics.steering_frequency, 1);
+    }
+
+    #[test]
+    fn duplicate_dispatches_come_from_committed_audit_events() {
+        let ledger = fresh_ledger();
+        seed_task(&ledger, "t1", "ws", "T1", TaskState::Running, 1);
+        seed_attempt(&ledger, "a1", "t1", 1, "mock", 2, None, "same-key");
+        let duplicate = ledger
+            .create_attempt(&CreateAttemptRequest {
+                attempt_id: "a2".into(),
+                task_id: "t1".into(),
+                attempt_no: 2,
+                runner_kind: "mock".into(),
+                lease: None,
+                idempotency_key: "same-key".into(),
+                now_ms: 3,
+            })
+            .unwrap();
+        assert_eq!(duplicate.status, WriteStatus::Duplicate);
+
+        let metrics = compute_quality_metrics(&ledger, "ws", 3_600_000).unwrap();
+        assert_eq!(metrics.duplicate_dispatch_count, 1);
+    }
+
+    #[test]
+    fn verification_rate_uses_verification_cycles() {
+        let ledger = fresh_ledger();
+        seed_task(&ledger, "t1", "ws", "T1", TaskState::Running, 1);
+        seed_event(&ledger, "t1", "verify-1", "task.verifying", 2);
+        seed_event(&ledger, "t1", "rework", "task.running", 3);
+        seed_event(&ledger, "t1", "verify-2", "task.verifying", 4);
+        seed_event(&ledger, "t1", "review", "task.reviewing", 5);
+
+        let metrics = compute_quality_metrics(&ledger, "ws", 3_600_000).unwrap();
+        assert_eq!(metrics.verification_attempts, 2);
+        assert_eq!(metrics.verification_failures, 1);
+        assert_eq!(metrics.verification_failure_rate, Some(0.5));
+    }
+
+    #[test]
+    fn in_progress_tasks_do_not_dilute_terminal_success_rates() {
+        let ledger = fresh_ledger();
+        seed_task(&ledger, "done", "ws", "Done", TaskState::Done, 1);
+        seed_attempt(&ledger, "a1", "done", 1, "mock", 2, Some(3), "k1");
+        seed_task(&ledger, "active", "ws", "Active", TaskState::Running, 1);
+
+        let metrics = compute_quality_metrics(&ledger, "ws", 3_600_000).unwrap();
+        assert_eq!(metrics.total_tasks, 2);
+        assert_eq!(metrics.first_attempt_success_rate, Some(1.0));
+        assert_eq!(metrics.abandonment_rate, Some(0.0));
     }
 
     // ---- stale workspace ----
