@@ -24,6 +24,8 @@ pub mod recovery;
 // O2 stages the durable ledger before O4 wires it into the coordinator.
 // Keep it compiled and fully tested in this intermediate PR.
 #[allow(dead_code)]
+pub mod budget;
+#[allow(dead_code)]
 pub mod hooks;
 #[allow(dead_code)]
 pub mod ledger;
