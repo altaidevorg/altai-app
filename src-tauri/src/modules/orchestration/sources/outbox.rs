@@ -4,9 +4,10 @@
 //! comments) with retry semantics, and a conformance test framework that
 //! any source adapter must pass.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 
 // ---------------------------------------------------------------------------
 // Outbox entry
@@ -121,7 +122,7 @@ impl SourceOutbox {
             return String::new();
         }
 
-        let id = format!("ob-{}-{}", now_ms, self.entries.len());
+        let id = format!("ob-{now_ms}-{}", uuid::Uuid::new_v4());
         let entry = OutboxEntry {
             id: id.clone(),
             task_id: task_id.to_string(),
@@ -140,15 +141,27 @@ impl SourceOutbox {
 
     /// Get all pending entries ready for delivery (next_retry_ms <= now).
     pub fn pending(&self, now_ms: u64) -> Vec<&OutboxEntry> {
-        self.entries
+        let mut pending: Vec<&OutboxEntry> = self
+            .entries
             .values()
             .filter(|e| e.status == OutboxStatus::Pending && e.next_retry_ms <= now_ms)
-            .collect()
+            .collect();
+        pending.sort_by(|a, b| {
+            (a.next_retry_ms, a.created_at_ms, &a.id).cmp(&(
+                b.next_retry_ms,
+                b.created_at_ms,
+                &b.id,
+            ))
+        });
+        pending
     }
 
     /// Mark an entry as successfully delivered.
     pub fn mark_delivered(&mut self, entry_id: &str) {
         if let Some(entry) = self.entries.get_mut(entry_id) {
+            if entry.status != OutboxStatus::Pending {
+                return;
+            }
             entry.status = OutboxStatus::Delivered;
             let key = dedup_key(&entry.source_kind, &entry.mutation);
             self.delivered_keys.insert(key, true);
@@ -167,7 +180,10 @@ impl SourceOutbox {
         let Some(entry) = self.entries.get_mut(entry_id) else {
             return false;
         };
-        entry.attempts += 1;
+        if entry.status != OutboxStatus::Pending {
+            return false;
+        }
+        entry.attempts = entry.attempts.saturating_add(1);
         entry.last_error = Some(error.to_string());
 
         if entry.attempts >= entry.max_attempts {
@@ -176,7 +192,10 @@ impl SourceOutbox {
         }
 
         // Exponential backoff.
-        let backoff = (config.backoff_base_ms * (1u64 << entry.attempts.saturating_sub(1).min(10)))
+        let multiplier = 1u64 << entry.attempts.saturating_sub(1).min(10);
+        let backoff = config
+            .backoff_base_ms
+            .saturating_mul(multiplier)
             .min(config.backoff_max_ms);
         entry.next_retry_ms = now_ms.saturating_add(backoff);
         true
@@ -227,20 +246,42 @@ pub struct OutboxCounts {
 /// Compute a deduplication key for a mutation. Same source + same mutation
 /// body = same key (idempotent delivery).
 fn dedup_key(source_kind: &str, mutation: &SourceMutation) -> String {
+    let mut hash = Sha256::new();
+    hash_field(&mut hash, source_kind);
     match mutation {
         SourceMutation::PostStatus { native_id, status } => {
-            format!("{source_kind}:status:{native_id}:{status}")
+            hash.update(b"post_status");
+            hash_field(&mut hash, native_id);
+            hash_field(&mut hash, status);
         }
         SourceMutation::PostComment { native_id, body } => {
-            format!("{source_kind}:comment:{native_id}:{}", body.len())
+            hash.update(b"post_comment");
+            hash_field(&mut hash, native_id);
+            hash_field(&mut hash, body);
         }
         SourceMutation::CloseIssue { native_id, reason } => {
-            format!("{source_kind}:close:{native_id}:{reason:?}")
+            hash.update(b"close_issue");
+            hash_field(&mut hash, native_id);
+            match reason {
+                Some(reason) => {
+                    hash.update([1]);
+                    hash_field(&mut hash, reason);
+                }
+                None => hash.update([0]),
+            }
         }
         SourceMutation::AddLabel { native_id, label } => {
-            format!("{source_kind}:label:{native_id}:{label}")
+            hash.update(b"add_label");
+            hash_field(&mut hash, native_id);
+            hash_field(&mut hash, label);
         }
     }
+    format!("v1:{}", hex::encode(hash.finalize()))
+}
+
+fn hash_field(hash: &mut Sha256, value: &str) {
+    hash.update((value.len() as u64).to_be_bytes());
+    hash.update(value.as_bytes());
 }
 
 // ---------------------------------------------------------------------------
@@ -277,9 +318,13 @@ pub fn negotiate_capabilities(
 ) -> NegotiatedCapabilities {
     let mut granted = Vec::new();
     let mut denied = Vec::new();
+    let mut seen = HashSet::new();
 
     for mutation in requested {
         let cap_name = mutation_capability(mutation);
+        if !seen.insert(cap_name.clone()) {
+            continue;
+        }
         let allowed = match mutation {
             SourceMutation::PostStatus { .. } => available.can_post_status,
             SourceMutation::PostComment { .. } => available.can_post_comment,
@@ -320,7 +365,7 @@ pub fn assess_health(
     recent_error_count: usize,
     recent_success_count: usize,
 ) -> SourceHealth {
-    let total = recent_error_count + recent_success_count;
+    let total = recent_error_count.saturating_add(recent_success_count);
     let error_rate = if total > 0 {
         recent_error_count as f64 / total as f64
     } else {
@@ -587,6 +632,107 @@ mod tests {
         assert_eq!(outbox.counts().pending, 1);
     }
 
+    #[test]
+    fn enqueue_ids_remain_unique_after_gc_at_the_same_timestamp() {
+        let mut outbox = SourceOutbox::new();
+        let config = OutboxConfig::default();
+
+        let delivered_id = outbox.enqueue(
+            "t1",
+            "github",
+            make_status_mutation("1", "done"),
+            1000,
+            &config,
+        );
+        let existing_id = outbox.enqueue(
+            "t2",
+            "github",
+            make_status_mutation("2", "done"),
+            1000,
+            &config,
+        );
+        outbox.mark_delivered(&delivered_id);
+        outbox.gc_delivered();
+        let new_id = outbox.enqueue(
+            "t3",
+            "github",
+            make_status_mutation("3", "done"),
+            1000,
+            &config,
+        );
+
+        assert_ne!(new_id, delivered_id);
+        assert_ne!(new_id, existing_id);
+        assert_eq!(outbox.all_entries().len(), 2);
+    }
+
+    #[test]
+    fn terminal_entries_cannot_be_transitioned_again() {
+        let mut outbox = SourceOutbox::new();
+        let config = OutboxConfig {
+            max_attempts: 1,
+            ..Default::default()
+        };
+
+        let delivered_id = outbox.enqueue(
+            "t1",
+            "github",
+            make_status_mutation("1", "done"),
+            1000,
+            &config,
+        );
+        outbox.mark_delivered(&delivered_id);
+        assert!(!outbox.mark_failed(&delivered_id, "late failure", 2000, &config));
+
+        let failed_id = outbox.enqueue(
+            "t2",
+            "github",
+            make_status_mutation("2", "done"),
+            1000,
+            &config,
+        );
+        assert!(!outbox.mark_failed(&failed_id, "failed", 2000, &config));
+        outbox.mark_delivered(&failed_id);
+
+        let entries = outbox.all_entries();
+        assert_eq!(
+            entries
+                .iter()
+                .find(|entry| entry.id == delivered_id)
+                .unwrap()
+                .status,
+            OutboxStatus::Delivered
+        );
+        assert_eq!(
+            entries
+                .iter()
+                .find(|entry| entry.id == failed_id)
+                .unwrap()
+                .status,
+            OutboxStatus::Failed
+        );
+    }
+
+    #[test]
+    fn retry_backoff_saturates_instead_of_overflowing() {
+        let mut outbox = SourceOutbox::new();
+        let config = OutboxConfig {
+            max_attempts: 2,
+            backoff_base_ms: u64::MAX,
+            backoff_max_ms: u64::MAX,
+        };
+        let id = outbox.enqueue(
+            "t1",
+            "github",
+            make_status_mutation("1", "done"),
+            1,
+            &config,
+        );
+
+        assert!(outbox.mark_failed(&id, "retry", 2, &config));
+        assert_eq!(outbox.all_entries()[0].next_retry_ms, u64::MAX);
+    }
+
     // ---- capability negotiation ----
 
     #[test]
@@ -625,6 +771,21 @@ mod tests {
         assert_eq!(negotiated.granted.len(), 1);
         assert_eq!(negotiated.denied.len(), 1);
         assert!(negotiated.denied.contains(&"close".to_string()));
+    }
+
+    #[test]
+    fn negotiate_reports_each_capability_once() {
+        let caps = SourceCapabilities {
+            can_post_comment: true,
+            ..Default::default()
+        };
+        let mutations = vec![
+            make_comment_mutation("1", "first"),
+            make_comment_mutation("1", "second"),
+        ];
+
+        let negotiated = negotiate_capabilities(&mutations, &caps);
+        assert_eq!(negotiated.granted, vec!["post_comment"]);
     }
 
     // ---- health assessment ----
@@ -731,8 +892,7 @@ mod tests {
     }
 
     #[test]
-    fn outbox_comment_dedup_by_body_length() {
-        // Comments with the same body length are deduplicated (simplified).
+    fn outbox_comment_dedup_uses_the_complete_body() {
         let mut outbox = SourceOutbox::new();
         let config = OutboxConfig::default();
 
@@ -743,7 +903,7 @@ mod tests {
             1000,
             &config,
         );
-        // Different body, same length → deduplicated by length-based key.
+        // Different body, same length → distinct mutation.
         let id2 = outbox.enqueue(
             "t1",
             "github",
@@ -752,10 +912,40 @@ mod tests {
             &config,
         );
         assert!(!id1.is_empty());
-        assert!(
-            id2.is_empty(),
-            "same-length comment to same issue is deduplicated"
+        assert!(!id2.is_empty(), "different comments must not be dropped");
+
+        let duplicate = outbox.enqueue(
+            "t1",
+            "github",
+            make_comment_mutation("1", "hello"),
+            1000,
+            &config,
         );
+        assert!(duplicate.is_empty(), "identical comments are deduplicated");
+    }
+
+    #[test]
+    fn dedup_keys_do_not_collide_when_fields_contain_separators() {
+        let mut outbox = SourceOutbox::new();
+        let config = OutboxConfig::default();
+
+        let first = outbox.enqueue(
+            "t1",
+            "github",
+            make_status_mutation("issue:done", "approved"),
+            1000,
+            &config,
+        );
+        let second = outbox.enqueue(
+            "t2",
+            "github",
+            make_status_mutation("issue", "done:approved"),
+            1000,
+            &config,
+        );
+
+        assert!(!first.is_empty());
+        assert!(!second.is_empty());
     }
 
     #[test]
