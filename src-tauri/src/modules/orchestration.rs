@@ -34,6 +34,8 @@ pub mod hooks;
 #[allow(dead_code)]
 pub mod ledger;
 #[allow(dead_code)]
+pub mod plans;
+#[allow(dead_code)]
 pub mod policy;
 #[allow(dead_code)]
 pub mod projections;

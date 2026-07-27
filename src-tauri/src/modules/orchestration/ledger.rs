@@ -23,13 +23,20 @@ use std::path::Path;
 use std::sync::{Mutex, MutexGuard};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-const SCHEMA_VERSION: i64 = 4;
+const SCHEMA_VERSION: i64 = 5;
 const MAX_EVENT_LIMIT: usize = 1_000;
 const MAX_EVENT_PAYLOAD_BYTES: usize = 256 * 1024;
 const MAX_APPROVAL_ID_CHARS: usize = 512;
 const MAX_APPROVAL_DESCRIPTION_CHARS: usize = 4_096;
 const MAX_APPROVAL_ACTION_BYTES: usize = 64 * 1024;
 const MAX_APPROVAL_REASON_CHARS: usize = 4_096;
+const MAX_DECISION_ID_CHARS: usize = 512;
+const MAX_DECISION_TEXT_CHARS: usize = 4_096;
+const MAX_DECISION_RATIONALE_CHARS: usize = 4_096;
+const MAX_DECISION_ALTERNATIVES: usize = 32;
+const MAX_DECISION_ALTERNATIVE_CHARS: usize = 4_096;
+const MAX_DECISION_ALTERNATIVES_BYTES: usize = 64 * 1024;
+const MAX_DECISION_LIMIT: usize = 1_000;
 
 const MIGRATION_V1: &str = r#"
 CREATE TABLE IF NOT EXISTS orchestration_tasks (
@@ -169,6 +176,37 @@ CREATE INDEX IF NOT EXISTS orchestration_artifacts_task
 
 CREATE INDEX IF NOT EXISTS orchestration_artifacts_cleanup
     ON orchestration_artifacts (pinned, created_at_ms);
+"#;
+
+const MIGRATION_V5: &str = r#"
+CREATE TABLE IF NOT EXISTS orchestration_decisions (
+    decision_id   TEXT PRIMARY KEY
+                  CHECK (length(trim(decision_id)) BETWEEN 1 AND 512),
+    task_id       TEXT
+                  CHECK (task_id IS NULL OR length(trim(task_id)) BETWEEN 1 AND 512),
+    attempt_id    TEXT
+                  CHECK (attempt_id IS NULL OR length(trim(attempt_id)) BETWEEN 1 AND 512),
+    plan_item_id  TEXT
+                  CHECK (plan_item_id IS NULL OR length(trim(plan_item_id)) BETWEEN 1 AND 512),
+    decision      TEXT NOT NULL
+                  CHECK (length(trim(decision)) BETWEEN 1 AND 4096),
+    rationale     TEXT NOT NULL DEFAULT ''
+                  CHECK (length(rationale) <= 4096),
+    alternatives_json TEXT NOT NULL DEFAULT '[]'
+                  CHECK (json_valid(alternatives_json)
+                         AND json_type(alternatives_json) = 'array'
+                         AND length(alternatives_json) <= 65536),
+    recorded_at_ms INTEGER NOT NULL CHECK (recorded_at_ms >= 0)
+);
+
+CREATE INDEX IF NOT EXISTS orchestration_decisions_task
+    ON orchestration_decisions (task_id);
+
+CREATE INDEX IF NOT EXISTS orchestration_decisions_plan
+    ON orchestration_decisions (plan_item_id);
+
+CREATE INDEX IF NOT EXISTS orchestration_decisions_recent
+    ON orchestration_decisions (recorded_at_ms DESC);
 "#;
 
 // ---------------------------------------------------------------------------
@@ -402,6 +440,32 @@ pub struct CreateArtifactRequest {
     pub producer: String,
     pub created_at_ms: u64,
     pub description: String,
+}
+
+// --- Decision types (G3) ---
+
+/// A recorded decision from the execution plan decision log.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct DecisionEntry {
+    pub id: String,
+    pub task_id: Option<String>,
+    pub attempt_id: Option<String>,
+    pub plan_item_id: Option<String>,
+    pub decision: String,
+    pub rationale: String,
+    pub alternatives: Vec<String>,
+    pub recorded_at_ms: u64,
+}
+
+/// Input for recording a decision.
+#[derive(Debug, Clone)]
+pub struct CreateDecisionRequest {
+    pub task_id: Option<String>,
+    pub attempt_id: Option<String>,
+    pub plan_item_id: Option<String>,
+    pub decision: String,
+    pub rationale: String,
+    pub alternatives: Vec<String>,
 }
 
 /// Input for creating an attempt. The `idempotency_key` is the deduplication
@@ -1844,6 +1908,122 @@ impl OrchestrationLedger {
         transaction.commit()?;
         Ok(Some(remaining == 0))
     }
+
+    // ----- decisions (G3) --------------------------------------------------
+
+    /// Record a decision in the durable log.
+    pub fn create_decision(&self, req: &CreateDecisionRequest) -> LedgerResult<DecisionEntry> {
+        validate_optional_bounded(&req.task_id, "task_id", MAX_DECISION_ID_CHARS)?;
+        validate_optional_bounded(&req.attempt_id, "attempt_id", MAX_DECISION_ID_CHARS)?;
+        validate_optional_bounded(&req.plan_item_id, "plan_item_id", MAX_DECISION_ID_CHARS)?;
+        validate_bounded(&req.decision, "decision", MAX_DECISION_TEXT_CHARS)?;
+        if req.rationale.chars().count() > MAX_DECISION_RATIONALE_CHARS {
+            return Err(LedgerError::InvalidField("rationale"));
+        }
+        if req.alternatives.len() > MAX_DECISION_ALTERNATIVES {
+            return Err(LedgerError::InvalidField("alternatives"));
+        }
+        for alternative in &req.alternatives {
+            validate_bounded(alternative, "alternatives", MAX_DECISION_ALTERNATIVE_CHARS)?;
+        }
+        let alternatives_json = serde_json::to_string(&req.alternatives)?;
+        if alternatives_json.len() > MAX_DECISION_ALTERNATIVES_BYTES {
+            return Err(LedgerError::InvalidField("alternatives"));
+        }
+
+        let mut connection = self
+            .connection
+            .lock()
+            .map_err(|_| LedgerError::LockPoisoned)?;
+        let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let decision_id = format!("dec-{}", uuid::Uuid::new_v4().simple());
+        let recorded_at = now_ms();
+        transaction.execute(
+            "INSERT INTO orchestration_decisions
+                (decision_id, task_id, attempt_id, plan_item_id,
+                 decision, rationale, alternatives_json, recorded_at_ms)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            params![
+                decision_id,
+                req.task_id,
+                req.attempt_id,
+                req.plan_item_id,
+                req.decision,
+                req.rationale,
+                alternatives_json,
+                recorded_at,
+            ],
+        )?;
+        transaction.commit()?;
+        Ok(DecisionEntry {
+            id: decision_id,
+            task_id: req.task_id.clone(),
+            attempt_id: req.attempt_id.clone(),
+            plan_item_id: req.plan_item_id.clone(),
+            decision: req.decision.clone(),
+            rationale: req.rationale.clone(),
+            alternatives: req.alternatives.clone(),
+            recorded_at_ms: recorded_at as u64,
+        })
+    }
+
+    /// Fetch all decisions for a task.
+    pub fn decisions_for_task(&self, task_id: &str) -> LedgerResult<Vec<DecisionEntry>> {
+        validate_bounded(task_id, "task_id", MAX_DECISION_ID_CHARS)?;
+        let connection = self
+            .connection
+            .lock()
+            .map_err(|_| LedgerError::LockPoisoned)?;
+        let mut statement = connection.prepare(
+            "SELECT decision_id, task_id, attempt_id, plan_item_id,
+                    decision, rationale, alternatives_json, recorded_at_ms
+             FROM orchestration_decisions
+             WHERE task_id = ?1
+             ORDER BY recorded_at_ms ASC, decision_id ASC",
+        )?;
+        let rows = statement.query_map(params![task_id], decode_decision)?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(LedgerError::from)
+    }
+
+    /// Fetch all decisions linked to a plan item.
+    pub fn decisions_for_plan_item(&self, plan_item_id: &str) -> LedgerResult<Vec<DecisionEntry>> {
+        validate_bounded(plan_item_id, "plan_item_id", MAX_DECISION_ID_CHARS)?;
+        let connection = self
+            .connection
+            .lock()
+            .map_err(|_| LedgerError::LockPoisoned)?;
+        let mut statement = connection.prepare(
+            "SELECT decision_id, task_id, attempt_id, plan_item_id,
+                    decision, rationale, alternatives_json, recorded_at_ms
+             FROM orchestration_decisions
+             WHERE plan_item_id = ?1
+             ORDER BY recorded_at_ms ASC, decision_id ASC",
+        )?;
+        let rows = statement.query_map(params![plan_item_id], decode_decision)?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(LedgerError::from)
+    }
+
+    /// Fetch recent decisions across all tasks, newest first.
+    pub fn recent_decisions(&self, limit: usize) -> LedgerResult<Vec<DecisionEntry>> {
+        let limit = i64::try_from(limit.min(MAX_DECISION_LIMIT))
+            .map_err(|_| LedgerError::NumericOverflow("limit"))?;
+        let connection = self
+            .connection
+            .lock()
+            .map_err(|_| LedgerError::LockPoisoned)?;
+        let mut statement = connection.prepare(
+            "SELECT decision_id, task_id, attempt_id, plan_item_id,
+                    decision, rationale, alternatives_json, recorded_at_ms
+             FROM orchestration_decisions
+             ORDER BY recorded_at_ms DESC, decision_id DESC
+             LIMIT ?1",
+        )?;
+        let rows = statement.query_map(params![limit], decode_decision)?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(LedgerError::from)
+    }
 }
 
 fn append_event_tx(
@@ -2188,6 +2368,23 @@ fn decode_artifact(row: &rusqlite::Row<'_>) -> rusqlite::Result<ArtifactRecord> 
     })
 }
 
+fn decode_decision(row: &rusqlite::Row<'_>) -> rusqlite::Result<DecisionEntry> {
+    let alternatives_json: String = row.get(6)?;
+    let alternatives: Vec<String> = serde_json::from_str(&alternatives_json).map_err(|error| {
+        rusqlite::Error::FromSqlConversionFailure(6, rusqlite::types::Type::Text, Box::new(error))
+    })?;
+    Ok(DecisionEntry {
+        id: row.get(0)?,
+        task_id: row.get(1)?,
+        attempt_id: row.get(2)?,
+        plan_item_id: row.get(3)?,
+        decision: row.get(4)?,
+        rationale: row.get(5)?,
+        alternatives,
+        recorded_at_ms: decode_u64(row, 7, "recorded_at_ms")?,
+    })
+}
+
 fn fetch_approval_tx(
     transaction: &Transaction<'_>,
     approval_id: &str,
@@ -2334,6 +2531,17 @@ fn validate_bounded(value: &str, field: &'static str, max_chars: usize) -> Ledge
     Ok(())
 }
 
+fn validate_optional_bounded(
+    value: &Option<String>,
+    field: &'static str,
+    max_chars: usize,
+) -> LedgerResult<()> {
+    if let Some(value) = value {
+        validate_bounded(value, field, max_chars)?;
+    }
+    Ok(())
+}
+
 fn sqlite_u64(value: u64, field: &'static str) -> LedgerResult<i64> {
     i64::try_from(value).map_err(|_| LedgerError::NumericOverflow(field))
 }
@@ -2379,6 +2587,14 @@ fn migrate(connection: &mut Connection) -> LedgerResult<()> {
         transaction.execute_batch(MIGRATION_V4)?;
         transaction.execute(
             "INSERT INTO orchestration_migrations (version, applied_at_ms) VALUES (4, ?1)",
+            params![applied_at_ms],
+        )?;
+    }
+    if current < 5 {
+        let applied_at_ms = now_ms();
+        transaction.execute_batch(MIGRATION_V5)?;
+        transaction.execute(
+            "INSERT INTO orchestration_migrations (version, applied_at_ms) VALUES (5, ?1)",
             params![applied_at_ms],
         )?;
     }
@@ -2466,11 +2682,11 @@ mod tests {
         let temp = tempfile::tempdir().expect("tempdir");
         let path = temp.path().join("ledger.sqlite3");
         let ledger = OrchestrationLedger::open(&path).expect("open");
-        assert_eq!(ledger.schema_version().expect("schema"), 4);
+        assert_eq!(ledger.schema_version().expect("schema"), 5);
         drop(ledger);
         // Reopening must not re-apply or fail.
         let reopened = OrchestrationLedger::open(&path).expect("reopen");
-        assert_eq!(reopened.schema_version().expect("schema"), 4);
+        assert_eq!(reopened.schema_version().expect("schema"), 5);
     }
 
     #[test]
@@ -2505,7 +2721,7 @@ mod tests {
         drop(connection);
 
         let ledger = OrchestrationLedger::open(&path).expect("upgrade");
-        assert_eq!(ledger.schema_version().expect("schema"), 4);
+        assert_eq!(ledger.schema_version().expect("schema"), 5);
         let task = ledger.task("t1").expect("lookup").expect("task");
         assert_eq!(task.title, "Legacy task");
         assert_eq!(task.description, "");
@@ -3531,5 +3747,32 @@ mod tests {
         // If the table exists, we can query it without error.
         let pending = ledger.pending_approvals().unwrap();
         assert!(pending.is_empty());
+    }
+
+    #[test]
+    fn decision_methods_report_a_poisoned_connection_lock() {
+        let ledger = std::sync::Arc::new(OrchestrationLedger::open_in_memory().unwrap());
+        let worker_ledger = std::sync::Arc::clone(&ledger);
+        let worker = std::thread::spawn(move || {
+            let _connection = worker_ledger.connection.lock().unwrap();
+            panic!("poison the connection lock for the test");
+        });
+        assert!(worker.join().is_err());
+
+        assert!(matches!(
+            ledger.recent_decisions(1),
+            Err(LedgerError::LockPoisoned)
+        ));
+        assert!(matches!(
+            ledger.create_decision(&CreateDecisionRequest {
+                task_id: None,
+                attempt_id: None,
+                plan_item_id: None,
+                decision: "This cannot be persisted".into(),
+                rationale: String::new(),
+                alternatives: vec![],
+            }),
+            Err(LedgerError::LockPoisoned)
+        ));
     }
 }

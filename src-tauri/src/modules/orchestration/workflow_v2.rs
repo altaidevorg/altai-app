@@ -17,6 +17,10 @@ use serde::{Deserialize, Serialize};
 /// version-detection layer.
 pub const V2_VERSION: u32 = 2;
 
+/// Sole production runner kind. ALTAI executes only through IsanAgent/native;
+/// alternate agent CLIs are an explicit non-goal.
+pub const NATIVE_RUNNER: &str = "native";
+
 /// Reasoning effort for an agent role. Matched leniently (kebab-case) to the
 /// WORKFLOW.md surface.
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -87,8 +91,8 @@ pub struct RunnerConfig {
 impl Default for RunnerConfig {
     fn default() -> Self {
         Self {
-            default: "native".into(),
-            allow: vec!["native".into()],
+            default: NATIVE_RUNNER.into(),
+            allow: vec![NATIVE_RUNNER.into()],
         }
     }
 }
@@ -276,11 +280,23 @@ pub fn validate(config: &WorkflowConfigV2) -> Result<(), String> {
     if default_runner.is_empty() {
         return Err("runner.default must be a non-empty runner name.".into());
     }
-    if !config.runner.allow.iter().any(|r| r == default_runner) {
-        return Err("runner.default must be listed in runner.allow.".into());
+    if default_runner != NATIVE_RUNNER {
+        return Err(format!(
+            "runner.default must be '{NATIVE_RUNNER}' (ALTAI/IsanAgent only); got '{default_runner}'."
+        ));
     }
     if config.runner.allow.is_empty() {
         return Err("runner.allow must list at least one runner.".into());
+    }
+    if !config.runner.allow.iter().any(|r| r == NATIVE_RUNNER) {
+        return Err("runner.default must be listed in runner.allow.".into());
+    }
+    for runner in &config.runner.allow {
+        if runner != NATIVE_RUNNER {
+            return Err(format!(
+                "runner.allow may only include '{NATIVE_RUNNER}' (ALTAI/IsanAgent only); got '{runner}'."
+            ));
+        }
     }
     for (role, profile) in [
         ("agents.planner", &config.agents.planner),
@@ -461,7 +477,7 @@ orchestration:
 
 runner:
   default: native
-  allow: [native, codex-app-server]
+  allow: [native]
 
 agents:
   planner:
@@ -511,7 +527,7 @@ budgets:
         assert_eq!(config.version, 2);
         assert_eq!(config.orchestration.max_concurrent, 4);
         assert_eq!(config.runner.default, "native");
-        assert_eq!(config.runner.allow, vec!["native", "codex-app-server"]);
+        assert_eq!(config.runner.allow, vec!["native"]);
         assert_eq!(
             config.agents.planner.as_ref().unwrap().reasoning,
             Some(Reasoning::Medium)
@@ -591,10 +607,19 @@ budgets:
     }
 
     #[test]
-    fn default_runner_must_be_allowed() {
-        let yaml = "version: 2\nrunner:\n  default: codex\n  allow: [native]\n";
+    fn default_runner_must_be_native() {
+        let yaml = "version: 2\nrunner:\n  default: external\n  allow: [native]\n";
         let err = parse(yaml).unwrap_err();
         assert!(err.contains("runner.default"), "{err}");
+        assert!(err.contains("native"), "{err}");
+    }
+
+    #[test]
+    fn allow_list_rejects_non_native_runners() {
+        let yaml = "version: 2\nrunner:\n  default: native\n  allow: [native, external]\n";
+        let err = parse(yaml).unwrap_err();
+        assert!(err.contains("runner.allow"), "{err}");
+        assert!(err.contains("external"), "{err}");
     }
 
     #[test]
