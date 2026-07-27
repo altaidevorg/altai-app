@@ -20,7 +20,7 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::fmt;
 use std::path::Path;
-use std::sync::Mutex;
+use std::sync::{Mutex, MutexGuard};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 const SCHEMA_VERSION: i64 = 4;
@@ -151,13 +151,17 @@ CREATE TABLE IF NOT EXISTS orchestration_artifacts (
     kind           TEXT NOT NULL
                    CHECK (kind IN ('diff','log','test_output','screenshot','metrics','summary','other')),
     checksum       TEXT NOT NULL
-                   CHECK (length(checksum) = 64),
+                   CHECK (length(checksum) = 64
+                          AND checksum NOT GLOB '*[^0-9a-f]*'),
     size_bytes     INTEGER NOT NULL CHECK (size_bytes >= 0),
     producer       TEXT NOT NULL
                    CHECK (length(trim(producer)) BETWEEN 1 AND 256),
     created_at_ms  INTEGER NOT NULL CHECK (created_at_ms >= 0),
     pinned         INTEGER NOT NULL DEFAULT 0 CHECK (pinned IN (0,1)),
     description    TEXT NOT NULL DEFAULT ''
+                   CHECK (length(description) <= 4096),
+    FOREIGN KEY (attempt_id, task_id)
+        REFERENCES orchestration_attempts(attempt_id, task_id)
 ) WITHOUT ROWID;
 
 CREATE INDEX IF NOT EXISTS orchestration_artifacts_task
@@ -483,6 +487,14 @@ pub enum LedgerError {
         task_id: String,
         attempt_id: String,
     },
+    ArtifactConflict {
+        artifact_id: String,
+    },
+    ArtifactQuotaExceeded {
+        current: u64,
+        attempted: u64,
+        limit: u64,
+    },
     LockPoisoned,
 }
 
@@ -548,6 +560,20 @@ impl fmt::Display for LedgerError {
                 f,
                 "approval attempt {attempt_id} does not belong to task {task_id}"
             ),
+            LedgerError::ArtifactConflict { artifact_id } => {
+                write!(
+                    f,
+                    "artifact {artifact_id} conflicts with persisted metadata"
+                )
+            }
+            LedgerError::ArtifactQuotaExceeded {
+                current,
+                attempted,
+                limit,
+            } => write!(
+                f,
+                "task artifact quota {current} + {attempted} exceeds limit {limit}"
+            ),
             LedgerError::LockPoisoned => write!(f, "ledger connection lock is poisoned"),
         }
     }
@@ -584,6 +610,7 @@ pub type LedgerResult<T> = Result<T, LedgerError>;
 /// appending events, and attempts are immutable history.
 pub struct OrchestrationLedger {
     connection: Mutex<Connection>,
+    artifact_operations: Mutex<()>,
 }
 
 impl OrchestrationLedger {
@@ -604,7 +631,17 @@ impl OrchestrationLedger {
         migrate(&mut connection)?;
         Ok(Self {
             connection: Mutex::new(connection),
+            artifact_operations: Mutex::new(()),
         })
+    }
+
+    /// Serialize blob + metadata operations that cannot share one SQLite
+    /// transaction. This prevents cleanup from deleting a checksum while a
+    /// concurrent store is adding a new reference to the same blob.
+    pub(crate) fn lock_artifact_operation(&self) -> LedgerResult<MutexGuard<'_, ()>> {
+        self.artifact_operations
+            .lock()
+            .map_err(|_| LedgerError::LockPoisoned)
     }
 
     #[cfg(test)]
@@ -1545,18 +1582,92 @@ impl OrchestrationLedger {
 
     /// Record artifact metadata. Idempotent by artifact_id.
     pub fn create_artifact(&self, request: &CreateArtifactRequest) -> LedgerResult<WriteStatus> {
+        self.create_artifact_with_quota(request, i64::MAX as u64)
+    }
+
+    /// Record artifact metadata while atomically enforcing a per-task byte
+    /// quota. Both the quota check and insert run under one IMMEDIATE
+    /// transaction, so concurrent writers cannot over-commit the task.
+    pub fn create_artifact_with_quota(
+        &self,
+        request: &CreateArtifactRequest,
+        max_task_bytes: u64,
+    ) -> LedgerResult<WriteStatus> {
         validate_nonempty(&request.artifact_id, "artifact_id")?;
         validate_nonempty(&request.task_id, "task_id")?;
         validate_nonempty(&request.attempt_id, "attempt_id")?;
         validate_nonempty(&request.producer, "producer")?;
+        validate_bounded(&request.artifact_id, "artifact_id", 512)?;
+        validate_bounded(&request.producer, "producer", 256)?;
+        if request.description.chars().count() > 4_096 {
+            return Err(LedgerError::InvalidField("description"));
+        }
+        if request.checksum.len() != 64
+            || !request
+                .checksum
+                .bytes()
+                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+        {
+            return Err(LedgerError::InvalidField("checksum"));
+        }
         let now = sqlite_u64(request.created_at_ms, "created_at_ms")?;
         let size = sqlite_u64(request.size_bytes, "size_bytes")?;
-        let connection = self
+        let limit = sqlite_u64(max_task_bytes, "max_task_bytes")?;
+        let mut connection = self
             .connection
             .lock()
             .map_err(|_| LedgerError::LockPoisoned)?;
-        let inserted = connection.execute(
-            "INSERT OR IGNORE INTO orchestration_artifacts
+        let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+
+        let existing = transaction
+            .query_row(
+                "SELECT artifact_id, task_id, attempt_id, kind, checksum, size_bytes,
+                        producer, created_at_ms, pinned, description
+                 FROM orchestration_artifacts WHERE artifact_id = ?1",
+                params![request.artifact_id],
+                decode_artifact,
+            )
+            .optional()?;
+        if let Some(existing) = existing {
+            let matches = existing.task_id == request.task_id
+                && existing.attempt_id == request.attempt_id
+                && existing.kind == request.kind
+                && existing.checksum == request.checksum
+                && existing.size_bytes == request.size_bytes
+                && existing.producer == request.producer
+                && existing.created_at_ms == request.created_at_ms
+                && existing.description == request.description;
+            transaction.rollback()?;
+            return if matches {
+                Ok(WriteStatus::Duplicate)
+            } else {
+                Err(LedgerError::ArtifactConflict {
+                    artifact_id: request.artifact_id.clone(),
+                })
+            };
+        }
+
+        let current: i64 = transaction.query_row(
+            "SELECT COALESCE(SUM(size_bytes), 0)
+             FROM orchestration_artifacts WHERE task_id = ?1",
+            params![request.task_id],
+            |row| row.get(0),
+        )?;
+        let total = current
+            .checked_add(size)
+            .ok_or(LedgerError::NumericOverflow("task_artifact_bytes"))?;
+        if total > limit {
+            transaction.rollback()?;
+            return Err(LedgerError::ArtifactQuotaExceeded {
+                current: u64::try_from(current)
+                    .map_err(|_| LedgerError::NumericOverflow("task_artifact_bytes"))?,
+                attempted: request.size_bytes,
+                limit: max_task_bytes,
+            });
+        }
+
+        transaction.execute(
+            "INSERT INTO orchestration_artifacts
                 (artifact_id, task_id, attempt_id, kind, checksum, size_bytes,
                  producer, created_at_ms, pinned, description)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 0, ?9)",
@@ -1572,11 +1683,8 @@ impl OrchestrationLedger {
                 request.description,
             ],
         )?;
-        if inserted == 0 {
-            Ok(WriteStatus::Duplicate)
-        } else {
-            Ok(WriteStatus::Written)
-        }
+        transaction.commit()?;
+        Ok(WriteStatus::Written)
     }
 
     /// Fetch a single artifact by id.
@@ -1689,6 +1797,52 @@ impl OrchestrationLedger {
             params![artifact_id],
         )?;
         Ok(deleted > 0)
+    }
+
+    /// Delete an artifact only if it is still an eligible cleanup candidate.
+    /// Returns `Some(true)` when the removed row was the final reference to its
+    /// checksum, `Some(false)` when other artifacts still share the blob, and
+    /// `None` when the row was pinned, too new, or already absent.
+    pub fn delete_cleanup_candidate(
+        &self,
+        artifact_id: &str,
+        cutoff_ms: u64,
+    ) -> LedgerResult<Option<bool>> {
+        validate_nonempty(artifact_id, "artifact_id")?;
+        let cutoff = sqlite_u64(cutoff_ms, "cutoff_ms")?;
+        let mut connection = self
+            .connection
+            .lock()
+            .map_err(|_| LedgerError::LockPoisoned)?;
+        let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let checksum = transaction
+            .query_row(
+                "SELECT checksum FROM orchestration_artifacts
+                 WHERE artifact_id = ?1 AND pinned = 0 AND created_at_ms < ?2",
+                params![artifact_id, cutoff],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?;
+        let Some(checksum) = checksum else {
+            transaction.rollback()?;
+            return Ok(None);
+        };
+        let deleted = transaction.execute(
+            "DELETE FROM orchestration_artifacts
+             WHERE artifact_id = ?1 AND pinned = 0 AND created_at_ms < ?2",
+            params![artifact_id, cutoff],
+        )?;
+        if deleted == 0 {
+            transaction.rollback()?;
+            return Ok(None);
+        }
+        let remaining: i64 = transaction.query_row(
+            "SELECT COUNT(*) FROM orchestration_artifacts WHERE checksum = ?1",
+            params![checksum],
+            |row| row.get(0),
+        )?;
+        transaction.commit()?;
+        Ok(Some(remaining == 0))
     }
 }
 
