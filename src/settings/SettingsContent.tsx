@@ -23,6 +23,7 @@ import { AgentsSection } from "./sections/AgentsSection";
 import { ContextSection } from "./sections/ContextSection";
 import { GeneralSection } from "./sections/GeneralSection";
 import { GitHubSection } from "./sections/GitHubSection";
+import { HooksSection } from "./sections/HooksSection";
 import { LanguageServersSection } from "./sections/LanguageServersSection";
 import { McpSection } from "./sections/McpSection";
 import { ModelsSection } from "./sections/ModelsSection";
@@ -46,6 +47,7 @@ const TABS: {
   { id: "github", label: "GitHub", icon: GithubIcon, component: GitHubSection },
   { id: "language-servers", label: "Languages", icon: CodeSquareIcon, component: LanguageServersSection },
   { id: "mcp", label: "MCP", icon: PlugIcon, component: McpSection },
+  { id: "hooks", label: "Hooks", icon: CodeSquareIcon, component: HooksSection },
   { id: "accessibility", label: "Accessibility", icon: UniversalAccessIcon, component: AccessibilitySection },
   { id: "about", label: "About", icon: InformationCircleIcon, component: AboutSection },
 ];

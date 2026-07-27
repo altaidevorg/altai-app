@@ -192,6 +192,10 @@ impl Default for BudgetsConfig {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct HooksConfig {
+    /// Structured lifecycle hooks. Each entry declares one of the nine B3
+    /// lifecycle events, a command, timeout, and whether it may block.
+    pub lifecycle: Vec<crate::modules::orchestration::hooks::HookSpec>,
+    /// Legacy B0 fields retained for v2 document compatibility.
     pub after_create: Option<String>,
     pub before_run: Option<String>,
     pub after_run: Option<String>,
@@ -201,6 +205,7 @@ pub struct HooksConfig {
 impl Default for HooksConfig {
     fn default() -> Self {
         Self {
+            lifecycle: Vec::new(),
             after_create: None,
             before_run: None,
             after_run: None,
@@ -312,6 +317,40 @@ pub fn validate(config: &WorkflowConfigV2) -> Result<(), String> {
     if let Some(cost) = config.budgets.max_task_cost_usd {
         if !cost.is_finite() || cost < 0.0 {
             return Err("budgets.max_task_cost_usd must be a non-negative finite number.".into());
+        }
+    }
+    if let Some(hooks) = &config.hooks {
+        if hooks.timeout_seconds == 0 || hooks.timeout_seconds > 3_600 {
+            return Err("hooks.timeout_seconds must be between 1 and 3600.".into());
+        }
+        if hooks.lifecycle.len() > 64 {
+            return Err("hooks.lifecycle cannot contain more than 64 hooks.".into());
+        }
+        for (index, hook) in hooks.lifecycle.iter().enumerate() {
+            if hook.command.trim().is_empty() || hook.command.len() > 4_096 {
+                return Err(format!(
+                    "hooks.lifecycle[{index}].command must be non-empty and at most 4096 bytes."
+                ));
+            }
+            if hook.timeout_secs == 0 || hook.timeout_secs > 3_600 {
+                return Err(format!(
+                    "hooks.lifecycle[{index}].timeout_seconds must be between 1 and 3600."
+                ));
+            }
+        }
+        for (field, command) in [
+            ("after_create", &hooks.after_create),
+            ("before_run", &hooks.before_run),
+            ("after_run", &hooks.after_run),
+        ] {
+            if command
+                .as_deref()
+                .is_some_and(|command| command.trim().is_empty() || command.len() > 4_096)
+            {
+                return Err(format!(
+                    "hooks.{field} must be non-empty and at most 4096 bytes when configured."
+                ));
+            }
         }
     }
     Ok(())
@@ -482,6 +521,24 @@ budgets:
         assert_eq!(config.environment.executor, "local-worktree");
         assert!(config.hooks.is_none());
         assert!(config.routing.is_none());
+    }
+
+    #[test]
+    fn parses_and_validates_structured_lifecycle_hooks() {
+        let yaml = "version: 2\nhooks:\n  lifecycle:\n    - event: before_tool\n      command: ./scripts/check-tool\n      timeout_seconds: 12\n      blocking: true\n    - event: after_run\n      command: ./scripts/report\n      blocking: false\n";
+        let config = parse(yaml).expect("parse hooks");
+        let hooks = config.hooks.expect("hooks");
+        assert_eq!(hooks.lifecycle.len(), 2);
+        assert_eq!(
+            hooks.lifecycle[0].event,
+            crate::modules::orchestration::hooks::HookEvent::BeforeTool
+        );
+        assert_eq!(hooks.lifecycle[0].timeout_secs, 12);
+        assert!(!hooks.lifecycle[1].blocking);
+
+        let invalid =
+            "version: 2\nhooks:\n  lifecycle:\n    - event: before_tool\n      command: ''\n";
+        assert!(parse(invalid).unwrap_err().contains("command"));
     }
 
     #[test]

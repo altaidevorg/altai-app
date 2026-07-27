@@ -18,6 +18,7 @@ use tokio::time;
 
 use super::coordinator::{Clock, Coordinator, CoordinatorError, CoordinatorPolicy, PumpOutcome};
 use super::domain::{AttemptState, TaskState};
+use super::hooks::HookRuntime;
 use super::ledger::{OrchestrationEvent, OrchestrationLedger};
 use super::runners::{AttemptIdentity, RunnerAdapter};
 
@@ -149,6 +150,7 @@ pub struct CoordinatorActor<R: RunnerAdapter + Send + 'static> {
     ledger: Arc<OrchestrationLedger>,
     runner: R,
     policy: CoordinatorPolicy,
+    hooks: Option<HookRuntime>,
     clock: super::coordinator::SystemClock,
     sink: Arc<dyn EventSink>,
     phase: ActorPhase,
@@ -178,6 +180,7 @@ impl<R: RunnerAdapter + Send + 'static> CoordinatorActor<R> {
             ledger,
             runner,
             policy,
+            hooks: None,
             clock: super::coordinator::SystemClock,
             sink,
             phase: ActorPhase::Stopped,
@@ -190,6 +193,11 @@ impl<R: RunnerAdapter + Send + 'static> CoordinatorActor<R> {
 
     pub fn with_tick_interval(mut self, ms: u64) -> Self {
         self.tick_ms = ms.max(1);
+        self
+    }
+
+    pub fn with_hooks(mut self, hooks: HookRuntime) -> Self {
+        self.hooks = Some(hooks);
         self
     }
 
@@ -208,6 +216,7 @@ impl<R: RunnerAdapter + Send + 'static> CoordinatorActor<R> {
             ledger,
             runner,
             policy,
+            hooks,
             clock,
             sink,
             phase,
@@ -218,6 +227,10 @@ impl<R: RunnerAdapter + Send + 'static> CoordinatorActor<R> {
         } = self;
         let ledger: &OrchestrationLedger = ledger;
         let coord = Coordinator::new(ledger, *policy);
+        let coord = match hooks.as_ref() {
+            Some(hooks) => coord.with_hooks(hooks),
+            None => coord,
+        };
         let mut report = TickReport::default();
 
         // 1. Reclaim lapsed leases (active-attempt management; runs even when

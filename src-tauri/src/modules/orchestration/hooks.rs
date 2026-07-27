@@ -11,11 +11,18 @@
 //! - **Pass from all hooks → action proceeds to policy evaluation**.
 
 use std::collections::HashMap;
-use std::path::Path;
+use std::io::Read;
+use std::path::{Path, PathBuf};
 use std::process::Stdio;
+use std::sync::{mpsc, Arc};
+use std::thread;
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
+use shared_child::SharedChild;
+
+use crate::modules::shell::build_oneshot_command;
+use crate::modules::workspace::WorkspaceEnv;
 
 // ---------------------------------------------------------------------------
 // Hook lifecycle events
@@ -60,10 +67,15 @@ impl HookEvent {
 /// One configured hook. Blocking hooks can veto an action; observability hooks
 /// (blocking = false) only observe and can never block.
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct HookSpec {
     pub event: HookEvent,
     pub command: String,
-    #[serde(default = "default_timeout_secs")]
+    #[serde(
+        default = "default_timeout_secs",
+        rename = "timeout_seconds",
+        alias = "timeout_secs"
+    )]
     pub timeout_secs: u64,
     #[serde(default = "default_blocking")]
     pub blocking: bool,
@@ -89,7 +101,7 @@ pub struct HookAction {
 /// Structured JSON input written to the hook process's stdin.
 #[derive(Clone, Debug, Serialize)]
 pub struct HookInput {
-    pub event: String,
+    pub event: HookEvent,
     pub task_id: String,
     pub attempt_id: String,
     pub workspace_path: String,
@@ -147,8 +159,10 @@ pub enum HookError {
     Timeout,
     Io(std::io::Error),
     Json(serde_json::Error),
+    WorkspaceBoundary(String),
     /// Output exceeded the size limit.
     OutputTooLarge {
+        stream: &'static str,
         limit: usize,
     },
 }
@@ -160,8 +174,9 @@ impl std::fmt::Display for HookError {
             Self::Timeout => write!(f, "hook timed out"),
             Self::Io(err) => write!(f, "hook I/O error: {err}"),
             Self::Json(err) => write!(f, "hook produced invalid JSON: {err}"),
-            Self::OutputTooLarge { limit } => {
-                write!(f, "hook output exceeded {limit} bytes")
+            Self::WorkspaceBoundary(message) => write!(f, "hook workspace rejected: {message}"),
+            Self::OutputTooLarge { stream, limit } => {
+                write!(f, "hook {stream} exceeded {limit} bytes")
             }
         }
     }
@@ -180,11 +195,28 @@ const MAX_OUTPUT_BYTES: usize = 256 * 1024;
 #[derive(Clone, Default)]
 pub struct HookExecutor {
     secret_patterns: Vec<String>,
+    workspace_root: Option<PathBuf>,
 }
 
 impl HookExecutor {
     pub fn new(secret_patterns: Vec<String>) -> Self {
-        Self { secret_patterns }
+        Self {
+            secret_patterns,
+            workspace_root: None,
+        }
+    }
+
+    /// Bind hook execution to one canonical workspace root. A caller cannot
+    /// later substitute a sibling cwd or escape through a symlink.
+    pub fn for_workspace(
+        workspace_root: &Path,
+        secret_patterns: Vec<String>,
+    ) -> Result<Self, HookError> {
+        let root = canonical_workspace_dir(workspace_root)?;
+        Ok(Self {
+            secret_patterns,
+            workspace_root: Some(root),
+        })
     }
 
     /// Execute a single hook command and return its parsed output.
@@ -195,53 +227,144 @@ impl HookExecutor {
         cwd: &Path,
     ) -> Result<HookOutput, HookError> {
         let input_json = serde_json::to_vec(input).map_err(HookError::Json)?;
+        let cwd = canonical_workspace_dir(cwd)?;
+        if let Some(root) = &self.workspace_root {
+            if !cwd.starts_with(root) {
+                return Err(HookError::WorkspaceBoundary(format!(
+                    "{} is outside {}",
+                    cwd.display(),
+                    root.display()
+                )));
+            }
+        }
+        let workspace_path = Path::new(&input.workspace_path);
+        let declared_workspace = canonical_workspace_dir(workspace_path)?;
+        let expected_workspace = self.workspace_root.as_ref().unwrap_or(&cwd);
+        if declared_workspace != *expected_workspace {
+            return Err(HookError::WorkspaceBoundary(
+                "structured input workspace does not match the executor workspace".into(),
+            ));
+        }
 
-        let mut child = std::process::Command::new("/bin/sh")
-            .arg("-c")
-            .arg(&spec.command)
-            .current_dir(cwd)
+        let cwd_string = cwd.to_string_lossy().into_owned();
+        let mut command =
+            build_oneshot_command(&spec.command, &WorkspaceEnv::Local, Some(&cwd_string))
+                .map_err(HookError::Spawn)?;
+        command
+            .current_dir(&cwd)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .map_err(|e| HookError::Spawn(format!("{}: {e}", spec.command)))?;
+            .stderr(Stdio::piped());
+        restrict_hook_environment(&mut command, expected_workspace);
+        configure_process_group(&mut command);
+
+        let child = Arc::new(
+            SharedChild::spawn(&mut command)
+                .map_err(|error| HookError::Spawn(error.to_string()))?,
+        );
+        let mut process_tree = match ProcessTree::attach(child.id()) {
+            Ok(tree) => tree,
+            Err(error) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(error);
+            }
+        };
 
         // Write input to stdin.
-        if let Some(mut stdin) = child.stdin.take() {
+        if let Some(mut stdin) = child.take_stdin() {
             use std::io::Write;
-            let _ = stdin.write_all(&input_json);
+            if let Err(error) = stdin.write_all(&input_json) {
+                // A hook may intentionally exit without consuming stdin.
+                if error.kind() != std::io::ErrorKind::BrokenPipe {
+                    process_tree.terminate();
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return Err(HookError::Io(error));
+                }
+            }
             // stdin dropped here, signaling EOF.
         }
 
-        // Wait with timeout.
+        let stdout = match child.take_stdout() {
+            Some(stdout) => stdout,
+            None => {
+                process_tree.terminate();
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(HookError::Io(std::io::Error::other("stdout pipe missing")));
+            }
+        };
+        let stderr = match child.take_stderr() {
+            Some(stderr) => stderr,
+            None => {
+                process_tree.terminate();
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(HookError::Io(std::io::Error::other("stderr pipe missing")));
+            }
+        };
+        let stdout_reader = thread::spawn(move || drain_bounded(stdout));
+        let stderr_reader = thread::spawn(move || drain_bounded(stderr));
+
+        // Wait with timeout while both pipes are drained concurrently.
         let timeout = Duration::from_secs(spec.timeout_secs.max(1));
-        let result = wait_with_timeout(&mut child, timeout);
-
-        if result.timed_out {
-            let _ = child.kill();
-            let _ = child.wait();
-            return Err(HookError::Timeout);
-        }
-
-        let output = match result.output {
-            Some(o) => o,
-            None => return Err(HookError::Io(std::io::Error::other("process lost"))),
+        let (wait_tx, wait_rx) = mpsc::channel();
+        let waiter = Arc::clone(&child);
+        thread::spawn(move || {
+            let _ = wait_tx.send(waiter.wait());
+        });
+        let (status, timed_out) = match wait_rx.recv_timeout(timeout) {
+            Ok(Ok(status)) => (Some(status), false),
+            Ok(Err(error)) => {
+                process_tree.terminate();
+                let _ = child.kill();
+                return Err(HookError::Io(error));
+            }
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                process_tree.terminate();
+                let _ = child.kill();
+                let _ = child.wait();
+                (None, true)
+            }
+            Err(mpsc::RecvTimeoutError::Disconnected) => {
+                process_tree.terminate();
+                let _ = child.kill();
+                return Err(HookError::Io(std::io::Error::other(
+                    "hook wait thread disconnected",
+                )));
+            }
         };
 
-        // Check output size.
-        if output.stdout.len() > MAX_OUTPUT_BYTES {
+        // Hooks may not leave background descendants running after their
+        // parent shell exits. Terminate the process group/job before joining
+        // readers so inherited pipe handles cannot hang this call.
+        process_tree.terminate();
+        let stdout = join_reader(stdout_reader)?;
+        let stderr = join_reader(stderr_reader)?;
+        if timed_out {
+            return Err(HookError::Timeout);
+        }
+        if stdout.truncated {
             return Err(HookError::OutputTooLarge {
+                stream: "stdout",
                 limit: MAX_OUTPUT_BYTES,
             });
         }
+        if stderr.truncated {
+            return Err(HookError::OutputTooLarge {
+                stream: "stderr",
+                limit: MAX_OUTPUT_BYTES,
+            });
+        }
+        let status = status.ok_or_else(|| HookError::Io(std::io::Error::other("process lost")))?;
 
-        let stdout_str = String::from_utf8_lossy(&output.stdout);
-        let redacted = self.redact(&stdout_str);
+        let stdout_str = String::from_utf8_lossy(&stdout.bytes);
 
         // Parse JSON output. If empty stdout, fall back to exit-code semantics.
         if stdout_str.trim().is_empty() {
             return Ok(HookOutput {
-                decision: if output.status.success() {
+                decision: if status.success() {
                     HookDecision::Allow
                 } else {
                     HookDecision::Deny
@@ -250,10 +373,17 @@ impl HookExecutor {
             });
         }
 
-        let mut parsed: HookOutput = serde_json::from_str(&redacted).map_err(HookError::Json)?;
+        // Parse the JSON before redacting individual string fields. Replacing a
+        // secret in the raw JSON can invalidate escaping when the secret itself
+        // contains quotes or backslashes.
+        let mut parsed: HookOutput = serde_json::from_str(&stdout_str).map_err(HookError::Json)?;
+        if let Some(message) = parsed.message.as_mut() {
+            *message = self.redact(message);
+        }
 
-        // If exit code is non-zero, upgrade to Deny (the hook signalled failure).
-        if !output.status.success() && parsed.decision == HookDecision::Allow {
+        // Any non-zero exit is a denial for a blocking hook. In particular,
+        // JSON `pass` or `{}` must not bypass fail-closed exit semantics.
+        if !status.success() {
             parsed.decision = HookDecision::Deny;
         }
 
@@ -272,61 +402,128 @@ impl HookExecutor {
     }
 }
 
-/// Result of a timed wait on a child process.
-struct TimedWaitResult {
-    timed_out: bool,
-    output: Option<std::process::Output>,
+fn canonical_workspace_dir(path: &Path) -> Result<PathBuf, HookError> {
+    let canonical = std::fs::canonicalize(path)
+        .map_err(|error| HookError::WorkspaceBoundary(error.to_string()))?;
+    if !canonical.is_dir() {
+        return Err(HookError::WorkspaceBoundary(format!(
+            "{} is not a directory",
+            canonical.display()
+        )));
+    }
+    Ok(canonical)
 }
 
-/// Wait for a child process with a timeout. Polls `try_wait` in a tight loop
-/// until the process exits or the deadline elapses.
-fn wait_with_timeout(child: &mut std::process::Child, timeout: Duration) -> TimedWaitResult {
-    let deadline = std::time::Instant::now() + timeout;
+fn restrict_hook_environment(command: &mut std::process::Command, workspace_root: &Path) {
+    let path = std::env::var_os("PATH");
+    #[cfg(windows)]
+    let system_root = std::env::var_os("SystemRoot");
+    #[cfg(windows)]
+    let path_ext = std::env::var_os("PATHEXT");
+
+    command.env_clear();
+    if let Some(path) = path {
+        command.env("PATH", path);
+    }
+    command
+        .env("ALTAI_WORKSPACE_ROOT", workspace_root)
+        .env("HOME", workspace_root)
+        .env("USERPROFILE", workspace_root)
+        .env("TMPDIR", workspace_root)
+        .env("TMP", workspace_root)
+        .env("TEMP", workspace_root)
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .env("GIT_ASKPASS", "")
+        .env("SSH_ASKPASS", "");
+    #[cfg(windows)]
+    if let Some(system_root) = system_root {
+        command.env("SystemRoot", system_root);
+    }
+    #[cfg(windows)]
+    if let Some(path_ext) = path_ext {
+        command.env("PATHEXT", path_ext);
+    }
+}
+
+#[cfg(unix)]
+fn configure_process_group(command: &mut std::process::Command) {
+    use std::os::unix::process::CommandExt;
+    command.process_group(0);
+}
+
+#[cfg(windows)]
+fn configure_process_group(_command: &mut std::process::Command) {}
+
+struct BoundedOutput {
+    bytes: Vec<u8>,
+    truncated: bool,
+}
+
+fn drain_bounded<R: Read>(mut reader: R) -> Result<BoundedOutput, std::io::Error> {
+    let mut bytes = Vec::with_capacity(8192);
+    let mut buffer = [0u8; 8192];
+    let mut truncated = false;
     loop {
-        match child.try_wait() {
-            Ok(Some(status)) => {
-                let stdout = child.stdout.take().map(extract_stdout).unwrap_or_default();
-                let stderr = child.stderr.take().map(extract_stderr).unwrap_or_default();
-                return TimedWaitResult {
-                    timed_out: false,
-                    output: Some(std::process::Output {
-                        status,
-                        stdout,
-                        stderr,
-                    }),
-                };
-            }
-            Ok(None) => {
-                if std::time::Instant::now() >= deadline {
-                    return TimedWaitResult {
-                        timed_out: true,
-                        output: None,
-                    };
-                }
-                std::thread::sleep(Duration::from_millis(50));
-            }
-            Err(_) => {
-                return TimedWaitResult {
-                    timed_out: false,
-                    output: None,
-                };
-            }
+        let read = reader.read(&mut buffer)?;
+        if read == 0 {
+            break;
+        }
+        let remaining = MAX_OUTPUT_BYTES.saturating_sub(bytes.len());
+        let keep = remaining.min(read);
+        bytes.extend_from_slice(&buffer[..keep]);
+        truncated |= keep < read;
+    }
+    Ok(BoundedOutput { bytes, truncated })
+}
+
+fn join_reader(
+    handle: thread::JoinHandle<Result<BoundedOutput, std::io::Error>>,
+) -> Result<BoundedOutput, HookError> {
+    handle
+        .join()
+        .map_err(|_| HookError::Io(std::io::Error::other("hook reader thread panicked")))?
+        .map_err(HookError::Io)
+}
+
+#[cfg(unix)]
+struct ProcessTree {
+    process_group: libc::pid_t,
+}
+
+#[cfg(unix)]
+impl ProcessTree {
+    fn attach(pid: u32) -> Result<Self, HookError> {
+        let process_group = libc::pid_t::try_from(pid)
+            .map_err(|_| HookError::Io(std::io::Error::other("hook pid overflow")))?;
+        Ok(Self { process_group })
+    }
+
+    fn terminate(&mut self) {
+        // Negative pid addresses the process group created before spawn.
+        unsafe {
+            libc::kill(-self.process_group, libc::SIGKILL);
         }
     }
 }
 
-fn extract_stdout(mut handle: std::process::ChildStdout) -> Vec<u8> {
-    use std::io::Read;
-    let mut buf = Vec::new();
-    let _ = handle.read_to_end(&mut buf);
-    buf
+#[cfg(windows)]
+struct ProcessTree {
+    job: Option<crate::modules::pty::job::PtyJob>,
 }
 
-fn extract_stderr(mut handle: std::process::ChildStderr) -> Vec<u8> {
-    use std::io::Read;
-    let mut buf = Vec::new();
-    let _ = handle.read_to_end(&mut buf);
-    buf
+#[cfg(windows)]
+impl ProcessTree {
+    fn attach(pid: u32) -> Result<Self, HookError> {
+        let job = crate::modules::pty::job::PtyJob::create_for(pid)
+            .map_err(|error| HookError::Io(std::io::Error::other(error.to_string())))?;
+        Ok(Self { job: Some(job) })
+    }
+
+    fn terminate(&mut self) {
+        // Dropping the job closes KILL_ON_JOB_CLOSE and kills descendants
+        // before reader threads join on inherited stdout/stderr handles.
+        self.job.take();
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -354,7 +551,13 @@ impl HookRegistry {
     }
 
     /// Register project hooks for an event.
-    pub fn add_project(&mut self, event: HookEvent, specs: Vec<HookSpec>) {
+    pub fn add_project(&mut self, event: HookEvent, mut specs: Vec<HookSpec>) {
+        // The map key is authoritative. Normalizing the embedded event avoids
+        // a configuration mismatch where a before-tool hook is inspected as
+        // one event but executed with another event in its JSON input.
+        for spec in &mut specs {
+            spec.event = event;
+        }
         self.project.insert(event, specs);
     }
 
@@ -369,7 +572,98 @@ impl HookRegistry {
 
     /// Whether any hooks are registered for this event.
     pub fn has_hooks(&self, event: HookEvent) -> bool {
-        self.hooks_for(event).iter().any(|_| true)
+        !self.hooks_for(event).is_empty()
+    }
+
+    pub fn managed_hooks(&self) -> &[HookSpec] {
+        &self.managed
+    }
+
+    pub fn project_hooks(&self) -> impl Iterator<Item = &HookSpec> {
+        self.project.values().flatten()
+    }
+
+    pub fn from_workflow_hooks(config: Option<&super::workflow_v2::HooksConfig>) -> HookRegistry {
+        let mut registry = HookRegistry::new();
+        let Some(config) = config else {
+            return registry;
+        };
+        for hook in &config.lifecycle {
+            registry
+                .project
+                .entry(hook.event)
+                .or_default()
+                .push(hook.clone());
+        }
+        // Preserve the original v2 hook fields. They predate B3's structured
+        // lifecycle list but remain valid documents.
+        for (event, command) in [
+            (HookEvent::SessionStart, config.after_create.as_ref()),
+            (HookEvent::SessionStart, config.before_run.as_ref()),
+            (HookEvent::AfterRun, config.after_run.as_ref()),
+        ] {
+            if let Some(command) = command {
+                registry.project.entry(event).or_default().push(HookSpec {
+                    event,
+                    command: command.clone(),
+                    timeout_secs: config.timeout_seconds,
+                    blocking: true,
+                });
+            }
+        }
+        registry
+    }
+}
+
+/// Fully bound hook runtime used by the coordinator. The workspace path in
+/// every JSON payload is derived here rather than trusted from a runner event.
+#[derive(Clone)]
+pub struct HookRuntime {
+    executor: HookExecutor,
+    registry: HookRegistry,
+    workspace_root: PathBuf,
+}
+
+impl HookRuntime {
+    pub fn new(
+        workspace_root: &Path,
+        registry: HookRegistry,
+        secret_patterns: Vec<String>,
+    ) -> Result<Self, HookError> {
+        let workspace_root = canonical_workspace_dir(workspace_root)?;
+        let executor = HookExecutor::for_workspace(&workspace_root, secret_patterns)?;
+        Ok(Self {
+            executor,
+            registry,
+            workspace_root,
+        })
+    }
+
+    pub fn registry(&self) -> &HookRegistry {
+        &self.registry
+    }
+
+    pub fn run(
+        &self,
+        event: HookEvent,
+        task_id: &str,
+        attempt_id: &str,
+        action: Option<HookAction>,
+    ) -> HookResult {
+        let input = HookInput {
+            event,
+            task_id: task_id.to_string(),
+            attempt_id: attempt_id.to_string(),
+            workspace_path: self.workspace_root.to_string_lossy().into_owned(),
+            action,
+        };
+        evaluate_hooks(
+            &self.executor,
+            &self.registry,
+            event,
+            &input,
+            &self.workspace_root,
+        )
     }
 }
 
@@ -403,7 +697,7 @@ pub fn evaluate_hooks(
                         reason: output
                             .message
                             .unwrap_or_else(|| "blocked by hook".to_string()),
-                        hook_command: spec.command.clone(),
+                        hook_command: executor.redact(&spec.command),
                     };
                 }
             }
@@ -411,17 +705,116 @@ pub fn evaluate_hooks(
                 if spec.blocking {
                     // Fail closed: a blocking hook error denies the action.
                     return HookResult::Denied {
-                        reason: format!("hook error: {err}"),
-                        hook_command: spec.command.clone(),
+                        reason: executor.redact(&format!("hook error: {err}")),
+                        hook_command: executor.redact(&spec.command),
                     };
                 }
                 // Observability hook failure — log and continue.
-                messages.push(format!("observability hook failed: {err}"));
+                messages.push(executor.redact(&format!("observability hook failed: {err}")));
             }
         }
     }
 
     HookResult::Allow { messages }
+}
+
+// ---------------------------------------------------------------------------
+// Read-only Settings inspector
+// ---------------------------------------------------------------------------
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HookInspectionEntry {
+    pub source: &'static str,
+    pub event: HookEvent,
+    pub command: String,
+    pub timeout_seconds: u64,
+    pub blocking: bool,
+    pub locked: bool,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HookInspection {
+    pub workspace_path: String,
+    pub workflow_path: String,
+    pub validation_error: Option<String>,
+    pub hooks: Vec<HookInspectionEntry>,
+}
+
+fn inspect_registry(
+    workspace_path: String,
+    workflow_path: String,
+    validation_error: Option<String>,
+    registry: &HookRegistry,
+) -> HookInspection {
+    let mut hooks = Vec::new();
+    hooks.extend(
+        registry
+            .managed_hooks()
+            .iter()
+            .map(|hook| HookInspectionEntry {
+                source: "managed",
+                event: hook.event,
+                command: hook.command.clone(),
+                timeout_seconds: hook.timeout_secs,
+                blocking: hook.blocking,
+                locked: true,
+            }),
+    );
+    hooks.extend(registry.project_hooks().map(|hook| HookInspectionEntry {
+        source: "project",
+        event: hook.event,
+        command: hook.command.clone(),
+        timeout_seconds: hook.timeout_secs,
+        blocking: hook.blocking,
+        locked: false,
+    }));
+    hooks.sort_by(|left, right| {
+        left.event
+            .name()
+            .cmp(right.event.name())
+            .then_with(|| left.source.cmp(right.source))
+            .then_with(|| left.command.cmp(&right.command))
+    });
+    HookInspection {
+        workspace_path,
+        workflow_path,
+        validation_error,
+        hooks,
+    }
+}
+
+#[tauri::command]
+pub fn orchestration_hooks_inspect(
+    workspace_key: String,
+    workspace: Option<WorkspaceEnv>,
+    workspace_registry: tauri::State<'_, crate::modules::workspace::WorkspaceRegistry>,
+    managed_hooks: tauri::State<'_, HookRegistry>,
+) -> Result<HookInspection, String> {
+    let workspace = WorkspaceEnv::from_option(workspace);
+    let path = super::workflow::workflow_path(&workspace_registry, &workspace_key, &workspace)?;
+    let workspace_path = path
+        .parent()
+        .unwrap_or_else(|| Path::new(""))
+        .to_string_lossy()
+        .replace('\\', "/");
+    let document = super::workflow::load_at(path);
+    let mut registry = HookRegistry::from_workflow_hooks(
+        document
+            .config_v2
+            .as_ref()
+            .and_then(|config| config.hooks.as_ref()),
+    );
+    for hook in managed_hooks.managed_hooks() {
+        registry.add_managed(hook.clone());
+    }
+    Ok(inspect_registry(
+        workspace_path,
+        document.path,
+        document.validation_error,
+        &registry,
+    ))
 }
 
 #[cfg(test)]
@@ -430,12 +823,12 @@ mod tests {
     use std::fs;
     use std::path::PathBuf;
 
-    fn input() -> HookInput {
+    fn input(workspace: &Path) -> HookInput {
         HookInput {
-            event: "before_tool".into(),
+            event: HookEvent::BeforeTool,
             task_id: "t-1".into(),
             attempt_id: "t-1-att-1".into(),
-            workspace_path: "/workspace".into(),
+            workspace_path: workspace.to_string_lossy().into_owned(),
             action: Some(HookAction {
                 tool: "run_command".into(),
                 description: "npm install".into(),
@@ -450,6 +843,17 @@ mod tests {
             command: command.into(),
             timeout_secs: 5,
             blocking: true,
+        }
+    }
+
+    fn file_exists_command(path: &str) -> String {
+        if cfg!(windows) {
+            format!(
+                "if (Test-Path -LiteralPath '{}') {{ exit 0 }} else {{ exit 1 }}",
+                path.replace('\'', "''")
+            )
+        } else {
+            format!("test -f '{}'", path.replace('\'', "'\\''"))
         }
     }
 
@@ -474,7 +878,9 @@ mod tests {
     fn hook_exit_zero_allows() {
         let tmp = tempdir();
         let executor = HookExecutor::default();
-        let output = executor.run(&spec("exit 0"), &input(), &tmp).expect("run");
+        let output = executor
+            .run(&spec("exit 0"), &input(&tmp), &tmp)
+            .expect("run");
         assert_eq!(output.decision, HookDecision::Allow);
     }
 
@@ -484,7 +890,9 @@ mod tests {
     fn hook_exit_nonzero_denies() {
         let tmp = tempdir();
         let executor = HookExecutor::default();
-        let output = executor.run(&spec("exit 1"), &input(), &tmp).expect("run");
+        let output = executor
+            .run(&spec("exit 1"), &input(&tmp), &tmp)
+            .expect("run");
         assert_eq!(output.decision, HookDecision::Deny);
     }
 
@@ -495,7 +903,7 @@ mod tests {
         let tmp = tempdir();
         let executor = HookExecutor::default();
         let cmd = r#"echo '{"decision":"allow","message":"ok"}'"#;
-        let output = executor.run(&spec(cmd), &input(), &tmp).expect("run");
+        let output = executor.run(&spec(cmd), &input(&tmp), &tmp).expect("run");
         assert_eq!(output.decision, HookDecision::Allow);
         assert_eq!(output.message.as_deref(), Some("ok"));
     }
@@ -505,7 +913,7 @@ mod tests {
         let tmp = tempdir();
         let executor = HookExecutor::default();
         let cmd = r#"echo '{"decision":"deny","message":"blocked"}'"#;
-        let output = executor.run(&spec(cmd), &input(), &tmp).expect("run");
+        let output = executor.run(&spec(cmd), &input(&tmp), &tmp).expect("run");
         assert_eq!(output.decision, HookDecision::Deny);
         assert_eq!(output.message.as_deref(), Some("blocked"));
     }
@@ -515,7 +923,7 @@ mod tests {
         let tmp = tempdir();
         let executor = HookExecutor::default();
         let cmd = r#"echo '{"decision":"pass"}'"#;
-        let output = executor.run(&spec(cmd), &input(), &tmp).expect("run");
+        let output = executor.run(&spec(cmd), &input(&tmp), &tmp).expect("run");
         assert_eq!(output.decision, HookDecision::Pass);
     }
 
@@ -527,7 +935,7 @@ mod tests {
         let executor = HookExecutor::default();
         // JSON says allow but exit code is 1.
         let cmd = r#"echo '{"decision":"allow"}'; exit 1"#;
-        let output = executor.run(&spec(cmd), &input(), &tmp).expect("run");
+        let output = executor.run(&spec(cmd), &input(&tmp), &tmp).expect("run");
         assert_eq!(output.decision, HookDecision::Deny);
     }
 
@@ -538,7 +946,7 @@ mod tests {
         let tmp = tempdir();
         let executor = HookExecutor::default();
         let cmd = r#"echo 'not json'"#;
-        let result = executor.run(&spec(cmd), &input(), &tmp);
+        let result = executor.run(&spec(cmd), &input(&tmp), &tmp);
         assert!(result.is_err());
     }
 
@@ -549,7 +957,7 @@ mod tests {
         let tmp = tempdir();
         let executor = HookExecutor::new(vec!["super-secret-key".into()]);
         let cmd = r#"echo '{"decision":"allow","message":"key=super-secret-key"}'"#;
-        let output = executor.run(&spec(cmd), &input(), &tmp).expect("run");
+        let output = executor.run(&spec(cmd), &input(&tmp), &tmp).expect("run");
         // The secret in the message should be redacted before JSON parsing.
         assert_ne!(output.message.as_deref(), Some("key=super-secret-key"));
         assert!(output.message.as_deref().unwrap().contains("[REDACTED]"));
@@ -563,7 +971,7 @@ mod tests {
         let executor = HookExecutor::default();
         let mut s = spec("sleep 30");
         s.timeout_secs = 1;
-        let result = executor.run(&s, &input(), &tmp);
+        let result = executor.run(&s, &input(&tmp), &tmp);
         assert!(matches!(result, Err(HookError::Timeout)));
     }
 
@@ -577,19 +985,44 @@ mod tests {
         fs::write(&marker, "present").unwrap();
 
         let executor = HookExecutor::default();
-        let cmd = "test -f marker.txt";
-        let output = executor.run(&spec(cmd), &input(), &tmp).expect("run");
+        let cmd = file_exists_command("marker.txt");
+        let output = executor.run(&spec(&cmd), &input(&tmp), &tmp).expect("run");
         assert_eq!(output.decision, HookDecision::Allow);
     }
 
     #[test]
-    fn hook_cannot_escape_cwd() {
+    fn executor_rejects_cwd_outside_bound_workspace() {
+        let workspace = tempdir();
+        let outside = tempdir();
+        let executor = HookExecutor::for_workspace(&workspace, Vec::new()).expect("executor");
+        let result = executor.run(&spec("exit 0"), &input(&workspace), &outside);
+        assert!(matches!(result, Err(HookError::WorkspaceBoundary(_))));
+    }
+
+    #[test]
+    fn non_zero_exit_overrides_json_pass() {
         let tmp = tempdir();
-        // This file does NOT exist in cwd.
-        let cmd = "test -f nonexistent_xyz_marker.txt";
         let executor = HookExecutor::default();
-        let output = executor.run(&spec(cmd), &input(), &tmp).expect("run");
+        let cmd = r#"echo '{"decision":"pass"}'; exit 1"#;
+        let output = executor.run(&spec(cmd), &input(&tmp), &tmp).expect("run");
         assert_eq!(output.decision, HookDecision::Deny);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn oversized_stdout_is_bounded_without_deadlock() {
+        let tmp = tempdir();
+        let executor = HookExecutor::default();
+        let mut hook = spec("yes x | head -c 300000");
+        hook.timeout_secs = 3;
+        let result = executor.run(&hook, &input(&tmp), &tmp);
+        assert!(matches!(
+            result,
+            Err(HookError::OutputTooLarge {
+                stream: "stdout",
+                ..
+            })
+        ));
     }
 
     // ---- HookRegistry ----
@@ -638,7 +1071,7 @@ mod tests {
             ],
         );
 
-        let result = evaluate_hooks(&executor, &reg, HookEvent::BeforeTool, &input(), &tmp);
+        let result = evaluate_hooks(&executor, &reg, HookEvent::BeforeTool, &input(&tmp), &tmp);
         assert!(matches!(
             result,
             HookResult::Denied { reason, .. } if reason == "nope"
@@ -660,7 +1093,7 @@ mod tests {
             ],
         );
 
-        let result = evaluate_hooks(&executor, &reg, HookEvent::BeforeTool, &input(), &tmp);
+        let result = evaluate_hooks(&executor, &reg, HookEvent::BeforeTool, &input(&tmp), &tmp);
         assert!(matches!(
             result,
             HookResult::Allow { messages } if messages.len() == 2
@@ -675,7 +1108,7 @@ mod tests {
         let executor = HookExecutor::default();
         let reg = HookRegistry::new();
 
-        let result = evaluate_hooks(&executor, &reg, HookEvent::OnError, &input(), &tmp);
+        let result = evaluate_hooks(&executor, &reg, HookEvent::OnError, &input(&tmp), &tmp);
         assert_eq!(result, HookResult::NoHooks);
     }
 
@@ -695,7 +1128,7 @@ mod tests {
 
         reg.add_project(HookEvent::BeforeTool, vec![obs, allow]);
 
-        let result = evaluate_hooks(&executor, &reg, HookEvent::BeforeTool, &input(), &tmp);
+        let result = evaluate_hooks(&executor, &reg, HookEvent::BeforeTool, &input(&tmp), &tmp);
         assert!(matches!(result, HookResult::Allow { .. }));
     }
 
@@ -711,7 +1144,7 @@ mod tests {
         let bad = spec(r#"echo 'not json'"#);
         reg.add_project(HookEvent::BeforeTool, vec![bad]);
 
-        let result = evaluate_hooks(&executor, &reg, HookEvent::BeforeTool, &input(), &tmp);
+        let result = evaluate_hooks(&executor, &reg, HookEvent::BeforeTool, &input(&tmp), &tmp);
         assert!(matches!(result, HookResult::Denied { .. }));
     }
 
@@ -733,7 +1166,7 @@ mod tests {
             vec![spec(r#"echo '{"decision":"allow"}'"#)],
         );
 
-        let result = evaluate_hooks(&executor, &reg, HookEvent::BeforeTool, &input(), &tmp);
+        let result = evaluate_hooks(&executor, &reg, HookEvent::BeforeTool, &input(&tmp), &tmp);
         // Managed runs first and denies — short-circuits before project hooks.
         assert!(matches!(
             result,
@@ -753,7 +1186,7 @@ mod tests {
             vec![spec(r#"echo '{"decision":"pass"}'"#)],
         );
 
-        let result = evaluate_hooks(&executor, &reg, HookEvent::BeforeTool, &input(), &tmp);
+        let result = evaluate_hooks(&executor, &reg, HookEvent::BeforeTool, &input(&tmp), &tmp);
         assert!(matches!(result, HookResult::Allow { .. }));
     }
 
