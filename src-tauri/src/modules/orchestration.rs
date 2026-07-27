@@ -30,6 +30,8 @@ pub mod budget;
 #[allow(dead_code)]
 pub mod context;
 #[allow(dead_code)]
+pub mod credentials;
+#[allow(dead_code)]
 pub mod eval_lab;
 #[allow(dead_code)]
 pub mod gardening;
