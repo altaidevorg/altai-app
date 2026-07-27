@@ -5,6 +5,7 @@
 //! delivers the adapter contract and the always-available [`local::LocalTaskSource`].
 
 pub mod local;
+pub mod outbox;
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
