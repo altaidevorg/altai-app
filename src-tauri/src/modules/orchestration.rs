@@ -42,7 +42,7 @@ pub mod policy;
 #[allow(dead_code)]
 pub mod projections;
 #[allow(dead_code)]
-pub mod prompt;
+pub mod quality;
 #[allow(dead_code)]
 pub mod readiness;
 #[allow(dead_code)]
