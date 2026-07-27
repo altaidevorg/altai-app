@@ -128,6 +128,26 @@ pub enum HierarchyError {
     },
 }
 
+impl std::fmt::Display for HierarchyError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::AlreadyHasParent {
+                child_id,
+                existing_parent,
+                requested_parent,
+            } => write!(
+                f,
+                "Task {child_id} already has parent {existing_parent} (requested {requested_parent})"
+            ),
+            Self::WouldCreateCycle { child_id, parent_id } => {
+                write!(f, "Adding {parent_id} as parent of {child_id} would create a cycle")
+            }
+        }
+    }
+}
+
+impl std::error::Error for HierarchyError {}
+
 // ---------------------------------------------------------------------------
 // Mailbox (bounded agent-to-coordinator messages)
 // ---------------------------------------------------------------------------
@@ -171,6 +191,12 @@ pub struct Mailbox {
     delivered_order: VecDeque<String>,
     dedupe_capacity: usize,
     delivered_total: usize,
+}
+
+impl Default for Mailbox {
+    fn default() -> Self {
+        Self::new(256)
+    }
 }
 
 /// Error when the mailbox is full.

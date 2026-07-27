@@ -23,7 +23,7 @@ pub struct CheckSpec {
 }
 
 /// The result of executing a check.
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CheckResult {
     pub name: String,
@@ -37,7 +37,7 @@ pub struct CheckResult {
 }
 
 /// The outcome of a check execution.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum CheckStatus {
     Passed,
