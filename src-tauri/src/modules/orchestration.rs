@@ -38,6 +38,8 @@ pub mod gardening;
 #[allow(dead_code)]
 pub mod hooks;
 #[allow(dead_code)]
+pub mod integration;
+#[allow(dead_code)]
 pub mod ledger;
 #[allow(dead_code)]
 pub mod plans;
