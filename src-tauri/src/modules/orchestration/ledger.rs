@@ -23,7 +23,7 @@ use std::path::Path;
 use std::sync::{Mutex, MutexGuard};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-const SCHEMA_VERSION: i64 = 5;
+pub const SCHEMA_VERSION: i64 = 5;
 const MAX_EVENT_LIMIT: usize = 1_000;
 const MAX_EVENT_PAYLOAD_BYTES: usize = 256 * 1024;
 const MAX_APPROVAL_ID_CHARS: usize = 512;
@@ -446,6 +446,7 @@ pub struct CreateArtifactRequest {
 
 /// A recorded decision from the execution plan decision log.
 #[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct DecisionEntry {
     pub id: String,
     pub task_id: Option<String>,
@@ -458,7 +459,8 @@ pub struct DecisionEntry {
 }
 
 /// Input for recording a decision.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CreateDecisionRequest {
     pub task_id: Option<String>,
     pub attempt_id: Option<String>,

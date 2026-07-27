@@ -29,6 +29,7 @@ pub mod artifact;
 pub mod budget;
 #[allow(dead_code)]
 pub mod checks;
+pub mod commands;
 #[allow(dead_code)]
 pub mod context;
 #[allow(dead_code)]
@@ -63,8 +64,8 @@ pub mod readiness;
 pub mod routing;
 #[allow(dead_code)]
 pub mod runners;
-#[cfg(test)]
-mod session_analysis;
+#[allow(dead_code)]
+pub mod session_analysis;
 #[cfg(test)]
 mod soak;
 #[allow(dead_code)]

@@ -277,6 +277,7 @@ pub fn run() {
         })
         .manage(os_menu::RecentFolders::default())
         .manage(mcp::McpStatusRegistry::new())
+        .manage(orchestration::commands::OrchestrationCommandState::default())
         .manage(orchestration::OrchestrationState::default())
         .manage(orchestration::hooks::HookRegistry::new())
         .on_menu_event(app_menu::handle_event)
@@ -360,6 +361,42 @@ pub fn run() {
             orchestration::workflow::orchestration_workflow_save,
             orchestration::hooks::orchestration_hooks_inspect,
             orchestration::gardening::orchestration_gardening_tick,
+            // ALTAI — orchestration v2 command wiring
+            orchestration::commands::orchestration_quality_metrics,
+            orchestration::commands::orchestration_readiness_scan,
+            orchestration::commands::orchestration_context_pack,
+            orchestration::commands::orchestration_plan_parse,
+            orchestration::commands::orchestration_decision_record,
+            orchestration::commands::orchestration_decisions_for_task,
+            orchestration::commands::orchestration_graph_add_dependency,
+            orchestration::commands::orchestration_graph_eligible,
+            orchestration::commands::orchestration_graph_blocked_reason,
+            orchestration::commands::orchestration_graph_topological_order,
+            orchestration::commands::orchestration_profile_register,
+            orchestration::commands::orchestration_profile_resolve,
+            orchestration::commands::orchestration_profile_select,
+            orchestration::commands::orchestration_profile_names,
+            orchestration::commands::orchestration_hierarchy_add_child,
+            orchestration::commands::orchestration_hierarchy_children,
+            orchestration::commands::orchestration_hierarchy_descendants,
+            orchestration::commands::orchestration_mailbox_post,
+            orchestration::commands::orchestration_mailbox_deliver,
+            orchestration::commands::orchestration_detect_file_conflicts,
+            orchestration::commands::orchestration_notify,
+            orchestration::commands::orchestration_notifications_drain,
+            orchestration::commands::orchestration_credential_store,
+            orchestration::commands::orchestration_credential_status,
+            orchestration::commands::orchestration_credential_revoke,
+            orchestration::commands::orchestration_check_gate,
+            orchestration::commands::orchestration_review_evaluate,
+            orchestration::commands::orchestration_usage_process,
+            orchestration::commands::orchestration_usage_should_stop,
+            orchestration::commands::orchestration_detect_overlaps,
+            orchestration::commands::orchestration_gardening_scan,
+            orchestration::commands::orchestration_session_analyze,
+            orchestration::commands::orchestration_playbook_propose,
+            orchestration::commands::orchestration_support_bundle,
+            orchestration::commands::orchestration_schema_version,
             shell::shell_run_command,
             shell::shell_session_open,
             shell::shell_session_run,

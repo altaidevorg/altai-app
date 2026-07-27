@@ -41,6 +41,7 @@ reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"
 bytes = "1"
 futures-util = "0.3"
 tokio = { version = "1", features = ["full"] }
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
 tempfile = "3"
 uuid = { version = "1", features = ["v4"] }
 async-trait = "0.1"

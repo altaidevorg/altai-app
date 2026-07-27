@@ -4,7 +4,7 @@
 //! dispatch ordering, critical path, blocked-reason, transactional eligibility.
 //! F2: planner output, plan validation, version-specific approval, plan diffing.
 
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 
 use serde::{Deserialize, Serialize};
 
@@ -65,6 +65,9 @@ impl TaskGraph {
             task_id: task_id.to_string(),
             depends_on: depends_on.to_string(),
         };
+        if self.edges.contains(&edge) {
+            return Ok(());
+        }
         // Temporarily add the edge, then check for cycles.
         self.edges.push(edge.clone());
         self.nodes.insert(task_id.to_string());
@@ -159,20 +162,22 @@ impl TaskGraph {
             adj.entry(&edge.depends_on).or_default().push(&edge.task_id);
             *in_degree.entry(&edge.task_id).or_insert(0) += 1;
         }
-        let mut queue: VecDeque<&str> = in_degree
+        let mut queue: BTreeSet<&str> = in_degree
             .iter()
             .filter(|(_, &d)| d == 0)
             .map(|(&n, _)| n)
             .collect();
         let mut result = Vec::new();
-        while let Some(node) = queue.pop_front() {
+        while let Some(node) = queue.pop_first() {
             result.push(node.to_string());
             if let Some(neighbors) = adj.get(node) {
-                for &n in neighbors {
+                let mut neighbors = neighbors.clone();
+                neighbors.sort_unstable();
+                for n in neighbors {
                     if let Some(d) = in_degree.get_mut(n) {
                         *d -= 1;
                         if *d == 0 {
-                            queue.push_back(n);
+                            queue.insert(n);
                         }
                     }
                 }
@@ -583,6 +588,15 @@ mod tests {
         assert_eq!(g.edges.len(), 1);
     }
 
+    #[test]
+    fn adding_the_same_dependency_is_idempotent() {
+        let mut g = TaskGraph::new();
+        g.add_dependency("B", "A").unwrap();
+        g.add_dependency("B", "A").unwrap();
+
+        assert_eq!(g.edges.len(), 1);
+    }
+
     // ---- topological order ----
 
     #[test]
@@ -606,6 +620,16 @@ mod tests {
         // The graph should still have only one edge (B→A was rejected).
         let result = g.topological_order();
         assert!(result.is_ok()); // only A→B, no cycle
+    }
+
+    #[test]
+    fn topological_order_is_deterministic_for_independent_nodes() {
+        let mut g = TaskGraph::new();
+        for node in ["C", "A", "B"] {
+            g.add_node(node);
+        }
+
+        assert_eq!(g.topological_order().unwrap(), vec!["A", "B", "C"]);
     }
 
     // ---- eligibility ----

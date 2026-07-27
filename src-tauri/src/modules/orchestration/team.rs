@@ -128,6 +128,26 @@ pub enum HierarchyError {
     },
 }
 
+impl std::fmt::Display for HierarchyError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::AlreadyHasParent {
+                child_id,
+                existing_parent,
+                requested_parent,
+            } => write!(
+                f,
+                "Task {child_id} already has parent {existing_parent} (requested {requested_parent})"
+            ),
+            Self::WouldCreateCycle { child_id, parent_id } => {
+                write!(f, "Adding {parent_id} as parent of {child_id} would create a cycle")
+            }
+        }
+    }
+}
+
+impl std::error::Error for HierarchyError {}
+
 // ---------------------------------------------------------------------------
 // Mailbox (bounded agent-to-coordinator messages)
 // ---------------------------------------------------------------------------
@@ -171,6 +191,12 @@ pub struct Mailbox {
     delivered_order: VecDeque<String>,
     dedupe_capacity: usize,
     delivered_total: usize,
+}
+
+impl Default for Mailbox {
+    fn default() -> Self {
+        Self::new(256)
+    }
 }
 
 /// Error when the mailbox is full.
@@ -219,6 +245,18 @@ impl Mailbox {
     /// Marks the message as delivered (exactly-once at recipient boundary).
     pub fn deliver(&mut self) -> Option<AgentMessage> {
         let msg = self.messages.pop_front()?;
+        self.remember_delivery(msg.id.clone());
+        Some(msg)
+    }
+
+    /// Deliver the oldest pending message for one recipient without consuming
+    /// messages addressed to other tasks.
+    pub fn deliver_for(&mut self, to_task: &str) -> Option<AgentMessage> {
+        let index = self
+            .messages
+            .iter()
+            .position(|message| message.to_task == to_task)?;
+        let msg = self.messages.remove(index)?;
         self.remember_delivery(msg.id.clone());
         Some(msg)
     }
@@ -805,6 +843,20 @@ mod tests {
         mb.post(make_msg("m3", "c", "other")).unwrap();
         assert_eq!(mb.pending_for("parent"), 2);
         assert_eq!(mb.pending_for("other"), 1);
+    }
+
+    #[test]
+    fn deliver_for_does_not_consume_another_recipients_message() {
+        let mut mailbox = Mailbox::new(10);
+        mailbox.post(make_msg("m1", "child", "other")).unwrap();
+        mailbox.post(make_msg("m2", "child", "parent")).unwrap();
+
+        assert_eq!(
+            mailbox.deliver_for("parent").map(|message| message.id),
+            Some("m2".into())
+        );
+        assert_eq!(mailbox.pending_for("other"), 1);
+        assert_eq!(mailbox.delivered_count(), 1);
     }
 
     // ---- file conflict detection ----
