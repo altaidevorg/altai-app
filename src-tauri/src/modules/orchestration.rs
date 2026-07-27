@@ -34,6 +34,8 @@ pub mod projections;
 #[allow(dead_code)]
 pub mod prompt;
 #[allow(dead_code)]
+pub mod routing;
+#[allow(dead_code)]
 pub mod runners;
 #[cfg(test)]
 mod soak;
