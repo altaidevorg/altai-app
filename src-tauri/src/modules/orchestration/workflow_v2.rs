@@ -111,6 +111,16 @@ pub struct AgentsConfig {
     pub reviewer: Option<AgentProfile>,
 }
 
+/// Named agent profile used by phase routing. Keeping this typed prevents a
+/// model identifier from being confused with a profile selector.
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum AgentRole {
+    Planner,
+    Worker,
+    Reviewer,
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct EnvironmentConfig {
@@ -217,9 +227,9 @@ impl Default for HooksConfig {
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct RoutingConfig {
-    pub planner: Option<String>,
-    pub implementation: Option<String>,
-    pub review: Option<String>,
+    pub planner: Option<AgentRole>,
+    pub implementation: Option<AgentRole>,
+    pub review: Option<AgentRole>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -539,6 +549,23 @@ budgets:
         let invalid =
             "version: 2\nhooks:\n  lifecycle:\n    - event: before_tool\n      command: ''\n";
         assert!(parse(invalid).unwrap_err().contains("command"));
+    }
+
+    #[test]
+    fn routing_selects_named_agent_profiles() {
+        let yaml = "version: 2\nrouting:\n  planner: reviewer\n  implementation: worker\n  review: planner\n";
+        let config = parse(yaml).expect("parse routing");
+        let routing = config.routing.expect("routing");
+        assert_eq!(routing.planner, Some(AgentRole::Reviewer));
+        assert_eq!(routing.implementation, Some(AgentRole::Worker));
+        assert_eq!(routing.review, Some(AgentRole::Planner));
+    }
+
+    #[test]
+    fn routing_rejects_model_ids_and_unknown_profiles() {
+        let yaml = "version: 2\nrouting:\n  implementation: gpt-4o\n";
+        let error = parse(yaml).unwrap_err();
+        assert!(error.contains("unknown variant"), "{error}");
     }
 
     #[test]
