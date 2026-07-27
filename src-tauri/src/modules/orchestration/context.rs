@@ -5,8 +5,9 @@
 //! included source is recorded with its git revision. Stale links and
 //! oversized instruction surfaces are detected.
 
-use std::collections::HashSet;
-use std::path::{Path, PathBuf};
+use std::collections::{BTreeSet, HashSet};
+use std::ffi::OsString;
+use std::path::{Component, Path, PathBuf};
 
 use serde::Serialize;
 
@@ -138,25 +139,28 @@ pub fn build_context_pack(
 
     for e in &mut entries {
         let abs = repo_path.join(&e.path);
-        if total + e.bytes <= config.budget_bytes {
+        if e.bytes > config.oversized_threshold {
+            warnings.push(format!(
+                "Oversized document: {} ({} bytes)",
+                e.path, e.bytes
+            ));
+        }
+
+        if total
+            .checked_add(e.bytes)
+            .is_some_and(|next| next <= config.budget_bytes)
+        {
             e.included = true;
             e.reason = if e.role == DocRole::AgentMap {
-                "agent map (always included)".into()
+                "highest-priority agent map".into()
             } else if e.relevance > 0 {
                 format!("relevant to task (score {})", e.relevance)
             } else {
                 "included within budget".into()
             };
-            total += e.bytes;
+            total = total.saturating_add(e.bytes);
 
-            // Check for stale links and oversized.
-            if e.bytes > config.oversized_threshold {
-                warnings.push(format!(
-                    "Oversized document: {} ({} bytes)",
-                    e.path, e.bytes
-                ));
-            }
-            let links = find_stale_links(&abs, &e.path);
+            let links = find_stale_links(repo_path, &abs, &e.path);
             stale_links.extend(links);
         } else {
             e.reason = format!(
@@ -166,7 +170,7 @@ pub fn build_context_pack(
         }
     }
 
-    let truncated = entries.iter().any(|e| !e.included && e.relevance > 0);
+    let truncated = entries.iter().any(|e| !e.included);
 
     if entries.iter().filter(|e| e.included).count() == 0 {
         warnings.push("Context pack is empty — no documents were included.".into());
@@ -224,13 +228,22 @@ fn walk(
         let path = entry.path();
         let name = entry.file_name();
         let name_str = name.to_string_lossy();
+        let Ok(file_type) = entry.file_type() else {
+            continue;
+        };
 
-        if path.is_dir() {
+        // Context must come from repository-owned files. Never follow symlinks,
+        // even when their targets happen to be inside the repository.
+        if file_type.is_symlink() {
+            continue;
+        }
+
+        if file_type.is_dir() {
             if skip.contains(name_str.as_ref()) {
                 continue;
             }
             walk(root, &path, depth_left - 1, skip, out);
-        } else if path.is_file() {
+        } else if file_type.is_file() {
             if let Some(role) = classify_file(&path, root) {
                 out.push((path, role));
             }
@@ -242,7 +255,7 @@ fn walk(
 /// the file is not a documentation candidate.
 fn classify_file(path: &Path, root: &Path) -> Option<DocRole> {
     let rel = path.strip_prefix(root).unwrap_or(path);
-    let rel_str = rel.to_string_lossy();
+    let rel_str = rel.to_string_lossy().replace('\\', "/");
     let file_name = path
         .file_name()
         .map(|n| n.to_string_lossy().to_string())
@@ -310,6 +323,8 @@ fn extract_keywords(text: &str) -> Vec<String> {
     text.split(|c: char| !c.is_alphanumeric())
         .filter(|s| s.len() >= 3)
         .map(|s| s.to_lowercase())
+        .collect::<BTreeSet<_>>()
+        .into_iter()
         .collect()
 }
 
@@ -322,7 +337,7 @@ fn score_relevance(path: &Path, keywords: &[String]) -> u16 {
     let mut score: u16 = 0;
     for kw in keywords {
         if path_str.contains(kw) {
-            score += 10;
+            score = score.saturating_add(10);
         }
     }
     score
@@ -333,7 +348,7 @@ fn score_relevance(path: &Path, keywords: &[String]) -> u16 {
 // ---------------------------------------------------------------------------
 
 /// Find markdown links that point to non-existent files.
-fn find_stale_links(file_path: &Path, source_name: &str) -> Vec<StaleLink> {
+fn find_stale_links(repo_root: &Path, file_path: &Path, source_name: &str) -> Vec<StaleLink> {
     let Ok(content) = std::fs::read_to_string(file_path) else {
         return Vec::new();
     };
@@ -346,14 +361,12 @@ fn find_stale_links(file_path: &Path, source_name: &str) -> Vec<StaleLink> {
         while let Some(start) = rest.find("](") {
             let after = &rest[start + 2..];
             if let Some(end) = after.find(')') {
-                let target = &after[..end];
-                if !target.starts_with("http")
-                    && !target.starts_with("#")
-                    && !target.starts_with("mailto:")
-                {
+                let target = after[..end].trim();
+                if !target.starts_with('#') && !is_external_link(target) {
                     // Strip optional anchor: `path#section` or `path?query`.
-                    let clean = target.split(['#', '?']).next().unwrap_or(target);
-                    if !clean.is_empty() && !parent.join(clean).exists() {
+                    let destination = markdown_destination(target);
+                    let clean = destination.split(['#', '?']).next().unwrap_or(destination);
+                    if !clean.is_empty() && !repo_link_exists(repo_root, parent, Path::new(clean)) {
                         stale.push(StaleLink {
                             source: source_name.to_string(),
                             link_target: clean.to_string(),
@@ -369,19 +382,95 @@ fn find_stale_links(file_path: &Path, source_name: &str) -> Vec<StaleLink> {
     stale
 }
 
+fn is_external_link(target: &str) -> bool {
+    if target.starts_with("//") {
+        return true;
+    }
+    let Some((scheme, _)) = target.split_once(':') else {
+        return false;
+    };
+    !scheme.is_empty()
+        && scheme
+            .chars()
+            .next()
+            .is_some_and(|c| c.is_ascii_alphabetic())
+        && scheme
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '-' | '.'))
+}
+
+fn markdown_destination(target: &str) -> &str {
+    if let Some(stripped) = target.strip_prefix('<') {
+        return stripped.split_once('>').map_or(stripped, |(path, _)| path);
+    }
+    target.split_whitespace().next().unwrap_or(target)
+}
+
+fn repo_link_exists(repo_root: &Path, source_parent: &Path, target: &Path) -> bool {
+    if target.is_absolute() {
+        return false;
+    }
+    let Ok(source_relative) = source_parent.strip_prefix(repo_root) else {
+        return false;
+    };
+    let Some(relative) = normalize_repo_relative(source_relative, target) else {
+        return false;
+    };
+
+    let mut current = repo_root.to_path_buf();
+    for component in relative.components() {
+        let Component::Normal(part) = component else {
+            return false;
+        };
+        current.push(part);
+        let Ok(metadata) = std::fs::symlink_metadata(&current) else {
+            return false;
+        };
+        if metadata.file_type().is_symlink() {
+            return false;
+        }
+    }
+    true
+}
+
+fn normalize_repo_relative(base: &Path, target: &Path) -> Option<PathBuf> {
+    let mut parts: Vec<OsString> = base
+        .components()
+        .filter_map(|component| match component {
+            Component::Normal(part) => Some(part.to_os_string()),
+            Component::CurDir => None,
+            Component::ParentDir | Component::RootDir | Component::Prefix(_) => None,
+        })
+        .collect();
+
+    for component in target.components() {
+        match component {
+            Component::CurDir => {}
+            Component::Normal(part) => parts.push(part.to_os_string()),
+            Component::ParentDir => {
+                parts.pop()?;
+            }
+            Component::RootDir | Component::Prefix(_) => return None,
+        }
+    }
+
+    Some(parts.into_iter().collect())
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
 fn file_size(path: &Path) -> usize {
-    std::fs::metadata(path)
-        .map(|m| m.len() as usize)
+    std::fs::symlink_metadata(path)
+        .ok()
+        .and_then(|metadata| usize::try_from(metadata.len()).ok())
         .unwrap_or(0)
 }
 
 fn relative_path(root: &Path, full: &Path) -> String {
     full.strip_prefix(root)
-        .map(|p| p.to_string_lossy().to_string())
+        .map(|p| p.to_string_lossy().replace('\\', "/"))
         .unwrap_or_else(|_| full.to_string_lossy().to_string())
 }
 
@@ -390,6 +479,7 @@ fn relative_path(root: &Path, full: &Path) -> String {
 fn git_blob_hash(repo: &Path, rel_path: &str) -> String {
     let output = std::process::Command::new("git")
         .arg("hash-object")
+        .arg("--")
         .arg(rel_path)
         .current_dir(repo)
         .output();
@@ -422,15 +512,18 @@ fn role_priority(role: DocRole) -> u8 {
 mod tests {
     use super::*;
     use std::fs;
+    use std::sync::atomic::{AtomicU64, Ordering};
 
     fn temp_repo() -> PathBuf {
+        static NEXT_TEMP_ID: AtomicU64 = AtomicU64::new(0);
         let dir = std::env::temp_dir().join(format!(
-            "altai-ctx-{}-{}",
+            "altai-ctx-{}-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
-                .as_nanos()
+                .as_nanos(),
+            NEXT_TEMP_ID.fetch_add(1, Ordering::Relaxed)
         ));
         fs::create_dir_all(&dir).unwrap();
         dir
@@ -563,10 +656,64 @@ mod tests {
         write_file(
             &repo,
             "AGENTS.md",
-            "# Agents\nSee [docs](https://example.com/docs)\n",
+            "# Agents\nSee [docs](https://example.com/docs) and [mail](mailto:ops@example.com)\n",
         );
         let pack = build_context_pack(&repo, "task", &ContextConfig::default());
         assert!(pack.stale_links.is_empty(), "URLs should not be flagged");
+    }
+
+    #[test]
+    fn links_cannot_escape_the_repository() {
+        let repo = temp_repo();
+        write_file(
+            &repo,
+            "docs/plan.md",
+            "See [absolute](/etc/passwd) and [parent](../../outside.md)\n",
+        );
+
+        let pack = build_context_pack(&repo, "plan", &ContextConfig::default());
+        assert_eq!(pack.stale_links.len(), 2);
+    }
+
+    #[test]
+    fn duplicate_task_words_do_not_inflate_relevance() {
+        let keywords = extract_keywords("architecture architecture architecture");
+        assert_eq!(keywords, vec!["architecture"]);
+        assert_eq!(
+            score_relevance(Path::new("docs/architecture.md"), &keywords),
+            10
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn symlinked_documents_and_directories_are_not_indexed() {
+        use std::os::unix::fs::symlink;
+
+        let repo = temp_repo();
+        let outside = temp_repo();
+        write_file(&outside, "SECRET.md", "# external\n");
+        symlink(outside.join("SECRET.md"), repo.join("AGENTS.md")).unwrap();
+        symlink(&outside, repo.join("docs")).unwrap();
+
+        let pack = build_context_pack(&repo, "secret", &ContextConfig::default());
+        assert!(pack.manifest.is_empty());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn links_to_symlinks_are_not_repository_truth() {
+        use std::os::unix::fs::symlink;
+
+        let repo = temp_repo();
+        let outside = temp_repo();
+        write_file(&outside, "target.md", "# external\n");
+        write_file(&repo, "AGENTS.md", "See [external](linked.md)\n");
+        symlink(outside.join("target.md"), repo.join("linked.md")).unwrap();
+
+        let pack = build_context_pack(&repo, "task", &ContextConfig::default());
+        assert_eq!(pack.stale_links.len(), 1);
+        assert_eq!(pack.stale_links[0].link_target, "linked.md");
     }
 
     // ---- oversized warning ----
@@ -582,6 +729,22 @@ mod tests {
             max_depth: 3,
         };
         let pack = build_context_pack(&repo, "task", &cfg);
+        assert!(pack.warnings.iter().any(|w| w.contains("Oversized")));
+    }
+
+    #[test]
+    fn excluded_oversized_document_is_still_warned() {
+        let repo = temp_repo();
+        write_file(&repo, "AGENTS.md", "x".repeat(200));
+
+        let cfg = ContextConfig {
+            oversized_threshold: 100,
+            budget_bytes: 50,
+            max_depth: 3,
+        };
+        let pack = build_context_pack(&repo, "task", &cfg);
+        assert!(pack.manifest.iter().all(|entry| !entry.included));
+        assert!(pack.truncated);
         assert!(pack.warnings.iter().any(|w| w.contains("Oversized")));
     }
 
