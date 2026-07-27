@@ -30,6 +30,12 @@ impl TaskHierarchy {
     /// Register a parent→child relationship.
     /// Returns an error if the child already has a different parent.
     pub fn add_child(&mut self, parent_id: &str, child_id: &str) -> Result<(), HierarchyError> {
+        if parent_id == child_id {
+            return Err(HierarchyError::WouldCreateCycle {
+                child_id: child_id.into(),
+                parent_id: parent_id.into(),
+            });
+        }
         if let Some(existing) = self.parent_of.get(child_id) {
             if existing != parent_id {
                 return Err(HierarchyError::AlreadyHasParent {
@@ -159,8 +165,12 @@ pub struct AgentMessage {
 pub struct Mailbox {
     messages: VecDeque<AgentMessage>,
     capacity: usize,
-    /// IDs of messages that have been delivered (exactly-once).
+    /// IDs retained in the bounded exactly-once replay window.
     delivered: HashSet<String>,
+    /// Delivery order used to evict the oldest replay-protection entry.
+    delivered_order: VecDeque<String>,
+    dedupe_capacity: usize,
+    delivered_total: usize,
 }
 
 /// Error when the mailbox is full.
@@ -172,17 +182,28 @@ pub struct MailboxFullError {
 
 impl Mailbox {
     pub fn new(capacity: usize) -> Self {
+        Self::with_dedupe_capacity(capacity, capacity.max(1))
+    }
+
+    /// Create a mailbox with an explicit bounded replay-protection window.
+    pub fn with_dedupe_capacity(capacity: usize, dedupe_capacity: usize) -> Self {
         Self {
-            messages: VecDeque::with_capacity(capacity),
+            messages: VecDeque::new(),
             capacity,
             delivered: HashSet::new(),
+            delivered_order: VecDeque::new(),
+            dedupe_capacity: dedupe_capacity.max(1),
+            delivered_total: 0,
         }
     }
 
     /// Post a message. Returns error if mailbox is full or message is a duplicate.
     pub fn post(&mut self, msg: AgentMessage) -> Result<(), MailboxFullError> {
-        // Exactly-once: skip if already delivered.
-        if self.delivered.contains(&msg.id) {
+        // Exactly-once within the bounded replay window. Also reject a
+        // duplicate that is already pending so it cannot be delivered twice.
+        if self.delivered.contains(&msg.id)
+            || self.messages.iter().any(|pending| pending.id == msg.id)
+        {
             return Ok(());
         }
         if self.messages.len() >= self.capacity {
@@ -198,8 +219,21 @@ impl Mailbox {
     /// Marks the message as delivered (exactly-once at recipient boundary).
     pub fn deliver(&mut self) -> Option<AgentMessage> {
         let msg = self.messages.pop_front()?;
-        self.delivered.insert(msg.id.clone());
+        self.remember_delivery(msg.id.clone());
         Some(msg)
+    }
+
+    fn remember_delivery(&mut self, message_id: String) {
+        self.delivered_total = self.delivered_total.saturating_add(1);
+        if !self.delivered.insert(message_id.clone()) {
+            return;
+        }
+        self.delivered_order.push_back(message_id);
+        while self.delivered_order.len() > self.dedupe_capacity {
+            if let Some(expired) = self.delivered_order.pop_front() {
+                self.delivered.remove(&expired);
+            }
+        }
     }
 
     /// Deliver all pending messages.
@@ -216,8 +250,13 @@ impl Mailbox {
         self.messages.len()
     }
 
-    /// Number of messages delivered so far.
+    /// Total number of messages delivered by this mailbox.
     pub fn delivered_count(&self) -> usize {
+        self.delivered_total
+    }
+
+    /// Number of delivered IDs retained in the bounded replay window.
+    pub fn dedupe_entries(&self) -> usize {
         self.delivered.len()
     }
 
@@ -277,33 +316,138 @@ pub fn detect_conflicts(ownerships: &[FileOwnership]) -> Vec<FileConflict> {
     conflicts
 }
 
-/// Check if two glob patterns overlap (simplified: exact match or prefix match).
+#[derive(Clone, Copy, Debug)]
+enum GlobToken {
+    Literal(char),
+    AnyNonSeparator,
+    Star { crosses_separator: bool },
+}
+
+/// Check whether two supported path globs can match at least one common path.
+///
+/// `*` and `?` stay within one path segment; `**` may cross `/`. Literal
+/// directory claims also cover descendants, preserving the ownership shorthand
+/// used by this module.
 fn glob_overlap(a: &str, b: &str) -> bool {
-    // Normalize: remove trailing /*
-    let a_base = a.trim_end_matches("/*");
-    let b_base = b.trim_end_matches("/*");
+    let a = normalize_glob(a);
+    let b = normalize_glob(b);
 
-    // Exact match.
-    if a_base == b_base {
+    if a.is_empty() || b.is_empty() {
+        return false;
+    }
+    if a == b {
         return true;
     }
 
-    // One is a prefix of the other (directory containment).
-    if a_base.starts_with(&format!("{b_base}/")) || b_base.starts_with(&format!("{a_base}/")) {
+    if literal_directory_contains(&a, &b) || literal_directory_contains(&b, &a) {
         return true;
     }
 
-    // Wildcard overlap: if both have *, check if they could match the same file.
-    if a_base.contains('*') || b_base.contains('*') {
-        // Simplified: if one is a glob prefix of the other.
-        let a_prefix = a_base.split('*').next().unwrap_or("");
-        let b_prefix = b_base.split('*').next().unwrap_or("");
-        if !a_prefix.is_empty() && !b_prefix.is_empty() {
-            return a_base.starts_with(b_prefix) || b_base.starts_with(a_prefix);
+    glob_languages_intersect(&tokenize_glob(&a), &tokenize_glob(&b))
+}
+
+fn normalize_glob(pattern: &str) -> String {
+    pattern
+        .replace('\\', "/")
+        .trim_start_matches("./")
+        .trim_end_matches('/')
+        .to_string()
+}
+
+fn literal_directory_contains(directory: &str, candidate: &str) -> bool {
+    if directory.is_empty() || directory.contains('*') || directory.contains('?') {
+        return false;
+    }
+    candidate
+        .strip_prefix(directory)
+        .is_some_and(|suffix| suffix.starts_with('/'))
+}
+
+fn tokenize_glob(pattern: &str) -> Vec<GlobToken> {
+    let chars: Vec<char> = pattern.chars().collect();
+    let mut tokens = Vec::with_capacity(chars.len());
+    let mut index = 0;
+    while index < chars.len() {
+        match chars[index] {
+            '*' if chars.get(index + 1) == Some(&'*') => {
+                tokens.push(GlobToken::Star {
+                    crosses_separator: true,
+                });
+                index += 2;
+            }
+            '*' => {
+                tokens.push(GlobToken::Star {
+                    crosses_separator: false,
+                });
+                index += 1;
+            }
+            '?' => {
+                tokens.push(GlobToken::AnyNonSeparator);
+                index += 1;
+            }
+            literal => {
+                tokens.push(GlobToken::Literal(literal));
+                index += 1;
+            }
         }
     }
+    tokens
+}
 
+fn glob_languages_intersect(a: &[GlobToken], b: &[GlobToken]) -> bool {
+    let mut pending = VecDeque::from([(0_usize, 0_usize)]);
+    let mut visited = HashSet::new();
+
+    while let Some((a_index, b_index)) = pending.pop_front() {
+        if !visited.insert((a_index, b_index)) {
+            continue;
+        }
+        if a_index == a.len() && b_index == b.len() {
+            return true;
+        }
+
+        if matches!(a.get(a_index), Some(GlobToken::Star { .. })) {
+            pending.push_back((a_index + 1, b_index));
+        }
+        if matches!(b.get(b_index), Some(GlobToken::Star { .. })) {
+            pending.push_back((a_index, b_index + 1));
+        }
+
+        if let (Some(a_token), Some(b_token)) = (a.get(a_index), b.get(b_index)) {
+            if tokens_share_character(*a_token, *b_token) {
+                pending.push_back((
+                    consumed_index(a_index, *a_token),
+                    consumed_index(b_index, *b_token),
+                ));
+            }
+        }
+    }
     false
+}
+
+fn consumed_index(index: usize, token: GlobToken) -> usize {
+    match token {
+        GlobToken::Star { .. } => index,
+        GlobToken::Literal(_) | GlobToken::AnyNonSeparator => index + 1,
+    }
+}
+
+fn tokens_share_character(a: GlobToken, b: GlobToken) -> bool {
+    match (a, b) {
+        (GlobToken::Literal(a), GlobToken::Literal(b)) => a == b,
+        (GlobToken::Literal(literal), token) | (token, GlobToken::Literal(literal)) => {
+            token_accepts(token, literal)
+        }
+        _ => true,
+    }
+}
+
+fn token_accepts(token: GlobToken, character: char) -> bool {
+    match token {
+        GlobToken::Literal(expected) => expected == character,
+        GlobToken::AnyNonSeparator => character != '/',
+        GlobToken::Star { crosses_separator } => crosses_separator || character != '/',
+    }
 }
 
 fn find_overlapping_globs(a: &[String], b: &[String]) -> Vec<String> {
@@ -529,6 +673,14 @@ mod tests {
     }
 
     #[test]
+    fn task_cannot_be_its_own_parent() {
+        let mut h = TaskHierarchy::new();
+        let err = h.add_child("A", "A").unwrap_err();
+        assert!(matches!(err, HierarchyError::WouldCreateCycle { .. }));
+        assert!(h.parent_of("A").is_none());
+    }
+
+    #[test]
     fn descendants_recursive() {
         let mut h = TaskHierarchy::new();
         h.add_child("A", "B").unwrap();
@@ -593,6 +745,36 @@ mod tests {
         mb.post(make_msg("m1", "child", "parent")).unwrap();
         assert_eq!(mb.pending(), 0);
         assert_eq!(mb.delivered_count(), 1);
+    }
+
+    #[test]
+    fn duplicate_pending_message_is_delivered_once() {
+        let mut mb = Mailbox::new(10);
+        mb.post(make_msg("m1", "child", "parent")).unwrap();
+        mb.post(make_msg("m1", "child", "parent")).unwrap();
+
+        assert_eq!(mb.pending(), 1);
+        assert_eq!(mb.drain().len(), 1);
+    }
+
+    #[test]
+    fn delivered_replay_window_is_bounded() {
+        let mut mb = Mailbox::with_dedupe_capacity(10, 2);
+        for id in ["m1", "m2", "m3"] {
+            mb.post(make_msg(id, "child", "parent")).unwrap();
+            mb.deliver().unwrap();
+        }
+
+        assert_eq!(mb.delivered_count(), 3);
+        assert_eq!(mb.dedupe_entries(), 2);
+
+        // A recent replay is still suppressed.
+        mb.post(make_msg("m3", "child", "parent")).unwrap();
+        assert_eq!(mb.pending(), 0);
+
+        // The oldest ID has left the explicitly bounded replay window.
+        mb.post(make_msg("m1", "child", "parent")).unwrap();
+        assert_eq!(mb.pending(), 1);
     }
 
     #[test]
@@ -697,6 +879,28 @@ mod tests {
             !conflicts.is_empty(),
             "src/*.rs should conflict with src/main.rs"
         );
+    }
+
+    #[test]
+    fn wildcard_suffixes_must_be_compatible() {
+        assert!(!glob_overlap("src/*.rs", "src/main.ts"));
+        assert!(glob_overlap("src/auth*.rs", "src/authentication.rs"));
+    }
+
+    #[test]
+    fn wildcard_matching_respects_directory_boundaries() {
+        assert!(!glob_overlap(
+            "src/auth/*.rs",
+            "src/authentication/login.rs"
+        ));
+        assert!(!glob_overlap("src/*.rs", "src/nested/main.rs"));
+        assert!(glob_overlap("src/**/*.rs", "src/nested/main.rs"));
+    }
+
+    #[test]
+    fn empty_globs_do_not_claim_paths() {
+        assert!(!glob_overlap("", ""));
+        assert!(!glob_overlap("", "src/main.rs"));
     }
 
     // ---- claim semantics ----
