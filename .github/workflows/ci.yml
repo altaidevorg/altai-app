@@ -54,8 +54,7 @@ jobs:
         # These execute the platform shell and process-tree guard, so a
         # compile-only Windows/macOS job cannot mask runtime incompatibility.
         run: |
-          cargo test --manifest-path src-tauri/Cargo.toml \
-            'orchestration::hooks::tests::' -- --test-threads=1
+          cargo test --manifest-path src-tauri/Cargo.toml 'orchestration::hooks::tests::' -- --test-threads=1
 
       - name: Clippy + tests (Linux only)
         if: runner.os == 'Linux'
