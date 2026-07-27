@@ -54,6 +54,9 @@ pub fn detect_overlaps(diffs: &[ChildDiff]) -> Vec<DiffOverlap> {
         for j in (i + 1)..diffs.len() {
             let a = &diffs[i];
             let b = &diffs[j];
+            if a.task_id == b.task_id {
+                continue;
+            }
             let overlap = classify_overlap(a, b);
             if !overlap.overlapping_files.is_empty() {
                 overlaps.push(overlap);
@@ -79,7 +82,8 @@ fn classify_overlap(a: &ChildDiff, b: &ChildDiff) -> DiffOverlap {
         .map(|s| s.as_str())
         .collect();
 
-    let common: Vec<String> = a_all.intersection(&b_all).map(|s| s.to_string()).collect();
+    let mut common: Vec<String> = a_all.intersection(&b_all).map(|s| s.to_string()).collect();
+    common.sort();
 
     if common.is_empty() {
         return DiffOverlap {
@@ -98,9 +102,10 @@ fn classify_overlap(a: &ChildDiff, b: &ChildDiff) -> DiffOverlap {
     let a_add: HashSet<&str> = a.added_files.iter().map(|s| s.as_str()).collect();
     let b_add: HashSet<&str> = b.added_files.iter().map(|s| s.as_str()).collect();
 
-    let has_add_delete = common.iter().any(|f| {
-        (a_add.contains(f.as_str()) && b_del.contains(f.as_str()))
-            || (a_del.contains(f.as_str()) && b_add.contains(f.as_str()))
+    let has_delete_change = common.iter().any(|f| {
+        (a_del.contains(f.as_str()) && (b_add.contains(f.as_str()) || b_mod.contains(f.as_str())))
+            || (b_del.contains(f.as_str())
+                && (a_add.contains(f.as_str()) || a_mod.contains(f.as_str())))
     });
     let has_modify_modify = common
         .iter()
@@ -109,7 +114,7 @@ fn classify_overlap(a: &ChildDiff, b: &ChildDiff) -> DiffOverlap {
         .iter()
         .all(|f| a_del.contains(f.as_str()) && b_del.contains(f.as_str()));
 
-    let severity = if has_add_delete {
+    let severity = if has_delete_change {
         OverlapSeverity::AddDelete
     } else if has_modify_modify {
         OverlapSeverity::ModifyModify
@@ -221,9 +226,6 @@ pub fn plan_integration(
     diffs: &[ChildDiff],
     completed: &HashSet<String>,
 ) -> IntegrationPlan {
-    // Compute merge order.
-    let order = merge_order(graph, completed).unwrap_or_default();
-
     // Detect overlaps among completed tasks.
     let completed_diffs: Vec<&ChildDiff> = diffs
         .iter()
@@ -240,6 +242,28 @@ pub fn plan_integration(
         .flat_map(|o| [o.task_a.clone(), o.task_b.clone()])
         .collect();
 
+    // A cyclic graph has no safe integration order. Fail closed instead of
+    // silently treating every completed task as independent.
+    let order = match merge_order(graph, completed) {
+        Ok(order) => order,
+        Err(_) => {
+            let mut task_ids: Vec<String> = completed.iter().cloned().collect();
+            task_ids.sort();
+            return IntegrationPlan {
+                merge_order: Vec::new(),
+                skipped: task_ids
+                    .into_iter()
+                    .map(|task_id| SkippedTask {
+                        task_id,
+                        reason: SkipReason::Blocked,
+                    })
+                    .collect(),
+                overlaps,
+                verification: VerificationStatus::ConflictEscalated,
+            };
+        }
+    };
+
     let mut integrated = Vec::new();
     let mut skipped = Vec::new();
 
@@ -254,18 +278,28 @@ pub fn plan_integration(
         }
     }
 
-    // Tasks in completed but not in order (unknown to graph).
-    for task_id in completed {
-        if !order.contains(task_id) && !conflicting.contains(task_id) {
-            integrated.push(task_id.clone());
-        }
+    // Tasks unknown to the dependency graph cannot be ordered safely.
+    let mut unordered: Vec<String> = completed
+        .iter()
+        .filter(|task_id| !order.contains(task_id))
+        .cloned()
+        .collect();
+    unordered.sort();
+    for task_id in unordered {
+        skipped.push(SkippedTask {
+            reason: if conflicting.contains(&task_id) {
+                SkipReason::ConflictEscalated
+            } else {
+                SkipReason::Blocked
+            },
+            task_id,
+        });
     }
 
-    let verification = if !overlaps.is_empty() && conflicting.iter().any(|t| integrated.contains(t))
-    {
-        VerificationStatus::ConflictEscalated
-    } else {
+    let verification = if conflicting.is_empty() {
         VerificationStatus::NotRun
+    } else {
+        VerificationStatus::ConflictEscalated
     };
 
     IntegrationPlan {
@@ -309,7 +343,7 @@ pub fn route_conflict(overlap: &DiffOverlap) -> ConflictAction {
         OverlapSeverity::AddDelete => ConflictAction::Escalate,
         OverlapSeverity::ModifyModify => {
             // If only one file overlaps, try resolution. Multiple → escalate.
-            if overlap.overlapping_files.len() <= 1 {
+            if overlap.overlapping_files.len() == 1 {
                 ConflictAction::NeedsResolution
             } else {
                 ConflictAction::Escalate
@@ -408,6 +442,29 @@ mod tests {
         assert!(overlaps.is_empty());
     }
 
+    #[test]
+    fn duplicate_diffs_for_same_task_do_not_conflict_with_themselves() {
+        let diffs = vec![
+            make_diff("t1", "c1", &["src/main.rs"], &[], &[]),
+            make_diff("t1", "c1", &["src/main.rs"], &[], &[]),
+        ];
+
+        assert!(detect_overlaps(&diffs).is_empty());
+    }
+
+    #[test]
+    fn modify_delete_is_escalated_as_a_destructive_conflict() {
+        let diffs = vec![
+            make_diff("t1", "c1", &["src/main.rs"], &[], &[]),
+            make_diff("t2", "c2", &[], &[], &["src/main.rs"]),
+        ];
+
+        let overlaps = detect_overlaps(&diffs);
+        assert_eq!(overlaps.len(), 1);
+        assert_eq!(overlaps[0].severity, OverlapSeverity::AddDelete);
+        assert_eq!(route_conflict(&overlaps[0]), ConflictAction::Escalate);
+    }
+
     // ---- merge ordering ----
 
     #[test]
@@ -485,6 +542,7 @@ mod tests {
             .skipped
             .iter()
             .all(|s| s.reason == SkipReason::ConflictEscalated));
+        assert_eq!(plan.verification, VerificationStatus::ConflictEscalated);
     }
 
     #[test]
@@ -504,6 +562,49 @@ mod tests {
         let plan = plan_integration(&graph, &diffs, &completed);
         // C has no conflicts — should be integrated.
         assert!(plan.merge_order.contains(&"C".to_string()));
+    }
+
+    #[test]
+    fn plan_integration_blocks_tasks_missing_from_dependency_graph() {
+        let graph = TaskGraph::new();
+        let diffs = vec![make_diff("unknown", "c1", &["src/a.rs"], &[], &[])];
+        let completed: HashSet<String> = ["unknown".into()].into();
+
+        let plan = plan_integration(&graph, &diffs, &completed);
+        assert!(plan.merge_order.is_empty());
+        assert_eq!(plan.skipped.len(), 1);
+        assert_eq!(plan.skipped[0].reason, SkipReason::Blocked);
+    }
+
+    #[test]
+    fn plan_integration_fails_closed_on_dependency_cycle() {
+        let graph = TaskGraph {
+            nodes: ["A".into(), "B".into()].into(),
+            edges: vec![
+                super::super::task_graph::TaskDependency {
+                    task_id: "A".into(),
+                    depends_on: "B".into(),
+                },
+                super::super::task_graph::TaskDependency {
+                    task_id: "B".into(),
+                    depends_on: "A".into(),
+                },
+            ],
+        };
+        let diffs = vec![
+            make_diff("A", "c1", &["src/a.rs"], &[], &[]),
+            make_diff("B", "c2", &["src/b.rs"], &[], &[]),
+        ];
+        let completed: HashSet<String> = ["A".into(), "B".into()].into();
+
+        let plan = plan_integration(&graph, &diffs, &completed);
+        assert!(plan.merge_order.is_empty());
+        assert_eq!(plan.skipped.len(), 2);
+        assert!(plan
+            .skipped
+            .iter()
+            .all(|task| task.reason == SkipReason::Blocked));
+        assert_eq!(plan.verification, VerificationStatus::ConflictEscalated);
     }
 
     // ---- conflict routing ----
@@ -547,6 +648,17 @@ mod tests {
             task_a: "t1".into(),
             task_b: "t2".into(),
             overlapping_files: vec!["a.rs".into(), "b.rs".into(), "c.rs".into()],
+            severity: OverlapSeverity::ModifyModify,
+        };
+        assert_eq!(route_conflict(&overlap), ConflictAction::Escalate);
+    }
+
+    #[test]
+    fn empty_modify_modify_overlap_is_rejected() {
+        let overlap = DiffOverlap {
+            task_a: "t1".into(),
+            task_b: "t2".into(),
+            overlapping_files: vec![],
             severity: OverlapSeverity::ModifyModify,
         };
         assert_eq!(route_conflict(&overlap), ConflictAction::Escalate);
