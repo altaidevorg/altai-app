@@ -42,6 +42,8 @@ pub mod plans;
 #[allow(dead_code)]
 pub mod policy;
 #[allow(dead_code)]
+pub mod profiles;
+#[allow(dead_code)]
 pub mod projections;
 #[allow(dead_code)]
 pub mod prompt;
