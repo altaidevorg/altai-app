@@ -37,6 +37,8 @@ pub mod credentials;
 #[allow(dead_code)]
 pub mod environment;
 #[allow(dead_code)]
+pub mod delivery;
+#[allow(dead_code)]
 pub mod eval_lab;
 #[allow(dead_code)]
 pub mod gardening;
