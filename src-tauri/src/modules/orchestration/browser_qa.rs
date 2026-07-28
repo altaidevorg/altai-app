@@ -593,10 +593,11 @@ impl<D: BrowserDriver> BrowserQaExecutor<D> {
             self.driver.wait_for_selector(selector, step.timeout_ms)?;
         }
 
-        let screenshot = Some(
-            self.driver
-                .screenshot(commit_sha, &step.route, viewport, timestamp_ms)?,
-        );
+        let screenshot =
+            Some(
+                self.driver
+                    .screenshot(commit_sha, &step.route, viewport, timestamp_ms)?,
+            );
 
         let console_errors = if journey.capture_console {
             self.driver.capture_console(&step.route, timestamp_ms)
@@ -635,8 +636,9 @@ impl<D: BrowserDriver> BrowserQaExecutor<D> {
         content: &str,
         credentials: &HashMap<String, String>,
     ) -> Result<(), BrowserError> {
+        let normalized_content = content.to_lowercase();
         for (key, value) in credentials {
-            if !value.is_empty() && content.contains(value.as_str()) {
+            if !value.is_empty() && normalized_content.contains(&value.to_lowercase()) {
                 let _ = key;
                 return Err(BrowserError::CredentialExposure);
             }
@@ -1084,6 +1086,17 @@ mod tests {
         creds.insert("api_key".to_string(), "secret123".to_string());
         let result = BrowserQaExecutor::<MockBrowserDriver>::check_credential_exposure(
             "the key is secret123 here",
+            &creds,
+        );
+        assert!(matches!(result, Err(BrowserError::CredentialExposure)));
+    }
+
+    #[test]
+    fn credential_exposure_detected_case_insensitively() {
+        let mut creds = HashMap::new();
+        creds.insert("api_key".to_string(), "Secret123".to_string());
+        let result = BrowserQaExecutor::<MockBrowserDriver>::check_credential_exposure(
+            "the key is SECRET123 here",
             &creds,
         );
         assert!(matches!(result, Err(BrowserError::CredentialExposure)));
