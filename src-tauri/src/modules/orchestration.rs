@@ -31,7 +31,10 @@ pub mod browser_qa;
 pub mod budget;
 #[allow(dead_code)]
 pub mod checks;
+#[allow(dead_code)]
 pub mod commands;
+#[allow(dead_code)]
+pub mod config_diff;
 #[allow(dead_code)]
 pub mod context;
 #[allow(dead_code)]
