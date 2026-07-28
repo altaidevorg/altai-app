@@ -94,6 +94,9 @@ pub fn is_within_root(path: &str, root: &str) -> bool {
     if path == root {
         return true;
     }
+    if root == "/" {
+        return path.starts_with('/');
+    }
     path.starts_with(root) && path[root.len()..].starts_with('/')
 }
 
@@ -124,11 +127,11 @@ pub struct PathSandbox {
 }
 
 impl PathSandbox {
-    pub fn new(root: impl Into<String>) -> Self {
+    pub fn new(root: impl Into<String>) -> Result<Self, PathError> {
         let root = root.into();
-        Self {
-            root: normalize_path(&root).unwrap_or(root),
-        }
+        Ok(Self {
+            root: normalize_path(&root)?,
+        })
     }
 
     /// Validate and normalize a path within this sandbox.
@@ -289,13 +292,19 @@ fn find_pattern(text: &str, pattern: &RedactionPattern) -> Option<(usize, usize)
 
 /// Redact a pattern-based secret from text.
 fn redact_pattern(text: &str, pattern: &RedactionPattern) -> String {
-    if let Some((start, end)) = find_pattern(text, pattern) {
-        let before = &text[..start + pattern.prefix.len()];
-        let after = &text[end..];
-        format!("{before}[REDACTED]{after}")
-    } else {
-        text.to_string()
+    let mut redacted = String::new();
+    let mut cursor = 0;
+
+    while let Some((start, end)) = find_pattern(&text[cursor..], pattern) {
+        let start = cursor + start;
+        let end = cursor + end;
+        redacted.push_str(&text[cursor..start + pattern.prefix.len()]);
+        redacted.push_str("[REDACTED]");
+        cursor = end;
     }
+
+    redacted.push_str(&text[cursor..]);
+    redacted
 }
 
 // ===========================================================================
@@ -512,6 +521,11 @@ mod tests {
         assert!(!is_within_root("/workspace-evil", "/workspace"));
     }
 
+    #[test]
+    fn is_within_root_accepts_children_of_filesystem_root() {
+        assert!(is_within_root("/workspace/file.txt", "/"));
+    }
+
     // ---- Path validation ----
 
     #[test]
@@ -543,7 +557,7 @@ mod tests {
 
     #[test]
     fn sandbox_validates_multiple_paths() {
-        let sandbox = PathSandbox::new("/workspace");
+        let sandbox = PathSandbox::new("/workspace").unwrap();
         assert!(sandbox.check("/workspace/a.rs").is_ok());
         assert!(sandbox.check("/workspace/sub/b.rs").is_ok());
         assert!(sandbox.check("/etc/passwd").is_err());
@@ -551,15 +565,20 @@ mod tests {
 
     #[test]
     fn sandbox_contains_check() {
-        let sandbox = PathSandbox::new("/workspace");
+        let sandbox = PathSandbox::new("/workspace").unwrap();
         assert!(sandbox.contains("/workspace/file.txt"));
         assert!(!sandbox.contains("/other/file.txt"));
     }
 
     #[test]
     fn sandbox_rejects_traversal() {
-        let sandbox = PathSandbox::new("/workspace");
+        let sandbox = PathSandbox::new("/workspace").unwrap();
         assert!(!sandbox.contains("/workspace/../../etc/passwd"));
+    }
+
+    #[test]
+    fn sandbox_rejects_invalid_root() {
+        assert!(matches!(PathSandbox::new(""), Err(PathError::EmptyPath)));
     }
 
     // ---- Redaction: pattern matching ----
@@ -622,6 +641,15 @@ mod tests {
         let text = "aws=AKIAIOSFODNN7EXAMPLE and literal-secret";
         let redacted = registry.redact(text);
         assert!(redacted.matches("[REDACTED]").count() >= 2);
+    }
+
+    #[test]
+    fn redact_all_occurrences_of_the_same_pattern() {
+        let registry = RedactionRegistry::with_defaults();
+        let text = "AKIAIOSFODNN7EXAMPLE then AKIAABCDEFGHIJKLMNOP";
+        let redacted = registry.redact(text);
+        assert_eq!(redacted.matches("[REDACTED]").count(), 2);
+        assert!(!redacted.contains("AKIA"));
     }
 
     #[test]
