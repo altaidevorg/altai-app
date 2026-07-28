@@ -306,13 +306,11 @@ pub fn run() {
                 .find(|w| w.label == "main")
                 .cloned()
                 .ok_or("missing main window config in tauri.conf.json")?;
-            let mut builder = WebviewWindowBuilder::from_config(app.handle(), &window_cfg)?;
             #[cfg(target_os = "macos")]
-            {
-                builder = builder.with_webview_configuration(
-                    modules::macos_webview::config_without_writing_tools(),
-                );
-            }
+            let builder = WebviewWindowBuilder::from_config(app.handle(), &window_cfg)?
+                .with_webview_configuration(modules::macos_webview::config_without_writing_tools());
+            #[cfg(not(target_os = "macos"))]
+            let builder = WebviewWindowBuilder::from_config(app.handle(), &window_cfg)?;
             builder.build()?;
 
             Ok(())
