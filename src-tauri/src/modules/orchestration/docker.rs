@@ -99,19 +99,14 @@ fn default_network_mode() -> NetworkMode {
 }
 
 /// Docker network mode.
-#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "snake_case")]
 pub enum NetworkMode {
+    #[default]
     Bridge,
     Host,
     None,
     Container,
-}
-
-impl Default for NetworkMode {
-    fn default() -> Self {
-        Self::Bridge
-    }
 }
 
 impl ContainerSpec {
@@ -166,7 +161,7 @@ pub struct PathMapper {
 impl PathMapper {
     pub fn new(mounts: Vec<VolumeMount>) -> Self {
         let mut mounts = mounts;
-        mounts.sort_by(|a, b| b.container_path.len().cmp(&a.container_path.len()));
+        mounts.sort_by_key(|mount| std::cmp::Reverse(mount.container_path.len()));
         Self { mounts }
     }
 
@@ -226,9 +221,7 @@ fn strip_prefix_path<'a>(path: &'a str, prefix: &str) -> Option<&'a str> {
         return Some("");
     }
     if let Some(rest) = path.strip_prefix(prefix) {
-        if rest.starts_with('/') {
-            return Some(&rest[1..]);
-        }
+        return rest.strip_prefix('/');
     }
     None
 }
