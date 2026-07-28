@@ -12,7 +12,10 @@
 //! - stale cache keys cannot cross repositories;
 //! - background processes cannot outlive cleanup unnoticed.
 
-use std::collections::HashMap;
+use std::{
+    collections::HashMap,
+    time::{Duration, Instant},
+};
 
 use serde::{Deserialize, Serialize};
 
@@ -82,7 +85,7 @@ fn default_healthcheck_interval_ms() -> u64 {
 }
 
 /// Cache configuration for safe dependency state.
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct CacheSpec {
     /// Cache key directories (e.g. `node_modules`, `target`).
@@ -91,15 +94,6 @@ pub struct CacheSpec {
     /// Whether the cache is shared across repositories.
     #[serde(default)]
     pub shared: bool,
-}
-
-impl Default for CacheSpec {
-    fn default() -> Self {
-        Self {
-            directories: Vec::new(),
-            shared: false,
-        }
-    }
 }
 
 /// A terminal environment definition for the workspace.
@@ -312,21 +306,16 @@ pub struct SetupResult {
 }
 
 /// The health status of an environment after setup.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum EnvironmentHealth {
     /// Setup succeeded and healthcheck passed (or no healthcheck configured).
+    #[default]
     Healthy,
     /// Setup succeeded but healthcheck has not yet passed.
     Starting,
     /// Setup failed or healthcheck failed.
     Unhealthy,
-}
-
-impl Default for EnvironmentHealth {
-    fn default() -> Self {
-        Self::Healthy
-    }
 }
 
 /// The environment setup executor.
@@ -376,10 +365,10 @@ impl<R: CommandRunner> EnvironmentSetup<R> {
         } else {
             for cmd in &profile.install {
                 let display = cmd.display();
-                let start = now_ms;
+                let start = Instant::now();
                 match self.runner.run_setup(cmd) {
                     Ok(output) => {
-                        let duration = now_ms.saturating_sub(start);
+                        let duration = start.elapsed().as_millis() as u64;
                         log.push(SetupLogEntry {
                             step: "install".to_string(),
                             command: display.clone(),
@@ -389,7 +378,7 @@ impl<R: CommandRunner> EnvironmentSetup<R> {
                         });
                     }
                     Err(err) => {
-                        let duration = now_ms.saturating_sub(start);
+                        let duration = start.elapsed().as_millis() as u64;
                         log.push(SetupLogEntry {
                             step: "install".to_string(),
                             command: display.clone(),
@@ -573,7 +562,7 @@ fn seahash(data: &str) -> u64 {
     for &b in bytes {
         hash ^= b as u64;
         hash = hash.wrapping_mul(0x9e3779b97f4a7c15);
-        hash = (hash << 13) | (hash >> 51);
+        hash = hash.rotate_left(13);
     }
     hash
 }
@@ -592,6 +581,8 @@ pub struct MockCommandRunner {
     pub kill_succeeds: bool,
     /// Whether health probes succeed.
     pub health_succeeds: bool,
+    /// Optional delay for setup commands, used to verify elapsed-time logging.
+    pub setup_delay: Duration,
     /// PIDs that are "alive" (for testing process tracking).
     pub alive_pids: Vec<String>,
     /// Counter for generating PIDs.
@@ -609,6 +600,7 @@ impl Default for MockCommandRunner {
             start_succeeds: true,
             kill_succeeds: true,
             health_succeeds: true,
+            setup_delay: Duration::ZERO,
             alive_pids: Vec::new(),
             pid_counter: 0,
             captured_setup: Vec::new(),
@@ -620,6 +612,7 @@ impl Default for MockCommandRunner {
 impl CommandRunner for MockCommandRunner {
     fn run_setup(&mut self, cmd: &ShellCommand) -> Result<String, String> {
         self.captured_setup.push(cmd.clone());
+        std::thread::sleep(self.setup_delay);
         if self.setup_succeeds {
             Ok(format!("ok: {}", cmd.display()))
         } else {
@@ -1092,6 +1085,19 @@ mod tests {
         assert!(entry.success);
         assert!(entry.output.contains("ok"));
         assert_eq!(entry.command, "npm install");
+    }
+
+    #[test]
+    fn setup_log_records_elapsed_duration() {
+        let runner = MockCommandRunner {
+            setup_delay: Duration::from_millis(10),
+            ..MockCommandRunner::default()
+        };
+        let mut setup = EnvironmentSetup::new(runner);
+
+        let result = setup.setup(&sample_profile(), 0).unwrap();
+
+        assert!(result.log[0].duration_ms >= 10);
     }
 
     #[test]
