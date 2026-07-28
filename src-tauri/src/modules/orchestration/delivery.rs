@@ -310,10 +310,11 @@ pub fn evaluate_policy(
 // ---------------------------------------------------------------------------
 
 /// The state of a delivery attempt.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum DeliveryState {
     /// Preview generated, awaiting approval.
+    #[default]
     Pending,
     /// Apply in progress.
     Applying,
@@ -329,12 +330,6 @@ pub enum DeliveryState {
     Failed,
     /// Aborted due to conflict.
     Aborted,
-}
-
-impl Default for DeliveryState {
-    fn default() -> Self {
-        Self::Pending
-    }
 }
 
 /// The full delivery record.
