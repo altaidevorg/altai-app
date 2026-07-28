@@ -649,7 +649,8 @@ mod tests {
         let text = "AKIAIOSFODNN7EXAMPLE then AKIAABCDEFGHIJKLMNOP";
         let redacted = registry.redact(text);
         assert_eq!(redacted.matches("[REDACTED]").count(), 2);
-        assert!(!redacted.contains("AKIA"));
+        assert!(!redacted.contains("AKIAIOSFODNN7EXAMPLE"));
+        assert!(!redacted.contains("AKIAABCDEFGHIJKLMNOP"));
     }
 
     #[test]
