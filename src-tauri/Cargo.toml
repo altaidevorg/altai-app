@@ -97,7 +97,10 @@ objc2-app-kit = { version = "0.3", features = [
 	"NSMenuItem",
 	"NSResponder",
 ] }
-objc2-foundation = { version = "0.3", features = ["NSString"] }
+objc2-foundation = { version = "0.3", features = ["NSString", "NSObject"] }
+# Used to opt out of Apple Intelligence Writing Tools / Siri AI popover on
+# the WKWebView (must be set on WKWebViewConfiguration before creation).
+objc2-web-kit = { version = "0.3", features = ["WKWebViewConfiguration"] }
 # Reads/writes the app bundle's Info.plist so ALTAI can declare itself a
 # handler for `public.item` (all files) and `public.folder`, which makes it
 # appear in Finder's "Open With" submenu on macOS.

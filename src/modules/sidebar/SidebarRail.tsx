@@ -31,7 +31,7 @@ export function SidebarRail({
     <nav
       aria-label="Workspace views"
       style={{ height: SIDEBAR_RAIL_HEIGHT }}
-      className="flex shrink-0 items-stretch gap-1 border-b border-border/60 bg-card/85 px-1.5 py-1 backdrop-blur"
+      className="flex shrink-0 items-stretch gap-1 border-b border-border-subtle bg-card/85 px-1.5 py-1 backdrop-blur"
     >
       {items.map((item) => {
         const isActive = item.id === activeItem;
@@ -45,16 +45,16 @@ export function SidebarRail({
             aria-pressed={isActive}
             onClick={() => onSelectItem(item.id)}
             className={cn(
-              "group relative flex min-w-0 flex-1 cursor-pointer items-center justify-center gap-1 rounded-md px-1 text-[10.5px] font-medium outline-none transition-colors duration-150",
-              "focus-visible:ring-2 focus-visible:ring-primary/40",
+              "group relative flex min-w-0 flex-1 cursor-pointer items-center justify-center gap-1 rounded-full px-2.5 text-[10.5px] font-medium outline-none transition-colors duration-150",
+              "focus-visible:ring-2 focus-visible:ring-ring/40",
               isActive
-                ? "bg-foreground/[0.07] text-foreground dark:bg-foreground/[0.09]"
-                : "text-muted-foreground hover:bg-foreground/[0.045] hover:text-foreground",
+                ? "bg-primary/12 text-primary ring-1 ring-inset ring-primary/30 dark:bg-primary/20"
+                : "text-muted-foreground hover:bg-accent hover:text-foreground",
             )}
           >
             <span className="truncate">{item.label}</span>
             {badge > 0 ? (
-              <span className="rounded-full bg-violet-500/15 px-1 text-[9px] font-semibold tabular-nums text-violet-500">
+              <span className="rounded-full bg-info/15 px-1 text-[9px] font-semibold tabular-nums text-info dark:bg-info/25">
                 {badge > 9 ? "9+" : badge}
               </span>
             ) : null}

@@ -35,7 +35,14 @@ export type GHItem = {
 export type GHPullDetail = GHItem & {
   merged: boolean;
   mergeable: boolean | null;
-  head: { ref: string };
+  mergeable_state?: string;
+  additions?: number;
+  deletions?: number;
+  changed_files?: number;
+  commits?: number;
+  review_comments?: number;
+  requested_reviewers?: GHUser[];
+  head: { ref: string; sha: string };
   base: { ref: string };
 };
 
@@ -44,6 +51,45 @@ export type GHComment = {
   body: string;
   user: GHUser | null;
   created_at: string;
+};
+
+export type GHReview = {
+  id: number;
+  body: string | null;
+  state:
+    | "APPROVED"
+    | "CHANGES_REQUESTED"
+    | "COMMENTED"
+    | "DISMISSED"
+    | "PENDING";
+  user: GHUser | null;
+  submitted_at: string | null;
+  html_url: string;
+};
+
+export type GHCheckRun = {
+  id: number;
+  name: string;
+  status: "queued" | "in_progress" | "completed" | "waiting" | "pending";
+  conclusion:
+    | "action_required"
+    | "cancelled"
+    | "failure"
+    | "neutral"
+    | "skipped"
+    | "stale"
+    | "success"
+    | "timed_out"
+    | null;
+  html_url: string | null;
+  started_at: string | null;
+  completed_at: string | null;
+};
+
+export type GHMergeResult = {
+  sha: string | null;
+  merged: boolean;
+  message: string;
 };
 
 export type RepoSlug = { owner: string; repo: string };
@@ -90,6 +136,27 @@ export function listComments(
   );
 }
 
+export function listPullReviews(
+  slug: RepoSlug,
+  number: number,
+): Promise<GHReview[]> {
+  return github.api<GHReview[]>(
+    "GET",
+    `${base(slug)}/pulls/${number}/reviews?per_page=100`,
+  );
+}
+
+export async function listCheckRuns(
+  slug: RepoSlug,
+  sha: string,
+): Promise<GHCheckRun[]> {
+  const result = await github.api<{ check_runs: GHCheckRun[] }>(
+    "GET",
+    `${base(slug)}/commits/${encodeURIComponent(sha)}/check-runs?per_page=100`,
+  );
+  return result.check_runs;
+}
+
 export function addComment(
   slug: RepoSlug,
   number: number,
@@ -108,8 +175,15 @@ export function setIssueState(
   return github.api("PATCH", `${base(slug)}/issues/${number}`, { state });
 }
 
-export function mergePull(slug: RepoSlug, number: number): Promise<unknown> {
-  return github.api("PUT", `${base(slug)}/pulls/${number}/merge`, {});
+export function mergePull(
+  slug: RepoSlug,
+  number: number,
+): Promise<GHMergeResult> {
+  return github.api<GHMergeResult>(
+    "PUT",
+    `${base(slug)}/pulls/${number}/merge`,
+    {},
+  );
 }
 
 export function createIssue(

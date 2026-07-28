@@ -39,6 +39,11 @@ function dirname(path: string): string {
   return i <= 0 ? "" : normalized.slice(0, i);
 }
 
+function isAltaiWorkflowFile(path: string): boolean {
+  const normalized = path.replace(/\\/g, "/").toLowerCase();
+  return normalized === "workflow.md" || normalized.endsWith("/workflow.md");
+}
+
 /**
  * Full commit experience embedded in the GitHub tab: stage or unstage
  * individual files, open their diffs, write a message and commit, then push or
@@ -53,7 +58,7 @@ export function CommitBox({ repoRoot, onOpenDiff }: Props) {
   const [publishOpen, setPublishOpen] = useState(false);
 
   const files = useMemo(
-    () => sc.status?.changedFiles ?? [],
+    () => (sc.status?.changedFiles ?? []).filter((file) => !isAltaiWorkflowFile(file.path)),
     [sc.status],
   );
   const staged = useMemo(() => files.filter((f) => f.staged), [files]);

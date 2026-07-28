@@ -191,10 +191,14 @@ async fn open_settings_window(app: tauri::AppHandle, tab: Option<String>) -> Res
         builder = builder.parent(&main).map_err(|e| e.to_string())?;
     }
 
+    // Settings header is h-11 (44px); inset lights to the vertical center.
+    // Opt out of Apple Intelligence Writing Tools / Siri AI selection popover.
     #[cfg(target_os = "macos")]
     let builder = builder
         .title_bar_style(tauri::TitleBarStyle::Overlay)
-        .hidden_title(true);
+        .hidden_title(true)
+        .traffic_light_position(tauri::LogicalPosition::new(16.0, 16.0))
+        .with_webview_configuration(modules::macos_webview::config_without_writing_tools());
 
     // On Linux/Windows we render our own titlebar, so drop native chrome
     // and make the window transparent.
@@ -289,6 +293,26 @@ pub fn run() {
             // mirrors them via set_recent_folders).
             os_menu::init(app.handle());
             app_menu::install(app.handle(), &[])?;
+
+            // Main window is `create: false` in tauri.conf so we can attach a
+            // WKWebViewConfiguration that opts out of Apple Intelligence
+            // Writing Tools / the Siri AI selection popover (must be set at
+            // construction time — cannot be changed later).
+            let window_cfg = app
+                .config()
+                .app
+                .windows
+                .iter()
+                .find(|w| w.label == "main")
+                .cloned()
+                .ok_or("missing main window config in tauri.conf.json")?;
+            #[cfg(target_os = "macos")]
+            let builder = WebviewWindowBuilder::from_config(app.handle(), &window_cfg)?
+                .with_webview_configuration(modules::macos_webview::config_without_writing_tools());
+            #[cfg(not(target_os = "macos"))]
+            let builder = WebviewWindowBuilder::from_config(app.handle(), &window_cfg)?;
+            builder.build()?;
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

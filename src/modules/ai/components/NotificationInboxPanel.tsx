@@ -173,13 +173,13 @@ export function NotificationInboxPanel({ onClose }: { onClose: () => void }) {
       >
         {view.attentionCount ? (
           <div className="flex shrink-0 items-center gap-1.5 border-b border-border/50 px-3 py-1.5">
-            <span className="rounded-full bg-amber-500/12 px-1.5 py-0.5 text-[9px] font-semibold text-amber-700 dark:text-amber-300">
+            <span className="rounded-full bg-warning/15 px-1.5 py-0.5 text-[9px] font-semibold text-warning">
               {view.attentionCount} need{view.attentionCount === 1 ? "s" : ""} attention
             </span>
           </div>
         ) : (
           <div className="flex shrink-0 items-center gap-1.5 border-b border-border/50 px-3 py-1.5">
-            <span className="rounded-full bg-emerald-500/10 px-1.5 py-0.5 text-[9px] font-medium text-emerald-700 dark:text-emerald-300">
+            <span className="rounded-full bg-success/10 px-1.5 py-0.5 text-[9px] font-medium text-success">
               All clear
             </span>
           </div>
@@ -469,9 +469,9 @@ function InboxStat({
   onClick: () => void;
 }) {
   const tones = {
-    amber: "border-amber-500/25 bg-amber-500/[0.055] text-amber-700 dark:text-amber-300",
-    sky: "border-sky-500/25 bg-sky-500/[0.05] text-sky-700 dark:text-sky-300",
-    violet: "border-violet-500/25 bg-violet-500/[0.05] text-violet-700 dark:text-violet-300",
+    amber: "border-warning/25 bg-warning/[0.07] text-warning",
+    sky: "border-info/25 bg-info/[0.06] text-info",
+    violet: "border-primary/25 bg-primary/[0.07] text-primary",
   };
   return (
     <button
@@ -512,13 +512,13 @@ function TicketCard({
   const trimmedResponse = response.trim();
 
   return (
-    <article className="rounded-lg border border-amber-500/30 bg-amber-500/[0.055] p-2.5">
+    <article className="rounded-lg border border-warning/30 bg-warning/[0.06] p-2.5">
       <div className="flex items-start gap-2">
-        <span className="mt-0.5 inline-flex size-6 shrink-0 items-center justify-center rounded-md bg-amber-500/10 text-amber-700 dark:text-amber-300">
+        <span className="mt-0.5 inline-flex size-6 shrink-0 items-center justify-center rounded-md bg-warning/10 text-warning">
           <HugeiconsIcon icon={Alert02Icon} size={13} strokeWidth={1.8} />
         </span>
         <div className="min-w-0 flex-1">
-          <div className="text-[10px] font-medium uppercase tracking-wide text-amber-700/80 dark:text-amber-300/80">
+          <div className="text-[10px] font-medium uppercase tracking-wide text-warning/80">
             Background task is paused
           </div>
           <p className="mt-1 whitespace-pre-wrap text-[11px] leading-relaxed text-foreground">
@@ -532,7 +532,7 @@ function TicketCard({
               {ticket.choices.map((choice, index) => (
                 <span
                   key={`${index}-${choice}`}
-                  className="rounded-full border border-amber-500/25 bg-background/55 px-2 py-0.5 text-[9.5px] text-muted-foreground"
+                  className="rounded-full border border-warning/25 bg-background/55 px-2 py-0.5 text-[9.5px] text-muted-foreground"
                 >
                   {choice}
                 </span>
@@ -552,7 +552,7 @@ function TicketCard({
                 aria-label="Response to clarification ticket"
                 rows={2}
                 maxLength={10_000}
-                className="w-full resize-y rounded-md border border-amber-500/25 bg-background/65 px-2 py-1.5 text-[10.5px] leading-relaxed outline-none placeholder:text-muted-foreground/70 focus:border-amber-500/55 disabled:opacity-50"
+                className="w-full resize-y rounded-md border border-warning/25 bg-background/65 px-2 py-1.5 text-[10.5px] leading-relaxed outline-none placeholder:text-muted-foreground/70 focus:border-warning/55 disabled:opacity-50"
               />
               {ticket.choices.length ? (
                 <div className="flex flex-wrap gap-1">
@@ -565,8 +565,8 @@ function TicketCard({
                       className={cn(
                         "rounded-full border px-2 py-0.5 text-[9px] transition-colors disabled:opacity-45",
                         response === choice
-                          ? "border-amber-500/60 bg-amber-500/15 text-amber-800 dark:text-amber-200"
-                          : "border-amber-500/25 bg-background/55 text-muted-foreground hover:border-amber-500/45",
+                          ? "border-warning/60 bg-warning/15 text-warning"
+                          : "border-warning/25 bg-background/55 text-muted-foreground hover:border-warning/45",
                       )}
                     >
                       {choice}
@@ -582,13 +582,13 @@ function TicketCard({
           )}
         </div>
       </div>
-      <div className="mt-2 flex items-center gap-1 border-t border-amber-500/15 pt-2">
+      <div className="mt-2 flex items-center gap-1 border-t border-warning/15 pt-2">
         {canResume ? (
           <button
             type="button"
             onClick={() => onReply(trimmedResponse)}
             disabled={busy || !trimmedResponse}
-            className="rounded-md bg-amber-500/15 px-2 py-1 text-[10px] font-medium text-amber-800 transition-colors hover:bg-amber-500/25 disabled:cursor-not-allowed disabled:opacity-45 dark:text-amber-200"
+            className="rounded-md bg-warning/15 px-2 py-1 text-[10px] font-medium text-warning transition-colors hover:bg-warning/25 disabled:cursor-not-allowed disabled:opacity-45"
           >
             {busy ? "Resuming…" : "Reply & resume"}
           </button>
@@ -632,14 +632,14 @@ function NotificationCard({
     <article
       className={cn(
         "rounded-lg border border-border/60 bg-card/45 p-2.5",
-        unread && "border-sky-500/25 bg-sky-500/[0.035]",
+        unread && "border-info/25 bg-info/[0.04]",
       )}
     >
       <div className="flex items-start gap-2">
         <span
           className={cn(
             "mt-1.5 size-1.5 shrink-0 rounded-full",
-            unread ? "bg-sky-500" : "bg-muted-foreground/35",
+            unread ? "bg-info" : "bg-muted-foreground/35",
           )}
         />
         <div className="min-w-0 flex-1">
@@ -729,8 +729,8 @@ function JobCard({
               className={cn(
                 "rounded-full px-1.5 py-0.5 text-[9px] font-medium",
                 waiting
-                  ? "bg-amber-500/10 text-amber-700 dark:text-amber-300"
-                  : "bg-sky-500/10 text-sky-700 dark:text-sky-300",
+                  ? "bg-warning/10 text-warning"
+                  : "bg-info/10 text-info",
               )}
             >
               {humanize(job.state)}
@@ -780,7 +780,7 @@ function JobCard({
 function EmptyInbox() {
   return (
     <div className="flex flex-col items-center justify-center px-4 py-12 text-center">
-      <span className="inline-flex size-9 items-center justify-center rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-300">
+      <span className="inline-flex size-9 items-center justify-center rounded-full bg-success/10 text-success">
         <HugeiconsIcon icon={Tick02Icon} size={18} strokeWidth={1.75} />
       </span>
       <h3 className="mt-3 text-[11.5px] font-medium text-foreground">

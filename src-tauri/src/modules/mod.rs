@@ -3,6 +3,8 @@ pub mod fs;
 pub mod git;
 pub mod github;
 pub mod lsp_install;
+#[cfg(target_os = "macos")]
+pub mod macos_webview;
 pub mod mcp;
 pub mod net;
 pub mod notebook;

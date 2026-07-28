@@ -33,7 +33,7 @@ import { useChatStore } from "../store/chatStore";
 import { useSnippetsStore } from "../store/snippetsStore";
 import { AgentSwitcher } from "./AgentSwitcher";
 import { FilePickerContent } from "./FilePicker";
-import { ModelDropdown } from "./AiStatusBarControls";
+import { ModelDropdown } from "./ModelDropdown";
 import { PaperImport } from "./PaperImport";
 import { PermissionModeSwitcher } from "./PermissionModeSwitcher";
 import { SnippetPickerContent, type PickerItem } from "./SnippetPicker";
@@ -318,13 +318,13 @@ export function AiInputBar() {
 
       <div
         className={cn(
-          "flex flex-col overflow-hidden rounded-none border border-border/60 bg-transparent",
-          "transition-[border-color] hover:border-border focus-within:border-foreground/40",
+          "flex flex-col overflow-hidden rounded-none border border-border-subtle bg-transparent",
+          "transition-[border-color] hover:border-border focus-within:border-primary/40",
           c.isBusy && "opacity-95",
         )}
       >
         {hasChips && (
-          <div className="border-b border-border/40 px-2.5 py-2">
+          <div className="border-b border-border-subtle px-2.5 py-2">
             <ChipsRow
               files={c.files}
               onRemoveFile={c.removeFile}
@@ -444,7 +444,7 @@ export function AiInputBar() {
                       className={cn(
                         "rounded-md p-0 transition-all",
                         c.canSend
-                          ? "bg-foreground text-background hover:bg-foreground/90 active:scale-95"
+                          ? "bg-primary text-primary-foreground hover:bg-primary/90 active:scale-95"
                           : "bg-foreground/10 text-foreground/35",
                       )}
                       aria-label="Send"
@@ -481,7 +481,7 @@ export function AiInputBar() {
         </Popover>
 
         {(c.canSteer || c.canQueue) && (
-          <div className="flex items-center gap-1.5 border-t border-border/40 px-2.5 py-1.5">
+          <div className="flex items-center gap-1.5 border-t border-border-subtle px-2.5 py-1.5">
             <span className="min-w-0 flex-1 truncate text-[10px] text-muted-foreground">
               {c.isCancelling
                 ? "Cancellation requested — you can queue the next task"
@@ -524,7 +524,7 @@ export function AiInputBar() {
           </div>
         )}
 
-        <div className="flex items-center gap-0.5 overflow-x-auto border-t border-border/40 px-2.5 pb-1.5 pt-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        <div className="flex flex-wrap items-center gap-0.5 border-t border-border-subtle px-2.5 pb-1.5 pt-1">
           <ToolbarIcon
             title="Attach file or image"
             onClick={() => fileInputRef.current?.click()}
@@ -567,8 +567,6 @@ export function AiInputBar() {
           </HoverTooltip>
           {agentPickerEnabled && <AgentSwitcher variant="toolbar" />}
           <ModelDropdown />
-
-          <div className="flex-1" />
 
           {c.voice.supported && (
             <ToolbarIcon
@@ -702,7 +700,7 @@ function ChipsRow({
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 0.92 }}
             transition={{ duration: 0.12 }}
-            className="group flex items-center gap-1 rounded-md border border-border/60 bg-card px-1.5 py-0.5 text-[11px]"
+            className="group flex items-center gap-1 rounded-md border border-border-subtle bg-card px-1.5 py-0.5 text-[11px]"
             title={cmd.label}
           >
             <HugeiconsIcon
@@ -758,7 +756,7 @@ function ChipsRow({
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 0.92 }}
             transition={{ duration: 0.12 }}
-            className="group flex items-center gap-1 rounded-md border border-border/60 bg-card px-1.5 py-0.5 text-[11px]"
+            className="group flex items-center gap-1 rounded-md border border-border-subtle bg-card px-1.5 py-0.5 text-[11px]"
           >
             {f.kind === "image" && f.url ? (
               <img src={f.url} alt="" className="size-4 rounded object-cover" />
@@ -770,11 +768,11 @@ function ChipsRow({
                 className="text-muted-foreground"
               />
             ) : f.kind === "terminal" ? (
-              <HugeiconsIcon icon={TerminalIcon} size={11} strokeWidth={1.75} className="text-sky-600 dark:text-sky-400" />
+              <HugeiconsIcon icon={TerminalIcon} size={11} strokeWidth={1.75} className="text-info" />
             ) : f.kind === "diff" ? (
-              <HugeiconsIcon icon={CodeIcon} size={11} strokeWidth={1.75} className="text-amber-600 dark:text-amber-400" />
+              <HugeiconsIcon icon={CodeIcon} size={11} strokeWidth={1.75} className="text-warning" />
             ) : f.kind === "folder" ? (
-              <HugeiconsIcon icon={Attachment01Icon} size={11} strokeWidth={1.75} className="text-violet-600 dark:text-violet-400" />
+              <HugeiconsIcon icon={Attachment01Icon} size={11} strokeWidth={1.75} className="text-primary" />
             ) : (
               <span className="font-mono text-[10px] text-muted-foreground">
                 {extOf(f.name)}
@@ -857,7 +855,7 @@ export type AiInputBarProps = { tabId: number };
 
 export function AiInputBarConnect({ onAdd }: { onAdd: () => void }) {
   return (
-    <div className="shrink-0 border-t border-border/60 bg-card/40">
+    <div className="shrink-0 border-t border-border-subtle bg-raised">
       <div className="flex h-10 items-center justify-between gap-3 px-3 text-xs">
         <span className="text-muted-foreground">
           Connect any AI provider (or use local models) - your key stays in your

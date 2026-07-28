@@ -11,6 +11,21 @@
 @theme inline {
     --font-heading: var(--font-sans);
     --font-sans: 'Inter Variable', sans-serif;
+    --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    /* Semantic status colors — accessible, distinct from the lime primary.
+     * Mapped here so bg-success / text-warning / border-info utilities exist. */
+    --color-success: var(--success);
+    --color-success-foreground: var(--success-foreground);
+    --color-warning: var(--warning);
+    --color-warning-foreground: var(--warning-foreground);
+    --color-info: var(--info);
+    --color-info-foreground: var(--info-foreground);
+    /* Layered IDE surfaces (canvas → raised) for tonal panel separation. */
+    --color-raised: var(--raised);
+    --color-raised-foreground: var(--raised-foreground);
+    --color-overlay: var(--overlay);
+    --color-overlay-foreground: var(--overlay-foreground);
+    --color-border-subtle: var(--border-subtle);
     --color-sidebar-ring: var(--sidebar-ring);
     --color-sidebar-border: var(--sidebar-border);
     --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -52,72 +67,101 @@
 }
 
 :root {
-    --background: oklch(1 0 0);
-    --foreground: oklch(0.148 0.004 228.8);
+    /* Light theme — accessible counterpart of the dark reference. Same semantic
+     * structure, mirrored luminance. Surfaces step from near-white canvas to a
+     * subtly raised tone; lime stays the primary brand accent. */
+    --background: oklch(0.99 0.001 260);
+    --foreground: oklch(0.20 0.012 260);
     --card: oklch(1 0 0);
-    --card-foreground: oklch(0.148 0.004 228.8);
+    --card-foreground: oklch(0.20 0.012 260);
+    --raised: oklch(0.97 0.003 260);
+    --raised-foreground: oklch(0.22 0.012 260);
+    --overlay: oklch(1 0 0);
+    --overlay-foreground: oklch(0.20 0.012 260);
     --popover: oklch(1 0 0);
-    --popover-foreground: oklch(0.148 0.004 228.8);
-    --primary: oklch(0.218 0.008 223.9);
-    --primary-foreground: oklch(0.987 0.002 197.1);
-    --secondary: oklch(0.963 0.002 197.1);
-    --secondary-foreground: oklch(0.218 0.008 223.9);
-    --muted: oklch(0.963 0.002 197.1);
-    --muted-foreground: oklch(0.48 0.021 213.5);
-    --accent: oklch(0.963 0.002 197.1);
-    --accent-foreground: oklch(0.218 0.008 223.9);
-    --destructive: oklch(0.577 0.245 27.325);
-    --border: oklch(0.925 0.005 214.3);
-    --input: oklch(0.925 0.005 214.3);
-    --ring: oklch(0.723 0.014 214.4);
-    --chart-1: oklch(0.872 0.007 219.6);
-    --chart-2: oklch(0.56 0.021 213.5);
-    --chart-3: oklch(0.45 0.017 213.2);
-    --chart-4: oklch(0.378 0.015 216);
-    --chart-5: oklch(0.275 0.011 216.9);
-    --radius: 0.625rem;
-    --sidebar: oklch(0.987 0.002 197.1);
-    --sidebar-foreground: oklch(0.148 0.004 228.8);
-    --sidebar-primary: oklch(0.218 0.008 223.9);
-    --sidebar-primary-foreground: oklch(0.987 0.002 197.1);
-    --sidebar-accent: oklch(0.963 0.002 197.1);
-    --sidebar-accent-foreground: oklch(0.218 0.008 223.9);
-    --sidebar-border: oklch(0.925 0.005 214.3);
-    --sidebar-ring: oklch(0.723 0.014 214.4);
+    --popover-foreground: oklch(0.20 0.012 260);
+    --primary: oklch(0.80 0.19 128);
+    --primary-foreground: oklch(0.18 0.04 130);
+    --secondary: oklch(0.965 0.002 260);
+    --secondary-foreground: oklch(0.22 0.012 260);
+    --muted: oklch(0.965 0.002 260);
+    --muted-foreground: oklch(0.45 0.012 260);
+    --accent: oklch(0.95 0.004 260);
+    --accent-foreground: oklch(0.20 0.012 260);
+    --destructive: oklch(0.55 0.22 25);
+    --success: oklch(0.52 0.15 150);
+    --success-foreground: oklch(0.99 0.01 150);
+    --warning: oklch(0.62 0.16 60);
+    --warning-foreground: oklch(0.99 0.01 60);
+    --info: oklch(0.5 0.15 240);
+    --info-foreground: oklch(0.99 0.01 240);
+    --border: oklch(0.9 0.004 260);
+    --border-subtle: oklch(0.93 0.003 260);
+    --input: oklch(0.9 0.004 260);
+    --ring: oklch(0.5 0.06 260);
+    --chart-1: oklch(0.55 0.16 150);
+    --chart-2: oklch(0.62 0.16 60);
+    --chart-3: oklch(0.55 0.2 25);
+    --chart-4: oklch(0.5 0.15 240);
+    --chart-5: oklch(0.6 0.15 300);
+    --radius: 0.5rem;
+    --sidebar: oklch(0.985 0.002 260);
+    --sidebar-foreground: oklch(0.20 0.012 260);
+    --sidebar-primary: oklch(0.80 0.19 128);
+    --sidebar-primary-foreground: oklch(0.18 0.04 130);
+    --sidebar-accent: oklch(0.95 0.004 260);
+    --sidebar-accent-foreground: oklch(0.20 0.012 260);
+    --sidebar-border: oklch(0.9 0.004 260);
+    --sidebar-ring: oklch(0.5 0.06 260);
 }
 
 .dark {
-    --background: oklch(0.148 0.004 228.8);
-    --foreground: oklch(0.987 0.002 197.1);
-    --card: oklch(0.218 0.008 223.9);
-    --card-foreground: oklch(0.987 0.002 197.1);
-    --popover: oklch(0.218 0.008 223.9);
-    --popover-foreground: oklch(0.987 0.002 197.1);
-    --primary: oklch(0.925 0.005 214.3);
-    --primary-foreground: oklch(0.218 0.008 223.9);
-    --secondary: oklch(0.275 0.011 216.9);
-    --secondary-foreground: oklch(0.987 0.002 197.1);
-    --muted: oklch(0.275 0.011 216.9);
-    --muted-foreground: oklch(0.723 0.014 214.4);
-    --accent: oklch(0.275 0.011 216.9);
-    --accent-foreground: oklch(0.987 0.002 197.1);
-    --destructive: oklch(0.704 0.191 22.216);
-    --border: oklch(1 0 0 / 10%);
-    --input: oklch(1 0 0 / 15%);
-    --ring: oklch(0.56 0.021 213.5);
-    --chart-1: oklch(0.872 0.007 219.6);
-    --chart-2: oklch(0.56 0.021 213.5);
-    --chart-3: oklch(0.45 0.017 213.2);
-    --chart-4: oklch(0.378 0.015 216);
-    --chart-5: oklch(0.275 0.011 216.9);
-    --sidebar: oklch(0.218 0.008 223.9);
-    --sidebar-foreground: oklch(0.987 0.002 197.1);
-    --sidebar-primary: oklch(0.488 0.243 264.376);
-    --sidebar-primary-foreground: oklch(0.987 0.002 197.1);
-    --sidebar-accent: oklch(0.275 0.011 216.9);
-    --sidebar-accent-foreground: oklch(0.987 0.002 197.1);
-    --sidebar-border: oklch(1 0 0 / 10%);
-    --sidebar-ring: oklch(0.56 0.021 213.5);
+    /* Dark theme — the design reference. Near-black canvas, panels separated by
+     * small tonal steps + 1px precision borders. Acid lime is the primary
+     * accent (primary action, active selection, progress); success / warning /
+     * info are distinct, accessible semantic colors. */
+    --background: oklch(0.13 0.002 260);
+    --foreground: oklch(0.96 0.004 260);
+    --card: oklch(0.158 0.003 260);
+    --card-foreground: oklch(0.96 0.004 260);
+    --raised: oklch(0.185 0.003 260);
+    --raised-foreground: oklch(0.97 0.004 260);
+    --overlay: oklch(0.205 0.004 260);
+    --overlay-foreground: oklch(0.97 0.004 260);
+    --popover: oklch(0.205 0.004 260);
+    --popover-foreground: oklch(0.97 0.004 260);
+    --primary: oklch(0.87 0.21 125);
+    --primary-foreground: oklch(0.17 0.03 130);
+    --secondary: oklch(0.185 0.003 260);
+    --secondary-foreground: oklch(0.96 0.004 260);
+    --muted: oklch(0.17 0.003 260);
+    --muted-foreground: oklch(0.64 0.01 260);
+    --accent: oklch(0.205 0.004 260);
+    --accent-foreground: oklch(0.97 0.004 260);
+    --destructive: oklch(0.66 0.21 25);
+    --success: oklch(0.74 0.16 150);
+    --success-foreground: oklch(0.16 0.04 150);
+    --warning: oklch(0.8 0.15 75);
+    --warning-foreground: oklch(0.2 0.04 75);
+    --info: oklch(0.72 0.13 240);
+    --info-foreground: oklch(0.16 0.04 240);
+    --border: oklch(1 0 0 / 0.09);
+    --border-subtle: oklch(1 0 0 / 0.055);
+    --input: oklch(1 0 0 / 0.14);
+    --ring: oklch(0.5 0.05 260);
+    --chart-1: oklch(0.87 0.21 125);
+    --chart-2: oklch(0.74 0.16 150);
+    --chart-3: oklch(0.8 0.15 75);
+    --chart-4: oklch(0.72 0.13 240);
+    --chart-5: oklch(0.68 0.18 300);
+    --sidebar: oklch(0.158 0.003 260);
+    --sidebar-foreground: oklch(0.96 0.004 260);
+    --sidebar-primary: oklch(0.87 0.21 125);
+    --sidebar-primary-foreground: oklch(0.17 0.03 130);
+    --sidebar-accent: oklch(0.205 0.004 260);
+    --sidebar-accent-foreground: oklch(0.97 0.004 260);
+    --sidebar-border: oklch(1 0 0 / 0.09);
+    --sidebar-ring: oklch(0.5 0.05 260);
 }
 
 @layer base {
@@ -454,4 +498,66 @@ html.a11y-strong-focus.dark,
   overflow-wrap: anywhere;
   word-break: break-word;
   max-width: 100%;
+}
+
+/* ============================================================
+ *  Altai design system — ambient + technical utilities
+ *
+ *  Lime radial glow is reserved for welcome / onboarding / empty
+ *  states only. It renders at very low opacity so it never
+ *  competes with content; it is also killed under reduced-motion
+ *  and high-contrast prefs (see below).
+ * ============================================================ */
+.altai-ambient-glow {
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  z-index: 0;
+}
+.altai-ambient-glow::before {
+  content: "";
+  position: absolute;
+  top: -35%;
+  left: 50%;
+  width: 80%;
+  height: 90%;
+  transform: translateX(-50%);
+  background: radial-gradient(
+    ellipse at 50% 0%,
+    color-mix(in srgb, var(--primary) 16%, transparent) 0%,
+    transparent 70%
+  );
+  filter: blur(8px);
+  opacity: 0.7;
+}
+:root:not(.dark) .altai-ambient-glow::before {
+  opacity: 0.35;
+}
+
+/* Technical metadata (paths, branches, commands, models, tokens, time) uses
+ * JetBrains Mono via the font-mono utility. The helper below pairs it with the
+ * muted foreground and tabular figures so numeric columns line up. */
+.altai-mono {
+  font-family: var(--font-mono);
+  font-feature-settings: "tnum" 1, "zero" 1;
+}
+
+/* Kill the ambient glow when the user wants less motion or more contrast —
+ * radial blooms are pure decoration. */
+@media (prefers-reduced-motion: reduce) {
+  html:not([data-a11y-motion="no-preference"]) .altai-ambient-glow::before {
+    display: none;
+  }
+}
+html[data-a11y-motion="reduce"] .altai-ambient-glow::before {
+  display: none;
+}
+@media (prefers-contrast: more) {
+  .altai-ambient-glow::before {
+    display: none;
+  }
+}
+html.a11y-high-contrast .altai-ambient-glow::before {
+  display: none;
 }

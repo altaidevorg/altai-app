@@ -3,6 +3,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { ToolbarIconButton } from "@/components/altai";
 import { fmtShortcut, MOD_KEY } from "@/lib/platform";
 import { cn } from "@/lib/utils";
 import type { TerminalTab } from "@/modules/tabs";
@@ -82,7 +83,7 @@ export function TerminalPanelHeader({
     activeId != null && ids.includes(activeId) ? activeId : ids[0];
 
   return (
-    <div className="flex h-9 shrink-0 items-center gap-1 border-b border-border/50 bg-card/40 pl-1 pr-1.5">
+    <div className="flex h-9 shrink-0 items-center gap-1 border-b border-border-subtle bg-raised pl-1 pr-1.5">
       <div
         role="tablist"
         aria-label="Terminals"
@@ -176,15 +177,14 @@ function HeaderAction({ icon, label, onClick, disabled }: ActionProps) {
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <button
-          type="button"
+        <ToolbarIconButton
           onClick={onClick}
           disabled={disabled}
           aria-label={label}
-          className="flex size-7 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
+          className="size-7"
         >
           <HugeiconsIcon icon={icon} size={15} strokeWidth={1.9} />
-        </button>
+        </ToolbarIconButton>
       </TooltipTrigger>
       <TooltipContent side="top" className="text-[11px]">
         {label}

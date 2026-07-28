@@ -8,7 +8,6 @@ describe("githubCapabilities", () => {
     ).toEqual({
       localWorkspace: true,
       remoteItems: false,
-      linkedProjects: false,
       remoteMutations: false,
     });
   });
@@ -19,7 +18,6 @@ describe("githubCapabilities", () => {
     ).toEqual({
       localWorkspace: true,
       remoteItems: false,
-      linkedProjects: false,
       remoteMutations: false,
     });
   });
@@ -30,7 +28,6 @@ describe("githubCapabilities", () => {
     ).toEqual({
       localWorkspace: true,
       remoteItems: true,
-      linkedProjects: true,
       remoteMutations: true,
     });
   });

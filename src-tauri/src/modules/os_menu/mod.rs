@@ -46,10 +46,15 @@ pub fn spawn_new_window(app: &AppHandle) {
     // Mirror the chrome the app expects (see the settings window in lib.rs):
     // the overlay titlebar on macOS, our own titlebar (decorations off) on
     // Windows/Linux where `USE_CUSTOM_WINDOW_CONTROLS` is true.
+    // traffic_light_position centers the native lights in the h-10 header
+    // alongside the size-7 chrome buttons (matches tauri.conf.json).
+    // with_webview_configuration opts out of Apple Intelligence Writing Tools.
     #[cfg(target_os = "macos")]
     let builder = builder
         .title_bar_style(tauri::TitleBarStyle::Overlay)
-        .hidden_title(true);
+        .hidden_title(true)
+        .traffic_light_position(tauri::LogicalPosition::new(16.0, 14.0))
+        .with_webview_configuration(super::macos_webview::config_without_writing_tools());
 
     #[cfg(any(target_os = "linux", target_os = "windows"))]
     let builder = builder.decorations(false).transparent(true);

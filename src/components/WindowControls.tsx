@@ -81,7 +81,7 @@ function CtlButton({
       title={ariaLabel}
       onClick={onClick}
       className={cn(
-        "grid size-7 place-items-center rounded-md text-muted-foreground transition-colors",
+        "grid size-6 place-items-center rounded-md text-muted-foreground transition-colors",
         danger
           ? "hover:bg-destructive/15 hover:text-destructive"
           : "hover:bg-accent hover:text-foreground",

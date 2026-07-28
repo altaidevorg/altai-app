@@ -1,4 +1,4 @@
-import { Button } from "@/components/ui/button";
+import { ToolbarIconButton } from "@/components/altai";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -12,6 +12,7 @@ import { fileIconUrl } from "@/modules/explorer/lib/iconResolver";
 import {
   BrowserIcon,
   Cancel01Icon,
+  CheckListIcon,
   Clock01Icon,
   ComputerTerminal02Icon,
   GitBranchIcon,
@@ -19,7 +20,6 @@ import {
   GithubIcon,
   Globe02Icon,
   IncognitoIcon,
-  KanbanIcon,
   PencilEdit02Icon,
   PlusSignIcon,
   Settings01Icon,
@@ -125,7 +125,7 @@ export function TabBar({
                   }
                   onDoubleClick={() => isPreview && onPin(t.id)}
                   className={cn(
-                    "group h-7 shrink-0 gap-1.5 rounded-md text-xs text-muted-foreground transition-colors data-[state=active]:bg-accent data-[state=active]:text-foreground hover:text-foreground/80 justify-between",
+                    "group relative h-7 shrink-0 gap-1.5 rounded-md text-xs text-muted-foreground transition-colors data-[state=active]:bg-accent data-[state=active]:text-foreground hover:text-foreground/80 justify-between data-[state=active]:shadow-[inset_0_-2px_0_0_var(--primary)]",
                     compact
                       ? "px-1.5!"
                       : tabs.length === 1
@@ -184,14 +184,14 @@ export function TabBar({
         </Tabs>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button
-              variant="ghost"
+            <ToolbarIconButton
               size="icon"
-              className="size-7 shrink-0 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+              className="size-6 translate-y-[0.5px]"
               title="New tab"
+              aria-label="New tab"
             >
-              <HugeiconsIcon icon={PlusSignIcon} size={14} strokeWidth={2} />
-            </Button>
+              <HugeiconsIcon icon={PlusSignIcon} size={12} strokeWidth={2} />
+            </ToolbarIconButton>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start" className="min-w-44">
             <DropdownMenuItem onSelect={() => onNew()}>
@@ -323,7 +323,7 @@ function TabIcon({ tab }: { tab: Tab }) {
   if (tab.kind === "project-board") {
     return (
       <HugeiconsIcon
-        icon={KanbanIcon}
+        icon={CheckListIcon}
         size={14}
         strokeWidth={2}
         className="shrink-0"

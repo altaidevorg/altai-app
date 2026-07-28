@@ -121,6 +121,14 @@ function normalizeError(error: unknown): string {
   return "Unknown source control error";
 }
 
+// WORKFLOW.md is ALTAI runtime configuration, not a user source change. Older
+// workspaces may still have the legacy repo-root file; keep it out of the Git
+// Changes surface while the local configuration migrates to app data.
+function isAltaiWorkflowFile(path: string): boolean {
+  const normalized = path.replace(/\\/g, "/").toLowerCase();
+  return normalized === "workflow.md" || normalized.endsWith("/workflow.md");
+}
+
 function normalizeStatusCode(status: string): string {
   const code = status.trim().toUpperCase();
   switch (code) {
@@ -421,6 +429,7 @@ export function useSourceControlPanel(
   const stagedEntries = useMemo(
     () =>
       (status?.changedFiles ?? [])
+        .filter((file) => !isAltaiWorkflowFile(file.path))
         .filter((file) => file.staged)
         .map((file) => makeEntry(file.path, "+", file)),
     [status],
@@ -429,6 +438,7 @@ export function useSourceControlPanel(
   const unstagedEntries = useMemo(
     () =>
       (status?.changedFiles ?? [])
+        .filter((file) => !isAltaiWorkflowFile(file.path))
         .filter((file) => file.unstaged)
         .map((file) => makeEntry(file.path, "-", file)),
     [status],
@@ -438,6 +448,7 @@ export function useSourceControlPanel(
     const seen = new Set<string>();
     const out: SourceControlFileEntry[] = [];
     for (const file of status?.changedFiles ?? []) {
+      if (isAltaiWorkflowFile(file.path)) continue;
       if (seen.has(file.path)) continue;
       seen.add(file.path);
       const checkState: CheckState =
@@ -608,13 +619,13 @@ export function useSourceControlPanel(
     const current = selectedRef.current;
     const exists =
       !!current &&
-      summary.status.changedFiles.some((file) => {
+      summary.status.changedFiles.filter((file) => !isAltaiWorkflowFile(file.path)).some((file) => {
         if (file.path !== current.path) return false;
         return current.mode === "+" ? file.staged : file.unstaged;
       });
 
     if (!exists && current) {
-      const samePathOtherMode = summary.status.changedFiles.find(
+      const samePathOtherMode = summary.status.changedFiles.filter((file) => !isAltaiWorkflowFile(file.path)).find(
         (file) =>
           file.path === current.path &&
           (current.mode === "+" ? file.unstaged : file.staged),

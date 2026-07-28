@@ -23,6 +23,7 @@ export function GitHubItemsStack({ tabs, activeId, onOpenDiff }: Props) {
       key={active.id}
       repoRoot={active.repoRoot}
       onOpenDiff={onOpenDiff}
+      navigation={active.navigation}
     />
   );
 }

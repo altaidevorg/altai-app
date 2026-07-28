@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
-use tauri::State;
+use tauri::{Manager, State};
 
 use super::workflow_v2;
 use crate::modules::{
@@ -9,6 +10,7 @@ use crate::modules::{
 };
 
 const WORKFLOW_FILE: &str = "WORKFLOW.md";
+const WORKFLOW_STORE_DIRECTORY: &str = "workflows";
 const MAX_WORKFLOW_BYTES: u64 = 128 * 1024;
 const MAX_PROMPT_CHARS: usize = 32_000;
 
@@ -187,7 +189,8 @@ pub fn default_content() -> String {
     .join("\n")
 }
 
-pub(crate) fn workflow_path(
+pub(crate) fn workflow_path<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
     registry: &WorkspaceRegistry,
     workspace_key: &str,
     workspace: &WorkspaceEnv,
@@ -198,7 +201,20 @@ pub(crate) fn workflow_path(
     if !root.is_dir() || !registry.is_authorized(&root) {
         return Err("The workflow path is outside the authorized workspace.".to_string());
     }
-    Ok(root.join(WORKFLOW_FILE))
+    // Workflow configuration is an ALTAI-local workspace preference. Keep it
+    // in the app data directory instead of the repository so opening GitHub's
+    // Changes view never reports the runtime configuration as a source change.
+    let mut digest = Sha256::new();
+    digest.update(root.to_string_lossy().as_bytes());
+    let workspace_id = hex::encode(digest.finalize());
+    let app_data = app
+        .path()
+        .app_local_data_dir()
+        .map_err(|error| format!("Could not resolve ALTAI local data directory: {error}"))?;
+    Ok(app_data
+        .join(WORKFLOW_STORE_DIRECTORY)
+        .join(workspace_id)
+        .join(WORKFLOW_FILE))
 }
 
 fn modified_at_ms(path: &Path) -> Option<u64> {
@@ -315,9 +331,11 @@ pub fn orchestration_workflow_load(
     workspace_key: String,
     workspace: Option<WorkspaceEnv>,
     registry: State<'_, WorkspaceRegistry>,
+    app: tauri::AppHandle,
 ) -> Result<WorkflowDocument, String> {
     let workspace = WorkspaceEnv::from_option(workspace);
     Ok(load_at(workflow_path(
+        &app,
         &registry,
         &workspace_key,
         &workspace,
@@ -330,6 +348,7 @@ pub fn orchestration_workflow_save(
     content: String,
     workspace: Option<WorkspaceEnv>,
     registry: State<'_, WorkspaceRegistry>,
+    app: tauri::AppHandle,
 ) -> Result<WorkflowDocument, String> {
     if content.len() as u64 > MAX_WORKFLOW_BYTES {
         return Err(format!(
@@ -339,7 +358,11 @@ pub fn orchestration_workflow_save(
     }
     parse_workflow(&content)?;
     let workspace = WorkspaceEnv::from_option(workspace);
-    let path = workflow_path(&registry, &workspace_key, &workspace)?;
+    let path = workflow_path(&app, &registry, &workspace_key, &workspace)?;
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|error| format!("Could not create ALTAI workflow directory: {error}"))?;
+    }
     if path.exists()
         && std::fs::symlink_metadata(&path)
             .map_err(|error| error.to_string())?

@@ -93,6 +93,11 @@ export type GitHubItemsTab = {
   kind: "github-items";
   title: string;
   repoRoot: string;
+  navigation?: {
+    kind: "pulls" | "issues";
+    number?: number;
+    key: number;
+  };
 };
 
 export type ProjectBoardTab = {
@@ -100,6 +105,10 @@ export type ProjectBoardTab = {
   kind: "project-board";
   title: string;
   repoRoot: string;
+  navigation?: {
+    action: "new-work";
+    key: number;
+  };
 };
 
 export type GitCommitFileDiffTab = {
@@ -680,12 +689,32 @@ export function useTabs(initial?: Partial<TerminalTab>) {
     [],
   );
 
-  const openGitHubItemsTab = useCallback((input: { repoRoot: string }) => {
+  const openGitHubItemsTab = useCallback((input: {
+    repoRoot: string;
+    kind?: "pulls" | "issues";
+    number?: number;
+  }) => {
     const curr = tabsRef.current;
     const existing = curr.find(
       (t) => t.kind === "github-items" && t.repoRoot === input.repoRoot,
     );
+    const navigation = input.kind
+      ? {
+          kind: input.kind,
+          number: input.number,
+          key: Date.now(),
+        }
+      : undefined;
     if (existing) {
+      if (navigation) {
+        const nextTabs = curr.map((tab) =>
+          tab.kind === "github-items" && tab.id === existing.id
+            ? ({ ...tab, navigation } satisfies GitHubItemsTab)
+            : tab,
+        );
+        tabsRef.current = nextTabs;
+        setTabs(nextTabs);
+      }
       setActiveId(existing.id);
       return existing.id;
     }
@@ -697,6 +726,7 @@ export function useTabs(initial?: Partial<TerminalTab>) {
         kind: "github-items",
         title: "Pull Requests & Issues",
         repoRoot: input.repoRoot,
+        navigation,
       } satisfies GitHubItemsTab,
     ];
     tabsRef.current = nextTabs;
@@ -705,12 +735,27 @@ export function useTabs(initial?: Partial<TerminalTab>) {
     return id;
   }, []);
 
-  const openProjectBoardTab = useCallback((input: { repoRoot: string }) => {
+  const openProjectBoardTab = useCallback((input: {
+    repoRoot: string;
+    newWork?: boolean;
+  }) => {
     const curr = tabsRef.current;
     const existing = curr.find(
       (t) => t.kind === "project-board" && t.repoRoot === input.repoRoot,
     );
+    const navigation = input.newWork
+      ? { action: "new-work" as const, key: Date.now() }
+      : undefined;
     if (existing) {
+      if (navigation) {
+        const nextTabs = curr.map((tab) =>
+          tab.kind === "project-board" && tab.id === existing.id
+            ? ({ ...tab, navigation } satisfies ProjectBoardTab)
+            : tab,
+        );
+        tabsRef.current = nextTabs;
+        setTabs(nextTabs);
+      }
       setActiveId(existing.id);
       return existing.id;
     }
@@ -720,8 +765,9 @@ export function useTabs(initial?: Partial<TerminalTab>) {
       {
         id,
         kind: "project-board",
-        title: "Project Board",
+        title: "Project Operations",
         repoRoot: input.repoRoot,
+        navigation,
       } satisfies ProjectBoardTab,
     ];
     tabsRef.current = nextTabs;

@@ -1,10 +1,4 @@
-import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+import { ToolbarIconButton } from "@/components/altai";
 import { WindowControls } from "@/components/WindowControls";
 import { cn } from "@/lib/utils";
 import { IS_MAC, KEY_SEP, USE_CUSTOM_WINDOW_CONTROLS } from "@/lib/platform";
@@ -17,10 +11,7 @@ import {
 import type { Tab } from "@/modules/tabs";
 import { TabBar } from "@/modules/tabs";
 import {
-  GridViewIcon,
   KeyboardIcon,
-  LayoutTwoColumnIcon,
-  LayoutTwoRowIcon,
   Settings01Icon,
   SidebarLeftIcon,
   SidebarRightIcon,
@@ -46,9 +37,7 @@ type Props = {
   /** Promote a preview (transient) tab to persistent. */
   onPin: (id: number) => void;
   onToggleSidebar: () => void;
-  onSplit: (dir: "row" | "col") => void;
-  /** Active editor group can be split (it holds 2+ tabs). */
-  canSplit: boolean;
+  sidebarActive?: boolean;
   onOpenShortcuts: () => void;
   onOpenSettings: () => void;
   onToggleAgentSidebar?: () => void;
@@ -59,6 +48,14 @@ type Props = {
 };
 
 const COMPACT_WIDTH = 720;
+
+/** Titlebar chrome hit-target — matches the macOS traffic-light visual row
+ * (header is h-10; lights are inset to the same vertical center via
+ * `trafficLightPosition` in tauri.conf). Compact 24px buttons with 13px icons
+ * keep the chrome visually proportional to the ~12px native traffic lights
+ * while still meeting the 24px WCAG 2.5.8 minimum hit area. */
+const CHROME_BTN = "size-6 translate-y-[0.5px]";
+const CHROME_ICON = 12;
 
 export function Header({
   tabs,
@@ -72,8 +69,7 @@ export function Header({
   onClose,
   onPin,
   onToggleSidebar,
-  onSplit,
-  canSplit,
+  sidebarActive,
   onOpenShortcuts,
   onOpenSettings,
   onToggleAgentSidebar,
@@ -100,9 +96,6 @@ export function Header({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userShortcuts]);
 
-  const splitRightTokens = tokensFor("pane.splitRight");
-  const splitDownTokens = tokensFor("pane.splitDown");
-
   useEffect(() => {
     const el = rootRef.current;
     if (!el) return;
@@ -115,49 +108,55 @@ export function Header({
   }, []);
 
   const shortcutsButton = (
-    <Button
-      variant="ghost"
-      size="icon"
-      className="size-7 shrink-0 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+    <ToolbarIconButton
+      className={CHROME_BTN}
       onClick={onOpenShortcuts}
       title={shortcutLabel}
       aria-label={shortcutLabel}
     >
-      <HugeiconsIcon icon={KeyboardIcon} size={16} strokeWidth={1.75} />
-    </Button>
+      <HugeiconsIcon
+        icon={KeyboardIcon}
+        size={CHROME_ICON}
+        strokeWidth={1.75}
+      />
+    </ToolbarIconButton>
   );
 
   const settingsButton = (
-    <Button
-      variant="ghost"
-      size="icon"
-      className="size-7 shrink-0 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+    <ToolbarIconButton
+      className={CHROME_BTN}
       onClick={onOpenSettings}
       title="Settings"
       aria-label="Settings"
     >
-      <HugeiconsIcon icon={Settings01Icon} size={15} strokeWidth={1.75} />
-    </Button>
+      <HugeiconsIcon
+        icon={Settings01Icon}
+        size={CHROME_ICON}
+        strokeWidth={1.75}
+      />
+    </ToolbarIconButton>
   );
 
   const agentSidebarButton =
     agentSidebarAvailable && onToggleAgentSidebar ? (
-      <Button
-        variant="ghost"
-        size="icon"
+      <ToolbarIconButton
+        active={agentSidebarActive}
         className={cn(
-          "size-7 shrink-0 rounded-md transition-colors",
-          agentSidebarActive
-            ? "bg-accent text-foreground"
-            : "text-muted-foreground hover:bg-accent hover:text-foreground",
+          CHROME_BTN,
+          agentSidebarActive &&
+            "text-primary hover:text-primary hover:bg-primary/12 dark:hover:bg-primary/20",
         )}
         onClick={onToggleAgentSidebar}
         title={agentSidebarActive ? "Hide AI agent" : "Show AI agent"}
         aria-pressed={agentSidebarActive}
         aria-label={agentSidebarActive ? "Hide AI agent" : "Show AI agent"}
       >
-        <HugeiconsIcon icon={SidebarRightIcon} size={15} strokeWidth={1.75} />
-      </Button>
+        <HugeiconsIcon
+          icon={SidebarRightIcon}
+          size={CHROME_ICON}
+          strokeWidth={1.75}
+        />
+      </ToolbarIconButton>
     ) : null;
 
   return (
@@ -166,64 +165,28 @@ export function Header({
       role="banner"
       aria-label="Workspace toolbar"
       data-tauri-drag-region
-      className={`flex h-10 shrink-0 items-center gap-2 border-b border-border/60 bg-card select-none ${
+      className={`flex h-10 shrink-0 items-center gap-1.5 border-b border-border-subtle bg-raised select-none ${
         IS_MAC ? "pr-2 pl-20" : "pr-0 pl-2"
       }`}
     >
       <div className="flex shrink-0 items-center gap-0.5">
-        <Button
+        <ToolbarIconButton
+          active={sidebarActive}
           onClick={onToggleSidebar}
           title="Show or hide sidebar"
-          variant="ghost"
-          size="icon-sm"
+          className={cn(
+            CHROME_BTN,
+            sidebarActive &&
+              "text-primary hover:text-primary hover:bg-primary/12 dark:hover:bg-primary/20",
+          )}
           aria-label="Show or hide sidebar"
-          className="shrink-0 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
         >
-          <HugeiconsIcon icon={SidebarLeftIcon} size={18} strokeWidth={1.75} />
-        </Button>
-
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              className="shrink-0 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-50"
-              title="Split editor"
-              aria-label="Split editor"
-              disabled={!canSplit}
-            >
-              <HugeiconsIcon icon={GridViewIcon} size={16} strokeWidth={1.75} />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" className="min-w-44">
-            <DropdownMenuItem onSelect={() => onSplit("row")}>
-              <HugeiconsIcon
-                icon={LayoutTwoColumnIcon}
-                size={14}
-                strokeWidth={1.75}
-              />
-              <span className="flex-1">Split right</span>
-              {splitRightTokens && (
-                <span className="text-xs text-muted-foreground">
-                  {splitRightTokens}
-                </span>
-              )}
-            </DropdownMenuItem>
-            <DropdownMenuItem onSelect={() => onSplit("col")}>
-              <HugeiconsIcon
-                icon={LayoutTwoRowIcon}
-                size={14}
-                strokeWidth={1.75}
-              />
-              <span className="flex-1">Split down</span>
-              {splitDownTokens && (
-                <span className="text-xs text-muted-foreground">
-                  {splitDownTokens}
-                </span>
-              )}
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+          <HugeiconsIcon
+            icon={SidebarLeftIcon}
+            size={CHROME_ICON}
+            strokeWidth={1.75}
+          />
+        </ToolbarIconButton>
 
         {!IS_MAC && shortcutsButton}
       </div>

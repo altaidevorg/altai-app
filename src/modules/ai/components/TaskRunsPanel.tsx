@@ -4,7 +4,8 @@ import { useAgentRunsStore } from "@/modules/ai/store/agentRunsStore";
 import { useChatStore } from "@/modules/ai/store/chatStore";
 import { useAgentsStore } from "@/modules/ai/store/agentsStore";
 import { usePreferencesStore } from "@/modules/settings/preferences";
-import { MODELS, type ModelId } from "@/modules/ai/config";
+import { MODELS } from "@/modules/ai/config";
+import { ModelDropdown } from "@/modules/ai/components/ModelDropdown";
 import { native, type InstalledSkillInfo } from "@/modules/ai/lib/native";
 import type { Assignment, AssignmentStatus } from "@/modules/github/lib/assignments";
 import {
@@ -162,7 +163,7 @@ export function TaskRunsPanel({ onClose }: { onClose: () => void }) {
           value={prompt}
           onChange={(event) => setPrompt(event.target.value)}
           placeholder="Example: Review the auth flow, fix the highest-impact issue, and run the relevant tests."
-          className="mt-1.5 min-h-20 w-full resize-y rounded-lg border border-border/70 bg-muted/[0.28] px-2.5 py-2 text-[11px] leading-relaxed text-foreground outline-none placeholder:text-muted-foreground/65 focus:border-sky-500/60 focus:ring-2 focus:ring-sky-500/15"
+          className="mt-1.5 min-h-20 w-full resize-y rounded-lg border border-border bg-muted/[0.28] px-2.5 py-2 text-[11px] leading-relaxed text-foreground outline-none placeholder:text-muted-foreground/65 focus:border-ring focus:ring-2 focus:ring-ring/25"
         />
         <div className="mt-2 flex flex-wrap gap-1">
           {TASK_TEMPLATES.map((template) => (
@@ -170,7 +171,7 @@ export function TaskRunsPanel({ onClose }: { onClose: () => void }) {
               key={template.label}
               type="button"
               onClick={() => setPrompt(template.prompt)}
-              className="rounded-full border border-border/60 bg-background/50 px-2 py-1 text-[9.5px] font-medium text-muted-foreground transition-colors hover:border-sky-500/40 hover:bg-sky-500/5 hover:text-foreground"
+              className="rounded-full border border-border bg-background/50 px-2 py-1 text-[9.5px] font-medium text-muted-foreground transition-colors hover:border-border hover:bg-accent hover:text-foreground"
             >
               {template.label}
             </button>
@@ -179,19 +180,23 @@ export function TaskRunsPanel({ onClose }: { onClose: () => void }) {
         <div className="mt-3 grid grid-cols-2 gap-2 rounded-lg border border-border/50 bg-background/35 p-2">
           <label className="min-w-0">
             <span className="block text-[9.5px] font-medium uppercase tracking-wide text-muted-foreground">Agent</span>
-            <select value={agentId} onChange={(event) => setAgentId(event.target.value)} className="mt-1 h-7 w-full rounded-md border border-border/60 bg-background px-1.5 text-[10.5px] text-foreground outline-none focus:border-sky-500/60">
+            <select value={agentId} onChange={(event) => setAgentId(event.target.value)} className="mt-1 h-7 w-full rounded-md border border-border/60 bg-background px-1.5 text-[10.5px] text-foreground outline-none focus:border-ring">
               {agents.map((agent) => <option key={agent.id} value={agent.id}>{agent.name}</option>)}
             </select>
           </label>
-          <label className="min-w-0">
+          <div className="min-w-0">
             <span className="block text-[9.5px] font-medium uppercase tracking-wide text-muted-foreground">Model</span>
-            <select value={modelId} onChange={(event) => setModelId(event.target.value as ModelId)} className="mt-1 h-7 w-full rounded-md border border-border/60 bg-background px-1.5 text-[10.5px] text-foreground outline-none focus:border-sky-500/60">
-              {MODELS.map((model) => <option key={model.id} value={model.id}>{model.label}</option>)}
-            </select>
-          </label>
+            <div className="mt-1">
+              <ModelDropdown
+                value={modelId}
+                onChange={setModelId}
+                className="h-7 max-w-none w-full justify-between border border-border/60 bg-background px-1.5 text-[10.5px] hover:bg-background"
+              />
+            </div>
+          </div>
           <label className="min-w-0">
             <span className="block text-[9.5px] font-medium uppercase tracking-wide text-muted-foreground">Permissions</span>
-            <select value={permissionMode} onChange={(event) => setPermissionMode(event.target.value as typeof permissionMode)} className="mt-1 h-7 w-full rounded-md border border-border/60 bg-background px-1.5 text-[10.5px] text-foreground outline-none focus:border-sky-500/60">
+            <select value={permissionMode} onChange={(event) => setPermissionMode(event.target.value as typeof permissionMode)} className="mt-1 h-7 w-full rounded-md border border-border/60 bg-background px-1.5 text-[10.5px] text-foreground outline-none focus:border-ring">
               <option value="ask">Ask before changes</option>
               <option value="auto-edit">Auto-edit workspace</option>
               <option value="plan">Plan mode (read-only)</option>
@@ -209,7 +214,7 @@ export function TaskRunsPanel({ onClose }: { onClose: () => void }) {
           {skills.length ? <div className="col-span-2 border-t border-border/40 pt-2">
             <div className="text-[9.5px] font-medium uppercase tracking-wide text-muted-foreground">Workspace skills</div>
             <div className="mt-1.5 flex flex-wrap gap-1">
-              {skills.map((skill) => <button key={skill.name} type="button" title={skill.description ?? skill.name} aria-pressed={selectedSkills.includes(skill.name)} onClick={() => setSelectedSkills((current) => current.includes(skill.name) ? current.filter((name) => name !== skill.name) : [...current, skill.name])} className={cn("rounded-full border px-2 py-1 text-[9.5px] font-medium transition-colors", selectedSkills.includes(skill.name) ? "border-violet-500/45 bg-violet-500/10 text-violet-700 dark:text-violet-300" : "border-border/60 bg-background/50 text-muted-foreground hover:text-foreground")}>{skill.name}</button>)}
+              {skills.map((skill) => <button key={skill.name} type="button" title={skill.description ?? skill.name} aria-pressed={selectedSkills.includes(skill.name)} onClick={() => setSelectedSkills((current) => current.includes(skill.name) ? current.filter((name) => name !== skill.name) : [...current, skill.name])} className={cn("rounded-full border px-2 py-1 text-[9.5px] font-medium transition-colors", selectedSkills.includes(skill.name) ? "border-primary/45 bg-primary/12 text-primary dark:bg-primary/20" : "border-border bg-background/50 text-muted-foreground hover:text-foreground")}>{skill.name}</button>)}
             </div>
           </div> : null}
           <p className="col-span-2 text-[9.5px] leading-relaxed text-muted-foreground">Uses workspace scope and <span className="font-medium text-foreground/80">ALTAI.md</span> project instructions. The current chat is never modified.</p>
@@ -244,11 +249,11 @@ export function TaskRunsPanel({ onClose }: { onClose: () => void }) {
               return (
                 <article key={task.id} className="rounded-lg border border-border/60 bg-card/45 p-2.5">
                   <div className="flex items-start gap-2">
-                    <span className={cn("mt-1.5 size-1.5 shrink-0 rounded-full", status === "failed" ? "bg-destructive" : status === "done" ? "bg-emerald-500" : status === "cancelled" ? "bg-muted-foreground/50" : "animate-pulse bg-sky-500")} />
+                    <span className={cn("mt-1.5 size-1.5 shrink-0 rounded-full", status === "failed" ? "bg-destructive" : status === "done" ? "bg-success" : status === "cancelled" ? "bg-muted-foreground/50" : "animate-pulse bg-info")} />
                     <div className="min-w-0 flex-1">
                       <h3 className="line-clamp-2 text-[11.5px] font-medium leading-snug text-foreground">{task.title.replace(/^🤖\s*/, "")}</h3>
                       <p className="mt-1 text-[10px] text-muted-foreground">
-                        <span className={cn(status === "failed" && "text-destructive", status === "done" && "text-emerald-500")}>{statusCopy[status]}</span>
+                        <span className={cn(status === "failed" && "text-destructive", status === "done" && "text-success")}>{statusCopy[status]}</span>
                         {tokens ? ` · ${tokens >= 1000 ? `${(tokens / 1000).toFixed(1)}k` : tokens} tokens` : ""}
                         {run?.subagents.length ? ` · ${run.subagents.length} agents` : ""}
                         {task.runConfig?.agentId ? ` · ${agents.find((agent) => agent.id === task.runConfig?.agentId)?.name ?? "Custom agent"}` : ""}
@@ -285,7 +290,7 @@ export function TaskRunsPanel({ onClose }: { onClose: () => void }) {
 }
 
 function ContextToggle({ checked, onChange, label }: { checked: boolean; onChange: (next: boolean) => void; label: string }) {
-  return <button type="button" aria-pressed={checked} onClick={() => onChange(!checked)} className={cn("rounded-full border px-2 py-1 text-[9.5px] font-medium transition-colors", checked ? "border-sky-500/45 bg-sky-500/10 text-sky-700 dark:text-sky-300" : "border-border/60 bg-background/50 text-muted-foreground hover:text-foreground")}>{label}</button>;
+  return <button type="button" aria-pressed={checked} onClick={() => onChange(!checked)} className={cn("rounded-full border px-2 py-1 text-[9.5px] font-medium transition-colors", checked ? "border-primary/45 bg-primary/12 text-primary dark:bg-primary/20" : "border-border bg-background/50 text-muted-foreground hover:text-foreground")}>{label}</button>;
 }
 
 async function addSelectedContext(
@@ -330,20 +335,20 @@ function TaskOutcome({ run }: { run: NonNullable<ReturnType<typeof useAgentRunsS
     <section className="mt-2 rounded-md border border-border/50 bg-background/35 p-2">
       <div className="flex items-center gap-2 text-[9.5px] font-medium uppercase tracking-wide text-muted-foreground">
         <span>Outcome</span>
-        {run.changes.length ? <span className="rounded bg-sky-500/10 px-1.5 py-0.5 normal-case text-sky-700 dark:text-sky-300">{run.changes.length} file{run.changes.length === 1 ? "" : "s"} changed</span> : null}
-        {failed ? <span className="rounded bg-destructive/10 px-1.5 py-0.5 normal-case text-destructive">{failed} check failed</span> : passed ? <span className="rounded bg-emerald-500/10 px-1.5 py-0.5 normal-case text-emerald-700 dark:text-emerald-300">{passed} check passed</span> : <span className="rounded bg-muted px-1.5 py-0.5 normal-case">No checks reported</span>}
+        {run.changes.length ? <span className="rounded bg-info/10 px-1.5 py-0.5 normal-case text-info">{run.changes.length} file{run.changes.length === 1 ? "" : "s"} changed</span> : null}
+        {failed ? <span className="rounded bg-destructive/10 px-1.5 py-0.5 normal-case text-destructive">{failed} check failed</span> : passed ? <span className="rounded bg-success/10 px-1.5 py-0.5 normal-case text-success">{passed} check passed</span> : <span className="rounded bg-muted px-1.5 py-0.5 normal-case">No checks reported</span>}
       </div>
       {checks.length ? (
         <ul className="mt-1.5 space-y-1">
           {checks.slice(-3).reverse().map((check) => (
-            <li key={check.id} className={cn("truncate text-[9.5px]", check.status === "failed" ? "text-destructive" : check.status === "passed" ? "text-emerald-700 dark:text-emerald-300" : "text-muted-foreground")} title={check.command ?? check.label}>
+            <li key={check.id} className={cn("truncate text-[9.5px]", check.status === "failed" ? "text-destructive" : check.status === "passed" ? "text-success" : "text-muted-foreground")} title={check.command ?? check.label}>
               {check.status === "failed" ? "✕" : check.status === "passed" ? "✓" : "•"} {check.label}{check.detail ? ` · ${check.detail}` : ""}
             </li>
           ))}
         </ul>
       ) : null}
       {run.failures.length ? <p className="mt-1.5 line-clamp-2 text-[9.5px] leading-relaxed text-destructive">{run.failures[run.failures.length - 1]}</p> : null}
-      {run.changes.length ? <button type="button" onClick={() => window.dispatchEvent(new CustomEvent("altai:open-change-review"))} className="mt-1.5 text-[9.5px] font-medium text-sky-700 hover:underline dark:text-sky-300">Review changes and restore points</button> : null}
+      {run.changes.length ? <button type="button" onClick={() => window.dispatchEvent(new CustomEvent("altai:open-change-review"))} className="mt-1.5 text-[9.5px] font-medium text-info hover:underline">Review changes and restore points</button> : null}
     </section>
   );
 }

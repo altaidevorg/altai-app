@@ -47,10 +47,10 @@ export function EditApprovalCard({ diff }: Props) {
     <div
       role="group"
       aria-label={`Edit approval for ${diff.file}`}
-      className="flex shrink-0 flex-col gap-2 border-t border-border/40 bg-amber-500/[0.04] px-3 py-2.5"
+      className="flex shrink-0 flex-col gap-2 border-t border-border-subtle bg-warning/[0.06] px-3 py-2.5"
     >
       <div className="flex items-center gap-2">
-        <span className="size-1.5 shrink-0 rounded-full bg-amber-500" />
+        <span className="size-1.5 shrink-0 rounded-full bg-warning" />
         <HugeiconsIcon
           icon={File01Icon}
           size={13}
@@ -64,7 +64,7 @@ export function EditApprovalCard({ diff }: Props) {
           {diff.file}
         </span>
         {diff.truncated ? (
-          <span className="shrink-0 rounded bg-amber-500/15 px-1.5 py-0.5 text-[9.5px] font-medium text-amber-700 dark:text-amber-400">
+          <span className="shrink-0 rounded bg-warning/15 px-1.5 py-0.5 text-[9.5px] font-medium text-warning">
             truncated
           </span>
         ) : null}
@@ -80,10 +80,10 @@ export function EditApprovalCard({ diff }: Props) {
                 className={cn(
                   "block whitespace-pre",
                   ln.kind === "add" &&
-                    "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
+                    "bg-success/10 text-success",
                   ln.kind === "del" &&
                     "bg-destructive/10 text-destructive",
-                  ln.kind === "hunk" && "text-sky-600 dark:text-sky-400",
+                  ln.kind === "hunk" && "text-info",
                   ln.kind === "meta" && "text-muted-foreground/70",
                 )}
               >

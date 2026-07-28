@@ -1,4 +1,5 @@
-import { MODELS } from "@/modules/ai/config";
+import { type ModelId } from "@/modules/ai/config";
+import { ModelDropdown } from "@/modules/ai/components/ModelDropdown";
 import { useAgentsStore } from "@/modules/ai/store/agentsStore";
 import type { AssignmentRunConfig } from "@/modules/github/lib/assignments";
 import { usePreferencesStore } from "@/modules/settings/preferences";
@@ -71,25 +72,18 @@ export function AgentRunOptionsFields({
         </select>
       </label>
 
-      <label className="min-w-0">
+      <div className="min-w-0">
         <span className="block text-[9.5px] font-medium uppercase tracking-wide text-muted-foreground">
           Model
         </span>
-        <select
-          value={value.modelId}
-          onChange={(event) =>
-            onChange({ ...value, modelId: event.target.value })
-          }
-          disabled={disabled}
-          className={SELECT_CLASS}
-        >
-          {MODELS.map((model) => (
-            <option key={model.id} value={model.id}>
-              {model.label}
-            </option>
-          ))}
-        </select>
-      </label>
+        <div className="mt-1">
+          <ModelDropdown
+            value={value.modelId}
+            onChange={(modelId: ModelId) => onChange({ ...value, modelId })}
+            className="h-8 max-w-none w-full justify-between border border-border/60 bg-background/70 px-2 hover:bg-background"
+          />
+        </div>
+      </div>
 
       <label className="min-w-0 sm:col-span-2">
         <span className="block text-[9.5px] font-medium uppercase tracking-wide text-muted-foreground">

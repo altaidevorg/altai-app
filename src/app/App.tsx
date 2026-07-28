@@ -15,6 +15,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
+import { EmptyState } from "@/components/altai";
 import { useAppMenuCommands } from "@/modules/app-menu/useAppMenuCommands";
 import {
   AgentRunBridge,
@@ -51,6 +52,7 @@ import {
   type GitHistorySearchHandle,
 } from "@/modules/git-history";
 import { GitHubItemsStack, ProjectBoardStack } from "@/modules/github";
+import type { ItemKind } from "@/modules/github/lib/items";
 import { getInitialLaunches, getLaunchDir, type LaunchPayload } from "@/lib/launchDir";
 import { useZoom } from "@/lib/useZoom";
 import {
@@ -98,12 +100,13 @@ import {
   type ShortcutId,
 } from "@/modules/shortcuts";
 import {
+  GitHubSidebar,
+  ProjectManagementSidebar,
   SidebarRail,
   type SidebarRailItemId,
   type SidebarViewId,
 } from "@/modules/sidebar";
 import {
-  SourceControlPanel,
   useSourceControl,
 } from "@/modules/source-control";
 import { StatusBar } from "@/modules/statusbar";
@@ -156,7 +159,7 @@ const SIDEBAR_WIDTH_STORAGE_KEY = "altai.sidebar.width";
 const SIDEBAR_VIEW_STORAGE_KEY = "altai.sidebar.view";
 
 const AGENT_SIDEBAR_DEFAULT_WIDTH = 380;
-const AGENT_SIDEBAR_MIN_WIDTH = 280;
+const AGENT_SIDEBAR_MIN_WIDTH = 200;
 const AGENT_SIDEBAR_WIDTH_STORAGE_KEY = "altai.agentSidebar.width";
 const PLAN_REVIEW_DIFF_PREFIX = "plan-review:";
 
@@ -328,10 +331,16 @@ export default function App() {
       ? "source-control"
       : readSidebarView(),
   );
-  // Rail selection is tracked explicitly so Files/Git stay highlighted when a
-  // GitHub or Project Management tab is still open in the workspace.
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  // Each rail destination owns its sidebar content. Main-area tabs do not
+  // override this selection, so switching editors cannot unexpectedly replace
+  // the user's current sidebar workflow.
   const [sidebarRailItem, setSidebarRailItem] = useState<SidebarRailItemId>(
-    "explorer",
+    () =>
+      useWorkspaceFolderStore.getState().justCloned ||
+      readSidebarView() === "source-control"
+        ? "github"
+        : "explorer",
   );
   const boardAssignments = useAssignmentsStore((state) => state.assignments);
   const hydrateAssignments = useAssignmentsStore((state) => state.hydrate);
@@ -351,9 +360,7 @@ export default function App() {
   );
   const persistSidebarView = useCallback((view: SidebarViewId) => {
     setSidebarViewState(view);
-    // Only Files is a rail item among left-sidebar views; Source Control is
-    // opened via shortcut and should not steal the GitHub rail highlight.
-    if (view === "explorer") setSidebarRailItem("explorer");
+    setSidebarRailItem(view === "explorer" ? "explorer" : "github");
     try {
       window.localStorage.setItem(SIDEBAR_VIEW_STORAGE_KEY, view);
     } catch {
@@ -363,8 +370,14 @@ export default function App() {
   const toggleSidebar = useCallback(() => {
     const p = sidebarRef.current;
     if (!p) return;
-    if (p.isCollapsed()) p.resize(`${sidebarWidthRef.current}px`);
-    else p.collapse();
+    if (p.isCollapsed()) {
+      p.expand();
+      p.resize(`${sidebarWidthRef.current}px`);
+      setSidebarCollapsed(false);
+    } else {
+      p.collapse();
+      setSidebarCollapsed(true);
+    }
   }, []);
   const setTerminalDrawerVisibility = useCallback((open: boolean) => {
     terminalDrawerOpenRef.current = open;
@@ -392,18 +405,22 @@ export default function App() {
     (view: SidebarViewId) => {
       const panel = sidebarRef.current;
       const collapsed = panel?.isCollapsed() ?? false;
+      const targetRail: SidebarRailItemId =
+        view === "explorer" ? "explorer" : "github";
       if (collapsed) {
         if (panel) panel.resize(`${sidebarWidthRef.current}px`);
-        if (view !== sidebarView) persistSidebarView(view);
+        if (view !== sidebarView || sidebarRailItem !== targetRail) {
+          persistSidebarView(view);
+        }
         return;
       }
-      if (view === sidebarView) {
+      if (view === sidebarView && sidebarRailItem === targetRail) {
         panel?.collapse();
         return;
       }
       persistSidebarView(view);
     },
-    [persistSidebarView, sidebarView],
+    [persistSidebarView, sidebarRailItem, sidebarView],
   );
   const persistSidebarWidth = useCallback((next: number) => {
     sidebarWidthRef.current = next;
@@ -473,9 +490,15 @@ export default function App() {
     const explorer = explorerRef.current;
     const panel = sidebarRef.current;
     const collapsed = panel?.isCollapsed() ?? false;
-    if (sidebarView !== "explorer" || collapsed) {
+    if (
+      sidebarView !== "explorer" ||
+      sidebarRailItem !== "explorer" ||
+      collapsed
+    ) {
       if (panel && collapsed) panel.resize(`${sidebarWidthRef.current}px`);
-      if (sidebarView !== "explorer") persistSidebarView("explorer");
+      if (sidebarView !== "explorer" || sidebarRailItem !== "explorer") {
+        persistSidebarView("explorer");
+      }
       const active = document.activeElement;
       explorerReturnFocusRef.current =
         active instanceof HTMLElement && active !== document.body
@@ -499,7 +522,7 @@ export default function App() {
     explorerReturnFocusRef.current =
       active instanceof HTMLElement && active !== document.body ? active : null;
     explorer.focus();
-  }, [persistSidebarView, sidebarView]);
+  }, [persistSidebarView, sidebarRailItem, sidebarView]);
 
   const [home, setHome] = useState<string | null>(null);
   const [pendingCloseTab, setPendingCloseTab] = useState<number | null>(null);
@@ -1051,6 +1074,7 @@ export default function App() {
     if (miniOpen && collapsed) {
       const target = clampAgentSidebarWidth(agentSidebarWidthRef.current);
       agentSidebarWidthRef.current = target;
+      panel.expand();
       panel.resize(`${target}px`);
     } else if (!miniOpen && !collapsed) {
       panel.collapse();
@@ -1065,6 +1089,7 @@ export default function App() {
     if (terminalDrawerOpen && collapsed) {
       const target = clampTerminalDrawerHeight(terminalDrawerHeightRef.current);
       terminalDrawerHeightRef.current = target;
+      panel.expand();
       panel.resize(`${target}px`);
     } else if (!terminalDrawerOpen && !collapsed) {
       panel.collapse();
@@ -1381,7 +1406,9 @@ export default function App() {
     [tabs],
   );
   const sourceControlActive =
-    hasOpenGitTab || sidebarView === "source-control";
+    hasOpenGitTab ||
+    sidebarRailItem === "github" ||
+    sidebarView === "source-control";
   // Stable per-session path so switching tabs / cd-ing in a shell does NOT
   // re-fire git IPC for the badge. The active panel resolves the current
   // context path on its own when the user actually opens git.
@@ -1435,11 +1462,14 @@ export default function App() {
     sourceControlContextPath,
   ]);
 
-  const openGitHubItemsFromContext = useCallback(async () => {
+  const openGitHubItemsFromContext = useCallback(async (
+    kind?: ItemKind,
+    number?: number,
+  ) => {
     const known = sourceControl.hasRepo ? sourceControl.repo : null;
     if (known) {
       setSidebarRailItem("github");
-      openGitHubItemsTab({ repoRoot: known.repoRoot });
+      openGitHubItemsTab({ repoRoot: known.repoRoot, kind, number });
       return;
     }
     if (!sourceControlContextPath) return;
@@ -1447,7 +1477,7 @@ export default function App() {
       const repo = await native.gitResolveRepo(sourceControlContextPath);
       if (!repo) return;
       setSidebarRailItem("github");
-      openGitHubItemsTab({ repoRoot: repo.repoRoot });
+      openGitHubItemsTab({ repoRoot: repo.repoRoot, kind, number });
     } catch {
       /* noop */
     }
@@ -1458,23 +1488,38 @@ export default function App() {
     sourceControlContextPath,
   ]);
 
-  const openProjectBoardFromContext = useCallback(async () => {
+  const openProjectBoardFromContext = useCallback(async (
+    options?: { newWork?: boolean },
+  ) => {
     const known = sourceControl.hasRepo ? sourceControl.repo : null;
     if (known) {
       setSidebarRailItem("projects");
-      openProjectBoardTab({ repoRoot: known.repoRoot });
+      openProjectBoardTab({
+        repoRoot: known.repoRoot,
+        newWork: options?.newWork,
+      });
       return;
     }
-    if (!sourceControlContextPath) return;
+    const localRoot = explorerRoot ?? sourceControlContextPath;
+    if (!localRoot) return;
     try {
-      const repo = await native.gitResolveRepo(sourceControlContextPath);
-      if (!repo) return;
+      const repo = await native.gitResolveRepo(localRoot);
       setSidebarRailItem("projects");
-      openProjectBoardTab({ repoRoot: repo.repoRoot });
+      openProjectBoardTab({
+        repoRoot: repo?.repoRoot ?? localRoot,
+        newWork: options?.newWork,
+      });
     } catch {
-      /* noop */
+      // Project Management is local-first and remains usable when Git
+      // discovery fails or the workspace is not a repository.
+      setSidebarRailItem("projects");
+      openProjectBoardTab({
+        repoRoot: localRoot,
+        newWork: options?.newWork,
+      });
     }
   }, [
+    explorerRoot,
     openProjectBoardTab,
     sourceControl.hasRepo,
     sourceControl.repo,
@@ -1483,37 +1528,19 @@ export default function App() {
 
   const handleSidebarRailSelect = useCallback(
     (item: SidebarRailItemId) => {
-      if (item === "github") {
-        void openGitHubItemsFromContext();
-        return;
-      }
-      if (item === "projects") {
-        void openProjectBoardFromContext();
-        return;
-      }
-      setSidebarRailItem("explorer");
       const panel = sidebarRef.current;
       if (panel?.isCollapsed()) {
         panel.resize(`${sidebarWidthRef.current}px`);
       }
-      persistSidebarView("explorer");
+      setSidebarRailItem(item);
+      if (item === "explorer") {
+        persistSidebarView("explorer");
+      } else if (item === "github") {
+        persistSidebarView("source-control");
+      }
     },
-    [
-      openGitHubItemsFromContext,
-      openProjectBoardFromContext,
-      persistSidebarView,
-    ],
+    [persistSidebarView],
   );
-
-  // Keep the rail in sync when the user focuses a GitHub / Project Management
-  // tab from the tab bar (not only when opened via the rail itself).
-  useEffect(() => {
-    if (activeTab?.kind === "project-board") {
-      setSidebarRailItem("projects");
-    } else if (activeTab?.kind === "github-items") {
-      setSidebarRailItem("github");
-    }
-  }, [activeId, activeTab?.kind]);
 
   const openPreviewTab = useCallback(
     (url: string) => {
@@ -1553,17 +1580,11 @@ export default function App() {
   );
 
   // Header Split button → split the active EDITOR group (not the terminal).
-  // EditorStack owns the group layout, so we bump a signal it watches; it also
-  // reports back whether a split is possible (active group has 2+ tabs).
-  const [editorCanSplit, setEditorCanSplit] = useState(false);
-  const [editorSplit, setEditorSplit] = useState<{
+  // EditorStack owns the group layout and watches this signal for editor splits.
+  const [editorSplit] = useState<{
     dir: "row" | "col";
     n: number;
   }>({ dir: "row", n: 0 });
-  const requestEditorSplit = useCallback(
-    (dir: "row" | "col") => setEditorSplit((s) => ({ dir, n: s.n + 1 })),
-    [],
-  );
 
   const handleCloseTabOrPane = useCallback(() => {
     // A focused main tab closes first; otherwise close the drawer terminal/pane.
@@ -1701,7 +1722,9 @@ export default function App() {
       case "edit.findInFiles": {
         const panel = sidebarRef.current;
         if (panel?.isCollapsed()) panel.resize(`${sidebarWidthRef.current}px`);
-        if (sidebarView !== "explorer") persistSidebarView("explorer");
+        if (sidebarView !== "explorer" || sidebarRailItem !== "explorer") {
+          persistSidebarView("explorer");
+        }
         requestAnimationFrame(() => explorerRef.current?.openSearch());
         break;
       }
@@ -1980,7 +2003,6 @@ export default function App() {
             onDirtyChange={handleEditorDirty}
             onCloseTab={disposeTab}
             splitSignal={editorSplit}
-            onCanSplitChange={setEditorCanSplit}
           />
         </div>
       </div>
@@ -2106,12 +2128,11 @@ export default function App() {
         <ProjectBoardStack tabs={tabs} activeId={activeId} />
       </div>
       {!activeTab ? (
-        <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 px-6 text-center text-muted-foreground">
-          <span className="text-[13px] font-medium">No file open</span>
-          <span className="text-[11.5px]">
-            Open a file from the explorer, or toggle the terminal with Cmd/Ctrl+J.
-          </span>
-        </div>
+        <EmptyState
+          className="absolute inset-0"
+          title="No file open"
+          description="Open a file from the explorer, or toggle the terminal with Cmd/Ctrl+J."
+        />
       ) : null}
     </div>
   );
@@ -2122,7 +2143,7 @@ export default function App() {
     (t): t is TerminalTab => t.kind === "terminal",
   );
   const terminalDrawer = (
-    <div className="flex h-full min-h-0 flex-col border-t border-border/60 bg-background">
+    <div className="flex h-full min-h-0 flex-col border-t border-border-subtle bg-background">
       <TerminalPanelHeader
         terminals={terminalTabs}
         activeId={activeTerminalId}
@@ -2181,8 +2202,7 @@ export default function App() {
             onClose={handleClose}
             onPin={pinTab}
             onToggleSidebar={toggleSidebar}
-            onSplit={requestEditorSplit}
-            canSplit={editorCanSplit}
+            sidebarActive={!sidebarCollapsed}
             onOpenShortcuts={() => setShortcutsOpen(true)}
             onOpenSettings={() => void openSettingsWindow()}
             onToggleAgentSidebar={togglePanelAndFocus}
@@ -2210,53 +2230,79 @@ export default function App() {
                 collapsedSize={0}
                 onResize={(size) => {
                   if (size.inPixels > 0) persistSidebarWidth(size.inPixels);
+                  setSidebarCollapsed(size.inPixels === 0);
                 }}
               >
-                <div className="flex h-full min-h-0 flex-col border-r border-border/60 bg-card">
+                <div className="flex h-full min-h-0 flex-col border-r border-border-subtle bg-card">
                   <SidebarRail
                     activeItem={sidebarRailItem}
                     onSelectItem={handleSidebarRailSelect}
                     projectsBadge={projectsBadge}
                   />
-                  {workspaceFolder ? (
-                    <div className="group/ws flex items-center gap-1 border-b border-border/60 px-2 py-1.5">
-                      <span
-                        className="min-w-0 flex-1 truncate text-[11px] font-semibold uppercase tracking-wide text-muted-foreground"
-                        title={workspaceFolder}
-                      >
-                        {folderName(workspaceFolder)}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={closeFolder}
-                        title="Close folder — back to welcome"
-                        aria-label="Close folder"
-                        className="flex size-5 shrink-0 items-center justify-center rounded text-[14px] leading-none text-muted-foreground/60 opacity-0 transition-opacity hover:bg-muted hover:text-foreground focus-visible:opacity-100 group-hover/ws:opacity-100"
-                      >
-                        ×
-                      </button>
-                    </div>
-                  ) : null}
                   <div className="min-h-0 flex-1">
-                    {sidebarView === "explorer" ? (
-                      <FileExplorer
-                        ref={explorerRef}
-                        rootPath={explorerRoot}
-                        gitDecorations={gitDecorations}
-                        onOpenFile={handleOpenFile}
-                        onPathRenamed={handlePathRenamed}
-                        onPathDeleted={handlePathDeleted}
-                        onRevealInTerminal={cdInNewTab}
-                        onAttachToAgent={handleAttachFileToAgent}
-                        onOpenMarkdownPreview={openMarkdownPreview}
-                      />
-                    ) : (
-                      <SourceControlPanel
-                        open
+                    {sidebarRailItem === "explorer" ? (
+                      <div className="flex h-full min-h-0 flex-col">
+                        {workspaceFolder ? (
+                          <div className="group/ws flex items-center gap-1 border-b border-border-subtle px-2 py-1.5">
+                            <span
+                              className="altai-mono min-w-0 flex-1 truncate text-[11px] font-semibold uppercase tracking-wide text-muted-foreground"
+                              title={workspaceFolder}
+                            >
+                              {folderName(workspaceFolder)}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={closeFolder}
+                              title="Close folder — back to welcome"
+                              aria-label="Close folder"
+                              className="flex size-5 shrink-0 items-center justify-center rounded text-[14px] leading-none text-muted-foreground/60 opacity-0 transition-opacity hover:bg-muted hover:text-foreground focus-visible:opacity-100 group-hover/ws:opacity-100"
+                            >
+                              ×
+                            </button>
+                          </div>
+                        ) : null}
+                        <div className="min-h-0 flex-1">
+                          <FileExplorer
+                            ref={explorerRef}
+                            rootPath={explorerRoot}
+                            gitDecorations={gitDecorations}
+                            onOpenFile={handleOpenFile}
+                            onPathRenamed={handlePathRenamed}
+                            onPathDeleted={handlePathDeleted}
+                            onRevealInTerminal={cdInNewTab}
+                            onAttachToAgent={handleAttachFileToAgent}
+                            onOpenMarkdownPreview={openMarkdownPreview}
+                          />
+                        </div>
+                      </div>
+                    ) : sidebarRailItem === "github" ? (
+                      <GitHubSidebar
+                        repoRoot={
+                          sourceControl.repo?.repoRoot ??
+                          explorerRoot ??
+                          workspaceFallbackPath
+                        }
                         sourceControl={sourceControl}
+                        onOpenItems={(kind, number) =>
+                          void openGitHubItemsFromContext(kind, number)
+                        }
                         onOpenDiff={openGitDiffTab}
                         onOpenGitGraph={openGitGraphFromContext}
                         onBranchSwitched={handleBranchSwitched}
+                      />
+                    ) : (
+                      <ProjectManagementSidebar
+                        workspaceName={
+                          workspaceFolder
+                            ? folderName(workspaceFolder)
+                            : "Local workspace"
+                        }
+                        onOpenBoard={() =>
+                          void openProjectBoardFromContext()
+                        }
+                        onCreateWork={() =>
+                          void openProjectBoardFromContext({ newWork: true })
+                        }
                       />
                     )}
                   </div>
@@ -2264,8 +2310,8 @@ export default function App() {
               </ResizablePanel>
               <ResizableHandle
                 withHandle
-                aria-label="Resize file explorer"
-                title="Resize file explorer (use arrow keys for precise control)"
+                aria-label="Resize workspace sidebar"
+                title="Resize workspace sidebar (use arrow keys for precise control)"
               />
               <ResizablePanel id="workspace" defaultSize="78%" minSize="30%">
                 <ResizablePanelGroup
@@ -2328,7 +2374,6 @@ export default function App() {
                     : "0px"
                 }
                 minSize={`${AGENT_SIDEBAR_MIN_WIDTH}px`}
-                maxSize="70%"
                 groupResizeBehavior="preserve-pixel-size"
                 collapsible
                 collapsedSize={0}
@@ -2347,7 +2392,7 @@ export default function App() {
                   }
                 }}
               >
-                <div className="h-full min-h-0 min-w-0 overflow-hidden border-l border-border/60">
+                <div className="h-full min-h-0 min-w-0 overflow-hidden border-l border-border-subtle">
                   <AiSidePanel
                     onClose={closeMini}
                     hasComposer={keysLoaded && hasComposer}
