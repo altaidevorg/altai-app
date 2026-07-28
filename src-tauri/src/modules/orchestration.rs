@@ -26,6 +26,8 @@ pub mod recovery;
 #[allow(dead_code)]
 pub mod artifact;
 #[allow(dead_code)]
+pub mod browser_qa;
+#[allow(dead_code)]
 pub mod budget;
 #[allow(dead_code)]
 pub mod checks;
