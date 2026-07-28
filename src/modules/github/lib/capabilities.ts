@@ -1,10 +1,9 @@
 export type GitHubRepoState = "loading" | "ready" | "none";
 
 export type GitHubCapabilities = {
-  /** Local Git, todos, assignments, and the Overview board never need GitHub. */
+  /** Local Git, todos, assignments, and operations never need GitHub. */
   localWorkspace: true;
   remoteItems: boolean;
-  linkedProjects: boolean;
   remoteMutations: boolean;
 };
 
@@ -20,7 +19,6 @@ export function githubCapabilities(input: {
   return {
     localWorkspace: true,
     remoteItems: remoteAvailable,
-    linkedProjects: remoteAvailable,
     remoteMutations: remoteAvailable,
   };
 }

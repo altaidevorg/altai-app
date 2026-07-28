@@ -54,10 +54,10 @@ function AiToolApprovalImpl({ part, toolName, onRespond }: Props) {
       <div role={assertive ? "alert" : "status"} className="sr-only">
         {label} requires approval
       </div>
-      <div className="flex items-center gap-2 border-b border-border/60 px-3 py-2">
+      <div className="flex items-center gap-2 border-b border-border-subtle px-3 py-2">
         <span
           aria-hidden="true"
-          className="size-1.5 shrink-0 rounded-full bg-amber-500 animate-pulse"
+          className="size-1.5 shrink-0 rounded-full bg-warning animate-pulse"
         />
         <HugeiconsIcon
           icon={Icon}

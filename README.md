@@ -1,355 +1,167 @@
 <div align="center">
+  <img src="public/logo.png" alt="Altai" width="120" />
 
-<img src="public/logo.png" alt="ALTAI" width="120" />
+  # Altai
 
-# ALTAI
+  **The open agentic development environment.**<br/>
+  A local-first, open-source workspace where AI coding agents live inside your editor, terminal, and git — not in a sidebar chat box.
 
-**A local-first, open-source workspace for AI coding agents.**
-ALTAI gives agents a real workspace — terminal, editor, files, and explicit permissions — while your code and API keys stay under your control.
+  [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+  [![Built with Tauri](https://img.shields.io/badge/built%20with-Tauri%202-24C8D8.svg)](https://tauri.app)
+  [![Platform](https://img.shields.io/badge/platform-macOS%20%C2%B7%20Windows%20%C2%B7%20Linux-lightgrey.svg)](#installation)
+  [![Providers](https://img.shields.io/badge/AI%20providers-14-orange.svg)](#bring-your-own-model)
+  [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
 
-[![Release](https://img.shields.io/github/v/release/altaidevorg/altai-app?label=release&color=6E56CF&style=flat-square)](https://github.com/altaidevorg/altai-app/releases)
-[![License](https://img.shields.io/badge/license-Apache%202.0-22c55e?style=flat-square)](LICENSE)
-[![Build](https://img.shields.io/github/actions/workflow/status/altaidevorg/altai-app/release.yml?label=build&style=flat-square)](https://github.com/altaidevorg/altai-app/actions/workflows/release.yml)
-[![Platforms](https://img.shields.io/badge/macOS%20%C2%B7%20Windows%20%C2%B7%20Linux-lightgrey?style=flat-square)](INSTALL.md)
+  <br/>
 
-<p>
-  <a href="#install">Install</a> ·
-  <a href="#why-altai">Why</a> ·
-  <a href="#agents">Agents</a> ·
-  <a href="#-adaptive-ml-agent">Adaptive ML</a> ·
-  <a href="#the-altai-stack">The stack</a> ·
-  <a href="#architecture">Architecture</a> ·
-  <a href="https://altai.dev">altai.dev</a>
-</p>
+  <!-- Drop a demo.gif or screenshot.png into docs/media/ and uncomment: -->
+  <!-- <img src="docs/media/demo.gif" alt="Altai demo" width="800" /> -->
 
-<sub>An open-source project by <a href="https://github.com/altaidevorg">Altai</a> — agentic infrastructure for engineers and ML researchers.</sub>
-
-<!--
-  Drop a hero GIF here once recorded from inside the app.
-  Suggested capture: full window, user types a prompt, agent reads a file,
-  proposes an edit (Ask-before-edit modal), user approves, terminal runs tests.
--->
-<br/>
-<img src="docs/media/hero.gif" alt="ALTAI hero demo" width="820" />
-
+  [Features](#features) · [Installation](#installation) · [Multi-Agent Orchestration](#multi-agent-orchestration) · [Providers](#bring-your-own-model) · [Shortcuts](#keyboard-shortcuts) · [Contributing](#contributing)
 </div>
 
 ---
 
-## About
+## Why Altai?
 
-ALTAI is what happens when you stop trying to bolt AI onto an editor and instead build the editor *around* an agent runtime. The terminal, the editor, and the file tree are first-class participants — the agent reads them, runs them, and edits them through the same primitives you do, gated by an explicit permission model.
+Most AI coding tools are a chat panel bolted onto an editor. **Altai is a full development environment built around agents**: a real PTY terminal the agent can read and drive, a CodeMirror 6 editor with AI autocomplete, native git and GitHub integration, and a multi-agent orchestration engine — all in one fast native window, running on your machine, with your keys, under your control.
 
-Most "AI IDEs" are chat boxes that suggest code. ALTAI is a workspace where the agent **does the work**: reproduces an arXiv paper end-to-end on a free Colab GPU, generates a 10k-row DPO dataset, audits a diff for race conditions, ships a fix to a failing test — without ever asking you to copy-paste a thing.
-
-At the center of ALTAI's ML side is the **[Adaptive ML agent](#-adaptive-ml-agent)** — a discovery-first agent that turns open-ended ML requests ("fine-tune Llama on our legal docs", "fix my agent's tool calls", "serve this 70B cheaply") into research → pilot → evaluate → scale loops. No hard-coded recipes; the agent surveys the 2026 literature, runs the smallest verifiable pilots in parallel, presents numeric tradeoffs, then scales the winner.
-
-It's a desktop app, not a service. Your code never leaves your machine; only the model call does. API keys live in your OS keychain. There is no account, no telemetry, no cloud round-trip.
-
-## Why ALTAI
-
-|                                | ALTAI | Cursor / Copilot | Aider / Cline | Cloud agent web UIs |
-| ------------------------------ | :---: | :--------------: | :-----------: | :-----------------: |
-| Native terminal + editor       |  ✅   |        ✅        |       ⛔      |          ⛔         |
-| Local agent runtime (no cloud) |  ✅   |        ⛔        |       ✅      |          ⛔         |
-| ML-aware agents (arXiv / HF)   |  ✅   |        ⛔        |       ⛔      |          ⚠️         |
-| Background jobs + cron         |  ✅   |        ⛔        |       ⛔      |          ✅         |
-| Bring-your-own-key, keychain   |  ✅   |        ⚠️        |       ✅      |          ⛔         |
-| Single signed binary           |  ✅   |        ✅        |       ⛔      |          —          |
-| No account, no telemetry       |  ✅   |        ⛔        |       ✅      |          ⛔         |
+- 🔒 **Local-first & private** — API keys live in your OS keychain, GitHub tokens never touch JavaScript, secret files are blocked from agent access by default.
+- 🧠 **14 providers, ~60 models** — from Claude and GPT to fully local models on LM Studio and MLX. Your keys, your models, your bill.
+- 🤖 **Real multi-agent orchestration** — a task DAG, kanban board, budgets, quality gates, and agent-to-agent mailboxes. Not a demo feature; a 30-module engine.
+- 🔬 **Built for ML & research** — reproduce arXiv papers into working code, generate synthetic datasets, run notebooks, and let an Adaptive ML agent guide fine-tuning.
+- ♿ **Accessible by design** — full screen-reader support (including the terminal), high-contrast themes, and every shortcut rebindable.
 
 ## Features
 
-- 🛡️ **Three permission modes per session** — *Ask before edit* (default), *Edit automatically*, or *Bypass permissions* (gated behind an explicit Settings toggle). The agent never silently mutates your repo.
-- ✨ **[Adaptive ML agent](#-adaptive-ml-agent)** — open-ended ML requests (fine-tune, RAG, quantize, serve, evaluate, debug a training run) become an 8-step *discover → research → enumerate → pilot → evaluate → scale → verify → persist* loop. The agent surveys current literature, runs the smallest verifiable pilots in parallel, presents numeric tradeoffs, and only commits after evidence. No hard-coded recipes.
-- 🤖 **10 built-in agents, fully editable** — Coder, Architect, Code Reviewer, Security, Designer, plus four ML-focused agents (**Adaptive ML**, Paper Reproducer, Notebook Assistant, Dataset Generator). Override instructions, disable what you don't need, reset to defaults at any time.
-- 🧠 **Single embedded agent runtime** — every chat goes through the in-process [**IsanAgent**](#-isanagent) Rust runtime: 44 tools, sub-agent DAGs, SQLite FTS5 memory, and a workspace-scoped execution harness (local · Jupyter · SSH · free Colab GPU). The model picker in the toolbar selects which provider IsanAgent calls (Anthropic native; OpenAI, xAI, Cerebras, Groq, DeepSeek, Mistral, OpenRouter, and Gemini via OpenAI-compatible endpoints; or self-hosted options like LM Studio, MLX, and generic OpenAI-compatible servers).
-- 🔑 **Bring your own keys** — Anthropic, OpenAI, Google, Groq, xAI, Cerebras, plus any OpenAI-compatible endpoint (LM Studio, MLX, Ollama). Keys live in a mode-0600 file under the app's local data dir on macOS and Linux, and in Credential Manager on Windows — never round-tripped through a cloud service, never bundled with the app.
-- 🖥️ **First-class terminal** — xterm.js + portable-pty with shell integration for zsh, bash, fish, PowerShell. Emits OSC 7 (cwd) and OSC 133 (prompt boundaries) so the agent tracks every command boundary the way iTerm and Warp do.
-- ✏️ **Editor with LSP** — CodeMirror 6, 20+ languages lazy-loaded, vim mode, 9 themes, inline diffs.
-- 📊 **Background jobs that don't block you** — start a long training run, close the chat, come back later. Background jobs persist across restarts; the agent wakes when they finish.
-- 🗂️ **GitHub project and agent workflows** — manage issues, pull requests, local todos, and linked GitHub Projects from one board; assign work to isolated background agents and publish reviewed results as draft pull requests. See the [usage guide](docs/GITHUB_PROJECT_WORKFLOWS.md).
-- 🔬 **ML-domain tools out of the box** — `arxiv_search`, `arxiv_fetch`, `hf_hub_file_fetch`, `python_run`, and a Colab MCP bridge so paper reproduction works on free T4 GPUs.
-- 🪪 **Zero account, zero telemetry, zero cloud round-trip.** Single signed binary. Apache 2.0.
+### Agentic coding, done right
 
-<!--
-  Drop a permission-modes GIF here.
-  Suggested capture: open PermissionModeSwitcher, cycle through the three modes,
-  then show an Ask-before-edit prompt appearing and being approved.
--->
-<p align="center">
-  <img src="docs/media/permission-modes.gif" alt="Permission modes" width="720" />
-</p>
+- **Full agent toolset** — `read_file`, `edit`, `multi_edit`, `write_file`, `bash_run`, `bash_background`, `grep`, `glob`, `get_terminal_output`, `todo_write`, `run_subagent`, `suggest_command`, `open_preview`, and more.
+- **Four permission modes** — `ask` → `auto-edit` → `plan` → `bypass`, with a deliberate safety lock on full bypass. You choose how much rope the agent gets.
+- **Diff-first approvals** — every edit lands as a reviewable diff card; plan mode produces a full plan diff before a single file is touched.
+- **Checkpoints & rewind** — pre-edit checkpoints let you restore any file the agent touched, and conversation truncation lets you edit a message and re-run from there.
+- **Steering** — redirect a running agent mid-task, or queue your next instruction.
+- **Context engineering built in** — automatic compaction with tunable thresholds, tool-result pruning, live context-window and cost meters, and `/compact` when you want it now.
+- **Slash commands** — `/init` writes your `ALTAI.md` project instructions, `/plan` enters plan mode, `/paper` imports an arXiv paper, `/compact` compresses history.
+- **Composer superpowers** — `@` to attach files, `#` for reusable snippets, attach your unstaged git diff, terminal output, images, or PDFs. Dictate prompts with voice (Whisper).
 
-## Install
+### Agents, skills & automation
 
-Grab the binary for your platform from the [Releases page](https://github.com/altaidevorg/altai-app/releases). One-time platform setup (Gatekeeper / SmartScreen bypass for the unsigned v0.1.0 build) is documented in **[INSTALL.md](INSTALL.md)**.
+- **9 built-in agent personas** — Coder, Architect, Code Reviewer, Security, Designer, **Adaptive ML**, **Paper Reproducer**, **Notebook Assistant**, and **Dataset Generator**. Override them, disable them, or write your own with custom instructions and icons.
+- **Skills** — install agent skills from any GitHub repo; running agents pick them up without a restart.
+- **Automations** — schedule agent runs with `at`, `every`, or cron expressions. Wake up to finished work.
+- **Lifecycle hooks** — `session_start`, `before_tool`, `after_edit`, `on_error` and more, defined in `WORKFLOW.md`.
+- **Inbox** — notifications, background jobs, and clarification tickets where a blocked agent can ask you a question and resume.
 
-| Platform                  | File                                  | One-time setup                                              |
-| ------------------------- | ------------------------------------- | ----------------------------------------------------------- |
-| **macOS (Apple Silicon)** | `ALTAI_<version>_aarch64.dmg`         | `xattr -dr com.apple.quarantine /Applications/ALTAI.app`    |
-| **macOS (Intel)**         | `ALTAI_<version>_x64.dmg`             | same as above                                               |
-| **Windows**               | `ALTAI_<version>_x64_en-US.msi`       | SmartScreen → *More info* → *Run anyway*                    |
-| **Linux (.deb)**          | `altai_<version>_amd64.deb`           | `sudo apt install ./altai_*.deb`                            |
-| **Linux (.AppImage)**     | `altai_<version>_amd64.AppImage`      | `chmod +x` and run                                          |
+### Multi-agent orchestration
 
-> **Building from source skips the security warnings entirely** — no `xattr`, no SmartScreen, no Gatekeeper. The locally-produced binary is implicitly trusted on the machine that produced it. See **[INSTALL.md → Build from source](INSTALL.md#build-from-source)** for the full prerequisites + commands + per-platform troubleshooting.
+Altai ships a full orchestration runtime, configured per-repo in `WORKFLOW.md`:
 
-## Agents
+- **Task board** — kanban (queued → running → reviewing → done) with quality metrics: first-attempt success, retry rate, verification failures.
+- **Task DAG** — dependency graphs with cycle detection and topological scheduling, up to 8 parallel runners.
+- **Agent profiles** — per-agent model, reasoning effort, permissions, tools, skills, MCP servers, budgets, and file scopes.
+- **Budgets & quality gates** — per-task time/token/cost limits and pass/fail command checks before work can merge.
+- **Team coordination** — agent hierarchies, exactly-once mailboxes, and file-conflict detection between agents.
+- **Readiness scan** — scores your repo on 9 dimensions for agent-readiness, with evidence links.
+- **Run inspector & replay** — durable SQLite ledger, event journal, crash recovery, and full session replay.
 
-ALTAI ships ten first-class agents. Each one is editable from the in-app **Agent Switcher** — change the system prompt, rename, disable, or reset to default. Every agent runs on the embedded IsanAgent runtime; the picker chooses the persona, the toolbar's model dropdown chooses the upstream provider.
+### A real IDE, not a chat wrapper
 
-The picker groups the four ML-domain agents (**Adaptive ML**, Paper Reproducer, Notebook Assistant, Dataset Generator) under an **ML Agents ▸** submenu so the general-purpose agents stay one click away. The active agent is always reflected on the toolbar trigger.
+- **Terminal** — true PTY (xterm.js + WebGL), split panes, private tabs, OSC 7/133 shell integration, tab hibernation, WSL support. The agent reads your scrollback and suggests commands straight into it.
+- **Editor** — CodeMirror 6 with minimap, Vim mode, split views, breadcrumbs, and **AI inline autocomplete** powered by your choice of ultra-fast model (Cerebras, Groq, local…).
+- **LSP** — one-click managed installs for TypeScript, Python, Go, and Rust language servers, checksum-verified.
+- **Notebooks** — view, edit, and execute `.ipynb` cells, with an Experiment View for tracking ML runs.
+- **Preview** — built-in browser with native webview tabs (yes, Colab works inside Altai).
+- **MCP** — per-workspace Model Context Protocol servers with live status and tool probing. Config compatible with Claude Desktop format.
 
-| Agent                  | Domain                                       | Highlights                                                                            |
-| ---------------------- | -------------------------------------------- | ------------------------------------------------------------------------------------- |
-| **Adaptive ML** ✨     | Open-ended ML requests                        | Discovers its own solution. Research → enumerate → pilot → evaluate → scale → verify → persist. See [section below](#-adaptive-ml-agent). |
-| **Coder**              | General-purpose engineering                  | Pair-programs in your terminal, matches existing patterns, runs project checks.       |
-| **Architect**          | System design & tradeoffs                    | Restates the problem, surfaces 2–3 options with real tradeoffs before any code.        |
-| **Code Reviewer**      | Diff review                                  | Flags logic bugs, races, perf cliffs, security — skips formatting nits.                |
-| **Security**           | Threat modeling                              | Walks trust boundaries, scores severity, proposes class-of-bug fixes.                  |
-| **Designer**           | UI/UX critique                               | Specific, opinionated taste; Tailwind/CSS values where useful.                        |
-| **Paper Reproducer**   | arXiv → working code                         | Reads the paper, extracts the architecture, emits runnable PyTorch.                    |
-| **Notebook Assistant** | Jupyter / data-science workflows             | Cell-scoped edits, visualization-first, runs cells via the execution harness.          |
-| **Dataset Generator**  | Synthetic SFT / DPO / tool-calling datasets  | Built on top of [**Afterimage**](#-afterimage). Pilot → verify → scale.                |
-| **Custom**             | Bring your own                               | Define your own agent, tune the system prompt; runtime is IsanAgent.                   |
+### Git & GitHub, deeply integrated
 
-<!--
-  Drop an agent-switcher screenshot or GIF here.
-  Suggested capture: open AgentSwitcher panel, scroll through agents,
-  click "Edit" on Paper Reproducer, show the instructions editor.
--->
-<p align="center">
-  <img src="docs/media/agent-switcher.png" alt="Agent switcher" width="720" />
-</p>
+- Full source-control panel: stage, commit (with AI-generated conventional-commit messages), branch, fetch/pull/push, discard, and **worktrees** — agents can work in isolated worktrees.
+- **Git history** with a commit graph rail and per-file diffs.
+- **GitHub device-flow OAuth** — the token lives in Rust, never in the webview.
+- **Issues, PRs & Projects V2 boards** inside the app — and **Assign Agent**: dispatch an issue or PR to an AI agent with one click, then watch its run live.
+- Clone from GitHub, or publish a local project to a new repo.
 
-## ✨ Adaptive ML Agent
+### Security model
 
-The flagship of ALTAI's ML side. Where the other agents do one specialized job (read this paper, write this notebook, generate this dataset), **Adaptive ML accepts open-ended ML requests and finds its own way through them**.
+- Secret files (`.env`, `*.pem`, SSH keys, cloud credentials) are blocked from agent reads and writes — symlink-aware.
+- Workspace authorization boundary: filesystem and shell commands are confined to authorized roots.
+- `.isanagentignore` — gitignore-syntax rules that filter what the agent, explorer, and search can see.
+- API keys in the OS keychain; SSRF-hardened local-model proxy with DNS pinning and cloud-metadata blocking.
 
-> "Fine-tune Llama-3 on our legal docs."
-> "My agent fails BFCL — get it above 75."
-> "Serve this 70B for $500/month."
-> "Beat MathArena AIME 2026 at 50%+."
+### Bring your own model
 
-Same agent. Four wildly different paths. No hard-coded recipes — every step is *discovered* via research and pilots.
+| | Providers |
+|---|---|
+| **Cloud** | OpenAI · Anthropic · Google · xAI · Cerebras · Groq · DeepSeek · Mistral · Z.AI · Z.AI Coding Plan · OpenRouter |
+| **Local** | LM Studio · MLX (Apple Silicon) · any OpenAI-compatible endpoint (Ollama, vLLM, …) |
 
-### The 8-step meta-pattern
+- ~60 pre-configured model cards with intelligence/speed/cost scores, capability tags (vision, reasoning, tools, coding), context-window limits, and live pricing.
+- **Failover model** — if your primary provider rate-limits or goes down, the agent automatically falls back to your chosen backup.
+- Per-chat models: run one conversation on Claude Opus and another on a local Llama, side by side.
+- Separate, speed-curated model picker for editor autocomplete.
 
-Every Adaptive ML run follows the same loop. Which modules, libraries, and hyperparameters get chosen is the *output* of the loop, not the input.
+## Installation
 
-```
-1. UNDERSTAND  → parse the request, ask if data / GPU budget / target metric missing
-                 write a verifiable goal: "X metric >= Y on dataset Z"
-2. RESEARCH    → arxiv_search + web_search + hf_hub_file_fetch + search_memory
-                 last 12 months only; no method picked yet
-3. ENUMERATE   → propose 2-4 candidate paths with cost + cited failure modes
-4. PILOT       → smallest verifiable version of each path, in parallel
-                 (50-100 steps, 1% of data, 100 docs, …)
-                 pass criteria written BEFORE running
-5. EVALUATE    → compare against goal proxy; reject failures
-                 close calls → present numeric tradeoff to ask_user
-6. SCALE       → run the winner at full budget; monitor sub-agent tails logs
-7. VERIFY      → final eval against the real goal; on miss, loop back to 3
-                 with the failure class identified
-8. PERSIST     → write a memory delta; emit a SKILL.md if a path won 3x
-```
+Download the latest release for your platform from the [Releases](../../releases) page — macOS (Apple Silicon), Windows, and Linux builds are available.
 
-### What's fixed vs what's discovered
+Altai also integrates with your OS out of the box:
 
-| Fixed (hard-coded)                                                    | Discovered (per request)                            |
-| --------------------------------------------------------------------- | ---------------------------------------------------- |
-| IsanAgent runtime + 44 tools + execution harness + cron + doom-loop   | Which tool to call, in what order                    |
-| Afterimage modules (Magpie SFT, multi-judge DPO, APIGen-MT, RAGAS-QA) | Whether data needs generating; if so, which modules  |
-| The 8-step loop itself                                                | What happens inside each step                        |
-| The *existence* of a capability catalog                               | Which library / format / algorithm gets picked       |
-| Doom-loop defense (3× same call → strategy change; 150% budget → ask) | When defense triggers                                |
-| Memory + SKILL.md emission discipline                                 | Which patterns rise to skill status                  |
+- **Right-click "Explain with AI" / "Refactor with AI" / "Ask About Project"** in Finder and Explorer
+- **CLI**: `altai <path>`, `altai --new-chat`, `altai --explain`, `altai --refactor`
+- **Deep links** via the `altai://` scheme, Dock menus / Jump Lists, launch-at-login, and single-instance behavior
 
-### The capability catalog the agent picks from
+### Build from source
 
-The agent has explicit knowledge of the 2026 landscape across every ML stage. It does not commit to any of these until research and pilots justify it.
-
-- **Data generation** — [Afterimage](#-afterimage) (Magpie SFT, multi-judge DPO/KTO/ORPO with Krippendorff α, APIGen-MT tool-calling traces, RAGAS-style document-grounded QA, structured-output, MCQ). Croissant + HF Dataset Card emit by default.
-- **Filtering & dedup** — datatrove MinHash, SemDeDup, FineWeb-Edu classifier, n-gram contamination check, Presidio PII.
-- **Training** — Unsloth, TRL, Axolotl, LLaMA-Factory, torchtune, verl, OpenRLHF, NeMo-Aligner.
-- **PEFT** — LoRA, QLoRA (NF4 + double-quant), DoRA, rsLoRA, LoftQ.
-- **Preference / RL** — DPO, KTO, ORPO, SimPO, IPO, GRPO, DAPO, RLOO, OnlineDPO.
-- **Quantization** — AWQ (GPTQModel + Marlin), GPTQ, W8A8 INT (llm-compressor + SmoothQuant), FP8 E4M3, GGUF Q4_K_M / IQ4_XS, EXL3, HQQ, AQLM.
-- **Serving** — vLLM (V1), SGLang, LMDeploy, llama.cpp, Ollama, MLX-LM, ExLlamaV3 + TabbyAPI, TensorRT-LLM, ExecuTorch.
-- **Speculative decoding** — EAGLE-3, DeepSeek MTP, Medusa, Lookahead.
-- **RAG** — bge-m3 / Qwen3-Embedding / voyage-3, pgvector / Qdrant / LanceDB, bge-reranker-v2-m3 / mxbai-rerank, Contextual Retrieval / RAPTOR / GraphRAG / CRAG / Self-RAG, ColBERT late-interaction.
-- **Eval** — lm-evaluation-harness, lighteval, Inspect AI, OpenCompass, HELM, DeepEval, RAGAS. Benchmarks: MMLU-Pro, GPQA, HLE, MathArena (live), BFCL v3, τ³-bench, OSWorld-Verified, BigCodeBench, LiveCodeBench (live), Aider Polyglot, IFEval, Arena-Hard v2, RULER, AILuminate.
-
-Contaminated / saturated benchmarks (MMLU, HumanEval, HellaSwag, GSM8K, SWE-bench Verified) are treated as smoke tests only. Benchmark currency is re-verified every run via `arxiv_search("benchmark contamination 2026")`.
-
-### Worked example: same request, different paths
-
-Two trajectories from real Adaptive ML runs — same meta-pattern, completely different conclusions.
-
-> **"Cheap serve our 70B model — $500/month, p99 < 3s."**
-> Research surfaces three paths: W4A16 quantize + spot H100, distill to 8B, or hybrid routing (easy queries → 8B, hard → 70B). All three get piloted in parallel.
-> Results: quantize $720/mo (over budget), distill $90/mo with –3% quality, routing $140/mo with same quality but +400 ms p99. Agent presents the numeric tradeoff. User picks routing.
-> Scale + verify lands at $138/mo, p99 2.7s. Memory delta written: *"cheap-serve-70B: routing won when quality floor was hard."*
-
-> **"My agent fails BFCL — get it above 75 (currently 58)."**
-> Research surfaces APIGen-MT, xLAM, ToolACE. Three candidates: prompt engineering, APIGen-MT data + SFT, or APIGen-MT + GRPO with execution reward. Pilots run.
-> Results: prompt-only ceilings at 62; SFT alone hits 78 on mini-BFCL. GRPO not needed — rejected for cost. Scale runs the full 60k APIGen-MT trace SFT.
-> Final BFCL v3: 79.2. Skill emitted after this is the 3rd successful tool-calling improvement: `agent-tool-calling-improvement.md`.
-
-### Why this works
-
-The agent has the tools to research (`arxiv_search`, `web_search`, `hf_hub_file_fetch`), the harness to pilot at scale (`execution_run_background` on local / Jupyter / SSH / free Colab GPU), the discipline to evaluate (gated pilot criteria, numeric tradeoffs), the memory to learn (`search_memory` + auto-emitted skills), and the defenses to stop runaway loops (doom-loop detection, 150 % budget cap). The instruction binds them into one loop.
-
-Every part of this is editable from the in-app Agent Switcher. Disable steps, change the catalog, lower the budget cap, swap the eval gate — all via the Adaptive ML agent's system prompt.
-
-## The Altai stack
-
-ALTAI is the desktop surface of a small open-source stack. The other two pieces stand on their own — use them in your own projects.
-
-### 🦀 IsanAgent
-
-The Rust **agent runtime** embedded inside ALTAI. Not a sidecar — a crate that compiles into the binary.
-
-- **44 tools** out of the box: filesystem, shell, web, arXiv, HuggingFace, execution, memory, cron, sub-agents.
-- **4 execution providers** — local subprocess, Jupyter kernel, SSH remote, and **Colab MCP** (free T4 / TPU through a browser bridge).
-- **Sub-agent DAGs** via `subagent_plan_execute` — coordinate `researcher` → `coder` → `evaluator` with declared dependencies.
-- **SQLite FTS5 memory** — short-term session summaries plus a long-term reflection loop that runs every 60s.
-- **Doom-loop detection** via SHA-256 fingerprinting of repeated tool calls, with automatic strategy switch.
-- **Cron** persisted in SQLite for scheduled and webhook-triggered work.
-
-→ **[github.com/altaidevorg/isanagent](https://github.com/altaidevorg/isanagent)**
-
-ALTAI tracks İsanAgent **`main`** (not a fixed commit). `pnpm isanagent:sync`, Tauri `beforeDevCommand` / `beforeBuildCommand`, CI, and release all run `cargo update -p isanagent` before compile. A daily (and on-demand) workflow opens a lockfile sync PR when tip moves and **merges it only after every CI check has passed** — that workflow needs repo secret **`ISANAGENT_SYNC_TOKEN`** (fine-grained PAT with Contents + Pull requests write), because org policy blocks `GITHUB_TOKEN` from creating PRs.
-
-### 🖼️ Afterimage
-
-The Python **synthetic dataset library** the Dataset Generator agent leans on.
-
-- **6+ dataset formats** — SFT conversational pairs, DPO preference data, structured-output JSON, tool-calling traces, MCQ, document-grounded QA.
-- **Reproducible by default** — every generation pins seeds, logs parameters, and writes a config snapshot next to the dataset.
-- **Multi-judge DPO** — preference data ships with judge-agreement rates so you can spot collapsed preferences early.
-- **Outputs** as JSONL, Parquet, or HuggingFace `datasets`-compatible folders, with an auto-generated dataset card.
-
-→ **[github.com/altaidevorg/afterimage](https://github.com/altaidevorg/afterimage)**
-
-### 🌐 Altai
-
-The lab behind ALTAI, IsanAgent, and Afterimage. We build **open agentic infrastructure for engineers and ML researchers** — the kind of tools we wanted but couldn't buy. Everything is Apache 2.0, BYO-keys, local-first.
-
-→ **[altai.dev](https://altai.dev)** · **[github.com/altaidevorg](https://github.com/altaidevorg)**
-
-## Architecture
-
-```
-┌─────────────────────────────────────────────────┐
-│ React 19 + Vite                                 │
-│   AiSidePanel · AgentSwitcher · Editor · Term   │
-│   PermissionModeSwitcher · Settings             │
-└─────────────────────────┬───────────────────────┘
-                          │ Tauri IPC
-┌─────────────────────────▼───────────────────────┐
-│ Rust (Tauri 2)                                  │
-│   workspace · fs · pty · shell · git · lsp      │
-│   ┌─────────────────────────────────────────┐   │
-│   │ isanagent (embedded crate)              │   │
-│   │   AgentLogic · ExecutionHarness         │   │
-│   │   Tools: arxiv, hf_hub, exec, todo, …   │   │
-│   │   SQLite memory (FTS5) · sub-agent DAG  │   │
-│   └─────────────────────────────────────────┘   │
-└─────────────────────────────────────────────────┘
-```
-
-One runtime, one chat surface:
-
-- Every chat — Coder, Architect, Reviewer, Security, Designer, the four ML agents, and any custom agent you create — runs on the embedded **IsanAgent** Rust runtime in-process. No sidecar, no IPC over the network.
-- The toolbar's **model picker** chooses which upstream provider IsanAgent calls. Anthropic uses the native Messages API; everything else routes through the OpenAI-compatible chat-completions endpoint for that provider (xAI, Cerebras, Groq, DeepSeek, Mistral, OpenRouter, Gemini's OpenAI-compat endpoint, and self-hosted LM Studio / MLX / generic OpenAI-compatible servers).
-- The agent's `instructions` field (editable in **Settings → Agents**) is appended to IsanAgent's compiled system prompt at runtime startup, so personas survive across the full runtime — sub-agent DAGs, persistent memory, the execution harness, and the doom-loop defense.
-
-<!--
-  Drop a paper-reproducer GIF here.
-  Suggested capture: paste an arXiv URL, agent fetches it via arxiv_fetch,
-  proposes the model file structure, writes the cells, kicks off training
-  on Colab MCP, and shows the first loss value coming back.
--->
-<p align="center">
-  <img src="docs/media/paper-reproducer.gif" alt="Paper Reproducer running an arXiv paper" width="820" />
-</p>
-
-## Project layout
-
-```
-src/
-  app/                  shell + tabs + global wiring
-  modules/
-    ai/                 agents, chat store, tools, transport
-    editor/             CodeMirror integration + LSP client
-    terminal/           xterm.js wrapper + session pool
-    settings/           preferences store
-  settings/             standalone Settings webview
-src-tauri/
-  src/
-    altai/              owned ALTAI logic (agent runtime bridge)
-    modules/            workspace, pty, fs, git, lsp, shell
-```
-
-## Development
-
-Requires Rust stable, Node 22+, pnpm 9+, and the platform-specific [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/).
+Prerequisites: [Rust](https://rustup.rs), [Node.js](https://nodejs.org) 20+, and [pnpm](https://pnpm.io).
 
 ```bash
 git clone https://github.com/altaidevorg/altai-app.git
 cd altai-app
 pnpm install
-pnpm tauri:dev          # hot-reload dev mode
-pnpm tauri:build        # production bundle (.dmg / .msi / .deb / .AppImage)
+pnpm tauri:dev        # development
+pnpm tauri:build      # production bundle
 ```
 
-Pre-PR checks (also gated by CI):
+## Keyboard shortcuts
 
-```bash
-pnpm build                                          # tsc + vite production build
-cargo check --manifest-path src-tauri/Cargo.toml
-cargo clippy --manifest-path src-tauri/Cargo.toml -- -W clippy::all
-pnpm test                                           # vitest unit tests
-```
+Every shortcut in Altai is **rebindable** (Settings → Shortcuts), with layout-independent matching that works on international keyboards.
 
-Full per-platform prerequisites, bundle output paths, and source-build troubleshooting live in **[INSTALL.md → Build from source](INSTALL.md#build-from-source)** — recommended even if you just want to avoid the unsigned-binary warnings on download.
+| Shortcut | Action |
+|---|---|
+| `⌘/Ctrl + I` | Toggle AI panel |
+| `⌘/Ctrl + L` | Ask AI about selection |
+| `⌘/Ctrl + J` | Toggle terminal drawer |
+| `⌘/Ctrl + K` | Keyboard shortcuts dialog |
+| `⌘/Ctrl + ⇧ + F` | Find in files |
+| `⌘/Ctrl + 1…9` | Jump to tab |
 
-## Release
+## Project configuration
 
-Push a `v*` tag (or trigger the workflow manually):
+Altai reads per-repo configuration you can check into version control:
 
-```bash
-git tag v0.1.0
-git push origin v0.1.0
-```
+- **`ALTAI.md`** — project instructions injected into every agent run (`/init` writes it for you)
+- **`WORKFLOW.md`** — orchestration workflows, lifecycle hooks, and quality gates
+- **`.isanagentignore`** — keep files away from agents, search, and the explorer
+- **`.altai/agents/`** — agent profiles for orchestration
+- **`.isanagent/mcp.json`** — workspace MCP servers
 
-GitHub Actions matrix-builds for macOS (Apple Silicon + Intel), Linux (x86_64), and Windows (x86_64), then publishes binaries to the Releases page. ~20–30 min end-to-end.
+## Tech stack
 
-## Roadmap
-
-- [ ] Plugin SDK — third-party tools and agents installable from a registry
-- [ ] Multi-workspace sessions with cross-workspace memory boundaries
-- [ ] First-class MCP server hosting (alongside the existing client)
-- [ ] Self-hosted update channel for air-gapped environments
-- [ ] Code-signing on macOS and Windows (post-v0.1)
-
-Have an idea? Open an [issue](https://github.com/altaidevorg/altai-app/issues) or start a [discussion](https://github.com/altaidevorg/altai-app/discussions).
+Tauri 2 (Rust) · React 19 · TypeScript · CodeMirror 6 · xterm.js · Vercel AI SDK · Zustand · Tailwind CSS 4 · Radix UI · SQLite · embedded **IsanAgent** agent runtime (no sidecar process).
 
 ## Contributing
 
-Issues and PRs welcome. For non-trivial changes, please open an issue first to discuss scope.
+Contributions are welcome — bug reports, feature requests, and pull requests alike. If you're changing something substantial, open an issue first so we can align on direction.
 
-The codebase favors:
-
-- Small, focused files (200–400 lines typical).
-- Explicit error handling at boundaries; no silent fallbacks.
-- Immutable update patterns in stores.
-- Comments only where the *why* is non-obvious.
+Please keep in mind the project's security invariants: agents must never read secret files, API keys never leave the OS keychain, and mutating tools always respect the active permission mode.
 
 ## License
 
-[Apache 2.0](LICENSE) — use it, ship it, fork it.
+[Apache-2.0](LICENSE)
 
-<sub>ALTAI · IsanAgent · Afterimage are projects of <a href="https://altai.dev">Altai</a> — open agentic infrastructure for engineers and ML researchers.</sub>
+---
+
+<div align="center">
+  If Altai is useful to you, consider giving it a ⭐ — it helps others find the project.
+</div>

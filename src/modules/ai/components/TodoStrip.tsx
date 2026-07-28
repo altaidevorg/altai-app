@@ -62,8 +62,8 @@ export function TodoSummaryChip({ sessionId }: Props) {
             "text-[11px] transition-colors",
             "hover:bg-foreground/[0.06]",
             allDone
-              ? "border-emerald-500/30 bg-emerald-500/[0.08] text-emerald-700 dark:text-emerald-300"
-              : "border-border/50 bg-card/60 text-muted-foreground hover:text-foreground",
+              ? "border-success/30 bg-success/[0.10] text-success"
+              : "border-border bg-card text-muted-foreground hover:text-foreground",
           )}
         >
           <HugeiconsIcon
@@ -78,7 +78,7 @@ export function TodoSummaryChip({ sessionId }: Props) {
           {!allDone ? (
             <span className="relative h-1 w-10 overflow-hidden rounded-full bg-muted">
               <span
-                className="absolute inset-y-0 left-0 rounded-full bg-foreground/60 transition-[width] duration-300"
+                className="absolute inset-y-0 left-0 rounded-full bg-primary transition-[width] duration-300"
                 style={{ width: `${pct}%` }}
               />
             </span>
@@ -122,7 +122,7 @@ function TodoSummaryPopover({
         </span>
         <span className="relative h-1 flex-1 overflow-hidden rounded-full bg-muted">
           <span
-            className="absolute inset-y-0 left-0 rounded-full bg-foreground/60 transition-[width] duration-300"
+            className="absolute inset-y-0 left-0 rounded-full bg-primary transition-[width] duration-300"
             style={{ width: `${pct}%` }}
           />
         </span>

@@ -14,13 +14,19 @@ type TokenName =
   | "background"
   | "foreground"
   | "card"
+  | "raised"
+  | "overlay"
   | "muted"
   | "muted-foreground"
   | "accent"
   | "accent-foreground"
   | "border"
+  | "border-subtle"
   | "primary"
   | "destructive"
+  | "success"
+  | "warning"
+  | "info"
   | "ring";
 
 export type AppTokens = Record<TokenName, string>;
@@ -29,13 +35,19 @@ const TOKENS: TokenName[] = [
   "background",
   "foreground",
   "card",
+  "raised",
+  "overlay",
   "muted",
   "muted-foreground",
   "accent",
   "accent-foreground",
   "border",
+  "border-subtle",
   "primary",
   "destructive",
+  "success",
+  "warning",
+  "info",
   "ring",
 ];
 

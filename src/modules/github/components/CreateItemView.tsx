@@ -43,11 +43,14 @@ export function CreateItemView({ slug, kind, onBack, onCreated }: Props) {
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
   const [acceptanceCriteria, setAcceptanceCriteria] = useState("");
+  const [draftPull, setDraftPull] = useState(true);
   const [assignAfterCreate, setAssignAfterCreate] = useState(false);
   const [isolateWorktree, setIsolateWorktree] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [createdItem, setCreatedItem] = useState<GHItem | null>(null);
+  const [metadataLoading, setMetadataLoading] = useState(true);
+  const [metadataError, setMetadataError] = useState<string | null>(null);
   const activeAgentId = useAgentsStore((s) => s.activeId);
   const selectedModelId = useChatStore((s) => s.selectedModelId);
   const defaultPermissionMode = usePreferencesStore((s) => s.permissionMode);
@@ -70,11 +73,24 @@ export function CreateItemView({ slug, kind, onBack, onCreated }: Props) {
 
   useEffect(() => {
     let alive = true;
+    setMetadataLoading(true);
+    setMetadataError(null);
     if (kind === "issues") {
+      setBranches([]);
       listLabels(slug)
         .then((l) => alive && setLabels(l))
-        .catch(() => {});
+        .catch((cause: unknown) => {
+          if (alive)
+            setMetadataError(
+              cause instanceof Error ? cause.message : String(cause),
+            );
+        })
+        .finally(() => {
+          if (alive) setMetadataLoading(false);
+        });
     } else {
+      setLabels([]);
+      setSelectedLabels(new Set());
       listBranches(slug)
         .then((b) => {
           if (!alive) return;
@@ -83,7 +99,15 @@ export function CreateItemView({ slug, kind, onBack, onCreated }: Props) {
           setBaseRef(base);
           setHeadRef(b.find((x) => x !== base) ?? base);
         })
-        .catch(() => {});
+        .catch((cause: unknown) => {
+          if (alive)
+            setMetadataError(
+              cause instanceof Error ? cause.message : String(cause),
+            );
+        })
+        .finally(() => {
+          if (alive) setMetadataLoading(false);
+        });
     }
     return () => {
       alive = false;
@@ -92,6 +116,7 @@ export function CreateItemView({ slug, kind, onBack, onCreated }: Props) {
 
   const valid =
     title.trim().length > 0 &&
+    !metadataLoading &&
     (kind === "issues" || (baseRef && headRef && baseRef !== headRef));
 
   const submit = async () => {
@@ -112,6 +137,7 @@ export function CreateItemView({ slug, kind, onBack, onCreated }: Props) {
               body: body.trim(),
               base: baseRef,
               head: headRef,
+              draft: draftPull,
             });
       setCreatedItem(item);
       if (kind === "issues" && assignAfterCreate) {
@@ -170,33 +196,67 @@ export function CreateItemView({ slug, kind, onBack, onCreated }: Props) {
       </h2>
 
       {kind === "pulls" ? (
-        <div className="flex items-center gap-2">
-          <select
-            value={baseRef}
-            onChange={(e) => setBaseRef(e.target.value)}
-            aria-label="Base branch"
-            className={cn(selectClass, "min-w-0 flex-1")}
+        <>
+          <div className="flex items-center gap-2">
+            <select
+              value={baseRef}
+              onChange={(e) => setBaseRef(e.target.value)}
+              aria-label="Base branch"
+              disabled={metadataLoading}
+              className={cn(selectClass, "min-w-0 flex-1")}
+            >
+              {branches.map((b) => (
+                <option key={b} value={b}>
+                  base: {b}
+                </option>
+              ))}
+            </select>
+            <span className="text-muted-foreground">←</span>
+            <select
+              value={headRef}
+              onChange={(e) => setHeadRef(e.target.value)}
+              aria-label="Compare branch"
+              disabled={metadataLoading}
+              className={cn(selectClass, "min-w-0 flex-1")}
+            >
+              {branches.map((b) => (
+                <option key={b} value={b}>
+                  compare: {b}
+                </option>
+              ))}
+            </select>
+          </div>
+          <button
+            type="button"
+            aria-pressed={draftPull}
+            onClick={() => setDraftPull((value) => !value)}
+            className={cn(
+              "flex items-center gap-2 rounded-xl border px-3 py-2 text-left transition-colors",
+              draftPull
+                ? "border-violet-500/30 bg-violet-500/[0.06]"
+                : "border-border/60 bg-background/30 hover:bg-muted/30",
+            )}
           >
-            {branches.map((b) => (
-              <option key={b} value={b}>
-                base: {b}
-              </option>
-            ))}
-          </select>
-          <span className="text-muted-foreground">←</span>
-          <select
-            value={headRef}
-            onChange={(e) => setHeadRef(e.target.value)}
-            aria-label="Compare branch"
-            className={cn(selectClass, "min-w-0 flex-1")}
-          >
-            {branches.map((b) => (
-              <option key={b} value={b}>
-                compare: {b}
-              </option>
-            ))}
-          </select>
-        </div>
+            <span
+              className={cn(
+                "flex size-4 items-center justify-center rounded border text-[10px]",
+                draftPull
+                  ? "border-violet-500 bg-violet-500 text-white"
+                  : "border-border",
+              )}
+            >
+              {draftPull ? "✓" : ""}
+            </span>
+            <span>
+              <span className="block text-[11px] font-medium text-foreground">
+                Create as draft
+              </span>
+              <span className="block text-[9.5px] text-muted-foreground">
+                Share work in progress without requesting formal review.
+              </span>
+            </span>
+          </button>
+        </>
       ) : null}
 
       <Input
@@ -341,6 +401,11 @@ export function CreateItemView({ slug, kind, onBack, onCreated }: Props) {
         </div>
       ) : null}
 
+      {metadataError ? (
+        <p className="rounded-lg border border-amber-500/20 bg-amber-500/[0.06] px-2.5 py-2 text-[10.5px] text-amber-600 dark:text-amber-400">
+          Repository metadata could not be loaded: {metadataError}
+        </p>
+      ) : null}
       {error ? <p className="text-[11.5px] text-destructive">{error}</p> : null}
 
       <div className="flex items-center gap-2">

@@ -12,5 +12,11 @@ export function ProjectBoardStack({ tabs, activeId }: Props) {
     (t): t is ProjectBoardTab => t.kind === "project-board" && t.id === activeId,
   );
   if (!active) return null;
-  return <ProjectBoardPanel key={active.id} repoRoot={active.repoRoot} />;
+  return (
+    <ProjectBoardPanel
+      key={active.id}
+      repoRoot={active.repoRoot}
+      navigation={active.navigation}
+    />
+  );
 }

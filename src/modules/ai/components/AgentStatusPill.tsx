@@ -117,7 +117,7 @@ function describe(meta: AgentMeta, subCount: number): {
   if (meta.status === "awaiting-approval") {
     return {
       tone:
-        "border-yellow-500/40 bg-yellow-500/10 text-yellow-700 dark:text-yellow-300 hover:bg-yellow-500/15",
+        "border-warning/40 bg-warning/10 text-warning hover:bg-warning/15",
       icon: (
         <HugeiconsIcon icon={ShieldUserIcon} size={12} strokeWidth={1.75} />
       ),
@@ -130,7 +130,7 @@ function describe(meta: AgentMeta, subCount: number): {
   if (meta.error && isRecoverableAttentionMessage(meta.error)) {
     return {
       tone:
-        "border-amber-500/40 bg-amber-500/10 text-amber-800 dark:text-amber-200 hover:bg-amber-500/15",
+        "border-warning/40 bg-warning/10 text-warning hover:bg-warning/15",
       icon: (
         <HugeiconsIcon icon={AlertCircleIcon} size={12} strokeWidth={1.75} />
       ),

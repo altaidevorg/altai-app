@@ -15,6 +15,11 @@ import { ItemListView } from "./ItemListView";
 
 type Props = {
   repoRoot: string;
+  navigation?: {
+    kind: ItemKind;
+    number?: number;
+    key: number;
+  };
   onOpenDiff: (input: {
     path: string;
     repoRoot: string;
@@ -33,7 +38,11 @@ type View =
  * filter pull requests and issues, open them inline (body, comments, actions),
  * create new ones, and commit local changes — all without leaving ALTAI.
  */
-export function GitHubItemsPanel({ repoRoot, onOpenDiff }: Props) {
+export function GitHubItemsPanel({
+  repoRoot,
+  navigation,
+  onOpenDiff,
+}: Props) {
   const connection = useGitHubStore((s) => s.connection);
   const githubHydrated = useGitHubStore((s) => s.hydrated);
   const refreshGitHub = useGitHubStore((s) => s.refresh);
@@ -53,6 +62,20 @@ export function GitHubItemsPanel({ repoRoot, onOpenDiff }: Props) {
   useEffect(() => {
     if (!githubHydrated) void refreshGitHub();
   }, [githubHydrated, refreshGitHub]);
+
+  useEffect(() => {
+    if (!navigation) return;
+    setKind(navigation.kind);
+    setView(
+      navigation.number === undefined
+        ? { mode: "list" }
+        : {
+            mode: "detail",
+            kind: navigation.kind,
+            number: navigation.number,
+          },
+    );
+  }, [navigation]);
 
   if (capabilities.remoteItems && slug && view.mode === "detail") {
     return (
@@ -85,7 +108,7 @@ export function GitHubItemsPanel({ repoRoot, onOpenDiff }: Props) {
   }
 
   return (
-    <div className="mx-auto flex h-full w-full max-w-2xl flex-col gap-3 px-4 py-3">
+    <div className="mx-auto flex h-full w-full max-w-4xl flex-col gap-3 px-4 py-3">
       {/* Repo header */}
       <div className="flex items-center gap-2">
         <HugeiconsIcon
@@ -94,11 +117,16 @@ export function GitHubItemsPanel({ repoRoot, onOpenDiff }: Props) {
           strokeWidth={1.75}
           className="shrink-0 text-muted-foreground"
         />
-        <span className="min-w-0 flex-1 truncate text-[13px] font-semibold text-foreground">
-          {slug ? `${slug.owner}/${slug.repo}` : workspaceName}
-        </span>
-        <span className="rounded-full bg-foreground/[0.06] px-2 py-0.5 text-[9.5px] font-medium uppercase tracking-wide text-muted-foreground">
-          Local Git always available
+        <div className="min-w-0 flex-1">
+          <span className="block truncate text-[13px] font-semibold text-foreground">
+            {slug ? `${slug.owner}/${slug.repo}` : workspaceName}
+          </span>
+          <span className="block text-[9.5px] text-muted-foreground/60">
+            Review, triage, discuss, and dispatch GitHub work
+          </span>
+        </div>
+        <span className="rounded-full bg-foreground/[0.06] px-2 py-0.5 text-[9px] font-medium uppercase tracking-wide text-muted-foreground">
+          GitHub workspace
         </span>
       </div>
 

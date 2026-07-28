@@ -95,7 +95,7 @@ export function EditorBreadcrumb({ path, root }: Props) {
   const iconUrl = fileIconUrl(basename(path));
 
   return (
-    <div className="flex h-7 shrink-0 items-center overflow-x-auto border-b border-border/50 px-2 [scrollbar-width:none]">
+    <div className="flex h-7 shrink-0 items-center overflow-x-auto border-b border-border-subtle bg-raised px-2 [scrollbar-width:none]">
       <Breadcrumb>
         <BreadcrumbList className="flex-nowrap gap-1 text-[11px] sm:gap-1">
           {segments.map((seg, idx) => {

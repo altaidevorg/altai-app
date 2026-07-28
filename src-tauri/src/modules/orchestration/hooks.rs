@@ -791,9 +791,11 @@ pub fn orchestration_hooks_inspect(
     workspace: Option<WorkspaceEnv>,
     workspace_registry: tauri::State<'_, crate::modules::workspace::WorkspaceRegistry>,
     managed_hooks: tauri::State<'_, HookRegistry>,
+    app: tauri::AppHandle,
 ) -> Result<HookInspection, String> {
     let workspace = WorkspaceEnv::from_option(workspace);
-    let path = super::workflow::workflow_path(&workspace_registry, &workspace_key, &workspace)?;
+    let path =
+        super::workflow::workflow_path(&app, &workspace_registry, &workspace_key, &workspace)?;
     let workspace_path = path
         .parent()
         .unwrap_or_else(|| Path::new(""))

@@ -180,15 +180,15 @@ export function AiSidePanel({
         automationsOpen={automationsOpen}
         onToggleAutomations={() => toggleSurface("automations")}
       />
-      <div className="relative grid min-h-0 flex-1 grid-cols-1 overflow-hidden @[48rem]:grid-cols-[13.5rem_minmax(0,1fr)] @[76rem]:grid-cols-[13.5rem_minmax(0,1fr)_18rem]">
+      <div className="relative isolate grid min-h-0 flex-1 grid-cols-1 overflow-hidden @[48rem]:grid-cols-[minmax(12rem,13.5rem)_minmax(0,1fr)] @[76rem]:grid-cols-[minmax(12rem,13.5rem)_minmax(0,1fr)_18rem]">
         <nav
           aria-label="Chat sessions"
-          className="hidden min-h-0 w-full min-w-0 overflow-hidden border-r border-border/50 bg-muted/[0.16] @[48rem]:flex"
+          className="z-10 hidden h-full min-h-0 min-w-0 self-stretch overflow-hidden border-r border-border/50 bg-muted/[0.16] @[48rem]:flex @[48rem]:flex-col"
         >
           <ChatHistoryPanel onClose={() => undefined} />
         </nav>
 
-        <main className="relative flex min-h-0 min-w-0 flex-col overflow-hidden bg-background/30">
+        <main className="relative z-0 flex min-h-0 min-w-0 flex-col overflow-hidden bg-background/30">
           {historyOpen ? (
             <ChatHistoryPanel onClose={() => setActiveSurface(null)} />
           ) : sessionId ? (
@@ -644,12 +644,12 @@ function ActivityInspector({ meta }: { meta: ReturnType<typeof useChatStore.getS
                   className={cn(
                     "mt-1.5 size-1.5 shrink-0 rounded-full",
                     item.tone === "success"
-                      ? "bg-emerald-500"
+                      ? "bg-success"
                       : item.tone === "warning"
-                        ? "bg-amber-500"
+                        ? "bg-warning"
                         : item.tone === "error"
                           ? "bg-destructive"
-                          : "bg-sky-500",
+                          : "bg-info",
                   )}
                 />
                 <div className="min-w-0 flex-1">
@@ -691,13 +691,13 @@ function ResearchInspector({
   }
   return (
     <div className="space-y-2">
-      <div className="rounded-lg border border-sky-500/20 bg-sky-500/[0.05] p-2.5 text-[11px] leading-relaxed text-foreground">
+      <div className="rounded-lg border border-info/20 bg-info/[0.05] p-2.5 text-[11px] leading-relaxed text-foreground">
         Research activity stays separate from implementation work so sources and retrieval steps are easy to audit.
       </div>
       {[...events].reverse().map((item) => (
         <div key={item.id} className="rounded-lg border border-border/50 bg-background/55 px-2.5 py-2">
           <div className="flex items-center gap-2">
-            <span className="size-1.5 shrink-0 rounded-full bg-sky-500" />
+            <span className="size-1.5 shrink-0 rounded-full bg-info" />
             <span className="min-w-0 flex-1 truncate text-[11px] font-medium">{item.label}</span>
             <time className="text-[9px] tabular-nums text-muted-foreground" dateTime={new Date(item.createdAt).toISOString()}>
               {new Date(item.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
@@ -720,13 +720,13 @@ function McpInspector({
   }
   return (
     <div className="space-y-2">
-      <div className="rounded-lg border border-violet-500/20 bg-violet-500/[0.055] p-2.5 text-[11px] leading-relaxed text-foreground">
+      <div className="rounded-lg border border-border bg-muted/40 p-2.5 text-[11px] leading-relaxed text-foreground">
         Connected MCP activity is tracked separately so external tool calls are easy to audit.
       </div>
       {[...events].reverse().map((item) => (
         <div key={item.id} className="rounded-lg border border-border/50 bg-background/55 px-2.5 py-2">
           <div className="flex items-center gap-2">
-            <span className={cn("size-1.5 shrink-0 rounded-full", item.tone === "error" ? "bg-destructive" : item.tone === "success" ? "bg-emerald-500" : "bg-violet-500")} />
+            <span className={cn("size-1.5 shrink-0 rounded-full", item.tone === "error" ? "bg-destructive" : item.tone === "success" ? "bg-success" : "bg-muted-foreground")} />
             <span className="min-w-0 flex-1 truncate text-[11px] font-medium">{item.label}</span>
             <time className="text-[9px] tabular-nums text-muted-foreground" dateTime={new Date(item.createdAt).toISOString()}>
               {new Date(item.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
@@ -803,9 +803,9 @@ function ChangesInspector({
             <div className="flex items-center gap-2">
               <HugeiconsIcon icon={FileEditIcon} size={12} strokeWidth={1.75} className="shrink-0 text-muted-foreground" />
               <span className="min-w-0 flex-1 truncate font-mono text-[10.5px] font-medium">{name}</span>
-              {change.isNewFile ? <span className="text-[9.5px] text-emerald-600 dark:text-emerald-400">new</span> : null}
+              {change.isNewFile ? <span className="text-[9.5px] text-success">new</span> : null}
               {!change.isNewFile ? (
-                <span className={cn("text-[9.5px] tabular-nums", delta >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-destructive")}>
+                <span className={cn("text-[9.5px] tabular-nums", delta >= 0 ? "text-success" : "text-destructive")}>
                   {delta >= 0 ? "+" : ""}{delta}L
                 </span>
               ) : null}
@@ -830,7 +830,7 @@ function TodosInspector({ done, total, todos }: { done: number; total: number; t
       </div>
       {todos.map((todo) => (
         <div key={todo.id} className="flex items-start gap-2 rounded-lg border border-border/45 bg-background/50 px-2.5 py-2">
-          <span className={cn("mt-1 size-1.5 shrink-0 rounded-full", todo.status === "completed" ? "bg-emerald-500" : todo.status === "in_progress" ? "bg-sky-500" : "bg-muted-foreground/50")} />
+          <span className={cn("mt-1 size-1.5 shrink-0 rounded-full", todo.status === "completed" ? "bg-success" : todo.status === "in_progress" ? "bg-info" : "bg-muted-foreground/50")} />
           <span className={cn("text-[11px] leading-relaxed", todo.status === "completed" && "text-muted-foreground line-through")}>{todo.title}</span>
         </div>
       ))}
@@ -850,9 +850,9 @@ function ApprovalsInspector({
   return (
     <div className="space-y-2">
       {approvals.map((approval) => (
-        <div key={approval.id} className="rounded-lg border border-amber-500/30 bg-amber-500/[0.06] p-2.5">
+        <div key={approval.id} className="rounded-lg border border-warning/30 bg-warning/[0.06] p-2.5">
           <div className="flex items-center gap-2">
-            <span className="size-1.5 animate-pulse rounded-full bg-amber-500" />
+            <span className="size-1.5 animate-pulse rounded-full bg-warning" />
             <span className="min-w-0 flex-1 truncate text-[11px] font-medium">{approval.action}</span>
           </div>
           <pre className="mt-2 max-h-24 max-w-full min-w-0 overflow-x-auto whitespace-pre-wrap break-words rounded-md bg-background/70 p-2 font-mono text-[9.5px] leading-relaxed text-muted-foreground [overflow-wrap:anywhere]">
@@ -884,7 +884,7 @@ function AgentsInspector({ tasks }: { tasks: ReturnType<typeof useChatStore.getS
       {tasks.map((task) => (
         <div key={task.taskId} className="rounded-lg border border-border/50 bg-background/55 px-2.5 py-2">
           <div className="flex items-center gap-2">
-            <span className="size-1.5 animate-pulse rounded-full bg-sky-500" />
+            <span className="size-1.5 animate-pulse rounded-full bg-info" />
             <span className="truncate text-[11px] font-medium">{task.displayName ?? task.agentName ?? "Subagent"}</span>
           </div>
           <div className="mt-1 truncate pl-3.5 font-mono text-[9.5px] text-muted-foreground">{task.childChatId}</div>
@@ -1074,7 +1074,7 @@ function RunRecoveryActions() {
   return (
     <div
       role={warning ? "status" : "alert"}
-      className="mx-3 mb-1 rounded-lg border border-amber-500/35 bg-amber-500/[0.08] px-3 py-2"
+      className="mx-3 mb-1 rounded-lg border border-warning/35 bg-warning/[0.08] px-3 py-2"
     >
       <div className="text-[11px] font-medium text-foreground">
         {warning
@@ -1212,8 +1212,8 @@ function PlanModeStrip() {
   const disable = usePlanStore((s) => s.disable);
   if (!active) return null;
   return (
-    <div className="flex shrink-0 items-center gap-2 border-b border-border/50 px-3 py-1.5">
-      <span className="size-1.5 shrink-0 rounded-full bg-amber-500" />
+    <div className="flex shrink-0 items-center gap-2 border-b border-border-subtle px-3 py-1.5">
+      <span className="size-1.5 shrink-0 rounded-full bg-warning" />
       <span className="text-[11px] font-medium text-foreground">Plan mode</span>
       <span className="text-[11px] text-muted-foreground">
         {queueLen > 0 ? `· ${queueLen} queued` : "· no edits queued"}

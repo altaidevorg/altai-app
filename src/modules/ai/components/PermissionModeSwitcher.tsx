@@ -40,19 +40,19 @@ const MODE_COLORS: Record<
   { trigger: string; icon: string; label: string }
 > = {
   ask: {
-    trigger: "text-emerald-600 hover:text-emerald-600 dark:text-emerald-400 dark:hover:text-emerald-400",
-    icon: "text-emerald-600 dark:text-emerald-400",
-    label: "text-emerald-700 dark:text-emerald-300",
+    trigger: "text-success hover:text-success",
+    icon: "text-success",
+    label: "text-success",
   },
   "auto-edit": {
-    trigger: "text-sky-600 hover:text-sky-600 dark:text-sky-400 dark:hover:text-sky-400",
-    icon: "text-sky-600 dark:text-sky-400",
-    label: "text-sky-700 dark:text-sky-300",
+    trigger: "text-info hover:text-info",
+    icon: "text-info",
+    label: "text-info",
   },
   plan: {
-    trigger: "text-amber-600 hover:text-amber-600 dark:text-amber-400 dark:hover:text-amber-400",
-    icon: "text-amber-600 dark:text-amber-400",
-    label: "text-amber-700 dark:text-amber-300",
+    trigger: "text-warning hover:text-warning",
+    icon: "text-warning",
+    label: "text-warning",
   },
   bypass: {
     trigger: "text-destructive hover:text-destructive",

@@ -304,7 +304,7 @@ export function AiChatView({
             className={cn(
               "rounded-md border px-3 py-2 text-xs",
               isRecoverableAttentionMessage(error.message)
-                ? "border-amber-500/40 bg-amber-500/10 text-foreground"
+                ? "border-warning/40 bg-warning/10 text-foreground"
                 : "border-destructive/40 bg-destructive/10 text-destructive",
             )}
           >

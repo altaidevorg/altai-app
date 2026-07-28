@@ -304,7 +304,7 @@ type StoreState = {
   hydrateSessions: () => Promise<void>;
   newSession: () => string;
   /** Create a titled session WITHOUT focusing it (no active-session change,
-   *  no transcript reset) — for background agent dispatch from the board. */
+   *  no transcript reset) — for background agent dispatch from operations. */
   createBackgroundSession: (title: string) => string;
   switchSession: (id: string) => void;
   /** Move a session immediately before or after another session. */

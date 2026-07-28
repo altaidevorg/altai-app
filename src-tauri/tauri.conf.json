@@ -13,6 +13,8 @@
     "withGlobalTauri": true,
     "windows": [
       {
+        "label": "main",
+        "create": false,
         "title": "ALTAI",
         "width": 800,
         "height": 600,
@@ -20,6 +22,10 @@
         "minHeight": 280,
         "titleBarStyle": "Overlay",
         "hiddenTitle": true,
+        "trafficLightPosition": {
+          "x": 16,
+          "y": 22
+        },
         "focus": true,
         "devtools": false,
         "backgroundColor": "#0a0a0a"

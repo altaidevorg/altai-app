@@ -849,6 +849,30 @@ export function isModelAvailable(
   return true;
 }
 
+/** Models the user can actually pick — requires a key for keyed providers,
+ *  and respects Settings → Models visibility. Shared by the chat picker,
+ *  task runs, and GitHub agent run options. */
+export function listAvailableModels(
+  apiKeys: Partial<Record<ProviderId, string | null | undefined>>,
+  hiddenIds: ReadonlySet<string> | readonly string[] = [],
+): ModelInfo[] {
+  const hidden =
+    hiddenIds instanceof Set ? hiddenIds : new Set(hiddenIds);
+  const hasKey = (id: ProviderId) =>
+    providerNeedsKey(id) ? !!apiKeys[id] : true;
+  return MODELS.filter((m) => isModelAvailable(m, hasKey, hidden));
+}
+
+/** Providers that currently have at least one selectable model. */
+export function listConfiguredProviders(
+  apiKeys: Partial<Record<ProviderId, string | null | undefined>>,
+  hiddenIds: ReadonlySet<string> | readonly string[] = [],
+): (typeof PROVIDERS)[number][] {
+  const available = listAvailableModels(apiKeys, hiddenIds);
+  const ids = new Set(available.map((m) => m.provider));
+  return PROVIDERS.filter((p) => ids.has(p.id));
+}
+
 /** True for providers that accept an API key — required *or* optional.
  *  Used by Settings to decide whether to render a key card at all. */
 export function providerSupportsKey(id: ProviderId): boolean {

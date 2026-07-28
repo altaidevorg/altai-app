@@ -144,9 +144,9 @@ export const SearchInline = forwardRef<SearchInlineHandle, Props>(
       <motion.div
         layout
         initial={false}
-        animate={{ width: expanded ? 192 : 28 }}
+        animate={{ width: expanded ? 192 : 24 }}
         transition={{ type: "spring", stiffness: 380, damping: 34 }}
-        className="relative h-7 shrink-0"
+        className="relative h-6 shrink-0 translate-y-[0.5px]"
       >
         <AnimatePresence initial={false} mode="wait">
           {expanded ? (
@@ -160,7 +160,7 @@ export const SearchInline = forwardRef<SearchInlineHandle, Props>(
             >
               <HugeiconsIcon
                 icon={Search01Icon}
-                size={13}
+                size={12}
                 strokeWidth={1.75}
                 className="pointer-events-none absolute top-1/2 left-2 -translate-y-1/2 text-muted-foreground"
               />
@@ -169,7 +169,7 @@ export const SearchInline = forwardRef<SearchInlineHandle, Props>(
                 aria-label={placeholder}
                 value={q}
                 placeholder={placeholder}
-                className={`h-7 w-full bg-muted/80 ${editorHandle ? "pr-14" : "pr-7"} pl-7 text-[13px]! placeholder:text-muted-foreground/70 focus-visible:ring-0`}
+                className={`h-6 w-full bg-muted/80 ${editorHandle ? "pr-14" : "pr-7"} pl-7 text-[13px]! placeholder:text-muted-foreground/70 focus-visible:ring-0`}
                 onChange={(e) => {
                   const next = e.target.value;
                   setQ(next);
@@ -206,7 +206,7 @@ export const SearchInline = forwardRef<SearchInlineHandle, Props>(
                 >
                   <HugeiconsIcon
                     icon={Cancel01Icon}
-                    size={11}
+                    size={12}
                     strokeWidth={2}
                   />
                 </button>
@@ -221,7 +221,7 @@ export const SearchInline = forwardRef<SearchInlineHandle, Props>(
                 >
                   <HugeiconsIcon
                     icon={SearchReplaceIcon}
-                    size={13}
+                    size={14}
                     strokeWidth={1.75}
                   />
                 </button>
@@ -239,13 +239,13 @@ export const SearchInline = forwardRef<SearchInlineHandle, Props>(
               <Button
                 variant="ghost"
                 size="icon"
-                className="size-7 shrink-0 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+                className="size-6 shrink-0 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
                 onClick={focus}
                 title={tooltipTitle}
               >
                 <HugeiconsIcon
                   icon={Search01Icon}
-                  size={15}
+                  size={12}
                   strokeWidth={1.75}
                 />
               </Button>

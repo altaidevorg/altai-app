@@ -249,7 +249,7 @@ function PlanRow({
               {basename(item.path)}
             </span>
             {isNew ? (
-              <span className="text-[10px] text-emerald-600 dark:text-emerald-400">
+              <span className="text-[10px] text-success">
                 new
               </span>
             ) : null}
@@ -259,7 +259,7 @@ function PlanRow({
           </div>
           {stats ? (
             <div className="mt-0.5 flex items-center gap-2 text-[10px] tabular-nums">
-              <span className="text-emerald-600 dark:text-emerald-400">
+              <span className="text-success">
                 +{stats.added}
               </span>
               <span className="text-destructive">−{stats.removed}</span>
@@ -302,7 +302,7 @@ function PlanRow({
             type="button"
             size="icon"
             variant="ghost"
-            className="size-5 text-emerald-600 hover:bg-emerald-500/10 hover:text-emerald-700 dark:text-emerald-400"
+            className="size-5 text-success hover:bg-success/10 focus-visible:bg-success/15"
             onClick={onApply}
             disabled={busy}
             aria-label="Apply this change"
@@ -459,7 +459,7 @@ function UnifiedDiffPreview({
             className={cn(
               "flex whitespace-pre",
               l.kind === "add"
-                ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400"
+                ? "bg-success/10 text-success"
                 : "bg-destructive/10 text-destructive",
             )}
           >
