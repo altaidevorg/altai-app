@@ -511,6 +511,12 @@ pub struct BrowserQaExecutor<D: BrowserDriver> {
     driver: D,
 }
 
+struct StepExecutionContext<'a> {
+    commit_sha: &'a str,
+    step_index: usize,
+    timestamp_ms: u64,
+}
+
 impl<D: BrowserDriver> BrowserQaExecutor<D> {
     pub fn new(driver: D) -> Self {
         Self { driver }
@@ -533,8 +539,17 @@ impl<D: BrowserDriver> BrowserQaExecutor<D> {
             for viewport in &journey.viewports {
                 for (i, step) in journey.steps.iter().enumerate() {
                     let step_start = current_ms;
-                    let result =
-                        self.run_step(config, journey, step, *viewport, commit_sha, i, step_start);
+                    let result = self.run_step(
+                        config,
+                        journey,
+                        step,
+                        *viewport,
+                        StepExecutionContext {
+                            commit_sha,
+                            step_index: i,
+                            timestamp_ms: step_start,
+                        },
+                    );
                     current_ms += 100;
                     match result {
                         Ok(step_result) => all_steps.push(step_result),
@@ -568,9 +583,7 @@ impl<D: BrowserDriver> BrowserQaExecutor<D> {
         journey: &Journey,
         step: &JourneyStep,
         viewport: Viewport,
-        commit_sha: &str,
-        step_index: usize,
-        timestamp_ms: u64,
+        context: StepExecutionContext<'_>,
     ) -> Result<StepResult, BrowserError> {
         let content = self
             .driver
@@ -593,20 +606,23 @@ impl<D: BrowserDriver> BrowserQaExecutor<D> {
             self.driver.wait_for_selector(selector, step.timeout_ms)?;
         }
 
-        let screenshot =
-            Some(
-                self.driver
-                    .screenshot(commit_sha, &step.route, viewport, timestamp_ms)?,
-            );
+        let screenshot = Some(self.driver.screenshot(
+            context.commit_sha,
+            &step.route,
+            viewport,
+            context.timestamp_ms,
+        )?);
 
         let console_errors = if journey.capture_console {
-            self.driver.capture_console(&step.route, timestamp_ms)
+            self.driver
+                .capture_console(&step.route, context.timestamp_ms)
         } else {
             Vec::new()
         };
 
         let network_failures = if journey.capture_network {
-            self.driver.capture_network(&step.route, timestamp_ms)
+            self.driver
+                .capture_network(&step.route, context.timestamp_ms)
         } else {
             Vec::new()
         };
@@ -619,7 +635,7 @@ impl<D: BrowserDriver> BrowserQaExecutor<D> {
 
         Ok(StepResult {
             journey_name: journey.name.clone(),
-            step_index,
+            step_index: context.step_index,
             route: step.route.clone(),
             viewport,
             outcome,
