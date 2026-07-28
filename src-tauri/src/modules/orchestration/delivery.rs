@@ -445,6 +445,8 @@ pub trait DeliveryExecutor: std::fmt::Debug {
 pub struct DeliveryManager<E: DeliveryExecutor> {
     executor: E,
     deliveries: HashMap<String, Delivery>,
+    /// Monotonically increasing ID sequence; never reused after a removal.
+    next_delivery_id: u64,
 }
 
 impl<E: DeliveryExecutor> DeliveryManager<E> {
@@ -452,6 +454,7 @@ impl<E: DeliveryExecutor> DeliveryManager<E> {
         Self {
             executor,
             deliveries: HashMap::new(),
+            next_delivery_id: 1,
         }
     }
 
@@ -462,8 +465,11 @@ impl<E: DeliveryExecutor> DeliveryManager<E> {
             preview.source_branch, preview.target_branch, preview.base_sha
         );
 
+        let id = format!("delivery-{}", self.next_delivery_id);
+        self.next_delivery_id += 1;
+
         let delivery = Delivery {
-            id: format!("delivery-{}", self.deliveries.len() + 1),
+            id,
             state: DeliveryState::Pending,
             preview,
             transitions: vec![DeliveryTransition {
@@ -1036,6 +1042,19 @@ mod tests {
     }
 
     // ---- State machine: apply ----
+
+    #[test]
+    fn create_does_not_reuse_an_id_after_delivery_removal() {
+        let executor = MockDeliveryExecutor::default();
+        let mut mgr = DeliveryManager::new(executor);
+        let first = mgr.create(sample_preview(), 1000);
+        mgr.deliveries.remove(&first.id);
+
+        let second = mgr.create(sample_preview(), 2000);
+
+        assert_ne!(first.id, second.id);
+        assert_eq!(second.id, "delivery-2");
+    }
 
     #[test]
     fn apply_succeeds_on_clean_worktree() {
