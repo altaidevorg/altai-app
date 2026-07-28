@@ -7,7 +7,6 @@ import {
   CalendarSyncIcon,
   Cancel01Icon,
   Clock01Icon,
-  CodeIcon,
   FileEditIcon,
   Notebook01Icon,
   Notification01Icon,
