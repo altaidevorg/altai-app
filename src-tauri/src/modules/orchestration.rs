@@ -76,6 +76,8 @@ pub mod routing;
 #[allow(dead_code)]
 pub mod runners;
 #[allow(dead_code)]
+pub mod security;
+#[allow(dead_code)]
 pub mod session_analysis;
 #[cfg(test)]
 mod soak;
