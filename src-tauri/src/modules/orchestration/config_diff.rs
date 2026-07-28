@@ -95,8 +95,9 @@ impl ConfigDiff {
 /// contains every field that differs, with the old (repo) and new (override)
 /// values rendered as strings.
 pub fn diff_config(repo: &WorkflowConfigV2, override_cfg: &WorkflowConfigV2) -> ConfigDiff {
-    let repo_json = serde_json::to_value(repo).unwrap_or(Value::Null);
-    let override_json = serde_json::to_value(override_cfg).unwrap_or(Value::Null);
+    let repo_json = serde_json::to_value(repo).expect("WorkflowConfigV2 must serialize to JSON");
+    let override_json =
+        serde_json::to_value(override_cfg).expect("WorkflowConfigV2 must serialize to JSON");
 
     let mut changes = Vec::new();
     diff_values("", &repo_json, &override_json, &mut changes);
