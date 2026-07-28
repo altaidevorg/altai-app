@@ -338,7 +338,7 @@ const ToolImpl = ({
       <CollapsibleTrigger
         disabled={!hasDetails}
         className={cn(
-          "altai-ai-tool-trigger flex w-full min-w-0 items-center gap-2 rounded-md px-2 py-1.5 text-left",
+          "altai-ai-tool-trigger flex w-full min-w-0 items-center gap-2 px-2 py-1.5 text-left",
           "text-[12px] transition-colors",
           "hover:bg-muted/60 disabled:cursor-default disabled:hover:bg-transparent",
           "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",

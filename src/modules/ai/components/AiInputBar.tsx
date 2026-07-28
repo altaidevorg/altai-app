@@ -433,9 +433,9 @@ export function AiInputBar() {
                 }}
                 placeholder="Ask ALTAI anything…  @ files  / commands  # snippets"
                 aria-label="Message ALTAI"
-                rows={1}
+                rows={2}
                 className={cn(
-                  "block w-full max-h-44 min-h-[28px] resize-none bg-transparent",
+                  "block w-full max-h-44 min-h-[48px] resize-none bg-transparent",
                   // Right padding reserves space for the absolutely-positioned
                   // send/stop button so long text never slides under it.
                   "pr-10 text-[13px] leading-5 text-foreground outline-none",
