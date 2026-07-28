@@ -27,7 +27,10 @@ import {
 } from "../lib/composer";
 import { native } from "../lib/native";
 import { useWorkspaceFiles } from "../hooks/useWorkspaceFiles";
-import { SLASH_COMMANDS } from "../lib/slashCommands";
+import {
+  findSlashCommands,
+  refreshWorkspaceSlashCommands,
+} from "../lib/slashCommands";
 import type { Snippet } from "../lib/snippets";
 import { useChatStore } from "../store/chatStore";
 import { useSnippetsStore } from "../store/snippetsStore";
@@ -42,6 +45,7 @@ type SnippetTrigger = {
   start: number;
   end: number;
   query: string;
+  prefix: "#" | "/";
 };
 
 type FileTrigger = {
@@ -56,12 +60,21 @@ function detectSnippetTrigger(
 ): SnippetTrigger | null {
   for (let i = caret - 1; i >= 0; i--) {
     const ch = value[i];
-    if (ch === "#") {
+    if (ch === "#" || ch === "/") {
+      // Slash commands are executable only as the first token in a message.
+      // Keep the picker aligned with that behavior instead of offering a
+      // command which would subsequently be sent as plain text.
+      if (ch === "/" && value.slice(0, i).trim()) return null;
       const prev = i === 0 ? " " : value[i - 1];
       if (!/\s/.test(prev)) return null;
       const slice = value.slice(i + 1, caret);
       if (!/^[a-z0-9-]*$/i.test(slice)) return null;
-      return { start: i, end: caret, query: slice.toLowerCase() };
+      return {
+        start: i,
+        end: caret,
+        query: slice.toLowerCase(),
+        prefix: ch,
+      };
     }
     if (/\s/.test(ch)) return null;
     if (!/[a-z0-9-]/i.test(ch)) return null;
@@ -93,6 +106,7 @@ export function AiInputBar() {
   const paperImportOpen = useChatStore((s) => s.paperImportOpen);
   const agentPickerEnabled = usePreferencesStore((s) => s.agentPickerEnabled);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [commandIndexVersion, setCommandIndexVersion] = useState(0);
 
   const [trigger, setTrigger] = useState<SnippetTrigger | null>(null);
   const [fileTrigger, setFileTrigger] = useState<FileTrigger | null>(null);
@@ -101,6 +115,16 @@ export function AiInputBar() {
   const workspaceFiles = useWorkspaceFiles(workspaceRoot, fileTrigger !== null);
 
   const [fileQuery, setFileQuery] = useState("");
+  useEffect(() => {
+    let cancelled = false;
+    void refreshWorkspaceSlashCommands(workspaceRoot).finally(() => {
+      if (!cancelled) setCommandIndexVersion((version) => version + 1);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [workspaceRoot]);
+
   useEffect(() => {
     if (!fileTrigger) {
       setFileQuery("");
@@ -144,22 +168,22 @@ export function AiInputBar() {
   const filteredItems = useMemo<PickerItem[]>(() => {
     if (!trigger) return [];
     const q = trigger.query;
-    const cmdItems: PickerItem[] = Object.values(SLASH_COMMANDS)
-      .filter(
-        (c) => !q || c.name.includes(q) || c.label.toLowerCase().includes(q),
-      )
+    const cmdItems: PickerItem[] = findSlashCommands(q)
       .map((command) => ({ kind: "command", command }));
-    const snipItems: PickerItem[] = snippets
-      .filter(
-        (s) =>
-          !q ||
-          s.handle.includes(q) ||
-          s.name.toLowerCase().includes(q) ||
-          s.description.toLowerCase().includes(q),
-      )
-      .map((snippet) => ({ kind: "snippet", snippet }));
+    const snipItems: PickerItem[] =
+      trigger.prefix === "#"
+        ? snippets
+            .filter(
+              (s) =>
+                !q ||
+                s.handle.includes(q) ||
+                s.name.toLowerCase().includes(q) ||
+                s.description.toLowerCase().includes(q),
+            )
+            .map((snippet) => ({ kind: "snippet", snippet }))
+        : [];
     return [...cmdItems, ...snipItems];
-  }, [trigger, snippets]);
+  }, [commandIndexVersion, trigger, snippets]);
 
   const FILE_PICKER_CAP = 30;
   const filteredFiles = useMemo<string[]>(() => {
@@ -194,10 +218,17 @@ export function AiInputBar() {
       insert = `#${item.snippet.handle}${needsSpace ? " " : ""}`;
       c.addSnippet(item.snippet);
     } else {
-      c.addCommand(item.command);
+      if (trigger.prefix === "/") {
+        const needsSpace = afterRaw.length === 0 || !/^\s/.test(afterRaw);
+        insert = `/${item.command.name}${needsSpace ? " " : ""}`;
+      } else {
+        c.addCommand(item.command);
+      }
     }
     const after =
-      item.kind === "command" ? afterRaw.replace(/^\s+/, "") : afterRaw;
+      item.kind === "command" && trigger.prefix === "#"
+        ? afterRaw.replace(/^\s+/, "")
+        : afterRaw;
     c.setValue(`${before}${insert}${after}`);
     setTrigger(null);
     setActiveIndex(0);
@@ -297,7 +328,7 @@ export function AiInputBar() {
   };
 
   return (
-    <div className="shrink-0 bg-transparent">
+    <div className="altai-ai-composer-wrap shrink-0 bg-transparent">
       <input
         ref={fileInputRef}
         type="file"
@@ -318,7 +349,7 @@ export function AiInputBar() {
 
       <div
         className={cn(
-          "flex flex-col overflow-hidden rounded-none border border-border-subtle bg-transparent",
+          "altai-ai-composer flex flex-col overflow-hidden rounded-none border border-border-subtle bg-transparent",
           "transition-[border-color] hover:border-border focus-within:border-primary/40",
           c.isBusy && "opacity-95",
         )}
@@ -400,7 +431,7 @@ export function AiInputBar() {
                     else if (action === "send") c.submit();
                   }
                 }}
-                placeholder="Ask ALTAI anything…  @ files  # snippets"
+                placeholder="Ask ALTAI anything…  @ files  / commands  # snippets"
                 aria-label="Message ALTAI"
                 rows={1}
                 className={cn(
@@ -476,6 +507,7 @@ export function AiInputBar() {
               activeIndex={activeIndex}
               onPick={onPickItem}
               onHover={setActiveIndex}
+              commandPrefix={trigger?.prefix}
             />
           )}
         </Popover>

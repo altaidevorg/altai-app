@@ -261,7 +261,7 @@ export type ToolProps = ComponentProps<typeof Collapsible> & {
 // still shown: a `run_subagent` summary or a `write_file` "✓ wrote · path"
 // card is the meaningful artifact.
 // `todo_write` is intentionally NOT in this set — its input is the canonical
-// checklist the user wants to see inline (Kilo-Code style), rendered via the
+// checklist the user wants to see inline, rendered via the
 // dedicated `TodoChecklist` rather than a raw JSON dump.
 const INPUT_HEAVY_TOOLS = new Set([
   "write_file",
@@ -318,9 +318,10 @@ const ToolImpl = ({
     <Collapsible
       defaultOpen={open}
       className={cn(
-        "group/tool not-prose w-full min-w-0 max-w-full overflow-hidden",
+        "altai-ai-tool group/tool not-prose w-full min-w-0 max-w-full overflow-hidden",
         className,
       )}
+      data-tool-state={state}
       {...props}
     >
       {/* SR-announced status mirror. The visual status dot below conveys
@@ -337,7 +338,7 @@ const ToolImpl = ({
       <CollapsibleTrigger
         disabled={!hasDetails}
         className={cn(
-          "flex w-full min-w-0 items-center gap-2 rounded-md px-2 py-1.5 text-left",
+          "altai-ai-tool-trigger flex w-full min-w-0 items-center gap-2 rounded-md px-2 py-1.5 text-left",
           "text-[12px] transition-colors",
           "hover:bg-muted/60 disabled:cursor-default disabled:hover:bg-transparent",
           "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",

@@ -2130,6 +2130,7 @@ export default function App() {
       {!activeTab ? (
         <EmptyState
           className="absolute inset-0"
+          glow={false}
           title="No file open"
           description="Open a file from the explorer, or toggle the terminal with Cmd/Ctrl+J."
         />

@@ -591,9 +591,15 @@ export const native = {
       path,
       workspace: currentWorkspaceEnv(),
     }),
-  listWorkspaceFiles: (root: string) =>
+  listWorkspaceFiles: (
+    root: string,
+    options?: { showHidden?: boolean; limit?: number; maxDepth?: number },
+  ) =>
     invoke<WorkspaceFilesResult>("fs_list_files", {
       root,
+      showHidden: options?.showHidden ?? false,
+      limit: options?.limit ?? null,
+      maxDepth: options?.maxDepth ?? null,
       workspace: currentWorkspaceEnv(),
     }),
   readFile: (

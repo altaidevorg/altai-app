@@ -195,14 +195,14 @@ fn check_instructions(repo: &Path) -> CategoryScore {
     let mut evidence = Vec::new();
     let mut notes = Vec::new();
 
-    if repo.join("AGENTS.md").exists() {
+    if repo.join("ALTAI.md").exists() {
         score += 50;
         evidence.push(Evidence {
-            path: "AGENTS.md".into(),
-            detail: "Agent instructions file present".into(),
+            path: "ALTAI.md".into(),
+            detail: "ALTAI project instructions present".into(),
         });
     } else {
-        notes.push("No AGENTS.md found. Agents will lack repository-specific guidance.".into());
+        notes.push("No ALTAI.md found. Agents will lack repository-specific guidance.".into());
     }
 
     if repo.join("README.md").exists() {
@@ -215,13 +215,13 @@ fn check_instructions(repo: &Path) -> CategoryScore {
         notes.push("No README.md found.".into());
     }
 
-    // Alternative instruction files.
-    for alt in ["CLAUDE.md", ".kilo/", ".cursorrules"] {
+    // ALTAI-native workflow and command configuration.
+    for alt in [".altai/", "WORKFLOW.md"] {
         if repo.join(alt).exists() {
             score += 25;
             evidence.push(Evidence {
                 path: alt.into(),
-                detail: "Additional agent config present".into(),
+                detail: "Additional ALTAI configuration present".into(),
             });
             break;
         }
@@ -770,7 +770,7 @@ mod tests {
     #[test]
     fn well_configured_repo_scores_high() {
         let repo = temp_repo();
-        touch(&repo, "AGENTS.md");
+        touch(&repo, "ALTAI.md");
         touch(&repo, "README.md");
         touch(&repo, "docs/ARCHITECTURE.md");
         touch(&repo, "Cargo.toml");
@@ -791,7 +791,7 @@ mod tests {
         );
 
         let instructions = report.score_for(ReadinessCategory::Instructions).unwrap();
-        assert_eq!(instructions, 75, "AGENTS.md(50) + README(25) = 75");
+        assert_eq!(instructions, 75, "ALTAI.md(50) + README(25) = 75");
 
         let test_build = report.score_for(ReadinessCategory::TestBuild).unwrap();
         assert_eq!(test_build, 100);
@@ -814,9 +814,9 @@ mod tests {
     }
 
     #[test]
-    fn agents_md_and_readme_scores_75() {
+    fn altai_md_and_readme_scores_75() {
         let repo = temp_repo();
-        touch(&repo, "AGENTS.md");
+        touch(&repo, "ALTAI.md");
         touch(&repo, "README.md");
         let report = scan(&repo);
         assert_eq!(
@@ -830,7 +830,7 @@ mod tests {
     #[test]
     fn competing_instruction_files_detected() {
         let repo = temp_repo();
-        touch(&repo, "AGENTS.md");
+        touch(&repo, "ALTAI.md");
         touch(&repo, "CLAUDE.md");
         touch(&repo, ".cursorrules");
         let report = scan(&repo);
@@ -846,7 +846,7 @@ mod tests {
     #[test]
     fn no_conflicts_scores_zero() {
         let repo = temp_repo();
-        touch(&repo, "AGENTS.md");
+        touch(&repo, "ALTAI.md");
         let report = scan(&repo);
         assert_eq!(
             report
@@ -958,7 +958,7 @@ mod tests {
     #[test]
     fn every_category_has_evidence() {
         let repo = temp_repo();
-        touch(&repo, "AGENTS.md");
+        touch(&repo, "ALTAI.md");
         let report = scan(&repo);
         for cat in &report.categories {
             assert!(

@@ -8,7 +8,7 @@ import { memo } from "react";
  *
  * Streamdown's defaults are document-grade — h1 is `text-3xl` (30px), which
  * dwarfs a 12px chat body and reads as a page title rather than a section
- * marker. Kilo-Code renders assistant headings as subtle visual anchors:
+ * marker. Assistant headings render as subtle visual anchors:
  * small, semibold, tightly spaced. These overrides do the same so a model
  * that leans on `#`/`##` headings doesn't blow up the transcript layout.
  *

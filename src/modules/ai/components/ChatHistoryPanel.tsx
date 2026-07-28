@@ -76,7 +76,7 @@ function hasConversationContent(messages: UIMessage[]): boolean {
 }
 
 /**
- * Inline, Kilo-Code-style chat history view. Renders in place of the
+ * Inline chat history view. Renders in place of the
  * conversation when toggled open: search + a "New chat" action + sessions
  * grouped by recency. Untouched drafts deliberately stay only in the tab
  * strip; history starts at the first real user message.
@@ -195,7 +195,7 @@ export function ChatHistoryPanel({ onClose }: { onClose: () => void }) {
   }, [renamingId, renameValue, renameSession]);
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col bg-card">
+    <div className="altai-ai-history flex min-h-0 flex-1 flex-col bg-card">
       <div className="flex shrink-0 flex-col gap-2 border-b border-border/60 px-2.5 py-2">
         <div className="flex items-center gap-1.5">
           <button
@@ -203,14 +203,14 @@ export function ChatHistoryPanel({ onClose }: { onClose: () => void }) {
             onClick={handleNew}
             className={cn(
               "flex flex-1 items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-[11.5px] font-medium",
-              "bg-foreground/[0.07] text-foreground transition-colors hover:bg-foreground/[0.12]",
+              "altai-ai-history-new bg-foreground/[0.07] text-foreground transition-colors hover:bg-foreground/[0.12]",
             )}
           >
             <HugeiconsIcon icon={Add01Icon} size={13} strokeWidth={2} />
             New chat
           </button>
         </div>
-        <div className="flex items-center gap-2 rounded-md bg-background/60 px-2">
+        <div className="altai-ai-history-search flex items-center gap-2 rounded-md bg-background/60 px-2">
           <HugeiconsIcon
             icon={Search01Icon}
             size={13}
@@ -264,7 +264,7 @@ export function ChatHistoryPanel({ onClose }: { onClose: () => void }) {
                       }
                     }}
                     className={cn(
-                      "group relative flex cursor-pointer items-start gap-2 rounded-md px-2 py-1.5 text-left transition-colors",
+                      "altai-ai-history-row group relative flex cursor-pointer items-start gap-2 rounded-md px-2 py-1.5 text-left transition-colors",
                       session.id === activeId
                         ? "bg-accent text-foreground"
                         : "hover:bg-accent/50",

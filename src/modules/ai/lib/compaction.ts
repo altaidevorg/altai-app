@@ -1,7 +1,7 @@
 /**
  * Display/persistence-only prune for the chat transcript.
  *
- * Mirrors the Kilo "prune old tool results" behavior: completed tool outputs
+ * Prunes completed tool outputs from older transcript turns:
  * that fall outside a trailing recency-token budget are collapsed to a small
  * `{ cleared: true }` marker in the persisted thread. The model's own context
  * is the runtime's responsibility (its native compaction already prunes) —

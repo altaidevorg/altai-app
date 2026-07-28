@@ -1,6 +1,6 @@
 //! `.isanagentignore` matcher for altai's fs layer.
 //!
-//! Mirrors the Kilo `.isanagentignore` spec: a workspace-root file with
+//! Defines ALTAI's `.isanagentignore` workspace-root file with
 //! gitignore-style patterns that filters altai's editor search, explorer
 //! search, and TS-side walker access. The agent itself reads files through
 //! isanagent's own tools (gated separately by the upstream crate — Tier 2,
