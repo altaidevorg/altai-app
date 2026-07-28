@@ -13,6 +13,7 @@ type Props = {
   activeIndex: number;
   onPick: (item: PickerItem) => void;
   onHover: (index: number) => void;
+  commandPrefix?: "#" | "/";
 };
 
 export function SnippetPickerContent({
@@ -20,6 +21,7 @@ export function SnippetPickerContent({
   activeIndex,
   onPick,
   onHover,
+  commandPrefix = "#",
 }: Props) {
   const commands = items.filter((it) => it.kind === "command");
   const snippets = items.filter((it) => it.kind === "snippet");
@@ -37,13 +39,15 @@ export function SnippetPickerContent({
     >
       {items.length === 0 ? (
         <div className="px-3 py-2.5 text-[11px] text-muted-foreground">
-          No matches. Add snippets in Settings → Agents.
+          {commandPrefix === "/"
+            ? "No slash commands match."
+            : "No matches. Add snippets in Settings → Agents."}
         </div>
       ) : (
         <div className="max-h-64 overflow-y-auto py-1">
           {commands.length > 0 && (
             <>
-              <SectionHeader label="Pre-built snippets" />
+              <SectionHeader label={commandPrefix === "/" ? "Slash commands" : "Commands"} />
               <ul>
                 {commands.map((it) => {
                   cursor += 1;
@@ -72,9 +76,19 @@ export function SnippetPickerContent({
                         <span className="flex min-w-0 flex-1 flex-col">
                           <span className="flex items-center gap-1.5">
                             <span className="font-mono text-muted-foreground">
-                              #{c.name}
+                              {commandPrefix}{c.name}
                             </span>
                             <span className="font-medium">{c.label}</span>
+                            <span className="rounded bg-foreground/[0.06] px-1 py-px text-[8.5px] font-medium uppercase tracking-wide text-muted-foreground">
+                              {c.category}
+                            </span>
+                          </span>
+                          <span className="line-clamp-1 text-[10.5px] text-muted-foreground">
+                            {c.description}
+                            {c.aliases?.length
+                              ? ` · aliases: ${c.aliases.map((alias) => `/${alias}`).join(", ")}`
+                              : ""}
+                            {c.source === "workspace" ? " · workspace workflow" : ""}
                           </span>
                         </span>
                       </button>

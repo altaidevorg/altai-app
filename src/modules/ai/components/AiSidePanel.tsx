@@ -120,6 +120,29 @@ export function AiSidePanel({
     setActiveSurface((current) => (current === surface ? null : surface));
   };
 
+  useEffect(() => {
+    const openSurface = (event: Event) => {
+      const surface = (event as CustomEvent<{ surface?: string }>).detail?.surface;
+      if (surface === "review") {
+        setActiveSurface(null);
+        setReviewOpen(true);
+        return;
+      }
+      if (
+        surface === "history" ||
+        surface === "inspector" ||
+        surface === "tasks" ||
+        surface === "inbox" ||
+        surface === "automations"
+      ) {
+        setReviewOpen(false);
+        setActiveSurface(surface);
+      }
+    };
+    window.addEventListener("altai:open-ai-surface", openSurface);
+    return () => window.removeEventListener("altai:open-ai-surface", openSurface);
+  }, []);
+
   // Session history and open chat tabs are deliberately separate. Selecting a
   // conversation from history opens it in a tab; closing that tab keeps the
   // local conversation available in history instead of deleting it.
@@ -165,7 +188,7 @@ export function AiSidePanel({
       data-ai-side-panel
       id="altai-ai-panel"
       aria-label="AI assistant"
-      className="@container relative flex h-full min-h-0 flex-col overflow-hidden bg-card text-[12px]"
+      className="altai-ai-panel @container relative flex h-full min-h-0 flex-col overflow-hidden bg-card text-[12px]"
     >
       <WorkspaceTopbar
         onClose={onClose}
@@ -183,12 +206,12 @@ export function AiSidePanel({
       <div className="relative isolate grid min-h-0 flex-1 grid-cols-1 overflow-hidden @[48rem]:grid-cols-[minmax(12rem,13.5rem)_minmax(0,1fr)] @[76rem]:grid-cols-[minmax(12rem,13.5rem)_minmax(0,1fr)_18rem]">
         <nav
           aria-label="Chat sessions"
-          className="z-10 hidden h-full min-h-0 min-w-0 self-stretch overflow-hidden border-r border-border/50 bg-muted/[0.16] @[48rem]:flex @[48rem]:flex-col"
+          className="altai-ai-history-rail z-10 hidden h-full min-h-0 min-w-0 self-stretch overflow-hidden border-r border-border/50 bg-muted/[0.16] @[48rem]:flex @[48rem]:flex-col"
         >
           <ChatHistoryPanel onClose={() => undefined} />
         </nav>
 
-        <main className="relative z-0 flex min-h-0 min-w-0 flex-col overflow-hidden bg-background/30">
+        <main className="altai-ai-main relative z-0 flex min-h-0 min-w-0 flex-col overflow-hidden bg-background/30">
           {historyOpen ? (
             <ChatHistoryPanel onClose={() => setActiveSurface(null)} />
           ) : sessionId ? (
@@ -393,7 +416,7 @@ function WorkspaceTopbar({
   const title = active?.title || "New chat";
 
   return (
-    <div className="flex h-11 shrink-0 items-center gap-1.5 border-b border-border/50 bg-card/90 px-2.5 backdrop-blur">
+    <div className="altai-ai-topbar flex h-11 shrink-0 items-center gap-1.5 border-b border-border/50 bg-card/90 px-2.5 backdrop-blur">
       <IconTooltip label={historyOpen ? "Back to task" : "Chat sessions"}>
         <button
           type="button"
@@ -1436,46 +1459,62 @@ function EmptyState({ onPick }: { onPick: (text: string) => void }) {
     EXAMPLES_BY_AGENT.coder;
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-5 py-6">
-      <div className="flex flex-1 flex-col items-center justify-center">
-        <div className="flex flex-col items-center gap-3.5 text-center">
-          <div className="flex size-10 items-center justify-center rounded-2xl bg-foreground/[0.04] text-foreground/80">
-            <HugeiconsIcon icon={Icon} size={18} strokeWidth={1.5} />
+    <div className="altai-ai-task-home flex min-h-0 flex-1 flex-col overflow-y-auto px-4 py-4 @[36rem]:px-6 @[36rem]:py-6">
+      <div className="mx-auto flex w-full max-w-[43rem] flex-1 flex-col justify-center">
+        <div className="altai-ai-task-header">
+          <div>
+            <div className="flex items-center gap-2 text-[10px] font-medium uppercase tracking-[0.13em] text-muted-foreground">
+              <span className="size-1.5 rounded-full bg-primary" />
+              New task
+            </div>
+            <h2 className="mt-2 text-[18px] font-semibold tracking-tight text-foreground">
+              What should we work on?
+            </h2>
+            <p className="mt-1 max-w-[31rem] text-[11.5px] leading-relaxed text-muted-foreground">
+              Describe the outcome you want. ALTAI can inspect the workspace, make changes, and verify the result.
+            </p>
           </div>
-          <div className="space-y-0.5">
-            <p className="text-[13px] font-medium tracking-tight text-foreground">
-              {active.name}
-            </p>
-            <p className="mx-auto max-w-[20rem] text-[11.5px] leading-relaxed text-muted-foreground">
-              {active.description}
-            </p>
+          <div className="altai-ai-task-agent" title={`Active agent: ${active.name}`}>
+            <HugeiconsIcon icon={Icon} size={14} strokeWidth={1.7} />
+            <span className="truncate">{active.name}</span>
           </div>
         </div>
 
-        <div className="mt-7 flex w-full max-w-[22rem] flex-col">
-          {examples.map((ex) => (
-            <button
-              key={ex.title}
-              type="button"
-              onClick={() => onPick(ex.description)}
-              className={cn(
-                "group flex w-full flex-col gap-0.5 rounded-md px-3 py-2 text-left",
-                "transition-colors hover:bg-foreground/[0.04]",
-              )}
-            >
-              <span className="text-[12px] font-medium text-foreground">
-                {ex.title}
-              </span>
-              <span className="text-[11px] leading-snug text-muted-foreground">
-                {ex.description}
-              </span>
-            </button>
-          ))}
+        <section className="mt-6" aria-label="Task starters">
+          <div className="mb-1.5 flex items-center justify-between px-0.5">
+            <span className="text-[10px] font-medium uppercase tracking-[0.12em] text-muted-foreground">
+              Task starters
+            </span>
+            <span className="text-[10px] text-muted-foreground/70">Adds to composer</span>
+          </div>
+          <div className="altai-ai-task-starters">
+            {examples.map((ex, index) => (
+              <button
+                key={ex.title}
+                type="button"
+                onClick={() => onPick(ex.description)}
+                className="altai-ai-task-starter group"
+              >
+                <span className="altai-ai-task-number">{String(index + 1).padStart(2, "0")}</span>
+                <span className="min-w-0 flex-1 text-left">
+                  <span className="block text-[12px] font-medium text-foreground">{ex.title}</span>
+                  <span className="mt-0.5 block line-clamp-2 text-[10.5px] leading-snug text-muted-foreground">{ex.description}</span>
+                </span>
+                <span aria-hidden="true" className="altai-ai-task-arrow">↗</span>
+              </button>
+            ))}
+          </div>
+        </section>
+
+        <div className="altai-ai-task-context mt-3">
+          <span className="font-medium text-foreground/85">Give better context</span>
+          <span><kbd>@</kbd> attach files</span>
+          <span><kbd>#</kbd> use a snippet or command</span>
         </div>
       </div>
 
       <div className="flex shrink-0 items-center justify-center gap-1.5 pt-4 text-[10px] text-muted-foreground/70">
-        <span>Toggle with</span>
+        <span>Toggle assistant</span>
         <Kbd className="h-4 gap-px px-1.5 font-mono text-[10px]">
           {fmtShortcut(MOD_KEY, "I")}
         </Kbd>

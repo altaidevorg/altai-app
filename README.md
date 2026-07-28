@@ -42,8 +42,8 @@ Most AI coding tools are a chat panel bolted onto an editor. **Altai is a full d
 - **Checkpoints & rewind** — pre-edit checkpoints let you restore any file the agent touched, and conversation truncation lets you edit a message and re-run from there.
 - **Steering** — redirect a running agent mid-task, or queue your next instruction.
 - **Context engineering built in** — automatic compaction with tunable thresholds, tool-result pruning, live context-window and cost meters, and `/compact` when you want it now.
-- **Slash commands** — `/init` writes your `ALTAI.md` project instructions, `/plan` enters plan mode, `/paper` imports an arXiv paper, `/compact` compresses history.
-- **Composer superpowers** — `@` to attach files, `#` for reusable snippets, attach your unstaged git diff, terminal output, images, or PDFs. Dictate prompts with voice (Whisper).
+- **Slash commands** — type `/` in the composer to search ALTAI’s command index: sessions, workspace inspection, implementation, quality checks, project workflows, and settings. `/init` writes `ALTAI.md`, `/plan` toggles plan mode, `/paper` imports an arXiv paper, and `/compact` compresses history (`/smol`, `/condense`, and `/summarize` are searchable aliases). Add project-specific workflows as Markdown files in `.altai/commands/`; each file becomes a discoverable `/command-name` and still uses the normal agent approval flow.
+- **Composer superpowers** — `@` to attach files, `/` for commands, `#` for reusable snippets, attach your unstaged git diff, terminal output, images, or PDFs. Dictate prompts with voice (Whisper).
 
 ### Agents, skills & automation
 

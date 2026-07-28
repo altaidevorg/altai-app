@@ -195,14 +195,14 @@ fn check_instructions(repo: &Path) -> CategoryScore {
     let mut evidence = Vec::new();
     let mut notes = Vec::new();
 
-    if repo.join("AGENTS.md").exists() {
+    if repo.join("ALTAI.md").exists() {
         score += 50;
         evidence.push(Evidence {
-            path: "AGENTS.md".into(),
-            detail: "Agent instructions file present".into(),
+            path: "ALTAI.md".into(),
+            detail: "ALTAI project instructions present".into(),
         });
     } else {
-        notes.push("No AGENTS.md found. Agents will lack repository-specific guidance.".into());
+        notes.push("No ALTAI.md found. Agents will lack repository-specific guidance.".into());
     }
 
     if repo.join("README.md").exists() {
@@ -215,13 +215,13 @@ fn check_instructions(repo: &Path) -> CategoryScore {
         notes.push("No README.md found.".into());
     }
 
-    // Alternative instruction files.
-    for alt in ["CLAUDE.md", ".kilo/", ".cursorrules"] {
+    // ALTAI-native workflow and command configuration.
+    for alt in [".altai/", "WORKFLOW.md"] {
         if repo.join(alt).exists() {
             score += 25;
             evidence.push(Evidence {
                 path: alt.into(),
-                detail: "Additional agent config present".into(),
+                detail: "Additional ALTAI configuration present".into(),
             });
             break;
         }

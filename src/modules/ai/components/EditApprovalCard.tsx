@@ -47,7 +47,7 @@ export function EditApprovalCard({ diff }: Props) {
     <div
       role="group"
       aria-label={`Edit approval for ${diff.file}`}
-      className="flex shrink-0 flex-col gap-2 border-t border-border-subtle bg-warning/[0.06] px-3 py-2.5"
+      className="altai-ai-edit-approval flex shrink-0 flex-col gap-2 border-t border-border-subtle bg-warning/[0.06] px-3 py-2.5"
     >
       <div className="flex items-center gap-2">
         <span className="size-1.5 shrink-0 rounded-full bg-warning" />

@@ -28,7 +28,7 @@ import {
   Refresh01Icon,
   TerminalIcon,
 } from "@hugeicons/core-free-icons";
-import { SLASH_COMMANDS, ALTAI_CMD_RE } from "../lib/slashCommands";
+import { ALTAI_CMD_RE, resolveSlashCommand } from "../lib/slashCommands";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import { retryFailedRun, useChatStore } from "../store/chatStore";
 import { useAgentRunsStore } from "../store/agentRunsStore";
@@ -55,7 +55,7 @@ import {
 } from "@/components/ai-elements/message";
 
 function CommandSnippet({ name }: { name: string }) {
-  const meta = SLASH_COMMANDS[name];
+  const meta = resolveSlashCommand(name);
   if (!meta) {
     return (
       <div className="inline-flex items-center gap-1.5 rounded-md border border-border/50 bg-muted/40 px-2 py-1 font-mono text-[11px]">
@@ -259,7 +259,7 @@ export function AiChatView({
 
   if (messages.length === 0) {
     return (
-      <Conversation className="overflow-x-hidden" aria-live={ariaLiveProp}>
+      <Conversation className="altai-ai-conversation overflow-x-hidden" aria-live={ariaLiveProp}>
         <ConversationContent className="min-w-0">
           <ConversationEmptyState
             title="Ask ALTAI anything"
@@ -273,7 +273,7 @@ export function AiChatView({
   }
 
   return (
-    <Conversation className="overflow-x-hidden" aria-live={ariaLiveProp}>
+    <Conversation className="altai-ai-conversation overflow-x-hidden" aria-live={ariaLiveProp}>
       <ConversationContent className="min-w-0 gap-3 p-3">
         {messages.map((m, i) => (
           <RenderedMessage
@@ -389,7 +389,7 @@ const RenderedMessage = memo(function RenderedMessage({
     const stripped = stripUserContextBlocks(withoutCmd);
 
     return (
-      <Message from="user">
+      <Message from="user" className="altai-ai-message">
         <MessageContent>
           {commandName ? <CommandSnippet name={commandName} /> : null}
           {stripped.chips.length > 0 ? (
@@ -410,7 +410,7 @@ const RenderedMessage = memo(function RenderedMessage({
   const showRunActions = streaming || Boolean(canRetry);
 
   return (
-    <Message from={message.role}>
+    <Message from={message.role} className="altai-ai-message">
       <MessageContent>
         <div className="flex min-w-0 flex-col gap-3">
           {groups.map((g) => {

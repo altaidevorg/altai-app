@@ -50,7 +50,7 @@ export function AgentStatusPill({
   const subLabel = subCount > 0 ? `${plural(subCount, "subagent")} running` : "";
   const subSuffix = subLabel ? `, ${subLabel}` : "";
   const className = cn(
-    "flex h-6 items-center gap-1.5 rounded-md border px-1.5 text-[11px] transition-colors",
+    "altai-ai-status flex h-6 items-center gap-1.5 rounded-md border px-1.5 text-[11px] transition-colors",
     tone,
   );
   const anim = {

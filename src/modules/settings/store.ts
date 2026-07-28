@@ -84,7 +84,7 @@ export const PERMISSION_MODE_DESCRIPTIONS: Record<PermissionMode, string> = {
 /**
  * Context-condensing (compaction) preferences. Maps to the isanagent
  * engine's knobs where possible; the prune recency window is TS-side only.
- * Mirrors https://kilo.ai/docs/customize/context/context-condensing.
+ * Keeps context compaction preferences in one persistent settings store.
  */
 export type CompactionPrefs = {
   /** Master switch for the auto-compaction engine. */
@@ -317,7 +317,7 @@ export async function loadPreferences(): Promise<Preferences> {
   const map = new Map<string, unknown>(entries);
   const get = <T>(k: string): T | undefined => map.get(k) as T | undefined;
 
-  // Env overrides (Kilo parity). Read once at boot; the user's saved pref is
+  // Env overrides. Read once at boot; the user's saved pref is
   // ignored when the corresponding env var forces a value.
   const [disableAutoCompact, disablePrune] = await Promise.all([
     readEnvFlag("ALTAI_DISABLE_AUTOCOMPACT"),

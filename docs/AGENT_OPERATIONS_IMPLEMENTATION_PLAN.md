@@ -8,8 +8,7 @@
 > local-first, durable, inspectable agent operations platform with
 > production-grade execution quality under the ALTAI/IsanAgent runtime.
 
-The Kilo Code + Z.AI GLM low-token execution profile for this roadmap is
-defined in `docs/KILO_GLM_IMPLEMENTATION_EXECUTION_PLAN.md`.
+The roadmap uses ALTAI's own model, permission, skill, and workflow settings.
 
 ## 1. Product outcome
 

@@ -2,9 +2,7 @@
 
 Scope locked with the user: **only** these two features. Codebase Indexing is **out**.
 
-Mirrors the Kilo docs:
-- https://kilo.ai/docs/customize/context/context-condensing
-- https://kilo.ai/docs/customize/context/kilocodeignore
+Uses ALTAI's own context-condensing and workspace-ignore model.
 
 ---
 
@@ -58,7 +56,7 @@ Add a `CompactionPrefs` block to the `Preferences` type and `DEFAULT_PREFERENCES
 
 Notes:
 - Add each `KEY_*` constant, a `set*` setter (mirror existing `writePref` pattern), and entries in the `onPreferencesChange` key map and `loadPreferences`.
-- **Env overrides** (Kilo parity): in `loadPreferences`, when `import.meta.env`/`process.env` exposes `ALTAI_DISABLE_AUTOCOMPACT=1` force `compactionAuto=false`; `ALTAI_DISABLE_PRUNE=1` forces `compactionPrune=false`. Tauri exposes env via `@tauri-apps/plugin-os`/shell env — read once at boot through a tiny `invoke` or `process.env` shim; if unavailable, skip silently.
+- **Env overrides**: in `loadPreferences`, when `import.meta.env`/`process.env` exposes `ALTAI_DISABLE_AUTOCOMPACT=1` force `compactionAuto=false`; `ALTAI_DISABLE_PRUNE=1` forces `compactionPrune=false`. Tauri exposes env via `@tauri-apps/plugin-os`/shell env — read once at boot through a tiny `invoke` or `process.env` shim; if unavailable, skip silently.
 
 ### 1.2 Thread prefs into isanagent (Rust)
 Files: `src-tauri/src/altai/agent/commands.rs`, `runtime.rs`.
@@ -82,7 +80,7 @@ Files: `src-tauri/src/altai/agent/commands.rs`, `runtime.rs`.
 ### 1.3 Manual `/compact` slash command
 File: `src/modules/ai/lib/slashCommands.ts`.
 
-- Register `compact` in `SLASH_COMMANDS` (icon: `Archive02Icon`, label "Compact context") — also matchable via `smol` / `condense` aliases (Kilo parity).
+- Register `compact` in `SLASH_COMMANDS` (icon: `Archive02Icon`, label "Compact context") — also matchable via `smol` / `condense` aliases.
 - In `tryRunSlashCommand`, add a `case "compact"` (and alias cases) returning:
   ```ts
   { kind: "send-prompt",
@@ -90,7 +88,7 @@ File: `src/modules/ai/lib/slashCommands.ts`.
     commandName: "compact" }
   ```
   This routes through the existing send flow; the model invokes the already-registered `CompactContextTool`, which renders in the transcript via tool.tsx.
-- Also expose a compact icon button in the chat header (`AiStatusBarControls.tsx` or `AiChat.tsx` header) that calls `focusInput("/compact\n")` or dispatches directly — single visible entry point (Kilo parity: "task header button").
+- Also expose a compact icon button in the chat header (`AiStatusBarControls.tsx` or `AiChat.tsx` header) that calls `focusInput("/compact\n")` or dispatches directly — single visible entry point.
 
 ### 1.4 TS-side prune pass (display + persistence)
 New file: `src/modules/ai/lib/compaction.ts`.
@@ -113,7 +111,7 @@ Files: `src/modules/settings/openSettingsWindow.ts`, `src/settings/SettingsConte
 - Add `"context"` to the `SettingsTab` union.
 - Register the tab in `SettingsContent.tsx` `TABS` (icon: `AiScanIcon` or `LayersIcon`).
 - `ContextSection.tsx` renders:
-  - **Context Condensing** card: toggles (`compactionAuto`, `compactionPrune`) + number inputs (`compactionThresholdPercent` optional, `compactionThresholdTokens`, `compactionTailTurns`, `compactionPruneRecencyTokens`) with a short description per field (mirroring the Kilo docs table). A "Compact now" button (calls `/compact` in the focused chat).
+  - **Context Condensing** card: toggles (`compactionAuto`, `compactionPrune`) + number inputs (`compactionThresholdPercent` optional, `compactionThresholdTokens`, `compactionTailTurns`, `compactionPruneRecencyTokens`) with a short description per field. A "Compact now" button (calls `/compact` in the focused chat).
   - **`.isanagentignore`** card (see Feature 2.7) — grouped under the same tab since both are "context" controls.
 
 ---
@@ -124,7 +122,7 @@ Files: `src/modules/settings/openSettingsWindow.ts`, `src/settings/SettingsConte
 New file: `src-tauri/src/modules/fs/isanagentignore.rs`.
 
 - `pub const IGNORE_FILENAME: &str = ".isanagentignore";`
-- `pub fn load_matcher(workspace_root: &Path) -> Arc<Mutex<Option<Gitignore>>>` — builds an `ignore::gitignore::Gitignore` from `<workspace_root>/.isanagentignore` (root-level, per Kilo spec), cached in a process-global with mtime invalidation. Returns a matcher usable by single-path commands.
+- `pub fn load_matcher(workspace_root: &Path) -> Arc<Mutex<Option<Gitignore>>>` — builds an `ignore::gitignore::Gitignore` from `<workspace_root>/.isanagentignore`, cached in a process-global with mtime invalidation. Returns a matcher usable by single-path commands.
 - Register in `fs/mod.rs` (`pub mod isanagentignore;`).
 - Resolve workspace root via the existing `workspace` module (`resolve_workspace_root` / current workspace folder).
 
@@ -137,7 +135,7 @@ Files: `src-tauri/src/modules/fs/{search,grep}.rs` (`fs_search`, `fs_list_files`
 ### 2.3 Single-path commands (opt-in enforcement)
 Files: `src-tauri/src/modules/fs/file.rs` (`fs_read_file`, `fs_stat`, `fs_write_file`), `mutate.rs` (`fs_create_file`, `fs_create_dir`, `fs_rename`, `fs_delete`).
 
-- Add `enforce_isanagentignore: Option<bool>` param to each. When `Some(true)`, resolve the path to its workspace root, run the matcher (2.1), and return `Err("blocked by .isanagentignore: <path>")` if denied. Default `None`/`false` = current behavior unchanged (user's editor opens are not gated — matches Kilo's "only affects the agent" contract).
+- Add `enforce_isanagentignore: Option<bool>` param to each. When `Some(true)`, resolve the path to its workspace root, run the matcher (2.1), and return `Err("blocked by .isanagentignore: <path>")` if denied. Default `None`/`false` = current behavior unchanged (user's editor opens are not gated; the rule applies to ALTAI agent access).
 - **Why opt-in**: these commands serve both the editor (user opens) and TS-side features. Gating always-on would prevent the user from opening their own ignored files in the editor.
 
 ### 2.4 Thread opt-in through agent-facing TS wrappers
@@ -148,7 +146,7 @@ File: `src/modules/ai/lib/native.ts`.
 ### 2.5 Watcher
 File: `src-tauri/src/modules/fs/watch.rs`.
 
-- When a change event arrives, check the matcher (2.1); if the path is ignored, skip emitting `fs://changed` so ignored subtrees don't trigger refresh storms (Kilo `watcher.ignore` parity, scoped to `.isanagentignore`).
+- When a change event arrives, check the matcher (2.1); if the path is ignored, skip emitting `fs://changed` so ignored subtrees don't trigger refresh storms.
 
 ### 2.6 Tauri commands for the file (Settings UI)
 Files: `src-tauri/src/modules/fs/isanagentignore.rs` (+ register in `lib.rs` `invoke_handler!`), `native.ts`.
@@ -157,11 +155,11 @@ Files: `src-tauri/src/modules/fs/isanagentignore.rs` (+ register in `lib.rs` `in
 - `fs_set_isanagentignore(workspace, content)` — atomic write (reuse `write_atomic` from `file.rs`), then invalidate the cached matcher (2.1) so enforcement picks up edits immediately.
 
 ### 2.7 Settings UI (in the Context tab — see 1.6)
-- In `ContextSection.tsx`, a `.isanagentignore` card: read via `fs_get_isanagentignore`, edit in a `<textarea>`, save via `fs_set_isanagentignore`. Include a short pattern-syntax reference (mirrors Kilo: `#` comment, `*`/`**`, trailing `/`, `!` negation) and a note that it applies to altai's file access (editor search/explorer/TS-side); full agent-tool enforcement is Tier 2.
+- In `ContextSection.tsx`, a `.isanagentignore` card: read via `fs_get_isanagentignore`, edit in a `<textarea>`, save via `fs_set_isanagentignore`. Include a short pattern-syntax reference (`#` comment, `*`/`**`, trailing `/`, `!` negation) and a note that it applies to ALTAI's file access (editor search/explorer/TS-side); full agent-tool enforcement is Tier 2.
 
 ### 2.8 Tier 2 — agent-tool enforcement (workstream in `altaidevorg/isanagent`)
 
-Full Kilo parity (the **agent itself** cannot read/list/search ignored files) requires changes inside the isanagent crate. These are **PRs to `altaidevorg/isanagent`**, not the `efecnc` fork (see "Dependency-pin reality" in §0).
+Full agent-tool enforcement (the **agent itself** cannot read/list/search ignored files) requires changes inside the isanagent crate. These are **PRs to `altaidevorg/isanagent`**, not the `efecnc` fork (see "Dependency-pin reality" in §0).
 
 **PR A — `.isanagentignore` enforcement in agent tools** (`altaidevorg/isanagent`):
 - Add a shared helper (mirror of 2.1) in the crate: a constant `ISANAGENTIGNORE_FILENAME = ".isanagentignore"` + a matcher builder reading the workspace-root `.isanagentignore`, cached with mtime invalidation.
@@ -170,7 +168,7 @@ Full Kilo parity (the **agent itself** cannot read/list/search ignored files) re
 - Respect `!` negation + nested `.isanagentignore` semantics via the `ignore` crate (already an isanagent dependency through its search stack).
 - Add unit tests (deny / allow / negation / nested).
 
-**PR B (optional, only if we want full Kilo knob parity) — compaction engine exposure** (`altaidevorg/isanagent`):
+**PR B (optional) — compaction engine exposure** (`altaidevorg/isanagent`):
 - Expose `reserved` (next-turn headroom), `preserve_recent_tokens` (verbatim tail budget), and a **dedicated compaction model** (separate provider/model for summarization) in `AgentLogicParams` / the crate's compaction path.
 - Until this lands, altai-app maps what it can via the public `AgentLogicParams` fields (1.2) and the rest stays TS-side or absent.
 
@@ -233,7 +231,7 @@ Manual:
 1. **Agent-tool enforcement of `.isanagentignore`** lives in `altaidevorg/isanagent` (Tier 2, PR A). Tier 1 (altai-app fs/watcher/UI) ships independently. Until PR A merges upstream, the agent itself can still read ignored files — the Settings UI must state this honestly, and altai-app's `Cargo.toml` pin coordination (§0) applies.
 2. **Compaction setting change rebuilds the runtime** on the next send (via the extended fingerprint). Acceptable; documented. In-flight turns are unaffected (rebuild only happens between sends).
 3. **`/compact` depends on the model calling `compact_context`**. It's a registered tool with a clear instruction; if a model refuses, the user can retry. True one-shot "force compact" would need an isanagent API surface (out of scope; candidate for `altaidevorg/isanagent` PR B).
-4. **Kilo knob parity is partial**: isanagent exposes `short_term_threshold_tokens` / `max_recent_summaries`, not `reserved` / `preserve_recent_tokens` / a dedicated compaction model. altai-app maps `threshold_percent`→tokens and `tail_turns`→`max_recent_summaries`; the prune recency window is TS-side. The remaining knobs need `altaidevorg/isanagent` PR B if full parity is desired.
+4. **Compaction controls are partial**: isanagent exposes `short_term_threshold_tokens` / `max_recent_summaries`, not `reserved` / `preserve_recent_tokens` / a dedicated compaction model. altai-app maps `threshold_percent`→tokens and `tail_turns`→`max_recent_summaries`; the prune recency window is TS-side. The remaining knobs need `altaidevorg/isanagent` PR B if more controls are required.
 
 ## Suggested build order
 1. `.isanagentignore` Tier 1 (2.1–2.7) — self-contained in altai-app, lowest risk, ships value fast.
