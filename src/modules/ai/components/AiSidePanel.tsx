@@ -3,25 +3,18 @@ import { MOD_KEY, fmtShortcut } from "@/lib/platform";
 import { Kbd } from "@/components/ui/kbd";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import {
-  AbsoluteIcon,
   Add01Icon,
-  BookSearchIcon,
   CalendarSyncIcon,
   Cancel01Icon,
   Clock01Icon,
   CodeIcon,
-  DatabaseIcon,
   FileEditIcon,
   Notebook01Icon,
   Notification01Icon,
-  PaintBrush04Icon,
-  PencilEdit02Icon,
-  ShieldUserIcon,
   SparklesIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { type ReactElement, useEffect, useState } from "react";
-import type { AgentIconId } from "../lib/agents";
 import { EditApprovalCard } from "./EditApprovalCard";
 import { SurfaceHeader } from "./AuxiliarySurface";
 import {
@@ -52,18 +45,6 @@ import { NotificationInboxPanel } from "./NotificationInboxPanel";
 import { AutomationsPanel } from "./AutomationsPanel";
 import { TaskRunsPanel } from "./TaskRunsPanel";
 import { TodoSummaryChip } from "./TodoStrip";
-
-const AGENT_ICONS: Record<AgentIconId, typeof CodeIcon> = {
-  coder: CodeIcon,
-  architect: AbsoluteIcon,
-  reviewer: PencilEdit02Icon,
-  security: ShieldUserIcon,
-  designer: PaintBrush04Icon,
-  paper: BookSearchIcon,
-  notebook: Notebook01Icon,
-  dataset: DatabaseIcon,
-  spark: SparklesIcon,
-};
 
 // Zustand selectors must return a stable reference when a session has no
 // todos yet; allocating `[]` inside the selector triggers React's external
@@ -1452,7 +1433,6 @@ function EmptyState({ onPick }: { onPick: (text: string) => void }) {
 
   const agents = useAgentsStore.getState().all();
   const active = agents.find((a) => a.id === activeId) ?? agents[0];
-  const Icon = AGENT_ICONS[active.icon] ?? SparklesIcon;
   const examples =
     EXAMPLES_BY_AGENT[active.id] ??
     EXAMPLES_BY_AGENT[active.icon] ??
@@ -1460,7 +1440,7 @@ function EmptyState({ onPick }: { onPick: (text: string) => void }) {
 
   return (
     <div className="altai-ai-task-home flex min-h-0 flex-1 flex-col overflow-y-auto px-4 py-4 @[36rem]:px-6 @[36rem]:py-6">
-      <div className="mx-auto flex w-full max-w-[43rem] flex-1 flex-col justify-center">
+      <div className="mx-auto flex w-full max-w-[36rem] flex-1 flex-col justify-center">
         <div className="altai-ai-task-header">
           <div>
             <div className="flex items-center gap-2 text-[10px] font-medium uppercase tracking-[0.13em] text-muted-foreground">
@@ -1474,43 +1454,30 @@ function EmptyState({ onPick }: { onPick: (text: string) => void }) {
               Describe the outcome you want. ALTAI can inspect the workspace, make changes, and verify the result.
             </p>
           </div>
-          <div className="altai-ai-task-agent" title={`Active agent: ${active.name}`}>
-            <HugeiconsIcon icon={Icon} size={14} strokeWidth={1.7} />
-            <span className="truncate">{active.name}</span>
-          </div>
         </div>
 
-        <section className="mt-6" aria-label="Task starters">
-          <div className="mb-1.5 flex items-center justify-between px-0.5">
-            <span className="text-[10px] font-medium uppercase tracking-[0.12em] text-muted-foreground">
-              Task starters
-            </span>
+        <section className="mt-5" aria-label="Task starters">
+          <div className="mb-1.5 flex items-center justify-between">
+            <span className="text-[10px] font-medium uppercase tracking-[0.12em] text-muted-foreground">Try one of these</span>
             <span className="text-[10px] text-muted-foreground/70">Adds to composer</span>
           </div>
           <div className="altai-ai-task-starters">
-            {examples.map((ex, index) => (
+            {examples.slice(0, 3).map((ex) => (
               <button
                 key={ex.title}
                 type="button"
                 onClick={() => onPick(ex.description)}
                 className="altai-ai-task-starter group"
               >
-                <span className="altai-ai-task-number">{String(index + 1).padStart(2, "0")}</span>
                 <span className="min-w-0 flex-1 text-left">
                   <span className="block text-[12px] font-medium text-foreground">{ex.title}</span>
-                  <span className="mt-0.5 block line-clamp-2 text-[10.5px] leading-snug text-muted-foreground">{ex.description}</span>
+                  <span className="mt-0.5 block truncate text-[10.5px] leading-snug text-muted-foreground">{ex.description}</span>
                 </span>
                 <span aria-hidden="true" className="altai-ai-task-arrow">↗</span>
               </button>
             ))}
           </div>
         </section>
-
-        <div className="altai-ai-task-context mt-3">
-          <span className="font-medium text-foreground/85">Give better context</span>
-          <span><kbd>@</kbd> attach files</span>
-          <span><kbd>#</kbd> use a snippet or command</span>
-        </div>
       </div>
 
       <div className="flex shrink-0 items-center justify-center gap-1.5 pt-4 text-[10px] text-muted-foreground/70">

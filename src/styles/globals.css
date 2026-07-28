@@ -301,40 +301,23 @@
 [data-ai-side-panel] .altai-ai-task-header {
   display: flex;
   align-items: flex-start;
-  justify-content: space-between;
-  gap: 1rem;
-  padding: 0.1rem 0.1rem 1rem;
+  padding-bottom: 0.85rem;
   border-bottom: 1px solid oklch(1 0 0 / 0.09);
-}
-
-[data-ai-side-panel] .altai-ai-task-agent {
-  display: flex;
-  flex: 0 1 auto;
-  align-items: center;
-  gap: 0.4rem;
-  max-width: 9rem;
-  padding: 0.38rem 0.55rem;
-  border: 1px solid oklch(1 0 0 / 0.11);
-  border-radius: 999px;
-  color: oklch(0.91 0.23 125);
-  background: oklch(0.91 0.23 125 / 0.07);
-  font-size: 10.5px;
-  font-weight: 600;
 }
 
 [data-ai-side-panel] .altai-ai-task-starters {
   overflow: hidden;
   border: 1px solid oklch(1 0 0 / 0.1);
-  border-radius: 0.75rem;
-  background: oklch(0.12 0.005 260 / 0.62);
+  border-radius: 0.5rem;
+  background: oklch(0.12 0.005 260 / 0.45);
 }
 
 [data-ai-side-panel] .altai-ai-task-starter {
   display: flex;
   width: 100%;
   align-items: flex-start;
-  gap: 0.75rem;
-  padding: 0.78rem 0.85rem;
+  gap: 0.5rem;
+  padding: 0.6rem 0.7rem;
   border-bottom: 1px solid oklch(1 0 0 / 0.075);
   text-align: left;
   transition: background-color 140ms ease;
@@ -346,14 +329,6 @@
 
 [data-ai-side-panel] .altai-ai-task-starter:hover {
   background: oklch(0.91 0.23 125 / 0.075);
-}
-
-[data-ai-side-panel] .altai-ai-task-number {
-  padding-top: 0.1rem;
-  color: oklch(0.91 0.23 125 / 0.82);
-  font-family: var(--font-mono);
-  font-size: 9.5px;
-  font-variant-numeric: tabular-nums;
 }
 
 [data-ai-side-panel] .altai-ai-task-arrow {
@@ -369,24 +344,6 @@
   transform: translate(1px, -1px);
 }
 
-[data-ai-side-panel] .altai-ai-task-context {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.25rem 0.75rem;
-  padding: 0.65rem 0.75rem;
-  border: 1px solid oklch(1 0 0 / 0.075);
-  border-radius: 0.7rem;
-  background: oklch(0.11 0.005 260 / 0.58);
-  color: var(--muted-foreground);
-  font-size: 10.5px;
-}
-
-[data-ai-side-panel] .altai-ai-task-context kbd {
-  color: var(--foreground);
-  font-family: var(--font-mono);
-  font-size: 10px;
-}
-
 [data-ai-side-panel] .altai-ai-status {
   border-color: oklch(0.91 0.23 125 / 0.36);
   background: oklch(0.91 0.23 125 / 0.13);
@@ -396,7 +353,7 @@
 
 [data-ai-side-panel] .altai-ai-tool {
   border: 1px solid transparent;
-  border-radius: 0.75rem;
+  border-radius: 0;
   background: oklch(0.15 0.009 260 / 0.54);
 }
 
@@ -406,6 +363,15 @@
 
 [data-ai-side-panel] .altai-ai-tool-trigger {
   min-height: 2.25rem;
+  border-radius: 0;
+}
+
+/* Tool text is intentionally flat: tool states should read like compact IDE
+ * output, not a stack of nested message bubbles. Keep circular status dots. */
+[data-ai-side-panel] .altai-ai-tool pre,
+[data-ai-side-panel] .altai-ai-tool [class~="rounded"],
+[data-ai-side-panel] .altai-ai-tool [class~="rounded-md"] {
+  border-radius: 0;
 }
 
 [data-ai-side-panel] .altai-ai-tool[data-tool-state="input-streaming"],
