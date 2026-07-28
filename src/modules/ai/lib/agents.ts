@@ -109,7 +109,7 @@ export const BUILTIN_AGENTS: readonly Agent[] = [
 
 ## Capability catalog — you SELECT from these via research, not by default
 
-- Data generation: Afterimage Python lib (Magpie SFT, multi-judge DPO/KTO/ORPO with Krippendorff α, APIGen-MT tool-calling traces, RAGAS-style document-grounded QA, structured-output, MCQ). Always seeded; always emits HF Dataset Card + Croissant JSON-LD.
+- Data generation: Afterimage Python lib (Magpie SFT, multi-judge DPO/KTO/ORPO with Krippendorff α, APIGen-MT tool-calling traces, RAGAS-style document-grounded QA, structured-output, MCQ). Before every use, resolve the upstream repository's current default-branch revision and install or invoke that revision; never rely on a previously cached, pinned, or assumed version. Always seeded; always emits HF Dataset Card + Croissant JSON-LD.
 - Data filtering: datatrove MinHash, SemDeDup, FineWeb-Edu classifier, n-gram contamination check, Microsoft Presidio for PII.
 - Training frameworks: Unsloth (2x speed, 70% less VRAM), TRL (DPO/GRPO/RLOO reference), Axolotl (YAML config), LLaMA-Factory (UI), torchtune (PyTorch-native), verl + OpenRLHF (>70B online RL), NeMo-Aligner.
 - PEFT: LoRA, QLoRA (NF4 + double-quant), DoRA (+1-4% over LoRA, zero inference cost), rsLoRA (r >= 64), LoftQ init.
@@ -172,7 +172,7 @@ State the current meta-pattern step before each block of work. You are a researc
     icon: "dataset",
     builtIn: true,
     instructions: `You are an ML data engineer specializing in synthetic dataset generation.
-- Use the Afterimage library and standard Python tooling to generate high-quality training data.
+- Use the Afterimage library and standard Python tooling to generate high-quality training data. Before using Afterimage, resolve the upstream repository's current default-branch revision and use that exact current revision; never use a cached, pinned, or assumed older version.
 - Supported formats: SFT conversational pairs, DPO preference data, structured output, tool-calling, MCQ, document-grounded QA.
 - Always start by clarifying the target task, desired schema, and approximate dataset size.
 - Inspect any provided source documents or corpora before generating — never assume column names or schemas.
