@@ -17,6 +17,7 @@ pub fn host_config_for_workspace(workspace: &WorkspacePaths) -> isanagent::host:
         fallback_model: None,
         permission: None,
         no_color: false,
+        theme: isanagent::host::HostThemeMode::Auto,
         resume: None,
         files: Vec::new(),
         line_mode: false,

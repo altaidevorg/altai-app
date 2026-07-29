@@ -531,10 +531,14 @@ pub struct TerminalChannelConfig {
     pub workspace_dir: PathBuf,
     pub sandbox_dir: PathBuf,
     pub status_model: String,
+    /// Short permission label for the status bar (`ask`, `plan`, …).
+    pub status_permission: String,
     pub memory_node: NodeHandle<MemoryMessage>,
     pub providers: std::collections::HashMap<String, crate::config::ProviderConfig>,
     /// Whether the TUI should render ANSI foreground colors.
     pub color_enabled: bool,
+    /// Host-selected ALTAI theme (resolved with `color_enabled` / NO_COLOR).
+    pub theme: crate::channels::terminal_ui::HostThemeMode,
     /// Load the configured chat's persisted transcript before accepting input.
     pub resume_session: bool,
     /// File references composed into the first user message.
@@ -560,6 +564,7 @@ pub struct TerminalChannel {
     sandbox_dir: PathBuf,
     /// Provider model id for the status line (e.g. from config).
     status_model: String,
+    status_permission: String,
     /// Workspace memory actor (for past-session list + transcript load in the TUI thread).
     memory_node: NodeHandle<MemoryMessage>,
     /// Outbound messages for the Ratatui thread (set when `start` succeeds).
@@ -567,6 +572,7 @@ pub struct TerminalChannel {
     /// Named alternative providers for `/model` switching.
     providers: std::collections::HashMap<String, crate::config::ProviderConfig>,
     color_enabled: bool,
+    theme: crate::channels::terminal_ui::HostThemeMode,
     resume_session: bool,
     initial_files: Vec<PathBuf>,
     mode: TerminalMode,
@@ -581,10 +587,12 @@ impl TerminalChannel {
             workspace_dir: config.workspace_dir,
             sandbox_dir: config.sandbox_dir,
             status_model: config.status_model,
+            status_permission: config.status_permission,
             memory_node: config.memory_node,
             outbound_ui_tx: Arc::new(Mutex::new(None)),
             providers: config.providers,
             color_enabled: config.color_enabled,
+            theme: config.theme,
             resume_session: config.resume_session,
             initial_files: config.initial_files,
             mode: config.mode,
@@ -611,6 +619,7 @@ For headless or piped runs, set [terminal] enabled = false in config.toml (requi
 
         let channel_name = self.name().to_string();
         if self.mode == TerminalMode::Line {
+            crate::channels::terminal_ui::init_from_host(self.theme, !self.color_enabled);
             let (tx, rx) = std::sync::mpsc::channel::<OutboundMessage>();
             *self
                 .outbound_ui_tx
@@ -618,14 +627,45 @@ For headless or piped runs, set [terminal] enabled = false in config.toml (requi
                 .map_err(|_| "terminal outbound bridge poisoned".to_string())? = Some(tx);
             let chat_id = self.chat_id.clone();
             let shutdown = self.shutdown_tx.clone();
+            let status_model = self.status_model.clone();
+            let status_permission = self.status_permission.clone();
+            let sandbox_label = self
+                .sandbox_dir
+                .file_name()
+                .and_then(|s| s.to_str())
+                .unwrap_or("workspace")
+                .to_string();
+            let session_short = truncate_leading_ellipsis(&chat_id, 13);
             std::thread::spawn(move || {
                 for message in rx {
-                    println!("{}", message.content);
+                    let prefix = if message
+                        .metadata
+                        .get(crate::clarification::METADATA_CLARIFICATION)
+                        .and_then(|v| v.as_bool())
+                        == Some(true)
+                    {
+                        "clarification"
+                    } else if message
+                        .metadata
+                        .get(ISANAGENT_TOOL_NOTIFY)
+                        .and_then(|v| v.as_bool())
+                        == Some(true)
+                    {
+                        "tool"
+                    } else {
+                        "assistant"
+                    };
+                    println!("[{prefix}] {}", message.content);
                 }
             });
             std::thread::spawn(move || {
                 use std::io::BufRead;
-                println!("ALTAI line mode. Type /exit to quit.");
+                println!(
+                    "ALTAI line mode · {sandbox_label} · {status_model} · {status_permission} · session {session_short}"
+                );
+                println!("Type /exit to quit. Color: {}", if crate::channels::terminal_ui::uses_ansi_color() { "on" } else { "off (plain)" });
+                print!("> ");
+                let _ = std::io::Write::flush(&mut std::io::stdout());
                 for line in std::io::stdin().lock().lines() {
                     let Ok(content) = line else { break };
                     if matches!(content.trim(), "/exit" | "/quit") {
@@ -633,6 +673,8 @@ For headless or piped runs, set [terminal] enabled = false in config.toml (requi
                         break;
                     }
                     if content.trim().is_empty() {
+                        print!("> ");
+                        let _ = std::io::Write::flush(&mut std::io::stdout());
                         continue;
                     }
                     if bus_tx
@@ -649,6 +691,8 @@ For headless or piped runs, set [terminal] enabled = false in config.toml (requi
                     {
                         break;
                     }
+                    print!("> ");
+                    let _ = std::io::Write::flush(&mut std::io::stdout());
                 }
             });
             return Ok(());
@@ -681,8 +725,10 @@ For headless or piped runs, set [terminal] enabled = false in config.toml (requi
         let log_clone = logger_tx.clone();
         let memory_node_clone = self.memory_node.clone();
         let color_enabled = self.color_enabled;
+        let theme = self.theme;
         let resume_session = self.resume_session;
         let initial_files = self.initial_files.clone();
+        let status_permission = self.status_permission.clone();
 
         let opening_banner = format!(
             "ALTAI isanagent v{} — thread {}\n\
@@ -705,9 +751,11 @@ For headless or piped runs, set [terminal] enabled = false in config.toml (requi
                         channel_name,
                         opening_banner,
                         status_model,
+                        status_permission,
                         memory_node: memory_node_clone,
                         providers: providers_clone,
                         color_enabled,
+                        theme,
                         resume_session,
                         initial_files,
                     },

@@ -88,6 +88,8 @@ pub struct HostConfig {
     pub permission: Option<HostPermissionMode>,
     /// Disable ANSI foreground colors while retaining terminal structure.
     pub no_color: bool,
+    /// ALTAI terminal appearance. `no_color` / `NO_COLOR` still win.
+    pub theme: HostThemeMode,
     /// Existing terminal chat identifier to load on startup.
     pub resume: Option<String>,
     /// Files preloaded into the terminal's next composed message.
@@ -105,6 +107,7 @@ pub struct HostConfig {
 }
 
 pub use crate::channels::oneshot::{OneshotOutcome, OneshotResult};
+pub use crate::channels::terminal_ui::HostThemeMode;
 
 /// Interactive permission modes exposed to embedding hosts.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -927,6 +930,7 @@ Enable [api], [slack], or [email] (with enabled = true) so the agent can receive
             workspace_dir: workspace.dir.clone(),
             sandbox_dir: workspace.sandbox_dir.clone(),
             status_model: model_name.clone(),
+            status_permission: host_permission_label(config.permission),
             memory_node: memory_node.clone(),
             providers: {
                 // Merge default [provider] + expanded [providers.*] into one map for /model selector
@@ -937,7 +941,8 @@ Enable [api], [slack], or [email] (with enabled = true) so the agent can receive
                 }
                 all_providers
             },
-            color_enabled: !config.no_color,
+            color_enabled: !config.no_color && config.theme != HostThemeMode::NoColor,
+            theme: config.theme,
             resume_session: config.resume.is_some(),
             initial_files: config.files.clone(),
             mode: if config.line_mode {
@@ -1463,6 +1468,16 @@ fn apply_host_overrides(config: &mut AppConfig, host: &HostConfig) -> Result<(),
     Ok(())
 }
 
+fn host_permission_label(permission: Option<HostPermissionMode>) -> String {
+    match permission {
+        Some(HostPermissionMode::Ask) => "ask".into(),
+        Some(HostPermissionMode::AutoEdit) => "auto-edit".into(),
+        Some(HostPermissionMode::Plan) => "plan".into(),
+        Some(HostPermissionMode::Bypass) => "bypass".into(),
+        None => "default".into(),
+    }
+}
+
 async fn wait_for_external_shutdown(receiver: &mut Option<mpsc::UnboundedReceiver<()>>) {
     match receiver {
         Some(receiver) => {
@@ -1785,6 +1800,7 @@ mod tests {
         assert!(config.fallback_model.is_none());
         assert!(config.permission.is_none());
         assert!(!config.no_color);
+        assert_eq!(config.theme, HostThemeMode::Auto);
         assert!(config.resume.is_none());
         assert!(config.files.is_empty());
         assert!(!config.line_mode);
@@ -1875,6 +1891,7 @@ mod tests {
             fallback_model: None,
             permission: None,
             no_color: false,
+            theme: HostThemeMode::Auto,
             resume: None,
             files: Vec::new(),
             line_mode: false,
@@ -1920,6 +1937,7 @@ mod tests {
                 fallback_model: None,
                 permission: Some(HostPermissionMode::Plan),
                 no_color: true,
+                theme: HostThemeMode::NoColor,
                 resume: None,
                 files: Vec::new(),
                 line_mode: false,

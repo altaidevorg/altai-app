@@ -20,7 +20,10 @@ pub use app::{
     TerminalUiFocus, TerminalUiMode, ToastKind, ToolNoticePhase, ToolRailEntry,
     TranscriptSelection,
 };
-pub use theme::{init, init_from_env, uses_ansi_color, Theme};
+pub use theme::{
+    current_appearance, init, init_appearance, init_from_env, init_from_host,
+    resolve_host_appearance, uses_ansi_color, HostThemeMode, Theme, ThemeAppearance,
+};
 
 pub(crate) use attachments::parse_terminal_attachments;
 pub(crate) use run::{run_ratatui_main, RatatuiMainConfig};

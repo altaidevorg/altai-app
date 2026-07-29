@@ -87,3 +87,18 @@
   tests, including `oneshot_smoke_completes_with_scripted_provider`.
 - `cargo run -q -p altai-cli -- run . --prompt "summarize this project" --dry-run`
   still emits the resolved preview JSON.
+
+## M2 results — 2026-07-29
+
+- Wired ALTAI terminal palette roles (truecolor RGB derived from
+  `src/styles/globals.css`) through IsanAgent `Theme` + `HostConfig.theme`.
+- `altai agent --theme auto|dark|light|no-color` is unblocked; `NO_COLOR` and
+  `ALTAI_TUI_THEME` resolve via `altai_core::resolve_terminal_appearance*`.
+- Dense status header shows `ALTAI · workspace · model · permission · session`.
+- Responsive layout: narrow (&lt;80), medium (80–119), wide (120+) with transcript
+  + secondary pane split when a side pane is focused.
+- `--no-tui` line mode prints a status banner and labeled outbound lines.
+- Width-fit snapshot coverage at 80/100/160 columns (string snapshots; full PTY
+  golden frames deferred).
+- `cargo test -p altai-core -p altai-cli` → 35 tests; IsanAgent `width_fit` +
+  `theme` + oneshot host tests pass against the path pin.
