@@ -15,6 +15,9 @@ isanagent::host::HostConfig {
     pub scripted_responses: Option<Vec<String>>,
     /// ALTAI terminal appearance. `no_color` / `NO_COLOR` still win.
     pub theme: HostThemeMode, // Auto | Dark | Light | NoColor
+    pub compact_auto: Option<bool>,
+    pub compact_threshold_tokens: Option<usize>,
+    pub compact_tail_turns: Option<usize>,
 }
 
 pub async fn run_oneshot(config: HostConfig) -> HostResult<OneshotResult>;
@@ -36,6 +39,12 @@ pub use HostThemeMode;
 - Approval prompts offer `approve` / `deny` / `always` / `abort`. `always` grants for the
   current process only. Edit approvals attach `metadata.edit_diff` and map oneshot
   completion to `ApprovalRequired` with the diff detail.
+- `compact_*` host fields override memory compaction thresholds; `compact_auto =
+  Some(false)` disables between-turn auto-compaction (`short_term_threshold_tokens =
+  usize::MAX`) while manual `/compact` still works.
+- Oneshot `--file` paths load through `load_host_file_attachments` (text wrapped as
+  `<context-file>`, images/PDFs as media parts). Terminal `@path` parsing accepts
+  text / image / PDF and fuzzy-resolves unique basenames under the sandbox.
 
 ## Upstream constraint
 

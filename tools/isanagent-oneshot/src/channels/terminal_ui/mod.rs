@@ -22,12 +22,14 @@ pub use app::{
     TranscriptSelection,
 };
 pub use approval::{approval_hotkey_reply, EditDiffPayload, APPROVAL_CHOICES};
+pub use attachments::{
+    load_host_file_attachments, load_sandbox_file_attachment, parse_terminal_attachments,
+};
 pub use theme::{
     current_appearance, init, init_appearance, init_from_env, init_from_host,
     resolve_host_appearance, uses_ansi_color, HostThemeMode, Theme, ThemeAppearance,
 };
 
-pub(crate) use attachments::parse_terminal_attachments;
 pub(crate) use run::{run_ratatui_main, RatatuiMainConfig};
 
 use unicode_width::UnicodeWidthStr;

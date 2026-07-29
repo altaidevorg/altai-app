@@ -1,12 +1,16 @@
 //! Tauri-independent primitives shared by the future ALTAI CLI and Desktop
 //! adapters. This crate intentionally contains no UI-runtime dependency.
 
+pub mod compaction;
 pub mod config;
 pub mod event;
 pub mod palette;
 pub mod policy;
 pub mod workspace;
 
+pub use compaction::{
+    resolve_compaction_prefs, CompactionLogicParams, CompactionOverrides, CompactionPrefs,
+};
 pub use config::{
     load_agent_config, resolve_agent_config_layers, resolve_config, AgentConfigError,
     AgentConfigLayer, ConfigSource, ResolvedAgentConfig, ResolvedConfig,

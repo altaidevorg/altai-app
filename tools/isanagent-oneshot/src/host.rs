@@ -95,6 +95,12 @@ pub struct HostConfig {
     /// Files preloaded into the terminal's next composed message.
     pub files: Vec<PathBuf>,
     pub line_mode: bool,
+    /// Optional override for between-turn auto-compaction (`None` = config default).
+    pub compact_auto: Option<bool>,
+    /// Optional override for the auto-compaction token threshold.
+    pub compact_threshold_tokens: Option<usize>,
+    /// Optional override for recent-summary / tail retention.
+    pub compact_tail_turns: Option<usize>,
     /// When set, disable the interactive terminal, inject this prompt once through
     /// the headless `altai-cli` channel, and shut down after the run terminates.
     pub oneshot_prompt: Option<String>,
@@ -799,7 +805,7 @@ Enable [api], [slack], or [email] (with enabled = true) so the agent can receive
 
     // 7. Create Agent Logic
     let max_iterations = workspace.config.resolved_max_iterations().unwrap_or(50);
-    let max_recent_summaries = workspace
+    let mut max_recent_summaries = workspace
         .config
         .memory
         .as_ref()
@@ -811,12 +817,20 @@ Enable [api], [slack], or [email] (with enabled = true) so the agent can receive
         .as_ref()
         .and_then(|m| m.short_term_threshold_turns)
         .unwrap_or(20);
-    let short_term_threshold_tokens = workspace
+    let mut short_term_threshold_tokens = workspace
         .config
         .memory
         .as_ref()
         .and_then(|m| m.short_term_threshold_tokens)
         .unwrap_or(100000);
+    if config.compact_auto == Some(false) {
+        short_term_threshold_tokens = usize::MAX;
+    } else if let Some(tokens) = config.compact_threshold_tokens {
+        short_term_threshold_tokens = tokens.max(8_000);
+    }
+    if let Some(tail) = config.compact_tail_turns {
+        max_recent_summaries = tail.max(1);
+    }
     let tool_execution_activity = if multi_tenant_edge_cfg
         .activity_heartbeat_enabled
         .unwrap_or(false)
@@ -969,10 +983,23 @@ Enable [api], [slack], or [email] (with enabled = true) so the agent can receive
             .filter(|id| !id.trim().is_empty())
             .map(str::to_owned)
             .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+        let (attachments, attach_warnings) =
+            crate::channels::terminal_ui::load_host_file_attachments(
+                &workspace.sandbox_dir,
+                &config.files,
+            );
+        for warning in attach_warnings {
+            log::warn!("oneshot attachment: {warning}");
+            let _ = logger_bus_tx.send(BusMessage::Log(crate::bus::LogEvent::warn(
+                "altai-cli",
+                &warning,
+            )));
+        }
         let channel = Arc::new(OneshotChannel::new(
             id,
             prompt,
             config.files.clone(),
+            attachments,
             result_tx,
             shutdown_tx.clone(),
             config.observe_tx.clone(),
@@ -1897,6 +1924,9 @@ mod tests {
             resume: None,
             files: Vec::new(),
             line_mode: false,
+            compact_auto: None,
+            compact_threshold_tokens: None,
+            compact_tail_turns: None,
             oneshot_prompt: None,
             observe_tx: None,
             scripted_responses: None,
@@ -1943,6 +1973,9 @@ mod tests {
                 resume: None,
                 files: Vec::new(),
                 line_mode: false,
+                compact_auto: None,
+                compact_threshold_tokens: None,
+                compact_tail_turns: None,
                 oneshot_prompt: Some("reply with oneshot-ok".to_string()),
                 observe_tx: None,
                 scripted_responses: Some(vec!["oneshot-ok".to_string()]),
