@@ -79,7 +79,7 @@ impl PermissionMode {
     }
 }
 
-#[derive(Debug, Clone, ValueEnum, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, ValueEnum, PartialEq, Eq)]
 enum ThemeMode {
     /// Select an ALTAI terminal theme from terminal capabilities.
     Auto,
@@ -459,24 +459,18 @@ fn config_path(args: ConfigPathArgs) -> Result<(), CliError> {
 fn agent(args: AgentArgs) -> Result<(), CliError> {
     let workspace =
         resolve_command_workspace(args.options.workspace.as_deref(), args.path.as_deref())?;
+    let appearance = resolve_cli_theme(args.options.theme);
     let mut host = host_adapter::host_config_for_workspace(&workspace);
     host.model = args.options.model.clone();
     host.fallback_model = args.options.fallback_model.clone();
     host.permission = args.options.permission.as_ref().map(host_permission_mode);
-    host.no_color = args.options.theme == ThemeMode::NoColor;
+    host.no_color = appearance == altai_core::EffectiveTerminalAppearance::NoColor;
+    host.theme = host_theme_mode(appearance);
     host.resume = args.options.resume.clone();
     host.files = args.options.files.clone();
     host.line_mode = args.no_tui;
 
     if !args.dry_run {
-        let unsupported = unsupported_agent_options(&args);
-        if !unsupported.is_empty() {
-            return Err(CliError::Message(format!(
-                "the reusable IsanAgent host is available, but these ALTAI adapter options are not wired yet: {}. Use `altai-cli agent --dry-run` to inspect the planned configuration.",
-                unsupported.join(", ")
-            )));
-        }
-
         let runtime = tokio::runtime::Builder::new_multi_thread()
             .enable_all()
             .build()
@@ -504,18 +498,31 @@ fn agent(args: AgentArgs) -> Result<(), CliError> {
         "fallback_model": args.options.fallback_model,
         "permission": args.options.permission.as_ref().map(PermissionMode::as_str),
         "theme": args.options.theme.as_str(),
+        "effective_theme": appearance.as_str(),
         "resume": args.options.resume,
         "files": args.options.files,
     });
     print_preview(value)
 }
 
-fn unsupported_agent_options(args: &AgentArgs) -> Vec<&'static str> {
-    let mut options = Vec::new();
-    if matches!(args.options.theme, ThemeMode::Dark | ThemeMode::Light) {
-        options.push("--theme");
+fn resolve_cli_theme(theme: ThemeMode) -> altai_core::EffectiveTerminalAppearance {
+    let cli = match theme {
+        ThemeMode::Auto => altai_core::TerminalThemeMode::Auto,
+        ThemeMode::Dark => altai_core::TerminalThemeMode::Dark,
+        ThemeMode::Light => altai_core::TerminalThemeMode::Light,
+        ThemeMode::NoColor => altai_core::TerminalThemeMode::NoColor,
+    };
+    altai_core::resolve_terminal_appearance_from_env(cli)
+}
+
+const fn host_theme_mode(
+    appearance: altai_core::EffectiveTerminalAppearance,
+) -> isanagent::host::HostThemeMode {
+    match appearance {
+        altai_core::EffectiveTerminalAppearance::Dark => isanagent::host::HostThemeMode::Dark,
+        altai_core::EffectiveTerminalAppearance::Light => isanagent::host::HostThemeMode::Light,
+        altai_core::EffectiveTerminalAppearance::NoColor => isanagent::host::HostThemeMode::NoColor,
     }
-    options
 }
 
 const fn host_permission_mode(permission: &PermissionMode) -> isanagent::host::HostPermissionMode {
@@ -924,8 +931,17 @@ mod tests {
         assert_eq!(args.options.resume.as_deref(), Some("chat-1"));
         assert!(args.dry_run);
         assert_eq!(
-            unsupported_agent_options(&args),
-            vec!["--theme"]
+            altai_core::resolve_terminal_appearance(
+                altai_core::TerminalThemeMode::Dark,
+                false,
+                None,
+                None
+            ),
+            altai_core::EffectiveTerminalAppearance::Dark
+        );
+        assert_eq!(
+            host_theme_mode(altai_core::EffectiveTerminalAppearance::Dark),
+            isanagent::host::HostThemeMode::Dark
         );
     }
 
@@ -938,7 +954,21 @@ mod tests {
             panic!("agent command should parse");
         };
         assert!(!args.dry_run);
-        assert!(unsupported_agent_options(&args).is_empty());
+        assert_eq!(args.options.theme, ThemeMode::Auto);
+    }
+
+    #[test]
+    fn no_color_env_wins_over_dark_theme() {
+        // resolve_terminal_appearance is pure; NO_COLOR is simulated via the helper.
+        assert_eq!(
+            altai_core::resolve_terminal_appearance(
+                altai_core::TerminalThemeMode::Dark,
+                true,
+                None,
+                None
+            ),
+            altai_core::EffectiveTerminalAppearance::NoColor
+        );
     }
 
     #[test]
