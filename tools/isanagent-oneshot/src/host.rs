@@ -1458,7 +1458,9 @@ fn apply_host_overrides(config: &mut AppConfig, host: &HostConfig) -> Result<(),
         let (mode, edit_mode) = match permission {
             HostPermissionMode::Ask => ("ask", "ask"),
             HostPermissionMode::AutoEdit => ("ask", "allow"),
-            HostPermissionMode::Plan => ("deny", "deny"),
+            // Match desktop: plan keeps shell at ask (read-only inspection with
+            // approval for destructive commands) while denying file edits.
+            HostPermissionMode::Plan => ("ask", "deny"),
             HostPermissionMode::Bypass => ("allow", "allow"),
         };
         shell_policy.mode = Some(mode.to_string());
@@ -1832,7 +1834,7 @@ mod tests {
         for (permission, mode, edit_mode) in [
             (HostPermissionMode::Ask, "ask", "ask"),
             (HostPermissionMode::AutoEdit, "ask", "allow"),
-            (HostPermissionMode::Plan, "deny", "deny"),
+            (HostPermissionMode::Plan, "ask", "deny"),
             (HostPermissionMode::Bypass, "allow", "allow"),
         ] {
             let mut config = AppConfig::default();

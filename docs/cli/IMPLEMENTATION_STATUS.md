@@ -24,16 +24,20 @@
 | Ctrl-C / timeout / approval exit codes | Verified | `RunExitCode` mapping tests; runtime select wired |
 | Non-TTY default permission `plan` | Verified | `resolve_run_permission` |
 | IsanAgent oneshot host API | Verified locally | `run_oneshot` + scripted provider; upstream PR blocked by gh auth |
+| Four-way approval replies (approve/deny/always/abort) | Verified | `classify_approval_reply` + grant cache |
+| Edit-diff TUI / line-mode rendering | Verified | `EditDiffPayload` + `parse_diff_lines` + line-mode `[edit_diff]` |
+| JSONL `clarification_requested` + `edit_diff` | Verified | `JsonlEmitter` unit test |
+| Plan mode parity (shell ask / edit deny) | Verified | host mapping + `altai_core::policy` |
 
 ## Incomplete
 
 | Capability | Gap | Planned milestone |
 |---|---|---|
-| Typed policy rules, approval cards, diff review | Not implemented | **M3** |
+| Mid-run `/dev/tty` resume for `altai run` | Oneshot still exits 4 on approval | **M3 follow-up / M6** |
 | `@file` fuzzy references, context, compaction | Not implemented | **M4** |
 | Multi-agent / desktop event journal parity | Not implemented | **M5** |
 | Release packaging / installed-binary CI matrix | Not implemented | **M6** |
-| Upstream merge of oneshot + theme host API | Local path pin only | Switch back to git rev after merge |
+| Upstream merge of oneshot + theme + approval host API | Local path pin only | Switch back to git rev after merge |
 | Full PTY visual golden frames | Width-fit string snapshots only | Expand in M6 CI matrix |
 
 ## Blocked
@@ -45,6 +49,6 @@
 
 ## Next milestone
 
-### M3 — Approvals, policy, and review surfaces
+### M4 — Context, `@file`, and compaction
 
-Do not start until M2 is committed and the TUI theme/status result above is accepted.
+Do not start until M3 is committed and approval/diff behavior above is accepted.

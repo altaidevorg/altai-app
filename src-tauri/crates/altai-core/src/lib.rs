@@ -4,6 +4,7 @@
 pub mod config;
 pub mod event;
 pub mod palette;
+pub mod policy;
 pub mod workspace;
 
 pub use config::{
@@ -16,4 +17,5 @@ pub use palette::{
     EffectiveTerminalAppearance, PaletteError, ResolvedTerminalColors, Rgb, TerminalLayoutDensity,
     TerminalPaletteManifest, TerminalThemeMode, DARK_TERMINAL_COLORS, LIGHT_TERMINAL_COLORS,
 };
+pub use policy::{shell_edit_modes_for, PermissionPolicyMode, ShellEditPolicyModes};
 pub use workspace::{resolve_workspace, resolve_workspace_from, WorkspaceError, WorkspacePaths};

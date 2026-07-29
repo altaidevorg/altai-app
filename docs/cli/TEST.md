@@ -102,3 +102,18 @@
   golden frames deferred).
 - `cargo test -p altai-core -p altai-cli` → 35 tests; IsanAgent `width_fit` +
   `theme` + oneshot host tests pass against the path pin.
+
+## M3 results — 2026-07-29
+
+- Approval replies accept `approve` / `deny` / `always` (this process) / `abort`;
+  session grant cache skips repeat prompts for the same shell/edit key.
+- Edit approvals carry unified diffs into the TUI transcript and line mode;
+  hotkeys `y/n/a/x` (and `1–4`) submit when an approval is pending.
+- JSONL emits `edit_diff` + `clarification_requested` (in addition to shell
+  `approval_requested`). Edit oneshot outcomes map to `ApprovalRequired`.
+- Plan mode parity with desktop: shell `ask`, edit `deny`
+  (`altai_core::policy` + host mapping).
+- `/dev/tty` helper added for future interactive resume; oneshot still exits `4`
+  when approval is required without a live TUI.
+- `cargo test -p altai-core -p altai-cli` → 38 tests; IsanAgent approval/diff/
+  policy unit tests pass.

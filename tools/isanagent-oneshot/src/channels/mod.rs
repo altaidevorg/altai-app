@@ -32,3 +32,4 @@ pub mod slack;
 pub(crate) mod slack_store;
 pub mod terminal;
 pub(crate) mod terminal_ui;
+pub mod tty_prompt;
