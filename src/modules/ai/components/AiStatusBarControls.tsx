@@ -301,7 +301,7 @@ function CheckpointButton() {
         side="top"
         align="end"
         sideOffset={6}
-        className="w-[min(20rem,calc(100vw-1rem))] overflow-hidden rounded-xl border border-border/70 p-0 shadow-xl"
+        className="w-[min(20rem,calc(100vw-1rem))] overflow-hidden rounded-lg border border-border/70 p-0 shadow-xl"
       >
         <div className="border-b border-border/70 px-3 py-2.5">
           <div className="text-[12px] font-medium">Edit checkpoints</div>

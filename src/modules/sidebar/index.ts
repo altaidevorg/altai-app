@@ -5,4 +5,5 @@ export {
 } from "./SidebarRail";
 export { GitHubSidebar } from "./GitHubSidebar";
 export { ProjectManagementSidebar } from "./ProjectManagementSidebar";
+export { ProjectIntelligencePanel } from "./ProjectIntelligencePanel";
 export type { SidebarViewId } from "./types";

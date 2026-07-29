@@ -81,7 +81,13 @@ function hasConversationContent(messages: UIMessage[]): boolean {
  * grouped by recency. Untouched drafts deliberately stay only in the tab
  * strip; history starts at the first real user message.
  */
-export function ChatHistoryPanel({ onClose }: { onClose: () => void }) {
+export function ChatHistoryPanel({
+  onClose,
+  autoFocusSearch = false,
+}: {
+  onClose: () => void;
+  autoFocusSearch?: boolean;
+}) {
   const sessions = useChatStore((s) => s.sessions);
   const activeId = useChatStore((s) => s.activeSessionId);
   const switchSession = useChatStore((s) => s.switchSession);
@@ -99,8 +105,10 @@ export function ChatHistoryPanel({ onClose }: { onClose: () => void }) {
   const searchInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
-    requestAnimationFrame(() => searchInputRef.current?.focus());
-  }, []);
+    if (!autoFocusSearch) return;
+    const frame = requestAnimationFrame(() => searchInputRef.current?.focus());
+    return () => cancelAnimationFrame(frame);
+  }, [autoFocusSearch]);
 
   // Lazy load snippets so each row can show a preview of the conversation.
   useEffect(() => {
@@ -196,13 +204,13 @@ export function ChatHistoryPanel({ onClose }: { onClose: () => void }) {
 
   return (
     <div className="altai-ai-history flex min-h-0 flex-1 flex-col bg-card">
-      <div className="flex shrink-0 flex-col gap-2 border-b border-border/60 px-2.5 py-2">
+      <div className="flex shrink-0 flex-col gap-2 border-b border-border-subtle px-2.5 py-2">
         <div className="flex items-center gap-1.5">
           <button
             type="button"
             onClick={handleNew}
             className={cn(
-              "flex flex-1 items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-[11.5px] font-medium",
+              "flex flex-1 items-center justify-center gap-1.5 px-2 py-1.5 text-[11.5px] font-medium",
               "altai-ai-history-new bg-foreground/[0.07] text-foreground transition-colors hover:bg-foreground/[0.12]",
             )}
           >
@@ -210,7 +218,7 @@ export function ChatHistoryPanel({ onClose }: { onClose: () => void }) {
             New chat
           </button>
         </div>
-        <div className="altai-ai-history-search flex items-center gap-2 rounded-md bg-background/60 px-2">
+        <div className="altai-ai-history-search flex items-center gap-2 border border-border bg-muted px-2">
           <HugeiconsIcon
             icon={Search01Icon}
             size={13}
@@ -264,7 +272,7 @@ export function ChatHistoryPanel({ onClose }: { onClose: () => void }) {
                       }
                     }}
                     className={cn(
-                      "altai-ai-history-row group relative flex cursor-pointer items-start gap-2 rounded-md px-2 py-1.5 text-left transition-colors",
+                      "altai-ai-history-row group relative flex cursor-pointer items-start gap-2 px-2 py-1.5 text-left transition-colors",
                       session.id === activeId
                         ? "bg-accent text-foreground"
                         : "hover:bg-accent/50",
@@ -326,7 +334,7 @@ export function ChatHistoryPanel({ onClose }: { onClose: () => void }) {
                         </RowIconButton>
                       </div>
                     ) : (
-                      <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
+                      <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
                         <RowIconButton
                           title="Rename"
                           onClick={(e) => {

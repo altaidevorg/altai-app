@@ -1,23 +1,65 @@
 import { Spinner } from "@/components/ui/spinner";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+} from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 import { useAgentRunsStore } from "@/modules/ai/store/agentRunsStore";
 import { useChatStore } from "@/modules/ai/store/chatStore";
 import { useAgentsStore } from "@/modules/ai/store/agentsStore";
 import { usePreferencesStore } from "@/modules/settings/preferences";
-import { MODELS } from "@/modules/ai/config";
+import { MODELS, type ModelId } from "@/modules/ai/config";
 import { ModelDropdown } from "@/modules/ai/components/ModelDropdown";
 import { native, type InstalledSkillInfo } from "@/modules/ai/lib/native";
 import type { Assignment, AssignmentStatus } from "@/modules/github/lib/assignments";
+import { open } from "@tauri-apps/plugin-dialog";
 import {
   ACTIVE_ASSIGNMENT_STATES,
   useAssignmentsStore,
 } from "@/modules/github/store/assignmentsStore";
-import { Cancel01Icon } from "@hugeicons/core-free-icons";
+import {
+  ArrowDown01Icon,
+  ArrowLeft01Icon,
+  ArrowReloadHorizontalIcon,
+  Attachment02Icon,
+  CodeIcon,
+  Delete02Icon,
+  File01Icon,
+  Notebook01Icon,
+  PlayIcon,
+  TerminalIcon,
+  Tick02Icon,
+} from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { FormEvent, useEffect, useMemo, useState } from "react";
-import { AuxiliarySurface } from "./AuxiliarySurface";
+import {
+  type FormEvent,
+  type ReactNode,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
+import {
+  AuxiliarySurface,
+  SurfaceEmptyState,
+  SurfaceSearch,
+  SurfaceSectionHeader,
+  SurfaceTabs,
+} from "./AuxiliarySurface";
 
 const TERMINAL: AssignmentStatus[] = ["done", "failed", "cancelled"];
+type TaskFilter = "all" | "active" | "attention" | "finished";
 
 function currentStatus(
   assignment: Assignment,
@@ -67,7 +109,13 @@ const TASK_TEMPLATES = [
  * A workspace-level task launcher. Each run has a dedicated chat_id, so a
  * long-running job never steals the current conversation or its context.
  */
-export function TaskRunsPanel({ onClose }: { onClose: () => void }) {
+export function TaskRunsPanel({
+  onClose,
+  navigation,
+}: {
+  onClose: () => void;
+  navigation?: ReactNode;
+}) {
   const assignments = useAssignmentsStore((s) => s.assignments);
   const hydrated = useAssignmentsStore((s) => s.hydrated);
   const dispatching = useAssignmentsStore((s) => s.dispatching);
@@ -88,11 +136,15 @@ export function TaskRunsPanel({ onClose }: { onClose: () => void }) {
   const [agentId, setAgentId] = useState(activeAgentId);
   const [permissionMode, setPermissionMode] = useState(defaultPermissionMode);
   const [modelId, setModelId] = useState(selectedModelId);
-  const [includeFile, setIncludeFile] = useState(false);
+  const [contextFiles, setContextFiles] = useState<string[]>([]);
   const [includeTerminal, setIncludeTerminal] = useState(false);
   const [includeDiff, setIncludeDiff] = useState(false);
   const [skills, setSkills] = useState<InstalledSkillInfo[]>([]);
   const [selectedSkills, setSelectedSkills] = useState<string[]>([]);
+  const [query, setQuery] = useState("");
+  const [filter, setFilter] = useState<TaskFilter>("all");
+  const [removeTarget, setRemoveTarget] = useState<Assignment | null>(null);
+  const [viewMode, setViewMode] = useState<"queue" | "create">("queue");
 
   const agents = useMemo(() => {
     const store = useAgentsStore.getState();
@@ -102,6 +154,88 @@ export function TaskRunsPanel({ onClose }: { onClose: () => void }) {
   const tasks = useMemo(
     () => assignments.filter((assignment) => assignment.source.kind === "task"),
     [assignments],
+  );
+  const resolvedTasks = useMemo(
+    () =>
+      tasks
+        .map((task) => ({
+          task,
+          status: currentStatus(task, runs[task.sessionId]),
+        }))
+        .sort((left, right) => right.task.createdAt - left.task.createdAt),
+    [runs, tasks],
+  );
+  const filterCounts = useMemo(
+    () => ({
+      all: resolvedTasks.length,
+      active: resolvedTasks.filter(({ status }) =>
+        ACTIVE_ASSIGNMENT_STATES.includes(status),
+      ).length,
+      attention: resolvedTasks.filter(
+        ({ status }) => status === "awaiting-approval" || status === "failed",
+      ).length,
+      finished: resolvedTasks.filter(({ status }) =>
+        TERMINAL.includes(status),
+      ).length,
+    }),
+    [resolvedTasks],
+  );
+  const visibleTasks = useMemo(() => {
+    const normalizedQuery = query.trim().toLowerCase();
+    return resolvedTasks.filter(({ task, status }) => {
+      const matchesFilter =
+        filter === "all" ||
+        (filter === "active" && ACTIVE_ASSIGNMENT_STATES.includes(status)) ||
+        (filter === "attention" &&
+          (status === "awaiting-approval" || status === "failed")) ||
+        (filter === "finished" && TERMINAL.includes(status));
+      if (!matchesFilter) return false;
+      if (!normalizedQuery) return true;
+      const run = runs[task.sessionId];
+      return [
+        task.title,
+        task.source.kind === "task" ? task.source.prompt : "",
+        run?.step ?? "",
+        run?.lastResult ?? "",
+      ]
+        .join("\n")
+        .toLowerCase()
+        .includes(normalizedQuery);
+    });
+  }, [filter, query, resolvedTasks, runs]);
+  const taskGroups = useMemo(
+    () => [
+      {
+        id: "attention",
+        title: "Needs attention",
+        description: "Runs waiting on you or blocked by an error",
+        items: visibleTasks.filter(
+          ({ status }) => status === "awaiting-approval" || status === "failed",
+        ),
+      },
+      {
+        id: "active",
+        title: "In progress",
+        description: "Agents currently working in isolated chats",
+        items: visibleTasks.filter(
+          ({ status }) =>
+            status === "dispatching" || status === "running",
+        ),
+      },
+      {
+        id: "ready",
+        title: "Ready to review",
+        description: "Completed runs with transcripts and outcomes",
+        items: visibleTasks.filter(({ status }) => status === "done"),
+      },
+      {
+        id: "stopped",
+        title: "Stopped",
+        description: "Cancelled background work",
+        items: visibleTasks.filter(({ status }) => status === "cancelled"),
+      },
+    ].filter((group) => group.items.length > 0),
+    [visibleTasks],
   );
 
   useEffect(() => {
@@ -132,7 +266,7 @@ export function TaskRunsPanel({ onClose }: { onClose: () => void }) {
     setError(null);
     try {
       const taskPrompt = await addSelectedContext(prompt, {
-        file: includeFile,
+        files: contextFiles,
         terminal: includeTerminal,
         diff: includeDiff,
       });
@@ -142,116 +276,431 @@ export function TaskRunsPanel({ onClose }: { onClose: () => void }) {
         runConfig: { agentId, modelId, permissionMode, skills: selectedSkills },
       });
       setPrompt("");
+      setContextFiles([]);
+      setIncludeTerminal(false);
+      setIncludeDiff(false);
+      setViewMode("queue");
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Couldn't start the task.");
     }
   }
 
+  const reuseTask = (task: Assignment) => {
+    if (task.source.kind !== "task") return;
+    setPrompt(task.source.prompt);
+    if (task.runConfig?.agentId) setAgentId(task.runConfig.agentId);
+    if (task.runConfig?.modelId) {
+      const knownModel = MODELS.find(
+        (model) => model.id === task.runConfig?.modelId,
+      );
+      if (knownModel) setModelId(knownModel.id as ModelId);
+    }
+    if (task.runConfig?.permissionMode) {
+      setPermissionMode(task.runConfig.permissionMode);
+    }
+    setSelectedSkills(task.runConfig?.skills ?? []);
+    setViewMode("create");
+  };
+
+  const chooseContextFiles = async () => {
+    const selected = await open({
+      directory: false,
+      multiple: true,
+      title: "Add files as task context",
+    });
+    const paths =
+      typeof selected === "string"
+        ? [selected]
+        : Array.isArray(selected)
+          ? selected
+          : [];
+    if (!paths.length) return;
+    setContextFiles((current) =>
+      Array.from(new Set([...current, ...paths])).slice(0, 12),
+    );
+  };
+
+  const retryTask = async (task: Assignment) => {
+    if (task.source.kind !== "task" || dispatching) return;
+    setError(null);
+    try {
+      await runTask({
+        title: task.title.replace(/^🤖\s*/, ""),
+        prompt: task.source.prompt,
+        runConfig: task.runConfig,
+      });
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Couldn't retry the task.");
+    }
+  };
+
+  const liveContext = useChatStore.getState().live;
+  const activeFilePath = liveContext.getActiveFile();
+  const activeFileSelected = Boolean(
+    activeFilePath && contextFiles.includes(activeFilePath),
+  );
+  const terminalPrivate = liveContext.isActiveTerminalPrivate();
+  const terminalContextAvailable = Boolean(
+    !terminalPrivate && liveContext.getTerminalContext()?.trim(),
+  );
+  const workspaceContextAvailable = Boolean(
+    liveContext.getCwd() ?? liveContext.getWorkspaceRoot(),
+  );
+
   return (
     <AuxiliarySurface
-      title="Background tasks"
-      subtitle="Runs stay separate from this chat and keep working while you continue here."
+      title="Work"
+      eyebrow="Workspace work"
+      icon={Notebook01Icon}
+      subtitle={
+        viewMode === "queue"
+          ? `${filterCounts.active} working · ${filterCounts.attention} need attention`
+          : "Delegate an isolated run without leaving this conversation"
+      }
       onClose={onClose}
+      navigation={navigation}
+      actions={
+        viewMode === "queue" ? (
+          <button
+            type="button"
+            onClick={() => setViewMode("create")}
+            className="inline-flex h-7 items-center gap-1.5 rounded-md bg-primary px-2.5 text-[9.5px] font-semibold text-primary-foreground hover:bg-primary/85"
+          >
+            <HugeiconsIcon icon={PlayIcon} size={11} strokeWidth={2} />
+            Delegate work
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setViewMode("queue")}
+            className="inline-flex h-7 items-center gap-1.5 rounded-md border border-border bg-muted px-2.5 text-[9.5px] font-medium text-foreground hover:bg-accent"
+          >
+            <HugeiconsIcon icon={ArrowLeft01Icon} size={11} strokeWidth={2} />
+            Queue
+          </button>
+        )
+      }
       bodyClassName="overflow-y-auto"
     >
-      <form onSubmit={start} className="shrink-0 border-b border-border/50 p-3">
-        <label htmlFor="background-task-prompt" className="text-[10.5px] font-medium text-foreground">
-          Start a task
-        </label>
+      {viewMode === "queue" ? (
+        <div className="shrink-0 space-y-2 border-b border-border-subtle bg-card px-3 py-2.5">
+          <SurfaceSearch
+            value={query}
+            onChange={setQuery}
+            placeholder="Search by task, step, or result"
+            className="w-full"
+          />
+          <SurfaceTabs
+            label="Filter work runs"
+            value={filter}
+            onChange={(value) => setFilter(value as TaskFilter)}
+            items={[
+              { id: "all", label: "All", count: filterCounts.all },
+              { id: "active", label: "Live", count: filterCounts.active },
+              {
+                id: "attention",
+                label: "Attention",
+                count: filterCounts.attention,
+              },
+              {
+                id: "finished",
+                label: "History",
+                count: filterCounts.finished,
+              },
+            ]}
+            className="border-0 bg-transparent p-0"
+          />
+        </div>
+      ) : null}
+      {viewMode === "create" ? (
+      <form onSubmit={start} className="min-h-0 flex-1 overflow-y-auto">
+        <section className="border-b border-border-subtle px-3.5 py-3.5">
+          <SurfaceSectionHeader
+            title="Describe the outcome"
+            description="Give the agent a concrete result to deliver and how to verify it."
+          />
         <textarea
           id="background-task-prompt"
           value={prompt}
           onChange={(event) => setPrompt(event.target.value)}
           placeholder="Example: Review the auth flow, fix the highest-impact issue, and run the relevant tests."
-          className="mt-1.5 min-h-20 w-full resize-y rounded-lg border border-border bg-muted/[0.28] px-2.5 py-2 text-[11px] leading-relaxed text-foreground outline-none placeholder:text-muted-foreground/65 focus:border-ring focus:ring-2 focus:ring-ring/25"
+          className="mt-3 min-h-28 w-full resize-y rounded-lg border border-border bg-muted/55 px-3 py-2.5 text-[11px] leading-relaxed text-foreground outline-none placeholder:text-muted-foreground/65 focus:border-ring focus:ring-2 focus:ring-ring/20"
         />
-        <div className="mt-2 flex flex-wrap gap-1">
+        <div className="mt-2 grid grid-cols-2 gap-1.5">
           {TASK_TEMPLATES.map((template) => (
             <button
               key={template.label}
               type="button"
               onClick={() => setPrompt(template.prompt)}
-              className="rounded-full border border-border bg-background/50 px-2 py-1 text-[9.5px] font-medium text-muted-foreground transition-colors hover:border-border hover:bg-accent hover:text-foreground"
+              className="min-h-8 rounded-md border border-border bg-card px-2 py-1.5 text-left text-[9.5px] font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
             >
               {template.label}
             </button>
           ))}
         </div>
-        <div className="mt-3 grid grid-cols-2 gap-2 rounded-lg border border-border/50 bg-background/35 p-2">
-          <label className="min-w-0">
-            <span className="block text-[9.5px] font-medium uppercase tracking-wide text-muted-foreground">Agent</span>
-            <select value={agentId} onChange={(event) => setAgentId(event.target.value)} className="mt-1 h-7 w-full rounded-md border border-border/60 bg-background px-1.5 text-[10.5px] text-foreground outline-none focus:border-ring">
-              {agents.map((agent) => <option key={agent.id} value={agent.id}>{agent.name}</option>)}
-            </select>
-          </label>
-          <div className="min-w-0">
-            <span className="block text-[9.5px] font-medium uppercase tracking-wide text-muted-foreground">Model</span>
-            <div className="mt-1">
-              <ModelDropdown
-                value={modelId}
-                onChange={setModelId}
-                className="h-7 max-w-none w-full justify-between border border-border/60 bg-background px-1.5 text-[10.5px] hover:bg-background"
-              />
-            </div>
-          </div>
-          <label className="min-w-0">
-            <span className="block text-[9.5px] font-medium uppercase tracking-wide text-muted-foreground">Permissions</span>
-            <select value={permissionMode} onChange={(event) => setPermissionMode(event.target.value as typeof permissionMode)} className="mt-1 h-7 w-full rounded-md border border-border/60 bg-background px-1.5 text-[10.5px] text-foreground outline-none focus:border-ring">
-              <option value="ask">Ask before changes</option>
-              <option value="auto-edit">Auto-edit workspace</option>
-              <option value="plan">Plan mode (read-only)</option>
-              {bypassEnabled ? <option value="bypass">Bypass approvals</option> : null}
-            </select>
-          </label>
-          <div className="col-span-2 border-t border-border/40 pt-2">
-            <div className="text-[9.5px] font-medium uppercase tracking-wide text-muted-foreground">Attach context</div>
-            <div className="mt-1.5 flex flex-wrap gap-1">
-              <ContextToggle checked={includeFile} onChange={setIncludeFile} label="Active file" />
-              <ContextToggle checked={includeTerminal} onChange={setIncludeTerminal} label="Terminal output" />
-              <ContextToggle checked={includeDiff} onChange={setIncludeDiff} label="Working-tree diff" />
-            </div>
-          </div>
-          {skills.length ? <div className="col-span-2 border-t border-border/40 pt-2">
-            <div className="text-[9.5px] font-medium uppercase tracking-wide text-muted-foreground">Workspace skills</div>
-            <div className="mt-1.5 flex flex-wrap gap-1">
-              {skills.map((skill) => <button key={skill.name} type="button" title={skill.description ?? skill.name} aria-pressed={selectedSkills.includes(skill.name)} onClick={() => setSelectedSkills((current) => current.includes(skill.name) ? current.filter((name) => name !== skill.name) : [...current, skill.name])} className={cn("rounded-full border px-2 py-1 text-[9.5px] font-medium transition-colors", selectedSkills.includes(skill.name) ? "border-primary/45 bg-primary/12 text-primary dark:bg-primary/20" : "border-border bg-background/50 text-muted-foreground hover:text-foreground")}>{skill.name}</button>)}
-            </div>
-          </div> : null}
-          <p className="col-span-2 text-[9.5px] leading-relaxed text-muted-foreground">Uses workspace scope and <span className="font-medium text-foreground/80">ALTAI.md</span> project instructions. The current chat is never modified.</p>
+        </section>
+        <section className="px-3.5 py-3.5">
+          <SurfaceSectionHeader
+            title="Run configuration"
+            description="Choose how the isolated agent should work."
+          />
+        <div className="mt-3 flex flex-wrap items-center gap-1.5">
+          <DropdownMenu>
+            <DropdownMenuTrigger className="flex h-6 items-center gap-1 rounded-md border border-border bg-card px-2 text-[10px] text-muted-foreground transition-colors hover:bg-foreground/[0.055]">
+              {agents.find((agent) => agent.id === agentId)?.name ?? "Default"}
+              <HugeiconsIcon icon={ArrowDown01Icon} size={9} strokeWidth={2} />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="min-w-28">
+              {agents.map((agent) => <DropdownMenuItem key={agent.id} onClick={() => setAgentId(agent.id)} className={cn("text-[11px]", agent.id === agentId && "bg-foreground/[0.085]")}>{agent.name}</DropdownMenuItem>)}
+            </DropdownMenuContent>
+          </DropdownMenu>
+          <ModelDropdown
+            value={modelId}
+            onChange={setModelId}
+            className="h-6 max-w-none border border-border bg-card px-2 text-[10px] hover:bg-accent"
+          />
+          <DropdownMenu>
+            <DropdownMenuTrigger className="flex h-6 items-center gap-1 rounded-md border border-border bg-card px-2 text-[10px] text-muted-foreground transition-colors hover:bg-foreground/[0.055]">
+              <span className="truncate">{permissionMode === "ask" ? "Ask" : permissionMode === "auto-edit" ? "Auto-edit" : permissionMode === "plan" ? "Plan" : permissionMode === "bypass" ? "Bypass" : "Ask"}</span>
+              <HugeiconsIcon icon={ArrowDown01Icon} size={9} strokeWidth={2} />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="min-w-32">
+              <DropdownMenuItem onClick={() => setPermissionMode("ask")} className={cn("text-[11px]", permissionMode === "ask" && "bg-foreground/[0.085]")}>Ask before changes</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setPermissionMode("auto-edit")} className={cn("text-[11px]", permissionMode === "auto-edit" && "bg-foreground/[0.085]")}>Auto-edit workspace</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setPermissionMode("plan")} className={cn("text-[11px]", permissionMode === "plan" && "bg-foreground/[0.085]")}>Plan mode (read-only)</DropdownMenuItem>
+              {bypassEnabled ? <DropdownMenuItem onClick={() => setPermissionMode("bypass")} className={cn("text-[11px]", permissionMode === "bypass" && "bg-foreground/[0.085]")}>Bypass approvals</DropdownMenuItem> : null}
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
-        <div className="mt-2 flex items-center gap-2">
+        </section>
+
+        <section className="border-t border-border-subtle px-3.5 py-3.5">
+          <SurfaceSectionHeader
+            title="Context"
+            description="Add only the evidence this run needs. Sources are snapshotted when work starts."
+            count={contextFiles.length + Number(includeTerminal) + Number(includeDiff)}
+          />
+          <div className="mt-3 overflow-hidden rounded-lg border border-border bg-card">
+            <div className="border-b border-border-subtle p-2.5">
+              <div className="flex min-w-0 flex-wrap items-center gap-2">
+                <span className="inline-flex size-7 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
+                  <HugeiconsIcon icon={File01Icon} size={13} strokeWidth={1.75} />
+                </span>
+                <div className="min-w-28 flex-1">
+                  <div className="text-[10.5px] font-medium text-foreground">Files</div>
+                  <div className="truncate text-[9px] text-muted-foreground">
+                    Add the exact files the agent should read first
+                  </div>
+                </div>
+                <div className="ml-auto flex shrink-0 items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const path = liveContext.getActiveFile();
+                      if (path) {
+                        setContextFiles((current) =>
+                          current.includes(path) ? current : [...current, path],
+                        );
+                      }
+                    }}
+                    disabled={!activeFilePath || activeFileSelected}
+                    className="h-6 rounded-md px-2 text-[9.5px] font-medium text-muted-foreground hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    {activeFileSelected ? "Active added" : "Active file"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void chooseContextFiles()}
+                    className="inline-flex h-6 items-center gap-1 rounded-md border border-border bg-muted px-2 text-[9.5px] font-medium text-foreground hover:bg-accent"
+                  >
+                    <HugeiconsIcon icon={Attachment02Icon} size={10} strokeWidth={1.8} />
+                    Choose files
+                  </button>
+                </div>
+              </div>
+              {contextFiles.length ? (
+                <div className="mt-2 flex flex-wrap gap-1">
+                  {contextFiles.map((path) => (
+                    <span
+                      key={path}
+                      title={path}
+                      className="group inline-flex h-6 max-w-full items-center gap-1 rounded-md border border-border bg-muted/55 pl-2 pr-1 text-[9.5px] text-foreground"
+                    >
+                      <span className="max-w-44 truncate">{contextFileName(path)}</span>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setContextFiles((current) =>
+                            current.filter((item) => item !== path),
+                          )
+                        }
+                        aria-label={`Remove ${contextFileName(path)}`}
+                        className="inline-flex size-4 items-center justify-center rounded text-muted-foreground hover:bg-foreground/[0.08] hover:text-foreground"
+                      >
+                        ×
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+            <ContextSourceToggle
+              icon={TerminalIcon}
+              label="Terminal output"
+              detail={
+                terminalPrivate
+                  ? "Unavailable while the active terminal is private"
+                  : terminalContextAvailable
+                    ? "Latest visible output from the active terminal"
+                    : "No terminal output available"
+              }
+              checked={includeTerminal}
+              disabled={!terminalContextAvailable}
+              onChange={setIncludeTerminal}
+            />
+            <ContextSourceToggle
+              icon={CodeIcon}
+              label="Working tree changes"
+              detail={
+                workspaceContextAvailable
+                  ? "Current unstaged Git diff"
+                  : "Open a workspace to include Git changes"
+              }
+              checked={includeDiff}
+              disabled={!workspaceContextAvailable}
+              onChange={setIncludeDiff}
+              className="border-t border-border-subtle"
+            />
+          </div>
+        </section>
+
+        {skills.length ? (
+          <section className="border-t border-border-subtle px-3.5 py-3.5">
+            <SurfaceSectionHeader
+              title="Skills"
+              description="Optional playbooks the agent should follow for this run."
+              count={selectedSkills.length}
+            />
+            <div className="mt-3 flex flex-wrap gap-1.5">
+              {skills.map((skill) => {
+                const selected = selectedSkills.includes(skill.name);
+                return (
+                  <button
+                    key={skill.name}
+                    type="button"
+                    title={skill.description ?? skill.name}
+                    aria-pressed={selected}
+                    onClick={() =>
+                      setSelectedSkills((current) =>
+                        selected
+                          ? current.filter((name) => name !== skill.name)
+                          : [...current, skill.name],
+                      )
+                    }
+                    className={cn(
+                      "inline-flex h-7 items-center gap-1.5 rounded-md border px-2.5 text-[9.5px] font-medium transition-colors",
+                      selected
+                        ? "border-foreground/15 bg-accent text-foreground"
+                        : "border-border bg-card text-muted-foreground hover:bg-accent hover:text-foreground",
+                    )}
+                  >
+                    {selected ? (
+                      <HugeiconsIcon icon={Tick02Icon} size={10} strokeWidth={2} />
+                    ) : null}
+                    {skill.name}
+                  </button>
+                );
+              })}
+            </div>
+          </section>
+        ) : null}
+
+        <section className="border-t border-border-subtle px-3.5 py-3">
+        <div className="flex items-center gap-2">
           {error ? <p className="min-w-0 flex-1 text-[10px] text-destructive">{error}</p> : <span className="flex-1" />}
+          <button
+            type="button"
+            onClick={() => setViewMode("queue")}
+            className="rounded-md px-2.5 py-1.5 text-[10px] font-medium text-muted-foreground hover:bg-muted hover:text-foreground"
+          >
+            Cancel
+          </button>
           <button
             type="submit"
             disabled={!prompt.trim() || dispatching}
-            className="inline-flex items-center gap-1.5 rounded-md bg-foreground px-2.5 py-1.5 text-[10.5px] font-medium text-background transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-45"
+            className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-[10.5px] font-semibold text-primary-foreground transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-45"
           >
             {dispatching ? <Spinner className="size-3" /> : null}
             Run in background
           </button>
         </div>
+        </section>
       </form>
+      ) : null}
 
+      {viewMode === "queue" ? (
       <div className="min-h-0 flex-1 overflow-y-auto p-3">
         {!hydrated ? (
           <div className="flex items-center justify-center gap-2 py-8 text-[11px] text-muted-foreground"><Spinner className="size-3.5" /> Loading tasks…</div>
         ) : tasks.length === 0 ? (
-          <div className="rounded-lg border border-dashed border-border/70 px-4 py-8 text-center text-[11px] leading-relaxed text-muted-foreground">
-            No background tasks yet. Start one above and keep chatting while it works.
+          <SurfaceEmptyState
+            icon={Notebook01Icon}
+            title="No background work yet"
+            description="Delegate a task to an isolated chat and keep working here while the agent runs."
+            action={
+              <button
+                type="button"
+                onClick={() => setViewMode("create")}
+                className="rounded-md bg-primary px-3 py-1.5 text-[10px] font-semibold text-primary-foreground"
+              >
+                Start a background task
+              </button>
+            }
+          />
+        ) : visibleTasks.length === 0 ? (
+          <div className="border border-dashed border-border px-4 py-8 text-center text-[11px] leading-relaxed text-muted-foreground">
+            No tasks match this view.
+            <button
+              type="button"
+              onClick={() => {
+                setQuery("");
+                setFilter("all");
+              }}
+              className="ml-1 font-medium text-foreground hover:underline"
+            >
+              Clear filters
+            </button>
           </div>
         ) : (
-          <div className="space-y-2">
-            {tasks.map((task) => {
+          <div className="space-y-5">
+            {taskGroups.map((group) => (
+              <section key={group.id}>
+                <SurfaceSectionHeader
+                  title={group.title}
+                  description={group.description}
+                  count={group.items.length}
+                  className="mb-2 px-0.5"
+                />
+                <div className="overflow-hidden rounded-lg border border-border bg-card">
+            {group.items.map(({ task, status }, index) => {
               const run = runs[task.sessionId];
-              const status = currentStatus(task, run);
               const active = ACTIVE_ASSIGNMENT_STATES.includes(status);
               const tokens = run ? run.tokens.input + run.tokens.output : 0;
               return (
-                <article key={task.id} className="rounded-lg border border-border/60 bg-card/45 p-2.5">
+                <article key={task.id} className={cn("p-3", index > 0 && "border-t border-border-subtle")}>
                   <div className="flex items-start gap-2">
                     <span className={cn("mt-1.5 size-1.5 shrink-0 rounded-full", status === "failed" ? "bg-destructive" : status === "done" ? "bg-success" : status === "cancelled" ? "bg-muted-foreground/50" : "animate-pulse bg-info")} />
                     <div className="min-w-0 flex-1">
-                      <h3 className="line-clamp-2 text-[11.5px] font-medium leading-snug text-foreground">{task.title.replace(/^🤖\s*/, "")}</h3>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          switchSession(task.sessionId);
+                          onClose();
+                        }}
+                        className="line-clamp-2 text-left text-[11.5px] font-medium leading-snug text-foreground hover:underline"
+                      >
+                        {task.title.replace(/^🤖\s*/, "")}
+                      </button>
                       <p className="mt-1 text-[10px] text-muted-foreground">
                         <span className={cn(status === "failed" && "text-destructive", status === "done" && "text-success")}>{statusCopy[status]}</span>
                         {tokens ? ` · ${tokens >= 1000 ? `${(tokens / 1000).toFixed(1)}k` : tokens} tokens` : ""}
@@ -261,51 +710,188 @@ export function TaskRunsPanel({ onClose }: { onClose: () => void }) {
                         {task.runConfig?.skills?.length ? ` · ${task.runConfig.skills.join(", ")}` : ""}
                       </p>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => void remove(task.id)}
-                      aria-label="Remove task"
-                      className="rounded p-0.5 text-muted-foreground/60 hover:bg-muted hover:text-foreground"
+                    <time
+                      dateTime={new Date(task.createdAt).toISOString()}
+                      className="shrink-0 text-[9px] tabular-nums text-muted-foreground/70"
                     >
-                      <HugeiconsIcon icon={Cancel01Icon} size={12} strokeWidth={2} />
-                    </button>
+                      {formatTaskAge(task.createdAt)}
+                    </time>
                   </div>
-                  {active && run?.step ? <p className="mt-2 flex items-center gap-1.5 truncate rounded-md bg-background/50 px-2 py-1.5 text-[10px] text-muted-foreground"><Spinner className="size-3 shrink-0" /> {run.step}</p> : null}
-                  {status === "done" && run?.lastResult ? <p className="mt-2 line-clamp-3 rounded-md bg-background/50 px-2 py-1.5 text-[10px] leading-relaxed text-muted-foreground">{run.lastResult}</p> : null}
+                  {active && run?.step ? <p className="mt-2 flex items-center gap-1.5 truncate rounded-md bg-muted/70 px-2 py-1.5 text-[10px] text-muted-foreground"><Spinner className="size-3 shrink-0" /> {run.step}</p> : null}
+                  {status === "done" && run?.lastResult ? <p className="mt-2 line-clamp-2 text-[10px] leading-relaxed text-muted-foreground">{run.lastResult}</p> : null}
                   {(status === "done" || status === "failed") && run ? <TaskOutcome run={run} /> : null}
                   <div className="mt-2 flex items-center gap-1">
                     <button type="button" onClick={() => { switchSession(task.sessionId); onClose(); }} className="rounded-md px-2 py-1 text-[10px] font-medium text-muted-foreground hover:bg-muted hover:text-foreground">
                       {activeSessionId === task.sessionId ? "Open now" : "Open transcript"}
                     </button>
-                    {active ? <button type="button" onClick={() => void cancel(task.id)} className="ml-auto rounded-md px-2 py-1 text-[10px] font-medium text-destructive hover:bg-destructive/10">Stop</button> : null}
+                    <button
+                      type="button"
+                      onClick={() => reuseTask(task)}
+                      className="rounded-md px-2 py-1 text-[10px] font-medium text-muted-foreground hover:bg-muted hover:text-foreground"
+                    >
+                      Reuse
+                    </button>
+                    {status === "failed" ? (
+                      <button
+                        type="button"
+                        disabled={dispatching}
+                        onClick={() => void retryTask(task)}
+                        className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-medium text-foreground hover:bg-muted disabled:opacity-45"
+                      >
+                        <HugeiconsIcon icon={ArrowReloadHorizontalIcon} size={10} strokeWidth={2} />
+                        Retry
+                      </button>
+                    ) : null}
+                    {active ? (
+                      <button type="button" onClick={() => void cancel(task.id)} className="ml-auto rounded-md px-2 py-1 text-[10px] font-medium text-destructive hover:bg-destructive/10">
+                        Stop
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => setRemoveTarget(task)}
+                        aria-label={`Remove ${task.title.replace(/^🤖\s*/, "")}`}
+                        className="ml-auto inline-flex size-6 items-center justify-center rounded-md text-muted-foreground/70 hover:bg-destructive/10 hover:text-destructive"
+                      >
+                        <HugeiconsIcon icon={Delete02Icon} size={11} strokeWidth={1.8} />
+                      </button>
+                    )}
                   </div>
                 </article>
               );
             })}
+                </div>
+              </section>
+            ))}
           </div>
         )}
       </div>
+      ) : null}
+      <AlertDialog
+        open={removeTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) setRemoveTarget(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remove background task?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This removes the task card, its run state, and the dedicated transcript.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="line-clamp-2 rounded-md bg-muted px-3 py-2 text-[11px] text-muted-foreground">
+            {removeTarget?.title.replace(/^🤖\s*/, "")}
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Keep task</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              onClick={() => {
+                if (removeTarget) void remove(removeTarget.id);
+                setRemoveTarget(null);
+              }}
+            >
+              Remove task
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </AuxiliarySurface>
   );
 }
 
-function ContextToggle({ checked, onChange, label }: { checked: boolean; onChange: (next: boolean) => void; label: string }) {
-  return <button type="button" aria-pressed={checked} onClick={() => onChange(!checked)} className={cn("rounded-full border px-2 py-1 text-[9.5px] font-medium transition-colors", checked ? "border-primary/45 bg-primary/12 text-primary dark:bg-primary/20" : "border-border bg-background/50 text-muted-foreground hover:text-foreground")}>{label}</button>;
+function formatTaskAge(timestamp: number): string {
+  const minutes = Math.max(0, Math.floor((Date.now() - timestamp) / 60_000));
+  if (minutes < 1) return "now";
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h`;
+  return `${Math.floor(hours / 24)}d`;
+}
+
+function contextFileName(path: string): string {
+  return path.split(/[\\/]/).filter(Boolean).pop() ?? path;
+}
+
+function ContextSourceToggle({
+  icon,
+  label,
+  detail,
+  checked,
+  disabled,
+  onChange,
+  className,
+}: {
+  icon: typeof File01Icon;
+  label: string;
+  detail: string;
+  checked: boolean;
+  disabled?: boolean;
+  onChange: (checked: boolean) => void;
+  className?: string;
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      disabled={disabled}
+      onClick={() => onChange(!checked)}
+      className={cn(
+        "flex w-full items-center gap-2 p-2.5 text-left transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:bg-transparent",
+        className,
+      )}
+    >
+      <span className="inline-flex size-7 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
+        <HugeiconsIcon icon={icon} size={13} strokeWidth={1.75} />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block text-[10.5px] font-medium text-foreground">
+          {label}
+        </span>
+        <span className="block truncate text-[9px] text-muted-foreground">
+          {detail}
+        </span>
+      </span>
+      <span
+        aria-hidden="true"
+        className={cn(
+          "relative h-4 w-7 shrink-0 rounded-full border transition-colors",
+          checked
+            ? "border-primary bg-primary"
+            : "border-border bg-muted",
+        )}
+      >
+        <span
+          className={cn(
+            "absolute top-0.5 size-2.5 rounded-full bg-background shadow-sm transition-transform",
+            checked ? "translate-x-3" : "translate-x-0.5",
+          )}
+        />
+      </span>
+    </button>
+  );
 }
 
 async function addSelectedContext(
   prompt: string,
-  selected: { file: boolean; terminal: boolean; diff: boolean },
+  selected: { files: string[]; terminal: boolean; diff: boolean },
 ): Promise<string> {
   const live = useChatStore.getState().live;
   const blocks: string[] = [];
-  if (selected.file) {
-    const path = live.getActiveFile();
-    if (path) {
-      try {
-        const result = await native.readFile(path, { enforceIsanagentignore: true });
-        if (result.kind === "text") blocks.push(`<active-file path="${path}">\n${result.content.slice(0, 60_000)}\n</active-file>`);
-      } catch { /* unavailable files simply stay out of the task */ }
+  for (const path of selected.files) {
+    try {
+      const result = await native.readFile(path, {
+        enforceIsanagentignore: true,
+      });
+      if (result.kind === "text") {
+        blocks.push(
+          `<context-file path="${path}">\n${result.content.slice(0, 60_000)}\n</context-file>`,
+        );
+      }
+    } catch {
+      /* unavailable files simply stay out of the task */
     }
   }
   if (selected.terminal && !live.isActiveTerminalPrivate()) {
@@ -332,23 +918,20 @@ function TaskOutcome({ run }: { run: NonNullable<ReturnType<typeof useAgentRunsS
   const passed = checks.filter((item) => item.status === "passed").length;
   const failed = checks.filter((item) => item.status === "failed").length;
   return (
-    <section className="mt-2 rounded-md border border-border/50 bg-background/35 p-2">
-      <div className="flex items-center gap-2 text-[9.5px] font-medium uppercase tracking-wide text-muted-foreground">
-        <span>Outcome</span>
-        {run.changes.length ? <span className="rounded bg-info/10 px-1.5 py-0.5 normal-case text-info">{run.changes.length} file{run.changes.length === 1 ? "" : "s"} changed</span> : null}
-        {failed ? <span className="rounded bg-destructive/10 px-1.5 py-0.5 normal-case text-destructive">{failed} check failed</span> : passed ? <span className="rounded bg-success/10 px-1.5 py-0.5 normal-case text-success">{passed} check passed</span> : <span className="rounded bg-muted px-1.5 py-0.5 normal-case">No checks reported</span>}
-      </div>
-      {checks.length ? (
-        <ul className="mt-1.5 space-y-1">
-          {checks.slice(-3).reverse().map((check) => (
-            <li key={check.id} className={cn("truncate text-[9.5px]", check.status === "failed" ? "text-destructive" : check.status === "passed" ? "text-success" : "text-muted-foreground")} title={check.command ?? check.label}>
-              {check.status === "failed" ? "✕" : check.status === "passed" ? "✓" : "•"} {check.label}{check.detail ? ` · ${check.detail}` : ""}
-            </li>
-          ))}
-        </ul>
-      ) : null}
-      {run.failures.length ? <p className="mt-1.5 line-clamp-2 text-[9.5px] leading-relaxed text-destructive">{run.failures[run.failures.length - 1]}</p> : null}
-      {run.changes.length ? <button type="button" onClick={() => window.dispatchEvent(new CustomEvent("altai:open-change-review"))} className="mt-1.5 text-[9.5px] font-medium text-info hover:underline">Review changes and restore points</button> : null}
-    </section>
+    <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-[9px] text-muted-foreground">
+      {run.changes.length ? (
+        <span>{run.changes.length} file{run.changes.length === 1 ? "" : "s"} changed</span>
+      ) : (
+        <span>No file changes</span>
+      )}
+      <span aria-hidden="true">·</span>
+      {failed ? (
+        <span className="font-medium text-destructive">{failed} check failed</span>
+      ) : passed ? (
+        <span className="font-medium text-success">{passed} check passed</span>
+      ) : (
+        <span>No checks reported</span>
+      )}
+    </div>
   );
 }

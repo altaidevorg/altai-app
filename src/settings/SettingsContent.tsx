@@ -7,7 +7,6 @@ import {
   GithubIcon,
   InformationCircleIcon,
   Layers02Icon,
-  Notebook01Icon,
   PuzzleIcon,
   PlugIcon,
   Settings01Icon,
@@ -27,7 +26,6 @@ import { HooksSection } from "./sections/HooksSection";
 import { LanguageServersSection } from "./sections/LanguageServersSection";
 import { McpSection } from "./sections/McpSection";
 import { ModelsSection } from "./sections/ModelsSection";
-import { ProjectIntelligenceSection } from "./sections/ProjectIntelligenceSection";
 import { ShortcutsSection } from "./sections/ShortcutsSection";
 import { SkillsSection } from "./sections/SkillsSection";
 
@@ -41,7 +39,6 @@ const TABS: {
   { id: "shortcuts", label: "Shortcuts", icon: KeyboardIcon, component: ShortcutsSection },
   { id: "models", label: "Models", icon: AiScanIcon, component: ModelsSection },
   { id: "context", label: "Context", icon: Layers02Icon, component: ContextSection },
-  { id: "project", label: "Project", icon: Notebook01Icon, component: ProjectIntelligenceSection },
   { id: "agents", label: "Agents", icon: UserMultiple02Icon, component: AgentsSection },
   { id: "skills", label: "Skills", icon: PuzzleIcon, component: SkillsSection },
   { id: "github", label: "GitHub", icon: GithubIcon, component: GitHubSection },
@@ -59,6 +56,9 @@ export function normalizeSettingsTab(input: string | undefined): SettingsTab {
   if (input === "ai" || input === "connections") return "models";
   if (input === "plugins" || input === "marketplace") return "general";
   if (input === "compaction" || input === "isanagentignore") return "context";
+  // "project" moved to the Project Management sidebar; redirect to context
+  // for any persisted/legacy references to the old settings tab.
+  if (input === "project") return "context";
   if (input && (VALID_SETTINGS_TABS as string[]).includes(input)) {
     return input as SettingsTab;
   }

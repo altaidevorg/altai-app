@@ -10,6 +10,7 @@ import {
   ACTIVE_ASSIGNMENT_STATES,
   useAssignmentsStore,
 } from "@/modules/github/store/assignmentsStore";
+import { ProjectIntelligencePanel } from "./ProjectIntelligencePanel";
 import {
   ArrowRight01Icon,
   Cancel01Icon,
@@ -184,7 +185,7 @@ export function ProjectManagementSidebar({
                 className={cn(
                   "flex h-8 items-center gap-2 rounded-lg px-2 text-[10.5px] font-medium transition-colors",
                   active
-                    ? "bg-primary/12 text-primary ring-1 ring-inset ring-primary/25"
+                    ? "bg-accent text-foreground"
                     : "bg-foreground/[0.035] text-muted-foreground hover:bg-muted/70 hover:text-foreground",
                 )}
               >
@@ -197,6 +198,8 @@ export function ProjectManagementSidebar({
           })}
         </div>
       </section>
+
+      <ProjectIntelligencePanel />
 
       <section
         aria-label="Agent assignments"

@@ -9,7 +9,6 @@ export type SettingsTab =
   | "mcp"
   | "hooks"
   | "context"
-  | "project"
   | "accessibility"
   | "about";
 

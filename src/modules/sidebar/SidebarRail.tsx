@@ -45,10 +45,10 @@ export function SidebarRail({
             aria-pressed={isActive}
             onClick={() => onSelectItem(item.id)}
             className={cn(
-              "group relative flex min-w-0 flex-1 cursor-pointer items-center justify-center gap-1 rounded-full px-2.5 text-[10.5px] font-medium outline-none transition-colors duration-150",
+              "group relative flex min-w-0 flex-1 cursor-pointer items-center justify-center gap-1 rounded-md px-2.5 text-[10.5px] font-medium outline-none transition-colors duration-150",
               "focus-visible:ring-2 focus-visible:ring-ring/40",
               isActive
-                ? "bg-primary/12 text-primary ring-1 ring-inset ring-primary/30 dark:bg-primary/20"
+                ? "bg-accent text-foreground"
                 : "text-muted-foreground hover:bg-accent hover:text-foreground",
             )}
           >

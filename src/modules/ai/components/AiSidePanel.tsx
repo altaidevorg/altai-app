@@ -3,8 +3,13 @@ import { MOD_KEY, fmtShortcut } from "@/lib/platform";
 import { Kbd } from "@/components/ui/kbd";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
+import {
   Add01Icon,
-  CalendarSyncIcon,
+  ArrowDown01Icon,
   Cancel01Icon,
   Clock01Icon,
   FileEditIcon,
@@ -15,7 +20,7 @@ import {
 import { HugeiconsIcon } from "@hugeicons/react";
 import { type ReactElement, useEffect, useState } from "react";
 import { EditApprovalCard } from "./EditApprovalCard";
-import { SurfaceHeader } from "./AuxiliarySurface";
+import { SurfaceHeader, SurfaceSearch } from "./AuxiliarySurface";
 import {
   retryFailedRun,
   sendMessage,
@@ -35,21 +40,25 @@ import { usePlanStore, type AppliedPlanEdit } from "../store/planStore";
 import { useTodosStore } from "../store/todoStore";
 import { native, type CheckpointInfo } from "../lib/native";
 import { openSettingsWindow } from "@/modules/settings/openSettingsWindow";
+import { useWorkspaceFolderStore } from "@/modules/workspace/folder";
 import { AiChatView } from "./AiChat";
 import { AiInputBar, AiInputBarConnect } from "./AiInputBar";
 import { AgentStatusPill } from "./AgentStatusPill";
 import { ChatHistoryPanel } from "./ChatHistoryPanel";
 import { PlanDiffReview } from "./PlanDiffReview";
 import { NotificationInboxPanel } from "./NotificationInboxPanel";
-import { AutomationsPanel } from "./AutomationsPanel";
-import { TaskRunsPanel } from "./TaskRunsPanel";
 import { TodoSummaryChip } from "./TodoStrip";
+import { WorkHubPanel, type WorkHubView } from "./WorkHubPanel";
+import {
+  selectNotificationAttentionCount,
+  useNotificationStore,
+} from "../store/notificationStore";
 
 // Zustand selectors must return a stable reference when a session has no
 // todos yet; allocating `[]` inside the selector triggers React's external
 // store loop detector and can blank the whole renderer.
 const EMPTY_TODOS: Array<{ id: string; title: string; status: string }> = [];
-type PanelSurface = "history" | "inspector" | "tasks" | "inbox" | "automations" | null;
+type PanelSurface = "history" | "inspector" | "work" | "inbox" | null;
 
 export function AiSidePanel({
   onClose,
@@ -88,13 +97,13 @@ export function AiSidePanel({
   }, [onClose]);
 
   const [activeSurface, setActiveSurface] = useState<PanelSurface>(null);
+  const [workView, setWorkView] = useState<WorkHubView>("runs");
   const [openChatIds, setOpenChatIds] = useState<string[]>([]);
   const [reviewOpen, setReviewOpen] = useState(false);
   const historyOpen = activeSurface === "history";
   const inspectorOpen = activeSurface === "inspector";
-  const tasksOpen = activeSurface === "tasks";
+  const workOpen = activeSurface === "work";
   const inboxOpen = activeSurface === "inbox";
-  const automationsOpen = activeSurface === "automations";
   const toggleSurface = (surface: Exclude<PanelSurface, null>) => {
     setReviewOpen(false);
     setActiveSurface((current) => (current === surface ? null : surface));
@@ -102,7 +111,11 @@ export function AiSidePanel({
 
   useEffect(() => {
     const openSurface = (event: Event) => {
-      const surface = (event as CustomEvent<{ surface?: string }>).detail?.surface;
+      const detail = (event as CustomEvent<{
+        surface?: string;
+        view?: WorkHubView;
+      }>).detail;
+      const surface = detail?.surface;
       if (surface === "review") {
         setActiveSurface(null);
         setReviewOpen(true);
@@ -111,12 +124,20 @@ export function AiSidePanel({
       if (
         surface === "history" ||
         surface === "inspector" ||
-        surface === "tasks" ||
         surface === "inbox" ||
-        surface === "automations"
+        surface === "work"
       ) {
         setReviewOpen(false);
         setActiveSurface(surface);
+        if (surface === "work") setWorkView(detail?.view ?? "runs");
+        return;
+      }
+      // Keep deep links from older slash-command and extension surfaces
+      // working while the public destination is consolidated under Work.
+      if (surface === "tasks" || surface === "automations") {
+        setReviewOpen(false);
+        setWorkView(surface === "automations" ? "scheduled" : "runs");
+        setActiveSurface("work");
       }
     };
     window.addEventListener("altai:open-ai-surface", openSurface);
@@ -172,61 +193,79 @@ export function AiSidePanel({
     >
       <WorkspaceTopbar
         onClose={onClose}
+        openChatIds={openChatIds}
+        onSelectChat={() => setActiveSurface(null)}
+        onCloseChat={closeChatTab}
+        onNewChat={createChatTab}
         historyOpen={historyOpen}
         onToggleHistory={() => toggleSurface("history")}
         inspectorOpen={inspectorOpen}
         onToggleInspector={() => toggleSurface("inspector")}
-        tasksOpen={tasksOpen}
-        onToggleTasks={() => toggleSurface("tasks")}
+        workOpen={workOpen}
+        onToggleWork={() => toggleSurface("work")}
         inboxOpen={inboxOpen}
         onToggleInbox={() => toggleSurface("inbox")}
-        automationsOpen={automationsOpen}
-        onToggleAutomations={() => toggleSurface("automations")}
       />
       <div className="relative isolate grid min-h-0 flex-1 grid-cols-1 overflow-hidden @[48rem]:grid-cols-[minmax(12rem,13.5rem)_minmax(0,1fr)] @[76rem]:grid-cols-[minmax(12rem,13.5rem)_minmax(0,1fr)_18rem]">
         <nav
           aria-label="Chat sessions"
-          className="altai-ai-history-rail z-10 hidden h-full min-h-0 min-w-0 self-stretch overflow-hidden border-r border-border/50 bg-muted/[0.16] @[48rem]:flex @[48rem]:flex-col"
+          className="altai-ai-history-rail z-10 hidden h-full min-h-0 min-w-0 self-stretch overflow-hidden border-r border-border-subtle @[48rem]:flex @[48rem]:flex-col"
         >
-          <ChatHistoryPanel onClose={() => undefined} />
+          <ChatHistoryPanel onClose={() => setActiveSurface(null)} />
         </nav>
 
-        <main className="altai-ai-main relative z-0 flex min-h-0 min-w-0 flex-col overflow-hidden bg-background/30">
+        <main className="altai-ai-main relative z-0 flex min-h-0 min-w-0 flex-col overflow-hidden bg-card">
           {historyOpen ? (
-            <ChatHistoryPanel onClose={() => setActiveSurface(null)} />
-          ) : sessionId ? (
-            <>
-              <ChatTabStrip
-                openChatIds={openChatIds}
-                onSelect={() => setActiveSurface(null)}
-                onCloseChat={closeChatTab}
-                onNewChat={createChatTab}
+            <div className="flex min-h-0 flex-1 @[48rem]:hidden">
+              <ChatHistoryPanel
+                autoFocusSearch
+                onClose={() => setActiveSurface(null)}
               />
-              <div className="relative flex min-h-0 flex-1">
-                <Body />
-                {automationsOpen ? (
-                  <AutomationsPanel onClose={() => setActiveSurface(null)} />
-                ) : null}
-                {tasksOpen ? <TaskRunsPanel onClose={() => setActiveSurface(null)} /> : null}
-                {inboxOpen ? (
-                  <NotificationInboxPanel onClose={() => setActiveSurface(null)} />
-                ) : null}
-                {inspectorOpen ? (
-                  <div className="absolute inset-0 z-20 flex bg-background @[76rem]:hidden">
-                    <RunInspector className="flex w-full" onClose={() => setActiveSurface(null)} />
-                  </div>
-                ) : null}
-                {reviewOpen ? (
-                  <PlanDiffReview
-                    open
-                    autoOpen={false}
-                    onClose={() => setReviewOpen(false)}
-                  />
-                ) : null}
-              </div>
-            </>
+            </div>
+          ) : null}
+          {sessionId ? (
+            <div
+              className={cn(
+                "relative min-h-0 flex-1",
+                historyOpen ? "hidden @[48rem]:flex" : "flex",
+              )}
+            >
+              <Body
+                hasComposer={hasComposer}
+                onOpenReview={() => {
+                  setActiveSurface(null);
+                  setReviewOpen(true);
+                }}
+              />
+              {workOpen ? (
+                <WorkHubPanel
+                  initialView={workView}
+                  onClose={() => setActiveSurface(null)}
+                />
+              ) : null}
+              {inboxOpen ? (
+                <NotificationInboxPanel onClose={() => setActiveSurface(null)} />
+              ) : null}
+              {inspectorOpen ? (
+                <div className="absolute inset-0 z-20 flex bg-card @[76rem]:hidden">
+                  <RunInspector className="flex w-full" onClose={() => setActiveSurface(null)} />
+                </div>
+              ) : null}
+              {reviewOpen ? (
+                <PlanDiffReview
+                  open
+                  autoOpen={false}
+                  onClose={() => setReviewOpen(false)}
+                />
+              ) : null}
+            </div>
           ) : (
-            <div className="flex flex-1 items-center justify-center text-[11px] text-muted-foreground">
+            <div
+              className={cn(
+                "flex flex-1 items-center justify-center text-[11px] text-muted-foreground",
+                historyOpen && "hidden @[48rem]:flex",
+              )}
+            >
               Loading sessions…
             </div>
           )}
@@ -235,20 +274,6 @@ export function AiSidePanel({
         <RunInspector className="hidden w-full min-w-0 overflow-hidden @[76rem]:flex" />
 
       </div>
-      {!historyOpen && !inspectorOpen && !tasksOpen && !inboxOpen && !automationsOpen && !reviewOpen && (
-        <ChangeReviewBanner
-          onOpen={() => {
-            setActiveSurface(null);
-            setReviewOpen(true);
-          }}
-        />
-      )}
-      {!historyOpen && !inspectorOpen && !tasksOpen && !inboxOpen && !automationsOpen && !reviewOpen &&
-        (hasComposer ? (
-          <AiInputBar />
-        ) : (
-          <AiInputBarConnect onAdd={() => void openSettingsWindow("models")} />
-        ))}
     </aside>
   );
 }
@@ -280,11 +305,13 @@ function ChatTabStrip({
   onSelect,
   onCloseChat,
   onNewChat,
+  embedded = false,
 }: {
   openChatIds: string[];
   onSelect: () => void;
   onCloseChat: (id: string) => void;
   onNewChat: () => void;
+  embedded?: boolean;
 }) {
   const activeId = useChatStore((s) => s.activeSessionId);
   const sessions = useChatStore((s) => s.sessions);
@@ -299,7 +326,14 @@ function ChatTabStrip({
   };
 
   return (
-    <div className="flex h-9 shrink-0 items-center gap-1 border-b border-border/50 bg-card/75 px-2">
+    <div
+      className={cn(
+        "altai-ai-chat-tabs flex h-10 min-w-0 items-center gap-1.5",
+        embedded
+          ? "flex-1 bg-transparent"
+          : "shrink-0 border-b border-border-subtle bg-card px-2.5",
+      )}
+    >
       <div
         role="tablist"
         aria-label="Open chats"
@@ -309,10 +343,10 @@ function ChatTabStrip({
           <div
             key={session.id}
             className={cn(
-              "group flex max-w-40 shrink-0 items-center rounded-md text-[10.5px] transition-colors",
+              "group flex max-w-44 shrink-0 items-center rounded-lg border text-[10.5px] transition-colors",
               session.id === activeId
-                ? "bg-foreground/[0.1] font-medium text-foreground"
-                : "text-muted-foreground hover:bg-foreground/[0.06] hover:text-foreground",
+                ? "border-border bg-muted/70 font-medium text-foreground"
+                : "border-transparent text-muted-foreground hover:border-border/60 hover:bg-accent hover:text-foreground",
             )}
           >
             <button
@@ -323,7 +357,7 @@ function ChatTabStrip({
               aria-selected={session.id === activeId}
               onClick={() => select(session.id)}
               title={session.title || "New chat"}
-              className="min-w-0 truncate px-2 py-1 text-left outline-none"
+              className="min-w-0 truncate px-2.5 py-1.5 text-left outline-none"
             >
               {session.title || "New chat"}
             </button>
@@ -332,7 +366,7 @@ function ChatTabStrip({
                 type="button"
                 onClick={() => onCloseChat(session.id)}
                 aria-label={`Close ${session.title || "new chat"}`}
-                className="mr-1 inline-flex size-4 shrink-0 items-center justify-center rounded text-muted-foreground/70 hover:bg-foreground/[0.1] hover:text-foreground"
+                className="mr-1 inline-flex size-4 shrink-0 items-center justify-center rounded-md text-muted-foreground/70 hover:bg-foreground/[0.1] hover:text-foreground"
               >
                 <HugeiconsIcon icon={Cancel01Icon} size={10} strokeWidth={2} />
               </button>
@@ -356,47 +390,49 @@ function ChatTabStrip({
 
 /**
  * The workspace topbar keeps the task context visible instead of treating the
- * chat as an isolated message list. Auxiliary surfaces (inspector, inbox,
- * tasks, automations) open as overlays; change review opens from chat when
- * pending edits appear.
+ * chat as an isolated message list. Work and Inbox are durable destinations;
+ * Run details is contextual to the current run.
  */
 function WorkspaceTopbar({
   onClose,
+  openChatIds,
+  onSelectChat,
+  onCloseChat,
+  onNewChat,
   historyOpen,
   onToggleHistory,
   inspectorOpen,
   onToggleInspector,
-  tasksOpen,
-  onToggleTasks,
+  workOpen,
+  onToggleWork,
   inboxOpen,
   onToggleInbox,
-  automationsOpen,
-  onToggleAutomations,
 }: {
   onClose: () => void;
+  openChatIds: string[];
+  onSelectChat: () => void;
+  onCloseChat: (id: string) => void;
+  onNewChat: () => void;
   historyOpen: boolean;
   onToggleHistory: () => void;
   inspectorOpen: boolean;
   onToggleInspector: () => void;
-  tasksOpen: boolean;
-  onToggleTasks: () => void;
+  workOpen: boolean;
+  onToggleWork: () => void;
   inboxOpen: boolean;
   onToggleInbox: () => void;
-  automationsOpen: boolean;
-  onToggleAutomations: () => void;
 }) {
   const activeId = useChatStore((s) => s.activeSessionId);
-  const sessions = useChatStore((s) => s.sessions);
-  const active = sessions.find((s) => s.id === activeId);
-  const agentMeta = useChatStore((s) => s.agentMeta);
-  const activeAgentId = useAgentsStore((s) => s.activeId);
-  const agents = useAgentsStore.getState().all();
-  const activeAgent = agents.find((agent) => agent.id === activeAgentId);
-  const planActive = usePlanStore((s) => s.active);
-  const title = active?.title || "New chat";
+  const workspacePath = useWorkspaceFolderStore((s) => s.folder);
+  const inboxAttentionCount = useNotificationStore(selectNotificationAttentionCount);
+  const refreshInbox = useNotificationStore((s) => s.refresh);
+
+  useEffect(() => {
+    void refreshInbox(workspacePath);
+  }, [refreshInbox, workspacePath]);
 
   return (
-    <div className="altai-ai-topbar flex h-11 shrink-0 items-center gap-1.5 border-b border-border/50 bg-card/90 px-2.5 backdrop-blur">
+    <div className="altai-ai-topbar flex h-12 shrink-0 items-center gap-1.5 border-b border-border-subtle bg-card px-2.5">
       <IconTooltip label={historyOpen ? "Back to task" : "Chat sessions"}>
         <button
           type="button"
@@ -411,83 +447,77 @@ function WorkspaceTopbar({
           <HugeiconsIcon icon={Clock01Icon} size={14} strokeWidth={1.75} />
         </button>
       </IconTooltip>
-      <div className="min-w-0 flex-1">
-        <div className="truncate text-[12px] font-medium text-foreground/90">
-          {historyOpen ? "Chat sessions" : title}
-        </div>
-        {!historyOpen ? (
-          <div className="mt-0.5 flex items-center gap-1.5 truncate text-[10px] text-muted-foreground">
-            <span className="truncate">{activeAgent?.name ?? "Agent"}</span>
-            <span aria-hidden="true">·</span>
-            <span>{planActive ? "Plan" : "Build"}</span>
-            {agentMeta.status !== "idle" ? (
-              <>
-                <span aria-hidden="true">·</span>
-                <span className="truncate">{agentMeta.step ?? "Working"}</span>
-              </>
+      <ChatTabStrip
+        embedded
+        openChatIds={openChatIds}
+        onSelect={onSelectChat}
+        onCloseChat={onCloseChat}
+        onNewChat={onNewChat}
+      />
+      {!historyOpen && activeId ? <TodoSummaryChip sessionId={activeId} /> : null}
+      <div className="altai-ai-topbar-actions flex shrink-0 items-center gap-0.5 rounded-lg border border-border/60 bg-muted/35 p-0.5">
+        <IconTooltip label={inspectorOpen ? "Close run details" : "Open run details"}>
+          <button
+            type="button"
+            onClick={onToggleInspector}
+            aria-label={inspectorOpen ? "Close run details" : "Open run details"}
+            aria-pressed={inspectorOpen}
+            className={cn(
+              "inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground @[76rem]:hidden",
+              inspectorOpen ? "bg-foreground/[0.09] text-foreground" : "",
+            )}
+          >
+            <HugeiconsIcon icon={SparklesIcon} size={14} strokeWidth={1.75} />
+          </button>
+        </IconTooltip>
+        <IconTooltip label={workOpen ? "Close work" : "Open work"}>
+          <button
+            type="button"
+            onClick={onToggleWork}
+            aria-label={workOpen ? "Close work" : "Open work"}
+            aria-pressed={workOpen}
+            className={cn(
+              "inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground",
+              workOpen && "bg-foreground/[0.09] text-foreground",
+            )}
+          >
+            <HugeiconsIcon icon={Notebook01Icon} size={14} strokeWidth={1.75} />
+          </button>
+        </IconTooltip>
+        <IconTooltip
+          label={
+            inboxOpen
+              ? "Close inbox"
+              : inboxAttentionCount
+                ? `Open inbox, ${inboxAttentionCount} need attention`
+                : "Open inbox"
+          }
+        >
+          <button
+            type="button"
+            onClick={onToggleInbox}
+            aria-label={
+              inboxOpen
+                ? "Close inbox"
+                : inboxAttentionCount
+                  ? `Open inbox, ${inboxAttentionCount} need attention`
+                  : "Open inbox"
+            }
+            aria-pressed={inboxOpen}
+            className={cn(
+              "relative inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground",
+              inboxOpen && "bg-foreground/[0.09] text-foreground",
+            )}
+          >
+            <HugeiconsIcon icon={Notification01Icon} size={14} strokeWidth={1.75} />
+            {inboxAttentionCount ? (
+              <span className="absolute -right-1 -top-1 flex min-w-3.5 items-center justify-center rounded-full bg-warning px-1 text-[8px] font-semibold leading-3 text-warning-foreground">
+                {inboxAttentionCount > 99 ? "99+" : inboxAttentionCount}
+              </span>
             ) : null}
-          </div>
-        ) : null}
+          </button>
+        </IconTooltip>
       </div>
-      {!historyOpen && activeId ? (
-        <TodoSummaryChip sessionId={activeId} />
-      ) : null}
-      <IconTooltip label={inspectorOpen ? "Close run inspector" : "Open run inspector"}>
-        <button
-          type="button"
-          onClick={onToggleInspector}
-          aria-label={inspectorOpen ? "Close run inspector" : "Open run inspector"}
-          aria-pressed={inspectorOpen}
-          className={cn(
-            "inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground @[76rem]:hidden",
-            inspectorOpen ? "bg-foreground/[0.09] text-foreground" : "",
-          )}
-        >
-          <HugeiconsIcon icon={SparklesIcon} size={14} strokeWidth={1.75} />
-        </button>
-      </IconTooltip>
-      <IconTooltip label={tasksOpen ? "Close background tasks" : "Background tasks"}>
-        <button
-          type="button"
-          onClick={onToggleTasks}
-          aria-label={tasksOpen ? "Close background tasks" : "Background tasks"}
-          aria-pressed={tasksOpen}
-          className={cn(
-            "inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground",
-            tasksOpen && "bg-foreground/[0.09] text-foreground",
-          )}
-        >
-          <HugeiconsIcon icon={Notebook01Icon} size={14} strokeWidth={1.75} />
-        </button>
-      </IconTooltip>
-      <IconTooltip label={inboxOpen ? "Close inbox" : "Open inbox"}>
-        <button
-          type="button"
-          onClick={onToggleInbox}
-          aria-label={inboxOpen ? "Close inbox" : "Open inbox"}
-          aria-pressed={inboxOpen}
-          className={cn(
-            "inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground",
-            inboxOpen && "bg-foreground/[0.09] text-foreground",
-          )}
-        >
-          <HugeiconsIcon icon={Notification01Icon} size={14} strokeWidth={1.75} />
-        </button>
-      </IconTooltip>
-      <IconTooltip label={automationsOpen ? "Close automations" : "Open automations"}>
-        <button
-          type="button"
-          onClick={onToggleAutomations}
-          aria-label={automationsOpen ? "Close automations" : "Open automations"}
-          aria-pressed={automationsOpen}
-          className={cn(
-            "inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground",
-            automationsOpen && "bg-foreground/[0.09] text-foreground",
-          )}
-        >
-          <HugeiconsIcon icon={CalendarSyncIcon} size={14} strokeWidth={1.75} />
-        </button>
-      </IconTooltip>
       <IconTooltip label="Close panel">
         <button
           type="button"
@@ -502,19 +532,8 @@ function WorkspaceTopbar({
   );
 }
 
-type InspectorTab =
-  | "activity"
-  | "research"
-  | "mcp"
-  | "artifacts"
-  | "changes"
-  | "todos"
-  | "approvals"
-  | "agents"
-  | "snapshots";
-
 function RunInspector({ className, onClose }: { className?: string; onClose?: () => void }) {
-  const [tab, setTab] = useState<InspectorTab>("activity");
+  const [activityQuery, setActivityQuery] = useState("");
   const meta = useChatStore((s) => s.agentMeta);
   const sessionId = useChatStore((s) => s.activeSessionId);
   const planQueue = usePlanStore((s) => s.queue);
@@ -540,69 +559,250 @@ function RunInspector({ className, onClose }: { className?: string; onClose?: ()
   }, [sessionId, planQueue.length]);
 
   const completedTodos = todos.filter((todo) => todo.status === "completed").length;
-  const tabs: Array<{ id: InspectorTab; label: string; count?: number }> = [
-    { id: "activity", label: "Activity" },
-    { id: "research", label: "Research", count: meta.activity.filter((item) => item.kind === "research").length || undefined },
-    { id: "mcp", label: "MCP", count: meta.activity.filter((item) => item.kind === "mcp").length || undefined },
-    { id: "artifacts", label: "Files", count: meta.artifacts.length || undefined },
-    { id: "changes", label: "Changes", count: planQueue.length || undefined },
-    { id: "todos", label: "Todos", count: todos.length || undefined },
-    { id: "approvals", label: "Approvals", count: meta.pendingApprovals.length || undefined },
-    { id: "agents", label: "Agents", count: meta.activeSubagents.length || undefined },
-    { id: "snapshots", label: "Undo", count: checkpoints.length + appliedPlanEdits.length || undefined },
-  ];
+  const normalizedActivityQuery = activityQuery.trim().toLowerCase();
+  const filteredActivity = meta.activity.filter((item) =>
+    [item.label, item.detail, item.kind, item.tone]
+      .filter(Boolean)
+      .join("\n")
+      .toLowerCase()
+      .includes(normalizedActivityQuery),
+  );
+  const researchEvents = meta.activity.filter((item) => item.kind === "research");
+  const mcpEvents = meta.activity.filter((item) => item.kind === "mcp");
+  const tokenTotal = meta.tokens.inputTokens + meta.tokens.outputTokens;
+  const running = meta.status === "thinking" || meta.status === "streaming";
 
   return (
     <aside
-      aria-label="Task inspector"
+      aria-label="Run details"
       className={cn(
-        "flex min-h-0 min-w-0 flex-col border-l border-border/50 bg-background",
+        "flex min-h-0 min-w-0 flex-col border-l border-border-subtle bg-card",
         className,
       )}
     >
       <SurfaceHeader
-        title="Task inspector"
+        title="Run details"
+        eyebrow="Current run"
+        icon={SparklesIcon}
         subtitle={
           meta.status === "idle" ? "Ready for the next task" : meta.step ?? "Agent is working"
         }
-        onClose={onClose}
-      />
-
-      <div className="flex shrink-0 overflow-x-auto border-b border-border/50 px-1.5 py-1">
-        {tabs.map((item) => (
-          <button
-            key={item.id}
-            type="button"
-            onClick={() => setTab(item.id)}
+        status={
+          <span
             className={cn(
-              "flex h-7 items-center gap-1 rounded-md px-2 text-[10.5px] font-medium transition-colors",
-              tab === item.id
-                ? "bg-background text-foreground shadow-sm"
-                : "text-muted-foreground hover:bg-foreground/[0.05] hover:text-foreground",
+              "rounded px-1.5 py-0.5 text-[8.5px] font-semibold",
+              running
+                ? "bg-primary/10 text-primary"
+                : meta.error
+                  ? "bg-destructive/10 text-destructive"
+                  : "bg-muted text-muted-foreground",
             )}
           >
-            {item.label}
-            {item.count ? (
-              <span className="rounded bg-foreground/[0.07] px-1 text-[9px] tabular-nums text-foreground/80">
-                {item.count}
-              </span>
-            ) : null}
-          </button>
-        ))}
-      </div>
+            {meta.error ? "Blocked" : running ? "Running" : "Idle"}
+          </span>
+        }
+        onClose={onClose}
+        actions={
+          running ? (
+            <button
+              type="button"
+              onClick={stopAgent}
+              className="rounded-md border border-destructive/25 bg-destructive/[0.06] px-2 py-1 text-[9.5px] font-medium text-destructive hover:bg-destructive/10"
+            >
+              Stop run
+            </button>
+          ) : null
+        }
+      />
 
-      <div className="min-h-0 flex-1 overflow-y-auto p-2.5">
-        {tab === "activity" ? <ActivityInspector meta={meta} /> : null}
-        {tab === "research" ? <ResearchInspector events={meta.activity.filter((item) => item.kind === "research")} /> : null}
-        {tab === "mcp" ? <McpInspector events={meta.activity.filter((item) => item.kind === "mcp")} /> : null}
-        {tab === "artifacts" ? <ArtifactsInspector items={meta.artifacts} /> : null}
-        {tab === "changes" ? <ChangesInspector queue={planQueue} /> : null}
-        {tab === "todos" ? <TodosInspector done={completedTodos} total={todos.length} todos={todos} /> : null}
-        {tab === "approvals" ? <ApprovalsInspector approvals={meta.pendingApprovals} /> : null}
-        {tab === "agents" ? <AgentsInspector tasks={meta.activeSubagents} /> : null}
-        {tab === "snapshots" ? <SnapshotsInspector items={checkpoints} applied={appliedPlanEdits} setItems={setCheckpoints} /> : null}
+      <div className="min-h-0 flex-1 space-y-2.5 overflow-y-auto p-2.5">
+        <section className="rounded-lg border border-border bg-muted/30 p-3">
+          <div className="flex items-center gap-2">
+            <AgentStatusPill announce={false} />
+            <span className="ml-auto text-[9.5px] tabular-nums text-muted-foreground">
+              {tokenTotal ? `${tokenTotal.toLocaleString()} tokens` : "No usage yet"}
+            </span>
+          </div>
+          {meta.step ? (
+            <p className="mt-2 line-clamp-2 text-[10.5px] leading-relaxed text-foreground">
+              {meta.step}
+            </p>
+          ) : null}
+          <div className="mt-3 grid grid-cols-2 gap-px overflow-hidden rounded-md border border-border bg-border">
+            <InspectorMetric label="Plan" value={todos.length ? `${completedTodos}/${todos.length}` : "—"} />
+            <InspectorMetric label="Changes" value={String(planQueue.length)} />
+            <InspectorMetric label="Approvals" value={String(meta.pendingApprovals.length)} />
+            <InspectorMetric label="Subagents" value={String(meta.activeSubagents.length)} />
+          </div>
+        </section>
+
+        {meta.error ? (
+          <section className="rounded-lg border border-destructive/30 bg-destructive/[0.06] p-3 text-[10.5px] leading-relaxed text-destructive">
+            <div className="mb-1 text-[9px] font-semibold uppercase tracking-wide">Run blocked</div>
+            {meta.error}
+          </section>
+        ) : null}
+
+        {meta.pendingApprovals.length ? (
+          <section>
+            <div className="mb-1.5 px-1 text-[9px] font-semibold uppercase tracking-[0.12em] text-warning">
+              Action required
+            </div>
+            <ApprovalsInspector approvals={meta.pendingApprovals} />
+          </section>
+        ) : null}
+
+        <InspectorSection
+          title="Plan"
+          summary={
+            todos.length
+              ? `${completedTodos} of ${todos.length} steps complete`
+              : "No checklist for this run"
+          }
+          count={todos.length}
+          defaultOpen={todos.length > 0 && running}
+        >
+          <TodosInspector done={completedTodos} total={todos.length} todos={todos} />
+        </InspectorSection>
+
+        <InspectorSection
+          title="Activity"
+          summary="Chronological agent steps and tool results"
+          count={meta.activity.length}
+          defaultOpen
+        >
+          <SurfaceSearch
+            value={activityQuery}
+            onChange={setActivityQuery}
+            placeholder="Filter activity"
+            className="mb-2"
+          />
+          <ActivityInspector
+            meta={meta}
+            events={filteredActivity}
+            hasQuery={Boolean(activityQuery.trim())}
+            compact
+          />
+        </InspectorSection>
+
+        <InspectorSection
+          title="Changes & files"
+          summary="Proposed edits and generated artifacts"
+          count={planQueue.length + meta.artifacts.length}
+          defaultOpen={planQueue.length > 0}
+        >
+          {planQueue.length ? (
+            <ChangesInspector queue={planQueue} />
+          ) : null}
+          {planQueue.length && meta.artifacts.length ? (
+            <div className="my-2 border-t border-border-subtle" />
+          ) : null}
+          {meta.artifacts.length ? (
+            <ArtifactsInspector items={meta.artifacts} />
+          ) : null}
+          {!planQueue.length && !meta.artifacts.length ? (
+            <InspectorEmpty>No changes or generated files yet.</InspectorEmpty>
+          ) : null}
+        </InspectorSection>
+
+        <InspectorSection
+          title="Research & tools"
+          summary="External lookups and connected MCP calls"
+          count={researchEvents.length + mcpEvents.length}
+        >
+          {researchEvents.length ? <ResearchInspector events={researchEvents} /> : null}
+          {researchEvents.length && mcpEvents.length ? (
+            <div className="my-2 border-t border-border-subtle" />
+          ) : null}
+          {mcpEvents.length ? <McpInspector events={mcpEvents} /> : null}
+          {!researchEvents.length && !mcpEvents.length ? (
+            <InspectorEmpty>No research or connected tool activity yet.</InspectorEmpty>
+          ) : null}
+        </InspectorSection>
+
+        <InspectorSection
+          title="Delegated work"
+          summary="Subagents working on parts of this run"
+          count={meta.activeSubagents.length}
+        >
+          <AgentsInspector tasks={meta.activeSubagents} />
+        </InspectorSection>
+
+        <InspectorSection
+          title="Recovery"
+          summary="Restore points created before agent edits"
+          count={checkpoints.length + appliedPlanEdits.length}
+        >
+          <SnapshotsInspector
+            items={checkpoints}
+            applied={appliedPlanEdits}
+            setItems={setCheckpoints}
+          />
+        </InspectorSection>
       </div>
     </aside>
+  );
+}
+
+function InspectorMetric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="bg-card px-2.5 py-2">
+      <div className="text-[8.5px] font-medium uppercase tracking-wide text-muted-foreground/65">
+        {label}
+      </div>
+      <div className="mt-0.5 text-[11px] font-semibold tabular-nums text-foreground">
+        {value}
+      </div>
+    </div>
+  );
+}
+
+function InspectorSection({
+  title,
+  summary,
+  count,
+  defaultOpen = false,
+  children,
+}: {
+  title: string;
+  summary: string;
+  count: number;
+  defaultOpen?: boolean;
+  children: React.ReactNode;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <Collapsible
+      open={open}
+      onOpenChange={setOpen}
+      className="overflow-hidden rounded-lg border border-border bg-card"
+    >
+      <CollapsibleTrigger className="group flex w-full items-center gap-2 px-3 py-2.5 text-left hover:bg-accent/60">
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-1.5">
+            <span className="text-[10.5px] font-semibold text-foreground">{title}</span>
+            {count ? (
+              <span className="rounded bg-foreground/[0.06] px-1.5 text-[8.5px] tabular-nums text-muted-foreground">
+                {count}
+              </span>
+            ) : null}
+          </div>
+          <div className="mt-0.5 truncate text-[9px] text-muted-foreground">{summary}</div>
+        </div>
+        <HugeiconsIcon
+          icon={ArrowDown01Icon}
+          size={11}
+          strokeWidth={2}
+          className={cn(
+            "shrink-0 text-muted-foreground transition-transform",
+            open && "rotate-180",
+          )}
+        />
+      </CollapsibleTrigger>
+      <CollapsibleContent className="border-t border-border-subtle bg-muted/10 p-2.5">
+        {children}
+      </CollapsibleContent>
+    </Collapsible>
   );
 }
 
@@ -610,11 +810,23 @@ function InspectorEmpty({ children }: { children: React.ReactNode }) {
   return <div className="px-2 py-8 text-center text-[11px] leading-relaxed text-muted-foreground">{children}</div>;
 }
 
-function ActivityInspector({ meta }: { meta: ReturnType<typeof useChatStore.getState>["agentMeta"] }) {
+function ActivityInspector({
+  meta,
+  events,
+  hasQuery,
+  compact = false,
+}: {
+  meta: ReturnType<typeof useChatStore.getState>["agentMeta"];
+  events: ReturnType<typeof useChatStore.getState>["agentMeta"]["activity"];
+  hasQuery: boolean;
+  compact?: boolean;
+}) {
   const tokenTotal = meta.tokens.inputTokens + meta.tokens.outputTokens;
   return (
     <div className="space-y-2">
-      <section className="rounded-lg border border-border/50 bg-background/60 p-2.5">
+      {!compact ? (
+        <>
+      <section className="rounded-md border border-border bg-muted/40 p-2.5">
         <div className="flex items-center gap-2">
           <AgentStatusPill announce={false} />
           <span className="ml-auto text-[10px] tabular-nums text-muted-foreground">
@@ -623,7 +835,7 @@ function ActivityInspector({ meta }: { meta: ReturnType<typeof useChatStore.getS
         </div>
         {meta.step ? <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">{meta.step}</p> : null}
       </section>
-      <section className="rounded-lg border border-border/50 bg-background/40 p-2.5">
+      <section className="rounded-md border border-border bg-muted/30 p-2.5">
         <div className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Run state</div>
         <div className="mt-2 grid grid-cols-2 gap-2 text-[11px]">
           <Metric label="Approvals" value={String(meta.approvalsPending)} />
@@ -633,15 +845,22 @@ function ActivityInspector({ meta }: { meta: ReturnType<typeof useChatStore.getS
         </div>
       </section>
       {meta.error ? (
-        <section className="rounded-lg border border-destructive/30 bg-destructive/[0.06] p-2.5 text-[11px] text-destructive">
+        <section className="border border-destructive/30 bg-destructive/[0.06] p-2.5 text-[11px] text-destructive">
           {meta.error}
         </section>
       ) : null}
-      <section className="rounded-lg border border-border/50 bg-background/40 p-2.5">
+        </>
+      ) : null}
+      <section
+        className={cn(
+          "rounded-md border border-border bg-muted/30 p-2.5",
+          compact && "border-0 bg-transparent p-0",
+        )}
+      >
         <div className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Timeline</div>
-        {meta.activity.length ? (
+        {events.length ? (
           <div className="mt-2 space-y-2">
-            {[...meta.activity].reverse().map((item) => (
+            {[...events].reverse().map((item) => (
               <div key={item.id} className="flex gap-2">
                 <span
                   className={cn(
@@ -668,7 +887,11 @@ function ActivityInspector({ meta }: { meta: ReturnType<typeof useChatStore.getS
             ))}
           </div>
         ) : (
-          <p className="mt-2 text-[10.5px] leading-relaxed text-muted-foreground">Run events will appear here as the agent works.</p>
+          <p className="mt-2 text-[10.5px] leading-relaxed text-muted-foreground">
+            {hasQuery
+              ? "No timeline events match this search."
+              : "Run events will appear here as the agent works."}
+          </p>
         )}
       </section>
     </div>
@@ -694,11 +917,8 @@ function ResearchInspector({
   }
   return (
     <div className="space-y-2">
-      <div className="rounded-lg border border-info/20 bg-info/[0.05] p-2.5 text-[11px] leading-relaxed text-foreground">
-        Research activity stays separate from implementation work so sources and retrieval steps are easy to audit.
-      </div>
       {[...events].reverse().map((item) => (
-        <div key={item.id} className="rounded-lg border border-border/50 bg-background/55 px-2.5 py-2">
+        <div key={item.id} className="rounded-md border border-border bg-muted/30 px-2.5 py-2">
           <div className="flex items-center gap-2">
             <span className="size-1.5 shrink-0 rounded-full bg-info" />
             <span className="min-w-0 flex-1 truncate text-[11px] font-medium">{item.label}</span>
@@ -723,11 +943,8 @@ function McpInspector({
   }
   return (
     <div className="space-y-2">
-      <div className="rounded-lg border border-border bg-muted/40 p-2.5 text-[11px] leading-relaxed text-foreground">
-        Connected MCP activity is tracked separately so external tool calls are easy to audit.
-      </div>
       {[...events].reverse().map((item) => (
-        <div key={item.id} className="rounded-lg border border-border/50 bg-background/55 px-2.5 py-2">
+        <div key={item.id} className="rounded-md border border-border bg-muted/30 px-2.5 py-2">
           <div className="flex items-center gap-2">
             <span className={cn("size-1.5 shrink-0 rounded-full", item.tone === "error" ? "bg-destructive" : item.tone === "success" ? "bg-success" : "bg-muted-foreground")} />
             <span className="min-w-0 flex-1 truncate text-[11px] font-medium">{item.label}</span>
@@ -753,7 +970,7 @@ function ArtifactsInspector({
   return (
     <div className="space-y-2">
       {[...items].reverse().map((item) => (
-        <div key={item.id} className="flex items-center gap-2 rounded-lg border border-border/50 bg-background/55 px-2.5 py-2">
+        <div key={item.id} className="flex items-center gap-2 rounded-md border border-border bg-muted/30 px-2.5 py-2">
           <HugeiconsIcon icon={FileEditIcon} size={12} strokeWidth={1.75} className="shrink-0 text-muted-foreground" />
           <div className="min-w-0 flex-1">
             <div className="truncate text-[11px] font-medium" title={item.path}>{item.path.split(/[\\/]/).pop() || item.path}</div>
@@ -782,7 +999,7 @@ function ChangesInspector({
   }
   return (
     <div className="space-y-2">
-      <div className="rounded-none border border-border/50 bg-muted/20 p-2.5 text-[11px] leading-relaxed text-foreground">
+      <div className="rounded-md border border-border/50 bg-muted/20 p-2.5 text-[11px] leading-relaxed text-foreground">
         <div>
           {queue.length} proposed change{queue.length === 1 ? " is" : "s are"} waiting for review.
         </div>
@@ -802,7 +1019,7 @@ function ChangesInspector({
         const delta = afterLines - beforeLines;
         const name = change.path.split(/[/\\]/).pop() || change.path;
         return (
-          <div key={change.id} className="rounded-none border border-border/50 bg-background/55 px-2.5 py-2">
+          <div key={change.id} className="rounded-md border border-border bg-muted/30 px-2.5 py-2">
             <div className="flex items-center gap-2">
               <HugeiconsIcon icon={FileEditIcon} size={12} strokeWidth={1.75} className="shrink-0 text-muted-foreground" />
               <span className="min-w-0 flex-1 truncate font-mono text-[10.5px] font-medium">{name}</span>
@@ -832,7 +1049,7 @@ function TodosInspector({ done, total, todos }: { done: number; total: number; t
         <span className="tabular-nums">{done}/{total}</span>
       </div>
       {todos.map((todo) => (
-        <div key={todo.id} className="flex items-start gap-2 rounded-lg border border-border/45 bg-background/50 px-2.5 py-2">
+        <div key={todo.id} className="flex items-start gap-2 rounded-md border border-border bg-muted/30 px-2.5 py-2">
           <span className={cn("mt-1 size-1.5 shrink-0 rounded-full", todo.status === "completed" ? "bg-success" : todo.status === "in_progress" ? "bg-info" : "bg-muted-foreground/50")} />
           <span className={cn("text-[11px] leading-relaxed", todo.status === "completed" && "text-muted-foreground line-through")}>{todo.title}</span>
         </div>
@@ -853,16 +1070,16 @@ function ApprovalsInspector({
   return (
     <div className="space-y-2">
       {approvals.map((approval) => (
-        <div key={approval.id} className="rounded-lg border border-warning/30 bg-warning/[0.06] p-2.5">
+        <div key={approval.id} className="rounded-md border border-warning/30 bg-warning/[0.06] p-2.5">
           <div className="flex items-center gap-2">
             <span className="size-1.5 animate-pulse rounded-full bg-warning" />
             <span className="min-w-0 flex-1 truncate text-[11px] font-medium">{approval.action}</span>
           </div>
-          <pre className="mt-2 max-h-24 max-w-full min-w-0 overflow-x-auto whitespace-pre-wrap break-words rounded-md bg-background/70 p-2 font-mono text-[9.5px] leading-relaxed text-muted-foreground [overflow-wrap:anywhere]">
+          <pre className="mt-2 max-h-24 max-w-full min-w-0 overflow-x-auto whitespace-pre-wrap break-words rounded-md bg-muted p-2 font-mono text-[9.5px] leading-relaxed text-muted-foreground [overflow-wrap:anywhere]">
             {approvalPreview(approval.payload)}
           </pre>
           <div className="mt-2 flex justify-end gap-1.5">
-            <button type="button" onClick={() => respond(approval.id, false)} className="rounded-md px-2 py-1 text-[10px] font-medium text-muted-foreground hover:bg-background/70 hover:text-foreground">Deny</button>
+            <button type="button" onClick={() => respond(approval.id, false)} className="rounded-md px-2 py-1 text-[10px] font-medium text-muted-foreground hover:bg-muted hover:text-foreground">Deny</button>
             <button type="button" onClick={() => respond(approval.id, true)} className="rounded-md bg-foreground px-2 py-1 text-[10px] font-medium text-background hover:bg-foreground/90">Approve</button>
           </div>
         </div>
@@ -885,7 +1102,7 @@ function AgentsInspector({ tasks }: { tasks: ReturnType<typeof useChatStore.getS
   return (
     <div className="space-y-2">
       {tasks.map((task) => (
-        <div key={task.taskId} className="rounded-lg border border-border/50 bg-background/55 px-2.5 py-2">
+        <div key={task.taskId} className="rounded-md border border-border bg-muted/30 px-2.5 py-2">
           <div className="flex items-center gap-2">
             <span className="size-1.5 animate-pulse rounded-full bg-info" />
             <span className="truncate text-[11px] font-medium">{task.displayName ?? task.agentName ?? "Subagent"}</span>
@@ -940,7 +1157,7 @@ function SnapshotsInspector({
         <section className="space-y-2">
           <div className="px-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Plan review</div>
           {[...applied].reverse().map((item) => (
-            <div key={item.id} className="flex items-center gap-2 rounded-lg border border-border/50 bg-background/55 px-2.5 py-2">
+            <div key={item.id} className="flex items-center gap-2 rounded-md border border-border bg-muted/30 px-2.5 py-2">
               <HugeiconsIcon icon={FileEditIcon} size={12} strokeWidth={1.75} className="shrink-0 text-muted-foreground" />
               <div className="min-w-0 flex-1">
                 <div className="truncate text-[11px] font-medium" title={item.path}>{item.path.split(/[\\/]/).pop()}</div>
@@ -955,7 +1172,7 @@ function SnapshotsInspector({
       ) : null}
       {items.length ? <div className="px-1 pt-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Agent edits</div> : null}
       {items.map((item) => (
-        <div key={item.id} className="flex items-center gap-2 rounded-lg border border-border/50 bg-background/55 px-2.5 py-2">
+        <div key={item.id} className="flex items-center gap-2 rounded-md border border-border bg-muted/30 px-2.5 py-2">
           <HugeiconsIcon icon={FileEditIcon} size={12} strokeWidth={1.75} className="shrink-0 text-muted-foreground" />
           <div className="min-w-0 flex-1">
             <div className="truncate text-[11px] font-medium" title={item.path}>{item.path.split(/[\\/]/).pop()}</div>
@@ -966,13 +1183,18 @@ function SnapshotsInspector({
           </button>
         </div>
       ))}
-      {error ? <div className="rounded-lg border border-destructive/30 bg-destructive/[0.06] p-2 text-[10.5px] text-destructive">{error}</div> : null}
+      {error ? <div className="border border-destructive/30 bg-destructive/[0.06] p-2 text-[10.5px] text-destructive">{error}</div> : null}
     </div>
   );
 }
 
-function Body() {
-  const focusInput = useChatStore((s) => s.focusInput);
+function Body({
+  hasComposer,
+  onOpenReview,
+}: {
+  hasComposer: boolean;
+  onOpenReview: () => void;
+}) {
   const nativeMessages = useChatStore((s) => s.nativeMessages);
   const agentStatus = useChatStore((s) => s.agentMeta.status);
   const errorText = useChatStore((s) => s.agentMeta.error);
@@ -997,7 +1219,7 @@ function Body() {
 
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
         {displayMessages.length === 0 ? (
-          <EmptyState onPick={focusInput} />
+          <EmptyState />
         ) : (
           <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden [&_.text-sm]:text-[12.5px] [&_p]:leading-relaxed">
             <AiChatView
@@ -1016,6 +1238,12 @@ function Body() {
 
       <RunRecoveryActions />
       <ClarificationChoices />
+      <ChangeReviewBanner onOpen={onOpenReview} />
+      {hasComposer ? (
+        <AiInputBar />
+      ) : (
+        <AiInputBarConnect onAdd={() => void openSettingsWindow("models")} />
+      )}
     </div>
   );
 }
@@ -1077,7 +1305,7 @@ function RunRecoveryActions() {
   return (
     <div
       role={warning ? "status" : "alert"}
-      className="mx-3 mb-1 rounded-lg border border-warning/35 bg-warning/[0.08] px-3 py-2"
+      className="mx-3 mb-2 rounded-lg border border-warning/35 bg-warning/[0.08] px-3 py-2.5"
     >
       <div className="text-[11px] font-medium text-foreground">
         {warning
@@ -1123,7 +1351,7 @@ function RunRecoveryActions() {
                   : "Continue the previous run with this adjustment: ",
               );
             }}
-            className="rounded-md border border-border/60 bg-background/60 px-2 py-1 text-[10.5px] font-medium text-foreground"
+            className="rounded-md border border-border bg-muted px-2 py-1 text-[10.5px] font-medium text-foreground hover:bg-accent"
           >
             Steer
           </button>
@@ -1135,7 +1363,7 @@ function RunRecoveryActions() {
               dismissWarning();
               stopAgent();
             }}
-            className="rounded-md border border-border/60 bg-background/60 px-2 py-1 text-[10.5px] font-medium text-foreground"
+            className="rounded-md border border-border bg-muted px-2 py-1 text-[10.5px] font-medium text-foreground hover:bg-accent"
           >
             Stop
           </button>
@@ -1144,7 +1372,7 @@ function RunRecoveryActions() {
           <button
             type="button"
             onClick={dismissWarning}
-            className="rounded-md border border-border/60 bg-background/60 px-2 py-1 text-[10.5px] font-medium text-foreground"
+            className="rounded-md border border-border bg-muted px-2 py-1 text-[10.5px] font-medium text-foreground hover:bg-accent"
           >
             Dismiss
           </button>
@@ -1170,7 +1398,7 @@ function ClarificationChoices() {
     <div
       role="group"
       aria-label="Suggested replies"
-      className="flex shrink-0 flex-wrap gap-1.5 border-t border-border/40 px-3 py-2"
+      className="flex shrink-0 flex-wrap gap-1.5 border-t border-border-subtle px-3 py-2"
     >
       <span aria-live="polite" className="sr-only">
         {choices.length} suggested{" "}
@@ -1181,7 +1409,7 @@ function ClarificationChoices() {
           key={`${i}-${choice}`}
           type="button"
           onClick={() => void sendMessage(choice)}
-          className="rounded-full border border-border/60 bg-card/60 px-3 py-1 text-[11px] font-medium text-foreground transition-colors hover:bg-accent"
+          className="rounded-md border border-border bg-muted px-3 py-1 text-[11px] font-medium text-foreground transition-colors hover:bg-accent"
         >
           {choice}
         </button>
@@ -1194,16 +1422,22 @@ function ChangeReviewBanner({ onOpen }: { onOpen: () => void }) {
   const queueLen = usePlanStore((s) => s.queue.length);
   if (queueLen === 0) return null;
   return (
-    <div className="flex shrink-0 items-center gap-2 border-t border-border/50 px-3 py-1.5">
-      <span className="min-w-0 flex-1 truncate text-[11px] text-muted-foreground">
-        {queueLen} change{queueLen === 1 ? "" : "s"} ready to review
+    <div className="altai-ai-review-banner mx-3 mb-2 flex shrink-0 items-center gap-2.5 rounded-lg border border-primary/20 bg-primary/[0.055] px-3 py-2">
+      <span className="flex size-7 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
+        <HugeiconsIcon icon={FileEditIcon} size={13} strokeWidth={1.8} />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block text-[11px] font-medium text-foreground">Changes ready</span>
+        <span className="block truncate text-[10px] text-muted-foreground">
+          {queueLen} proposed change{queueLen === 1 ? "" : "s"} waiting for review
+        </span>
       </span>
       <button
         type="button"
         onClick={onOpen}
-        className="rounded-md bg-foreground px-2 py-1 text-[10.5px] font-medium text-background"
+        className="rounded-md bg-primary px-2.5 py-1.5 text-[10.5px] font-medium text-primary-foreground transition-colors hover:bg-primary/90"
       >
-        Review
+        Review changes
       </button>
     </div>
   );
@@ -1215,7 +1449,7 @@ function PlanModeStrip() {
   const disable = usePlanStore((s) => s.disable);
   if (!active) return null;
   return (
-    <div className="flex shrink-0 items-center gap-2 border-b border-border-subtle px-3 py-1.5">
+    <div className="flex shrink-0 items-center gap-2 border-b border-border-subtle bg-warning/[0.035] px-3 py-1.5">
       <span className="size-1.5 shrink-0 rounded-full bg-warning" />
       <span className="text-[11px] font-medium text-foreground">Plan mode</span>
       <span className="text-[11px] text-muted-foreground">
@@ -1244,239 +1478,33 @@ function PlanModeStrip() {
   );
 }
 
-type Example = { title: string; description: string };
-
-const EXAMPLES_BY_AGENT: Record<string, Example[]> = {
-  coder: [
-    {
-      title: "Refactor for clarity",
-      description:
-        "Restructure the selected function for readability while preserving behavior.",
-    },
-    {
-      title: "Add tests",
-      description:
-        "Generate focused unit tests for the active file, covering happy paths and edges.",
-    },
-    {
-      title: "Explain this code",
-      description:
-        "Walk through what the active file does, line by line, in plain English.",
-    },
-    {
-      title: "Debug the last error",
-      description:
-        "Trace the failure from the terminal output back to the most likely cause.",
-    },
-  ],
-  architect: [
-    {
-      title: "Plan a feature",
-      description:
-        "Sketch a high-level implementation plan with phases, risks, and open questions.",
-    },
-    {
-      title: "Compare approaches",
-      description:
-        "Weigh two designs for the same problem and recommend one with reasoning.",
-    },
-    {
-      title: "Define module boundaries",
-      description:
-        "Propose how to split this feature across modules with clear interfaces.",
-    },
-    {
-      title: "Find missing edge cases",
-      description:
-        "Audit the current design for gaps, failure modes, and silent assumptions.",
-    },
-  ],
-  reviewer: [
-    {
-      title: "Review the staged diff",
-      description:
-        "Spot bugs, risky changes, and missing tests in the current diff.",
-    },
-    {
-      title: "Performance pass",
-      description:
-        "Find slow paths, redundant work, or wasteful allocations in this function.",
-    },
-    {
-      title: "Coverage check",
-      description:
-        "Identify untested branches in the recent changes and suggest tests.",
-    },
-    {
-      title: "Readability pass",
-      description:
-        "Suggest small non-behavioral improvements for naming and structure.",
-    },
-  ],
-  security: [
-    {
-      title: "Threat-model this endpoint",
-      description:
-        "Enumerate likely attack paths against the active route and rank them.",
-    },
-    {
-      title: "Auth & authz audit",
-      description:
-        "Check the selected file for authentication and authorization gaps.",
-    },
-    {
-      title: "Injection check",
-      description:
-        "Hunt for SQL, XSS, or command-injection risks in this query or template.",
-    },
-    {
-      title: "Secrets audit",
-      description:
-        "Look for hard-coded credentials or unsafe secret handling in this module.",
-    },
-  ],
-  designer: [
-    {
-      title: "Critique this screen",
-      description:
-        "Point out the top UX issues and propose concrete fixes for each.",
-    },
-    {
-      title: "Tighter layout",
-      description:
-        "Suggest a cleaner visual hierarchy and spacing for this component.",
-    },
-    {
-      title: "Better empty state",
-      description:
-        "Rewrite the empty-state copy and structure to guide the next action.",
-    },
-    {
-      title: "Add micro-interactions",
-      description:
-        "Suggest subtle motion or feedback that would make this feel polished.",
-    },
-  ],
-  paper: [
-    {
-      title: "Find the official repo",
-      description:
-        "Locate the reference implementation for arXiv:NNNN.NNNNN and summarize it.",
-    },
-    {
-      title: "Reproduce a figure",
-      description:
-        "Recreate Figure 3 end-to-end with code, data, and exact hyperparameters.",
-    },
-    {
-      title: "Port to PyTorch",
-      description:
-        "Translate the paper's algorithm into runnable, tested PyTorch code.",
-    },
-    {
-      title: "Summarize the paper",
-      description:
-        "Extract key contributions, methods, assumptions, and reported results.",
-    },
-  ],
-  notebook: [
-    {
-      title: "Generate EDA cell",
-      description:
-        "Add an exploratory data analysis cell for this CSV: shape, dtypes, summary.",
-    },
-    {
-      title: "Plot a distribution",
-      description:
-        "Visualize the distribution of column X with the right chart for its dtype.",
-    },
-    {
-      title: "Script → notebook",
-      description:
-        "Convert this script into clean, runnable cells with markdown commentary.",
-    },
-    {
-      title: "Profile slow cells",
-      description:
-        "Identify the slowest cell in the active notebook and explain why.",
-    },
-  ],
-  dataset: [
-    {
-      title: "Synthetic Q&A pairs",
-      description:
-        "Generate 500 prompt/response pairs suitable for supervised fine-tuning.",
-    },
-    {
-      title: "Labelled intent set",
-      description:
-        "Create classification examples covering all intents in the schema.",
-    },
-    {
-      title: "Edge-case eval set",
-      description:
-        "Build a small eval covering tricky inputs and known failure modes.",
-    },
-    {
-      title: "Paraphrase augment",
-      description:
-        "Expand this dataset with diverse paraphrased variants that preserve labels.",
-    },
-  ],
-};
-
-function EmptyState({ onPick }: { onPick: (text: string) => void }) {
+function EmptyState() {
   const activeId = useAgentsStore((s) => s.activeId);
   const customAgents = useAgentsStore((s) => s.customAgents);
   void customAgents;
 
   const agents = useAgentsStore.getState().all();
   const active = agents.find((a) => a.id === activeId) ?? agents[0];
-  const examples =
-    EXAMPLES_BY_AGENT[active.id] ??
-    EXAMPLES_BY_AGENT[active.icon] ??
-    EXAMPLES_BY_AGENT.coder;
 
   return (
-    <div className="altai-ai-task-home flex min-h-0 flex-1 flex-col overflow-y-auto px-4 py-4 @[36rem]:px-6 @[36rem]:py-6">
-      <div className="mx-auto flex w-full max-w-[36rem] flex-1 flex-col justify-center">
+    <div className="altai-ai-task-home flex min-h-0 flex-1 flex-col overflow-y-auto px-4 py-5 @[36rem]:px-6 @[36rem]:py-7">
+      <div className="mx-auto flex w-full max-w-[32rem] flex-1 flex-col justify-center">
         <div className="altai-ai-task-header">
-          <div>
-            <div className="flex items-center gap-2 text-[10px] font-medium uppercase tracking-[0.13em] text-muted-foreground">
-              <span className="size-1.5 rounded-full bg-primary" />
-              New task
+          <div className="flex size-9 shrink-0 items-center justify-center rounded-xl border border-primary/20 bg-primary/10 text-primary">
+            <HugeiconsIcon icon={SparklesIcon} size={17} strokeWidth={1.75} />
+          </div>
+          <div className="min-w-0">
+            <div className="text-[10px] font-medium uppercase tracking-[0.13em] text-muted-foreground">
+              {active.name} · ready
             </div>
-            <h2 className="mt-2 text-[18px] font-semibold tracking-tight text-foreground">
-              What should we work on?
+            <h2 className="mt-1.5 text-[20px] font-semibold tracking-tight text-foreground">
+              Start with the outcome
             </h2>
             <p className="mt-1 max-w-[31rem] text-[11.5px] leading-relaxed text-muted-foreground">
-              Describe the outcome you want. ALTAI can inspect the workspace, make changes, and verify the result.
+              Describe what should change and how we will know it is done. ALTAI can inspect context, work across files, and verify the result.
             </p>
           </div>
         </div>
-
-        <section className="mt-5" aria-label="Task starters">
-          <div className="mb-1.5 flex items-center justify-between">
-            <span className="text-[10px] font-medium uppercase tracking-[0.12em] text-muted-foreground">Try one of these</span>
-            <span className="text-[10px] text-muted-foreground/70">Adds to composer</span>
-          </div>
-          <div className="altai-ai-task-starters">
-            {examples.slice(0, 3).map((ex) => (
-              <button
-                key={ex.title}
-                type="button"
-                onClick={() => onPick(ex.description)}
-                className="altai-ai-task-starter group"
-              >
-                <span className="min-w-0 flex-1 text-left">
-                  <span className="block text-[12px] font-medium text-foreground">{ex.title}</span>
-                  <span className="mt-0.5 block truncate text-[10.5px] leading-snug text-muted-foreground">{ex.description}</span>
-                </span>
-                <span aria-hidden="true" className="altai-ai-task-arrow">↗</span>
-              </button>
-            ))}
-          </div>
-        </section>
       </div>
 
       <div className="flex shrink-0 items-center justify-center gap-1.5 pt-4 text-[10px] text-muted-foreground/70">
