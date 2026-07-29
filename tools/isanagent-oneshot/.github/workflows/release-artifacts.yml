@@ -1,0 +1,119 @@
+name: Release artifacts
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build (${{ matrix.artifact }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            artifact: isanagent-linux-x86_64
+          - os: windows-latest
+            artifact: isanagent-windows-x86_64
+          - os: macos-latest
+            artifact: isanagent-macos-aarch64
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: release-artifacts
+
+      - name: Build release binary
+        run: cargo build --release --locked
+
+      - name: Package binary
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          if [[ "${RUNNER_OS}" == "Windows" ]]; then
+            cp target/release/isanagent.exe "dist/${{ matrix.artifact }}.exe"
+          else
+            cp target/release/isanagent "dist/${{ matrix.artifact }}"
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: dist/*
+          if-no-files-found: error
+
+  release:
+    name: Publish GitHub Release
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          pattern: isanagent-*
+          merge-multiple: true
+
+      - name: Move rolling tag to this commit
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -f main-latest
+          git push -f origin refs/tags/main-latest
+
+      - uses: ncipollo/release-action@v1
+        with:
+          tag: main-latest
+          name: Latest main build
+          body: |
+            Binaries built from `main` @ [`${{ github.sha }}`](${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}).
+
+            Workflow run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          commit: ${{ github.sha }}
+          allowUpdates: true
+          replacesArtifacts: true
+          makeLatest: true
+          artifacts: "artifacts/*"
+
+  notify-altai-app:
+    name: Notify altai-app to sync
+    needs: release
+    runs-on: ubuntu-24.04
+    # Cross-repo repository_dispatch needs a PAT (or fine-grained token)
+    # with `contents:write` on altaidevorg/altai-app. Opt in via repo variable
+    # ALTAI_APP_DISPATCH_ENABLED=true; skip when unset/false.
+    if: ${{ vars.ALTAI_APP_DISPATCH_ENABLED == 'true' }}
+    steps:
+      - name: Dispatch isanagent-released to altai-app
+        env:
+          GH_TOKEN: ${{ secrets.ALTAI_APP_DISPATCH_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${GH_TOKEN:-}" ]]; then
+            echo "ALTAI_APP_DISPATCH_TOKEN not set; skipping altai-app notify (daily sync + cargo update still apply)."
+            exit 0
+          fi
+          gh api repos/altaidevorg/altai-app/dispatches \
+            -f event_type=isanagent-released \
+            -f "client_payload[isanagent_sha]=${{ github.sha }}" \
+            -f "client_payload[source_run]=${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"

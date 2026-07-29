@@ -80,9 +80,9 @@ export function NewWorkComposer({ taskSessionId, onClose, onStarted }: Props) {
   };
 
   return (
-    <section className="rounded-xl border border-primary/25 bg-primary/[0.045] p-3 shadow-sm">
+    <section className="rounded-xl border border-border bg-card p-3 shadow-sm">
       <div className="flex items-start gap-2">
-        <div className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-primary/12 text-primary">
+        <div className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
           <HugeiconsIcon icon={CheckListIcon} size={15} strokeWidth={1.8} />
         </div>
         <div className="min-w-0 flex-1">
@@ -107,11 +107,11 @@ export function NewWorkComposer({ taskSessionId, onClose, onStarted }: Props) {
                   value={title}
                   onChange={(event) => setTitle(event.target.value)}
                   placeholder="e.g. Improve onboarding empty state"
-                  className="mt-1 h-8 text-[11px]"
+                  className="mt-1 h-8 rounded-lg border border-border bg-muted/45 px-2.5 text-[11px] focus-visible:border-border focus-visible:ring-0"
                   disabled={busy}
                 />
               </label>
-              <div className="grid grid-cols-3 gap-1 rounded-lg border border-border/50 bg-background/45 p-1">
+              <div className="grid grid-cols-3 gap-1 rounded-lg border border-border bg-muted/25 p-1">
                 {([
                   ["run", "Run now", PlayIcon],
                   ["backlog", "Backlog", CheckListIcon],
@@ -125,8 +125,8 @@ export function NewWorkComposer({ taskSessionId, onClose, onStarted }: Props) {
                     disabled={busy}
                     className={`flex min-h-10 flex-col items-center justify-center gap-0.5 rounded-md px-1 text-[9.5px] transition-colors ${
                       mode === value
-                        ? "bg-primary text-primary-foreground"
-                        : "text-muted-foreground hover:bg-muted/55"
+                        ? "bg-foreground/[0.09] text-foreground"
+                        : "text-muted-foreground hover:bg-foreground/[0.055] hover:text-foreground"
                     }`}
                   >
                     <HugeiconsIcon icon={icon} size={13} strokeWidth={1.9} />
@@ -150,7 +150,7 @@ export function NewWorkComposer({ taskSessionId, onClose, onStarted }: Props) {
                 value={prompt}
                 onChange={(event) => setPrompt(event.target.value)}
                 placeholder="What should be changed? Include acceptance criteria, constraints, and useful context."
-                className="mt-1 min-h-28 resize-y text-[11px] leading-relaxed"
+                className="mt-1 min-h-28 resize-y rounded-lg border border-border bg-muted/45 px-2.5 py-2 text-[11px] leading-relaxed focus-visible:border-border focus-visible:ring-0"
                 disabled={busy}
                 autoFocus
               />

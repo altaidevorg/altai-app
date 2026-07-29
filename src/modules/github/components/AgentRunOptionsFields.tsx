@@ -1,9 +1,20 @@
 import { type ModelId } from "@/modules/ai/config";
 import { ModelDropdown } from "@/modules/ai/components/ModelDropdown";
 import { useAgentsStore } from "@/modules/ai/store/agentsStore";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { cn } from "@/lib/utils";
 import type { AssignmentRunConfig } from "@/modules/github/lib/assignments";
 import { usePreferencesStore } from "@/modules/settings/preferences";
-import type { PermissionMode } from "@/modules/settings/store";
+import {
+  PERMISSION_MODE_LABELS,
+  type PermissionMode,
+} from "@/modules/settings/store";
 import { useEffect, useMemo } from "react";
 
 export type AgentRunOptions = Required<
@@ -17,8 +28,15 @@ type Props = {
   className?: string;
 };
 
-const SELECT_CLASS =
-  "mt-1 h-8 w-full rounded-lg border border-border/60 bg-background/70 px-2 text-[11px] text-foreground outline-none focus:border-sky-500/60 focus:ring-2 focus:ring-sky-500/10 disabled:cursor-not-allowed disabled:opacity-50";
+const PERMISSION_OPTIONS: PermissionMode[] = [
+  "ask",
+  "auto-edit",
+  "plan",
+  "bypass",
+];
+
+const SELECT_TRIGGER_CLASS =
+  "mt-1 h-8 w-full min-w-0 rounded-md border-border/80 bg-popover px-2.5 text-[11px] hover:bg-foreground/[0.045]";
 
 /** Shared runtime selectors for GitHub-backed agent work. */
 export function AgentRunOptionsFields({
@@ -50,27 +68,36 @@ export function AgentRunOptionsFields({
 
   return (
     <div
-      className={`grid grid-cols-1 gap-2 rounded-xl border border-border/50 bg-background/35 p-2.5 sm:grid-cols-2 ${className}`}
+      className={cn(
+        "grid grid-cols-1 gap-2 rounded-lg border border-border bg-muted/20 p-2.5 sm:grid-cols-2",
+        className,
+      )}
     >
-      <label className="min-w-0">
+      <div className="min-w-0">
         <span className="block text-[9.5px] font-medium uppercase tracking-wide text-muted-foreground">
           Agent
         </span>
-        <select
+        <Select
           value={value.agentId}
-          onChange={(event) =>
-            onChange({ ...value, agentId: event.target.value })
-          }
+          onValueChange={(agentId) => onChange({ ...value, agentId })}
           disabled={disabled}
-          className={SELECT_CLASS}
         >
-          {agents.map((agent) => (
-            <option key={agent.id} value={agent.id}>
-              {agent.name}
-            </option>
-          ))}
-        </select>
-      </label>
+          <SelectTrigger
+            size="sm"
+            aria-label="Agent"
+            className={SELECT_TRIGGER_CLASS}
+          >
+            <SelectValue placeholder="Choose an agent" />
+          </SelectTrigger>
+          <SelectContent position="popper" align="start" sideOffset={4}>
+            {agents.map((agent) => (
+              <SelectItem key={agent.id} value={agent.id}>
+                {agent.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
 
       <div className="min-w-0">
         <span className="block text-[9.5px] font-medium uppercase tracking-wide text-muted-foreground">
@@ -80,32 +107,40 @@ export function AgentRunOptionsFields({
           <ModelDropdown
             value={value.modelId}
             onChange={(modelId: ModelId) => onChange({ ...value, modelId })}
-            className="h-8 max-w-none w-full justify-between border border-border/60 bg-background/70 px-2 hover:bg-background"
+            className="h-8 w-full max-w-none justify-between rounded-md border border-border/80 bg-popover px-2.5 text-[11px] text-popover-foreground hover:bg-foreground/[0.045]"
           />
         </div>
       </div>
 
-      <label className="min-w-0 sm:col-span-2">
+      <div className="min-w-0 sm:col-span-2">
         <span className="block text-[9.5px] font-medium uppercase tracking-wide text-muted-foreground">
           Permissions
         </span>
-        <select
+        <Select
           value={value.permissionMode}
-          onChange={(event) =>
-            onChange({
-              ...value,
-              permissionMode: event.target.value as PermissionMode,
-            })
+          onValueChange={(permissionMode: PermissionMode) =>
+            onChange({ ...value, permissionMode })
           }
           disabled={disabled}
-          className={SELECT_CLASS}
         >
-          <option value="ask">Ask before changes</option>
-          <option value="auto-edit">Edit workspace automatically</option>
-          <option value="plan">Plan only (read-only)</option>
-          {bypassEnabled ? <option value="bypass">Bypass approvals</option> : null}
-        </select>
-      </label>
+          <SelectTrigger
+            size="sm"
+            aria-label="Permissions"
+            className={SELECT_TRIGGER_CLASS}
+          >
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent position="popper" align="start" sideOffset={4}>
+            {PERMISSION_OPTIONS.filter(
+              (mode) => mode !== "bypass" || bypassEnabled,
+            ).map((mode) => (
+              <SelectItem key={mode} value={mode}>
+                {PERMISSION_MODE_LABELS[mode]}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
     </div>
   );
 }

@@ -11,7 +11,6 @@ import {
   AiBookIcon,
   AiBrain01Icon,
   AppleIcon,
-  ArrowDown01Icon,
   ChatGptIcon,
   ClaudeIcon,
   ComputerIcon,
@@ -38,7 +37,15 @@ import {
   type ModelInfo,
   type ProviderId,
 } from "../config";
+import { pushRecentModel, toggleFavoriteModel } from "../lib/modelPrefs";
+import {
+  describeModelConstraint,
+  pickAutoModel,
+  supportsAgentModel,
+} from "../lib/modelRouting";
+import { useAgentsStore } from "../store/agentsStore";
 import { useChatStore } from "../store/chatStore";
+import { ComposerConfigTrigger } from "./ComposerConfigTrigger";
 
 const PROVIDER_ICON = {
   openai: ChatGptIcon,
@@ -95,16 +102,27 @@ export function ModelDropdown({
   value,
   onChange,
   className,
+  allowAuto = false,
 }: {
   /** Controlled selection — defaults to chat store `selectedModelId`. */
   value?: string;
   onChange?: (modelId: ModelId) => void;
   className?: string;
+  /** Enable the task-aware Auto option in the main chat composer. */
+  allowAuto?: boolean;
 }) {
   const storeSelected = useChatStore((s) => s.selectedModelId);
   const apiKeys = useChatStore((s) => s.apiKeys);
   const setStoreSelected = useChatStore((s) => s.setSelectedModelId);
+  const autoModelEnabled = useChatStore((s) => s.autoModelEnabled);
+  const setAutoModelEnabled = useChatStore((s) => s.setAutoModelEnabled);
   const hiddenIds = usePreferencesStore((s) => s.hiddenModelIds);
+  const favoriteModelIds = usePreferencesStore((s) => s.favoriteModelIds);
+  const recentModelIds = usePreferencesStore((s) => s.recentModelIds);
+  const activeAgentId = useAgentsStore((s) => s.activeId);
+  const activeAgent = useAgentsStore((s) =>
+    s.all().find((agent) => agent.id === activeAgentId),
+  );
 
   const selected = (value ?? storeSelected) as ModelId;
   const setSelected = (id: ModelId) => {
@@ -145,25 +163,59 @@ export function ModelDropdown({
           m.provider.includes(q),
       );
     }
-    return pool;
-  }, [activeProvider, available, search]);
+    return pool.filter((model) => supportsAgentModel(model, activeAgent));
+  }, [activeAgent, activeProvider, available, search]);
+
+  const autoModel = useMemo(
+    () => pickAutoModel({ models: available, agent: activeAgent }),
+    [activeAgent, available],
+  );
+  const showAuto = allowAuto && !onChange;
+  const autoSelected = showAuto && autoModelEnabled;
+  const triggerUsable = autoSelected ? Boolean(autoModel) : currentUsable;
+  const favoriteSet = useMemo(() => new Set(favoriteModelIds), [favoriteModelIds]);
+  const recentSet = useMemo(() => new Set(recentModelIds), [recentModelIds]);
+  const showSections = !search.trim() && activeProvider === null;
+  const autoOptionVisible = showAuto && showSections;
+  const pinned = showSections
+    ? favoriteModelIds
+        .map((id) => filtered.find((model) => model.id === id))
+        .filter((model): model is ModelInfo => Boolean(model))
+    : [];
+  const recent = showSections
+    ? recentModelIds
+        .map((id) => filtered.find((model) => model.id === id))
+        .filter((model): model is ModelInfo => Boolean(model))
+        .filter((model) => !favoriteSet.has(model.id))
+    : [];
+  const remaining = showSections
+    ? filtered.filter((model) => !favoriteSet.has(model.id) && !recentSet.has(model.id))
+    : filtered;
 
   const ProviderIcon = PROVIDER_ICON[current.provider] ?? ChatGptIcon;
 
   useEffect(() => {
     setActiveIndex(0);
-  }, [filtered]);
+  }, [filtered, autoOptionVisible]);
 
   useEffect(() => {
-    const id = filtered[activeIndex]?.id;
+    const id = filtered[activeIndex - (autoOptionVisible ? 1 : 0)]?.id;
     if (!id) return;
     document
       .getElementById(modelOptionDomId(id))
       ?.scrollIntoView({ block: "nearest" });
-  }, [activeIndex, filtered]);
+  }, [activeIndex, filtered, autoOptionVisible]);
 
   const pickModel = (m: ModelInfo) => {
+    if (showAuto) setAutoModelEnabled(false);
     setSelected(m.id as ModelId);
+    void pushRecentModel(m.id);
+    setOpen(false);
+  };
+
+  const pickAuto = () => {
+    if (!autoModel) return;
+    setAutoModelEnabled(true);
     setOpen(false);
   };
 
@@ -171,7 +223,9 @@ export function ModelDropdown({
     switch (e.key) {
       case "ArrowDown":
         e.preventDefault();
-        setActiveIndex((i) => Math.min(filtered.length - 1, i + 1));
+        setActiveIndex((i) =>
+          Math.min(filtered.length - 1 + (autoOptionVisible ? 1 : 0), i + 1),
+        );
         break;
       case "ArrowUp":
         e.preventDefault();
@@ -183,10 +237,15 @@ export function ModelDropdown({
         break;
       case "End":
         e.preventDefault();
-        setActiveIndex(filtered.length - 1);
+        setActiveIndex(filtered.length - 1 + (autoOptionVisible ? 1 : 0));
         break;
       case "Enter": {
-        const m = filtered[activeIndex];
+        if (autoOptionVisible && activeIndex === 0) {
+          e.preventDefault();
+          pickAuto();
+          break;
+        }
+        const m = filtered[activeIndex - (autoOptionVisible ? 1 : 0)];
         if (m) {
           e.preventDefault();
           pickModel(m);
@@ -208,36 +267,28 @@ export function ModelDropdown({
       }}
     >
       <PopoverTrigger asChild>
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
+        <ComposerConfigTrigger
+          icon={
+            <HugeiconsIcon
+              icon={ProviderIcon}
+              size={13}
+              strokeWidth={1.75}
+              className="shrink-0 opacity-80"
+            />
+          }
+          label={autoSelected ? `Auto · ${autoModel?.label ?? current.label}` : current.label}
           className={cn(
-            "group flex h-7 min-w-0 max-w-[11rem] items-center gap-1.5 rounded-md px-2 text-[11.5px]",
-            "transition-colors hover:bg-accent hover:text-foreground",
-            currentUsable ? "text-foreground/80" : "text-warning",
+            triggerUsable ? "text-foreground/85" : "text-warning",
             className,
           )}
           title={
-            currentUsable
+            autoSelected
+              ? `Auto selects a compatible model for each task. Current recommendation: ${autoModel?.label ?? current.label}`
+              : triggerUsable
               ? `Model: ${current.label}`
               : `${current.label} — add an API key in Model settings`
           }
-        >
-          <HugeiconsIcon
-            icon={ProviderIcon}
-            size={13}
-            strokeWidth={1.75}
-            className="shrink-0 opacity-80"
-          />
-          <span className="min-w-0 truncate font-medium">{current.label}</span>
-          <HugeiconsIcon
-            icon={ArrowDown01Icon}
-            size={11}
-            strokeWidth={2}
-            className="shrink-0 opacity-60 transition-opacity group-hover:opacity-90"
-          />
-        </Button>
+        />
       </PopoverTrigger>
 
       <PopoverContent
@@ -245,7 +296,7 @@ export function ModelDropdown({
         align="end"
         sideOffset={6}
         collisionPadding={8}
-        className="flex w-[min(20rem,calc(100vw-1rem))] flex-col gap-0 overflow-hidden rounded-xl border border-border/70 p-0 shadow-xl"
+        className="flex w-[min(20rem,calc(100vw-1rem))] flex-col gap-0 overflow-hidden rounded-lg border border-border/80 bg-popover p-0 text-popover-foreground shadow-xl"
         onOpenAutoFocus={(e) => {
           e.preventDefault();
           inputRef.current?.focus();
@@ -265,8 +316,8 @@ export function ModelDropdown({
             aria-controls={MODEL_LISTBOX_ID}
             aria-autocomplete="list"
             aria-activedescendant={
-              filtered[activeIndex]
-                ? modelOptionDomId(filtered[activeIndex].id)
+              filtered[activeIndex - (autoOptionVisible ? 1 : 0)]
+                ? modelOptionDomId(filtered[activeIndex - (autoOptionVisible ? 1 : 0)].id)
                 : undefined
             }
             aria-label="Search models"
@@ -305,49 +356,34 @@ export function ModelDropdown({
                 <div className="px-4 py-8 text-center text-xs text-muted-foreground/70">
                   {available.length === 0
                     ? "No models available — add an API key in Model settings."
-                    : "No models match."}
+                    : describeModelConstraint(activeAgent) ?? "No models match."}
                 </div>
               ) : (
-                filtered.map((m, i) => (
-                  <button
-                    key={m.id}
-                    type="button"
-                    id={modelOptionDomId(m.id)}
-                    role="option"
-                    aria-selected={m.id === selected}
-                    data-active={i === activeIndex || undefined}
-                    onClick={() => pickModel(m)}
-                    className={cn(
-                      "mx-1 my-0.5 flex w-[calc(100%-0.5rem)] items-center gap-2 rounded-md px-2 py-1.5 text-left",
-                      m.id === selected
-                        ? "bg-accent/60 text-foreground"
-                        : i === activeIndex
-                          ? "bg-accent/40 text-foreground"
-                          : "text-foreground/85 hover:bg-accent/40 hover:text-foreground",
-                    )}
-                  >
-                    {configuredProviders.length !== 1 ||
-                    activeProvider === null ? (
-                      <HugeiconsIcon
-                        icon={PROVIDER_ICON[m.provider]}
-                        size={13}
-                        strokeWidth={1.5}
-                        className="shrink-0 text-muted-foreground/70"
-                      />
-                    ) : null}
-                    <span className="min-w-0 flex-1 truncate text-[12px] font-medium">
-                      {m.label}
-                    </span>
-                    {m.id === selected ? (
-                      <HugeiconsIcon
-                        icon={Tick01Icon}
-                        size={13}
-                        strokeWidth={2}
-                        className="shrink-0"
-                      />
-                    ) : null}
-                  </button>
-                ))
+                <>
+                  {autoOptionVisible ? (
+                    <ModelOption
+                      model={autoModel ?? current}
+                      label="Auto"
+                      detail={autoModel ? `Recommended now: ${autoModel.label}` : "Choose from compatible models"}
+                      selected={autoSelected}
+                      active={activeIndex === 0}
+                      showProvider
+                      onClick={pickAuto}
+                    />
+                  ) : null}
+                  {pinned.length > 0 ? <ModelSectionLabel>PINNED</ModelSectionLabel> : null}
+                  {pinned.map((model) => (
+                    <ModelOption key={model.id} model={model} selected={!autoSelected && model.id === selected} active={filtered[activeIndex - (autoOptionVisible ? 1 : 0)]?.id === model.id} showProvider={configuredProviders.length !== 1 || activeProvider === null} pinned onClick={() => pickModel(model)} onTogglePin={() => void toggleFavoriteModel(model.id)} />
+                  ))}
+                  {recent.length > 0 ? <ModelSectionLabel>RECENT</ModelSectionLabel> : null}
+                  {recent.map((model) => (
+                    <ModelOption key={model.id} model={model} selected={!autoSelected && model.id === selected} active={filtered[activeIndex - (autoOptionVisible ? 1 : 0)]?.id === model.id} showProvider={configuredProviders.length !== 1 || activeProvider === null} onClick={() => pickModel(model)} onTogglePin={() => void toggleFavoriteModel(model.id)} />
+                  ))}
+                  {showSections && (pinned.length > 0 || recent.length > 0) ? <ModelSectionLabel>ALL MODELS</ModelSectionLabel> : null}
+                  {remaining.map((model) => (
+                    <ModelOption key={model.id} model={model} selected={!autoSelected && model.id === selected} active={filtered[activeIndex - (autoOptionVisible ? 1 : 0)]?.id === model.id} showProvider={configuredProviders.length !== 1 || activeProvider === null} onClick={() => pickModel(model)} onTogglePin={() => void toggleFavoriteModel(model.id)} />
+                  ))}
+                </>
               )}
             </div>
           </div>
@@ -360,7 +396,7 @@ export function ModelDropdown({
               setOpen(false);
               void openSettingsWindow("models");
             }}
-            className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-[12px] text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground"
+            className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-[12px] text-muted-foreground transition-colors hover:bg-foreground/[0.055]"
           >
             <HugeiconsIcon icon={Settings01Icon} size={12} strokeWidth={1.75} />
             Model settings…
@@ -368,6 +404,93 @@ export function ModelDropdown({
         </div>
       </PopoverContent>
     </Popover>
+  );
+}
+
+function ModelSectionLabel({ children }: { children: string }) {
+  return (
+    <div className="px-3 pt-2 pb-1 text-[9px] font-medium tracking-[0.12em] text-muted-foreground/70">
+      {children}
+    </div>
+  );
+}
+
+function ModelOption({
+  model,
+  label,
+  detail,
+  selected,
+  active,
+  showProvider,
+  pinned = false,
+  onClick,
+  onTogglePin,
+}: {
+  model: ModelInfo;
+  label?: string;
+  detail?: string;
+  selected: boolean;
+  active: boolean;
+  showProvider: boolean;
+  pinned?: boolean;
+  onClick: () => void;
+  onTogglePin?: () => void;
+}) {
+  const Icon = PROVIDER_ICON[model.provider];
+  return (
+    <div className="group/model-option relative mx-1 my-0.5">
+      <button
+        type="button"
+        id={label ? undefined : modelOptionDomId(model.id)}
+        role="option"
+        aria-selected={selected}
+        data-active={active || undefined}
+        onClick={onClick}
+        className={cn(
+          "flex w-full items-center gap-2 rounded-md px-2 py-1.5 pr-8 text-left",
+          selected
+            ? "bg-foreground/[0.085] text-popover-foreground"
+            : active
+              ? "bg-foreground/[0.065] text-popover-foreground"
+              : "text-popover-foreground hover:bg-foreground/[0.055]",
+        )}
+      >
+        {showProvider ? (
+          <HugeiconsIcon
+            icon={Icon}
+            size={13}
+            strokeWidth={1.5}
+            className="shrink-0 text-muted-foreground/70"
+          />
+        ) : null}
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-[12px] font-medium">{label ?? model.label}</span>
+          {detail ? <span className="block truncate text-[10px] text-muted-foreground">{detail}</span> : null}
+        </span>
+        {selected ? (
+          <HugeiconsIcon icon={Tick01Icon} size={13} strokeWidth={2} className="shrink-0" />
+        ) : null}
+      </button>
+      {onTogglePin ? (
+        <button
+          type="button"
+          aria-label={`${pinned ? "Unpin" : "Pin"} ${model.label}`}
+          title={pinned ? "Unpin model" : "Pin model"}
+          onClick={(event) => {
+            event.stopPropagation();
+            onTogglePin();
+          }}
+          className={cn(
+            "absolute top-1/2 right-1 -translate-y-1/2 rounded-md px-1.5 py-0.5 text-[10px] transition-colors",
+            pinned
+              ? "text-foreground"
+              : "text-muted-foreground opacity-0 group-hover/model-option:opacity-100 hover:bg-foreground/[0.08] hover:text-foreground",
+          )}
+        >
+          {pinned ? "Pinned" : "Pin"}
+        </button>
+      ) : null}
+    </div>
   );
 }
 
@@ -390,8 +513,8 @@ function ProviderPill({
       className={cn(
         "relative mx-auto flex size-7 items-center justify-center rounded-md transition-colors",
         active
-          ? "bg-accent text-foreground after:absolute after:top-1.5 after:right-0 after:bottom-1.5 after:w-[2px] after:rounded-full after:bg-primary after:content-['']"
-          : "text-muted-foreground hover:bg-accent/40 hover:text-foreground",
+          ? "bg-foreground/[0.085] text-popover-foreground after:absolute after:top-1.5 after:right-0 after:bottom-1.5 after:w-[2px] after:rounded-full after:bg-primary after:content-['']"
+          : "text-muted-foreground hover:bg-foreground/[0.055]",
       )}
     >
       <HugeiconsIcon icon={icon} size={14} strokeWidth={1.5} />

@@ -191,35 +191,12 @@
   zoom: calc(1 / var(--app-zoom));
 }
 
-/* AI workspace — the chat has its own visual field instead of inheriting the
- * editor chrome. The surfaces stay flat and ink-black; lime is reserved for
- * active and waiting states. */
+/* AI workspace — same surface as the left sidebar (`bg-card`). Lime stays
+ * reserved for active / waiting states without inventing a second canvas. */
 [data-ai-side-panel] {
-  --background: oklch(0.105 0.006 260);
-  --foreground: oklch(0.975 0.005 120);
-  --card: oklch(0.135 0.008 260 / 0.92);
-  --card-foreground: oklch(0.975 0.005 120);
-  --raised: oklch(0.16 0.01 260 / 0.94);
-  --raised-foreground: oklch(0.975 0.005 120);
-  --overlay: oklch(0.19 0.012 260 / 0.96);
-  --overlay-foreground: oklch(0.975 0.005 120);
-  --popover: oklch(0.17 0.012 260);
-  --popover-foreground: oklch(0.975 0.005 120);
-  --primary: oklch(0.91 0.23 125);
-  --primary-foreground: oklch(0.16 0.035 125);
-  --secondary: oklch(0.18 0.01 260);
-  --secondary-foreground: oklch(0.975 0.005 120);
-  --muted: oklch(0.18 0.01 260);
-  --muted-foreground: oklch(0.7 0.013 260);
-  --accent: oklch(0.22 0.02 125 / 0.68);
-  --accent-foreground: oklch(0.98 0.01 125);
-  --border: oklch(1 0 0 / 0.12);
-  --border-subtle: oklch(1 0 0 / 0.075);
-  --input: oklch(1 0 0 / 0.16);
-  --ring: oklch(0.91 0.23 125 / 0.72);
-  --altai-panel-lime: oklch(0.91 0.23 125);
-  --altai-panel-lime-soft: oklch(0.91 0.23 125 / 0.13);
-  background: oklch(0.09 0.005 260);
+  --altai-panel-lime: var(--primary);
+  --altai-panel-lime-soft: color-mix(in oklch, var(--primary) 13%, transparent);
+  background: var(--card);
 }
 
 [data-ai-side-panel] > * {
@@ -228,225 +205,292 @@
 }
 
 [data-ai-side-panel] :focus-visible {
-  outline: 2px solid var(--altai-panel-lime);
+  outline: 2px solid var(--ring);
   outline-offset: 2px;
 }
 
 [data-ai-side-panel] .altai-ai-topbar {
-  background: oklch(0.13 0.006 260 / 0.96);
-  border-color: oklch(1 0 0 / 0.11);
+  background: var(--card);
+  border-color: var(--border-subtle);
 }
 
-[data-ai-side-panel] .altai-ai-topbar > button {
+[data-ai-side-panel] .altai-ai-topbar button {
   border: 1px solid transparent;
-  border-radius: 999px;
+  border-radius: var(--radius-md);
 }
 
-[data-ai-side-panel] .altai-ai-topbar > button[aria-pressed="true"] {
-  color: var(--primary-foreground);
-  border-color: oklch(0.91 0.23 125 / 0.48);
-  background: oklch(0.91 0.23 125 / 0.82);
-  box-shadow: 0 0 0 1px oklch(0.91 0.23 125 / 0.12), 0 7px 18px oklch(0.91 0.23 125 / 0.12);
+[data-ai-side-panel] .altai-ai-topbar button[aria-pressed="true"] {
+  color: var(--primary);
+  border-color: color-mix(in oklch, var(--primary) 30%, transparent);
+  background: color-mix(in oklch, var(--primary) 12%, transparent);
+  box-shadow: none;
 }
 
 [data-ai-side-panel] .altai-ai-history-rail,
 [data-ai-side-panel] .altai-ai-history {
-  background: oklch(0.115 0.006 260 / 0.96);
+  background: var(--card);
 }
 
 [data-ai-side-panel] .altai-ai-history-new {
-  border: 1px solid oklch(0.91 0.23 125 / 0.5);
-  border-radius: 999px;
-  color: oklch(0.98 0.01 125);
-  background: oklch(0.91 0.23 125 / 0.19);
-  box-shadow: inset 0 1px 0 oklch(1 0 0 / 0.08), 0 6px 16px oklch(0 0 0 / 0.2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  color: var(--foreground);
+  background: color-mix(in oklch, var(--foreground) 7%, transparent);
+  box-shadow: none;
+}
+
+[data-ai-side-panel] .altai-ai-history-new:hover {
+  background: color-mix(in oklch, var(--foreground) 12%, transparent);
 }
 
 [data-ai-side-panel] .altai-ai-history-search {
-  border: 1px solid oklch(1 0 0 / 0.09);
-  border-radius: 999px;
-  background: oklch(0.08 0.005 260 / 0.68);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--muted);
+  transition: border-color 140ms ease, background-color 140ms ease;
+}
+
+[data-ai-side-panel] .altai-ai-history-search:focus-within {
+  border-color: var(--border);
+  background: color-mix(in oklch, var(--muted) 82%, var(--card));
+  box-shadow: none;
+}
+
+[data-ai-side-panel] .altai-ai-history-search input:focus-visible {
+  outline: none;
 }
 
 [data-ai-side-panel] .altai-ai-history-row {
   border: 1px solid transparent;
-  border-radius: 0.72rem;
+  border-radius: var(--radius-md);
 }
 
 [data-ai-side-panel] .altai-ai-history-row:hover {
-  border-color: oklch(1 0 0 / 0.09);
-  background: oklch(1 0 0 / 0.045);
+  border-color: transparent;
+  background: var(--accent);
 }
 
 [data-ai-side-panel] .altai-ai-history-row.bg-accent {
-  border-color: oklch(0.91 0.23 125 / 0.38);
-  background: oklch(0.91 0.23 125 / 0.15);
-  box-shadow: inset 3px 0 0 var(--altai-panel-lime), 0 5px 14px oklch(0 0 0 / 0.16);
+  border-color: transparent;
+  background: var(--accent);
+  box-shadow: inset 2px 0 0 var(--primary);
 }
 
 [data-ai-side-panel] .altai-ai-main {
-  background: oklch(0.095 0.005 260 / 0.76);
+  background: var(--card);
 }
 
 [data-ai-side-panel] .altai-ai-message.is-user > div {
-  border: 1px solid oklch(1 0 0 / 0.11);
-  background: oklch(0.16 0.006 260 / 0.94);
-  box-shadow: 0 7px 18px oklch(0 0 0 / 0.14);
+  border: 1px solid var(--border);
+  background: color-mix(in oklch, var(--muted) 78%, var(--card));
+  box-shadow: 0 1px 0 color-mix(in oklch, var(--foreground) 5%, transparent);
 }
 
 [data-ai-side-panel] .altai-ai-message.is-assistant > div {
-  border-radius: 0.8rem;
+  border-radius: var(--radius-lg);
 }
 
 [data-ai-side-panel] .altai-ai-task-header {
   display: flex;
   align-items: flex-start;
+  gap: 0.85rem;
   padding-bottom: 0.85rem;
-  border-bottom: 1px solid oklch(1 0 0 / 0.09);
-}
-
-[data-ai-side-panel] .altai-ai-task-starters {
-  overflow: hidden;
-  border: 1px solid oklch(1 0 0 / 0.1);
-  border-radius: 0.5rem;
-  background: oklch(0.12 0.005 260 / 0.45);
-}
-
-[data-ai-side-panel] .altai-ai-task-starter {
-  display: flex;
-  width: 100%;
-  align-items: flex-start;
-  gap: 0.5rem;
-  padding: 0.6rem 0.7rem;
-  border-bottom: 1px solid oklch(1 0 0 / 0.075);
-  text-align: left;
-  transition: background-color 140ms ease;
-}
-
-[data-ai-side-panel] .altai-ai-task-starter:last-child {
-  border-bottom: 0;
-}
-
-[data-ai-side-panel] .altai-ai-task-starter:hover {
-  background: oklch(0.91 0.23 125 / 0.075);
-}
-
-[data-ai-side-panel] .altai-ai-task-arrow {
-  padding-top: 0.1rem;
-  color: var(--muted-foreground);
-  font-size: 14px;
-  line-height: 1;
-  transition: color 140ms ease, transform 140ms ease;
-}
-
-[data-ai-side-panel] .altai-ai-task-starter:hover .altai-ai-task-arrow {
-  color: var(--altai-panel-lime);
-  transform: translate(1px, -1px);
+  border-bottom: 1px solid var(--border-subtle);
 }
 
 [data-ai-side-panel] .altai-ai-status {
-  border-color: oklch(0.91 0.23 125 / 0.36);
-  background: oklch(0.91 0.23 125 / 0.13);
-  color: oklch(0.95 0.07 125);
-  box-shadow: 0 0 18px oklch(0.91 0.23 125 / 0.08);
+  border-color: color-mix(in oklch, var(--primary) 30%, transparent);
+  background: color-mix(in oklch, var(--primary) 12%, transparent);
+  color: var(--primary);
+  box-shadow: none;
 }
 
 [data-ai-side-panel] .altai-ai-tool {
-  border: 1px solid transparent;
-  border-radius: 0;
-  background: oklch(0.15 0.009 260 / 0.54);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  background: color-mix(in oklch, var(--muted) 58%, var(--card));
 }
 
 [data-ai-side-panel] .altai-ai-tool:hover {
-  border-color: oklch(1 0 0 / 0.1);
+  border-color: color-mix(in oklch, var(--foreground) 18%, var(--border));
 }
 
 [data-ai-side-panel] .altai-ai-tool-trigger {
   min-height: 2.25rem;
-  border-radius: 0;
+  border-radius: var(--radius-lg);
 }
 
-/* Tool text is intentionally flat: tool states should read like compact IDE
- * output, not a stack of nested message bubbles. Keep circular status dots. */
+/* Tool details remain compact, but preserve the app's global corner system for
+ * previews and nested status surfaces. */
 [data-ai-side-panel] .altai-ai-tool pre,
 [data-ai-side-panel] .altai-ai-tool [class~="rounded"],
 [data-ai-side-panel] .altai-ai-tool [class~="rounded-md"] {
-  border-radius: 0;
+  border-radius: var(--radius-md);
 }
 
 [data-ai-side-panel] .altai-ai-tool[data-tool-state="input-streaming"],
 [data-ai-side-panel] .altai-ai-tool[data-tool-state="input-available"] {
-  border-color: oklch(0.91 0.23 125 / 0.34);
-  background: oklch(0.91 0.23 125 / 0.1);
-  box-shadow: 0 0 0 1px oklch(0.91 0.23 125 / 0.05), 0 8px 22px oklch(0.91 0.23 125 / 0.07);
+  border-color: color-mix(in oklch, var(--primary) 30%, transparent);
+  background: color-mix(in oklch, var(--primary) 10%, transparent);
+  box-shadow: none;
 }
 
 [data-ai-side-panel] .altai-ai-tool[data-tool-state="input-streaming"] .altai-ai-tool-trigger > span:first-child {
   border: 0;
-  background: var(--altai-panel-lime);
-  box-shadow: 0 0 0 4px oklch(0.91 0.23 125 / 0.12), 0 0 14px var(--altai-panel-lime);
+  background: var(--primary);
+  box-shadow: none;
   animation: altai-ai-tool-pulse 1.45s ease-in-out infinite;
 }
 
 [data-ai-side-panel] .altai-ai-tool[data-tool-state="output-error"] {
-  border-color: oklch(0.66 0.21 25 / 0.42);
-  background: oklch(0.66 0.21 25 / 0.08);
+  border-color: color-mix(in oklch, var(--destructive) 42%, transparent);
+  background: color-mix(in oklch, var(--destructive) 8%, transparent);
 }
 
 [data-ai-side-panel] .altai-ai-tool .border-l {
-  border-color: oklch(0.91 0.23 125 / 0.28);
+  border-color: color-mix(in oklch, var(--primary) 28%, transparent);
 }
 
 [data-ai-side-panel] .altai-ai-approval {
-  border-color: oklch(0.91 0.23 125 / 0.52);
-  background: oklch(0.14 0.01 260 / 0.98);
-  box-shadow: 0 0 0 1px oklch(0.91 0.23 125 / 0.08), 0 14px 30px oklch(0 0 0 / 0.23);
+  border-color: var(--border);
+  background: var(--card);
+  box-shadow: none;
 }
 
 [data-ai-side-panel] .altai-ai-approval > div:not(.sr-only) > span:first-child {
-  background: var(--altai-panel-lime);
-  box-shadow: 0 0 12px var(--altai-panel-lime);
+  background: var(--primary);
+  box-shadow: none;
 }
 
 [data-ai-side-panel] .altai-ai-approval button[class*="bg-primary"],
 [data-ai-side-panel] .altai-ai-edit-approval button:not([class*="variant"]):last-child {
-  border: 1px solid oklch(0.91 0.23 125 / 0.6);
-  background: var(--altai-panel-lime);
-  color: oklch(0.15 0.035 125);
-  box-shadow: 0 6px 16px oklch(0.91 0.23 125 / 0.17);
+  border: 1px solid transparent;
+  background: var(--primary);
+  color: var(--primary-foreground);
+  box-shadow: none;
 }
 
 [data-ai-side-panel] .altai-ai-edit-approval {
-  border-top-color: oklch(0.91 0.23 125 / 0.38);
-  background: oklch(0.91 0.23 125 / 0.07);
+  border-top-color: var(--border-subtle);
+  background: color-mix(in oklch, var(--warning) 7%, transparent);
 }
 
 [data-ai-side-panel] .altai-ai-composer-wrap {
-  padding: 0.7rem 0.75rem 0.8rem;
-  background: oklch(0.08 0.005 260 / 0.78);
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  padding: 0.35rem 0.75rem 0.8rem;
+  background: var(--card);
 }
 
 [data-ai-side-panel] .altai-ai-composer {
-  border-color: oklch(1 0 0 / 0.14);
-  border-radius: 1rem;
-  background: oklch(0.155 0.002 260 / 0.98);
-  box-shadow: inset 0 1px 0 oklch(1 0 0 / 0.055), 0 10px 28px oklch(0 0 0 / 0.28);
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  border-color: var(--border);
+  border-radius: var(--radius-xl);
+  background: color-mix(in oklch, var(--muted) 58%, var(--card));
+  box-shadow: 0 8px 24px color-mix(in oklch, var(--foreground) 5%, transparent);
 }
 
 [data-ai-side-panel] .altai-ai-composer:focus-within {
-  border-color: oklch(1 0 0 / 0.22);
-  box-shadow: inset 0 1px 0 oklch(1 0 0 / 0.07), 0 0 0 2px oklch(1 0 0 / 0.045), 0 12px 30px oklch(0 0 0 / 0.3);
+  border-color: var(--border);
+  box-shadow: 0 8px 24px color-mix(in oklch, var(--foreground) 5%, transparent);
 }
 
-/* The composer shell already provides the visible, neutral focus treatment.
- * Avoid drawing a second focus rectangle around the textarea itself. */
+/* Keep pointer focus visually neutral and avoid drawing a second focus
+ * rectangle around the textarea itself. */
 [data-ai-side-panel] .altai-ai-composer textarea:focus-visible {
   outline: none;
 }
 
 [data-ai-side-panel] .altai-ai-composer button.bg-primary {
-  border: 1px solid oklch(0.91 0.23 125 / 0.7);
-  box-shadow: 0 4px 12px oklch(0.91 0.23 125 / 0.2);
+  border: 1px solid transparent;
+  box-shadow: none;
+}
+
+@container (max-width: 30rem) {
+  [data-ai-side-panel] .altai-ai-topbar-actions {
+    gap: 0;
+    border-color: transparent;
+    background: transparent;
+    padding: 0;
+  }
+
+  [data-ai-side-panel] .altai-ai-run-followup {
+    flex-wrap: wrap;
+  }
+
+  [data-ai-side-panel] .altai-ai-run-followup > span:first-child {
+    flex-basis: 100%;
+  }
+}
+
+[data-ai-side-panel] .altai-ai-composer-config-trigger {
+  width: 100%;
+  min-width: 0;
+  max-width: none;
+  justify-content: flex-start;
+}
+
+[data-ai-side-panel] .altai-ai-composer-config-trigger-label {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 0.375rem;
+}
+
+@container (max-width: 23rem) {
+  [data-ai-side-panel] .altai-ai-composer-config {
+    gap: 0.125rem;
+    padding-inline: 0.5rem;
+  }
+
+  [data-ai-side-panel] .altai-ai-composer-config-trigger {
+    gap: 0.25rem;
+    padding-inline: 0.375rem;
+  }
+
+  [data-ai-side-panel] .altai-ai-composer-config-trigger > svg:last-child {
+    display: none;
+  }
+}
+
+@container (max-width: 17rem) {
+  [data-ai-side-panel] .altai-ai-composer-submit-label {
+    display: none;
+  }
+
+  [data-ai-side-panel] .altai-ai-composer-submit > button {
+    width: 1.75rem;
+    padding-inline: 0;
+  }
+}
+
+@container (max-width: 13.5rem) {
+  [data-ai-side-panel] .altai-ai-composer-wrap {
+    padding-inline: 0.5rem;
+  }
+
+  [data-ai-side-panel] .altai-ai-composer-config {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  [data-ai-side-panel] .altai-ai-composer-primary {
+    flex-wrap: wrap;
+    padding-inline: 0.5rem;
+  }
+
+  [data-ai-side-panel] .altai-ai-composer-tools {
+    max-width: 100%;
+  }
+
+  [data-ai-side-panel] .altai-ai-composer-actions {
+    width: 100%;
+    margin-left: 0;
+    justify-content: flex-end;
+  }
 }
 
 @keyframes altai-ai-tool-pulse {

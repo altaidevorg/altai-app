@@ -1,0 +1,314 @@
+--- /Users/efecanceliksoy/.cargo/git/checkouts/isanagent-86f82ac4858594cb/8c9eef2/src/host.rs	2026-07-29 14:11:44
++++ /Users/efecanceliksoy/newforkaltai/altai-app/tools/isanagent-oneshot/src/host.rs	2026-07-29 16:44:26
+@@ -18,6 +18,7 @@
+     build_tool_progress_terminal_notice, build_tool_result_terminal_notice,
+     terminal_startup_suppresses_plain_banner, TerminalChannelConfig, TerminalMode,
+ };
++use crate::channels::oneshot::OneshotChannel;
+ use crate::channels::{
+     api::ApiChannel, email::EmailChannel, slack::SlackChannel, terminal::TerminalChannel, Channel,
+ };
+@@ -92,8 +93,19 @@
+     /// Files preloaded into the terminal's next composed message.
+     pub files: Vec<PathBuf>,
+     pub line_mode: bool,
++    /// When set, disable the interactive terminal, inject this prompt once through
++    /// the headless `altai-cli` channel, and shut down after the run terminates.
++    pub oneshot_prompt: Option<String>,
++    /// Optional observer for raw host bus messages during interactive or oneshot runs.
++    pub observe_tx: Option<mpsc::UnboundedSender<BusMessage>>,
++    /// Deterministic in-process assistant replies for tests and CI smokes.
++    /// When set, the host skips network providers and returns these responses
++    /// in order (the last response repeats).
++    pub scripted_responses: Option<Vec<String>>,
+ }
+ 
++pub use crate::channels::oneshot::{OneshotOutcome, OneshotResult};
++
+ /// Interactive permission modes exposed to embedding hosts.
+ #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+ pub enum HostPermissionMode {
+@@ -161,7 +173,7 @@
+     let (events_tx, events) = mpsc::unbounded_channel();
+     let task = tokio::spawn(async move {
+         let _ = events_tx.send(HostEvent::Starting);
+-        let result = run_host(config, Some(shutdown_rx)).await;
++        let result = run_host(config, Some(shutdown_rx), None).await;
+         let outcome = match &result {
+             Ok(()) => HostExit::Completed,
+             Err(error) => HostExit::Failed(error.to_string()),
+@@ -180,12 +192,38 @@
+ /// Start the complete IsanAgent runtime, including its terminal channel when
+ /// enabled by the selected configuration.
+ pub async fn start_host(config: HostConfig) -> HostResult<()> {
+-    run_host(config, None).await
++    let _ = run_host(config, None, None).await?;
++    Ok(())
+ }
+ 
++/// Run a single headless prompt through the shared host runtime and shut down
++/// after the matching reasoning run terminates.
++pub async fn run_oneshot(mut config: HostConfig) -> HostResult<OneshotResult> {
++    if config
++        .oneshot_prompt
++        .as_deref()
++        .map(str::trim)
++        .unwrap_or_default()
++        .is_empty()
++    {
++        return Err(std::io::Error::other("oneshot prompt must be non-empty").into());
++    }
++    // One-shot runs never own an interactive TTY channel.
++    config.line_mode = false;
++    let (result_tx, result_rx) = tokio::sync::oneshot::channel();
++    let host_result = run_host(config, None, Some(result_tx)).await;
++    match result_rx.await {
++        Ok(result) => Ok(result),
++        Err(_) => Err(host_result.err().unwrap_or_else(|| {
++            std::io::Error::other("oneshot host exited without a terminal result").into()
++        })),
++    }
++}
++
+ async fn run_host(
+     config: HostConfig,
+     mut external_shutdown_rx: Option<mpsc::UnboundedReceiver<()>>,
++    oneshot_result_tx: Option<tokio::sync::oneshot::Sender<OneshotResult>>,
+ ) -> HostResult<()> {
+     let workspace_arg = config
+         .workspace
+@@ -232,7 +270,16 @@
+             }
+         })?;
+ 
+-    println!("Starting Advanced isanagent System...");
++    let oneshot_mode = config
++        .oneshot_prompt
++        .as_ref()
++        .map(|prompt| prompt.trim())
++        .is_some_and(|prompt| !prompt.is_empty());
++    if oneshot_mode {
++        eprintln!("Starting Advanced isanagent System...");
++    } else {
++        println!("Starting Advanced isanagent System...");
++    }
+     log::info!("Starting Advanced isanagent System.");
+ 
+     let mut workspace = IsanagentWorkspace::new_with_sandbox(
+@@ -241,10 +288,24 @@
+         sandbox,
+     )?;
+     apply_host_overrides(&mut workspace.config, &config).map_err(std::io::Error::other)?;
+-    println!("Loading isanagent workspace at: {:?}", workspace.dir);
++    let oneshot_prompt = config
++        .oneshot_prompt
++        .as_ref()
++        .map(|prompt| prompt.trim().to_string())
++        .filter(|prompt| !prompt.is_empty());
++    if oneshot_mode {
++        // One-shot hosts never attach the interactive terminal channel.
++        let terminal = workspace.config.terminal.get_or_insert_with(Default::default);
++        terminal.enabled = Some(false);
++        eprintln!("Loading isanagent workspace at: {:?}", workspace.dir);
++    } else {
++        println!("Loading isanagent workspace at: {:?}", workspace.dir);
++    }
+     log::info!("Loading isanagent workspace at {:?}", workspace.dir);
+ 
+-    if !workspace.config.terminal_enabled() && !workspace.config.has_non_terminal_inbound_channel()
++    if oneshot_prompt.is_none()
++        && !workspace.config.terminal_enabled()
++        && !workspace.config.has_non_terminal_inbound_channel()
+     {
+         return Err(std::io::Error::other(
+             "Invalid config: [terminal] enabled = false requires at least one other inbound channel. \
+@@ -253,7 +314,9 @@
+         .into());
+     }
+ 
+-    maybe_prompt_uv_install_on_launch(&workspace).await;
++    if !oneshot_mode {
++        maybe_prompt_uv_install_on_launch(&workspace).await;
++    }
+ 
+     // 1. Setup SqliteMemoryActor and SessionManager
+     let db_path = workspace
+@@ -602,7 +665,13 @@
+         Box<dyn crate::traits::Provider>,
+         Box<dyn crate::traits::Provider>,
+         Vec<crate::agent::FallbackProviderSpec>,
+-    ) = if let (Some(cfg), Some(key)) = (&provider_cfg, &api_key) {
++    ) = if let Some(responses) = config.scripted_responses.clone() {
++        (
++            Box::new(crate::provider::ScriptedProvider::new(responses.clone())),
++            Box::new(crate::provider::ScriptedProvider::new(responses)),
++            Vec::new(),
++        )
++    } else if let (Some(cfg), Some(key)) = (&provider_cfg, &api_key) {
+         let base_url = cfg.resolved_base_url().map_err(std::io::Error::other)?;
+         let p1 = crate::provider::create_provider(&cfg.provider_name, &base_url, key, &model_name);
+         let p2 = crate::provider::create_provider(&cfg.provider_name, &base_url, key, &model_name);
+@@ -885,6 +954,37 @@
+         None
+     };
+ 
++    let oneshot_channel = if let Some(prompt) = oneshot_prompt.clone() {
++        let result_tx = oneshot_result_tx.ok_or_else(|| {
++            std::io::Error::other("oneshot prompt requires run_oneshot or an explicit result channel")
++        })?;
++        let id = config
++            .resume
++            .as_deref()
++            .filter(|id| !id.trim().is_empty())
++            .map(str::to_owned)
++            .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
++        let channel = Arc::new(OneshotChannel::new(
++            id,
++            prompt,
++            config.files.clone(),
++            result_tx,
++            shutdown_tx.clone(),
++            config.observe_tx.clone(),
++        ));
++        channel.start(bus_tx.clone()).await?;
++        out_channels.insert(channel.name().to_string(), channel.clone());
++        Some(channel)
++    } else {
++        if oneshot_result_tx.is_some() {
++            return Err(std::io::Error::other(
++                "oneshot result channel provided without oneshot_prompt",
++            )
++            .into());
++        }
++        None
++    };
++
+     // 11. Setup Slack Channel
+     if let Some(slack_cfg) = workspace.config.slack.clone() {
+         if slack_cfg.enabled.unwrap_or(false) {
+@@ -935,7 +1035,7 @@
+     }
+ 
+     // 14. Print clean startup banner (skipped when Ratatui owns the alternate screen)
+-    if !terminal_startup_suppresses_plain_banner(&workspace.config) {
++    if !oneshot_mode && !terminal_startup_suppresses_plain_banner(&workspace.config) {
+         println!(
+             "\n{}",
+             "=============================================".blue()
+@@ -989,8 +1089,16 @@
+     let logger_tx = logger_bus_tx.clone();
+     let inflight_promote = inflight_sync_outer.clone();
+     let active_terminal_session_for_bus = active_terminal_session_chat.clone();
++    let oneshot_for_bus = oneshot_channel.clone();
++    let observe_tx = config.observe_tx.clone();
+     tokio::spawn(async move {
+         while let Some(msg) = bus_rx.recv().await {
++            if let Some(tx) = observe_tx.as_ref() {
++                let _ = tx.send(msg.clone());
++            }
++            if let Some(oneshot) = oneshot_for_bus.as_ref() {
++                oneshot.observe_bus_message(&msg);
++            }
+             let _ = logger_tx.send(msg.clone());
+             // Intercept /background slash commands and fire the in-flight oneshot.
+             if let BusMessage::PromoteSyncToBackground(chat_id) = &msg {
+@@ -1035,6 +1143,9 @@
+                     BusMessage::Telemetry(tel) => {
+                         let _ = agent_outbound_tx.send(BusMessage::Telemetry(tel)).await;
+                     }
++                    lifecycle @ BusMessage::RunLifecycle(_) => {
++                        let _ = agent_outbound_tx.send(lifecycle).await;
++                    }
+                     _ => {}
+                 }
+             }
+@@ -1044,8 +1155,18 @@
+     let logger_tx_outbound = logger_bus_tx.clone();
+     let delivery_channels = out_channels.clone();
+     let active_terminal_for_outbound = active_terminal_session_chat.clone();
++    let oneshot_for_outbound = oneshot_channel.clone();
++    let observe_tx_outbound = config.observe_tx.clone();
+     tokio::spawn(async move {
+         while let Some(msg) = global_outbound_rx.recv().await {
++            if let Some(tx) = observe_tx_outbound.as_ref() {
++                let _ = tx.send(msg.clone());
++            }
++            if let Some(oneshot) = oneshot_for_outbound.as_ref() {
++                if !matches!(&msg, BusMessage::Outbound(_)) {
++                    oneshot.observe_bus_message(&msg);
++                }
++            }
+             // Deliver user-visible terminal traffic first. `LoggerHandle::send` uses a blocking
+             // `sync_channel::send`; doing it before channel delivery can stall this task and make
+             // tool-call lines and agent replies appear only after the run finishes.
+@@ -1073,6 +1194,7 @@
+                         }
+                     }
+                 }
++                BusMessage::RunLifecycle(_) => {}
+                 BusMessage::Telemetry(TelemetryEvent::AgentThought {
+                     chat_id,
+                     thought,
+@@ -1666,6 +1788,9 @@
+         assert!(config.resume.is_none());
+         assert!(config.files.is_empty());
+         assert!(!config.line_mode);
++        assert!(config.oneshot_prompt.is_none());
++        assert!(config.observe_tx.is_none());
++        assert!(config.scripted_responses.is_none());
+     }
+ 
+     #[test]
+@@ -1753,6 +1878,9 @@
+             resume: None,
+             files: Vec::new(),
+             line_mode: false,
++            oneshot_prompt: None,
++            observe_tx: None,
++            scripted_responses: None,
+         });
+         assert_eq!(host.next_event().await, Some(HostEvent::Starting));
+         assert!(host.shutdown());
+@@ -1770,5 +1898,42 @@
+             .await
+             .expect("host task should join")
+             .expect("host should complete cleanly");
++    }
++
++    #[tokio::test]
++    async fn run_oneshot_completes_with_scripted_provider() {
++        let temp = tempfile::tempdir().expect("temporary workspace");
++        let config_path = temp.path().join("config.toml");
++        fs::write(
++            &config_path,
++            "[terminal]\nenabled = false\n\n[logging]\nenabled = false\n",
++        )
++        .expect("write config");
++
++        let result = tokio::time::timeout(
++            Duration::from_secs(30),
++            run_oneshot(HostConfig {
++                workspace: Some(temp.path().to_path_buf()),
++                config: Some(config_path),
++                sandbox: Some(temp.path().to_path_buf()),
++                model: None,
++                fallback_model: None,
++                permission: Some(HostPermissionMode::Plan),
++                no_color: true,
++                resume: None,
++                files: Vec::new(),
++                line_mode: false,
++                oneshot_prompt: Some("reply with oneshot-ok".to_string()),
++                observe_tx: None,
++                scripted_responses: Some(vec!["oneshot-ok".to_string()]),
++            }),
++        )
++        .await
++        .expect("oneshot should finish promptly")
++        .expect("oneshot should succeed");
++
++        assert_eq!(result.outcome, OneshotOutcome::Completed);
++        assert_eq!(result.final_text.as_deref(), Some("oneshot-ok"));
++        assert!(!result.chat_id.is_empty());
+     }
+ }

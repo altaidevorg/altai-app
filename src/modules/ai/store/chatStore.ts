@@ -4,11 +4,13 @@ import { create } from "zustand";
 import {
   DEFAULT_MODEL_ID,
   getModel,
+  listAvailableModels,
   providerNeedsKey,
   type ModelId,
   type ProviderId,
 } from "../config";
 import { usePreferencesStore } from "@/modules/settings/preferences";
+import { setAutoModelEnabled as persistAutoModelEnabled } from "@/modules/settings/store";
 import { currentWorkspaceFolder } from "@/modules/workspace/folder";
 import { useAgentsStore } from "./agentsStore";
 import { useTodosStore } from "./todoStore";
@@ -33,6 +35,8 @@ import {
   type SessionMeta,
 } from "../lib/sessions";
 import { pushRecentModel } from "../lib/modelPrefs";
+import { pickAutoModel } from "../lib/modelRouting";
+import type { Agent } from "../lib/agents";
 import { appendBackgroundMessage } from "../lib/backgroundTranscript";
 import {
   combineAgentInstructions,
@@ -201,6 +205,8 @@ type StoreState = {
 
   selectedModelId: ModelId;
   setSelectedModelId: (id: ModelId) => void;
+  autoModelEnabled: boolean;
+  setAutoModelEnabled: (enabled: boolean) => void;
 
   mini: MiniState;
   openMini: () => void;
@@ -452,6 +458,12 @@ export const useChatStore = create<StoreState>((set, get) => ({
     // preferences → chatStore on boot and on cross-window events) from
     // writing the same value back through `setDefaultModel`.
     void setDefaultModel(id);
+  },
+  autoModelEnabled: true,
+  setAutoModelEnabled: (enabled) => {
+    if (get().autoModelEnabled === enabled) return;
+    set({ autoModelEnabled: enabled });
+    void persistAutoModelEnabled(enabled);
   },
 
   mini: { open: false },
@@ -1295,6 +1307,30 @@ export async function retryFailedRun(): Promise<boolean> {
   );
 }
 
+function resolveRunModelId({
+  requestedModelId,
+  useAuto,
+  apiKeys,
+  hiddenModelIds,
+  targetInputs,
+  agent,
+  prompt,
+}: {
+  requestedModelId: ModelId;
+  useAuto: boolean;
+  apiKeys: ProviderKeys;
+  hiddenModelIds: readonly string[];
+  targetInputs: Parameters<typeof resolveIsanAgentTarget>[2];
+  agent: Agent | undefined;
+  prompt: string;
+}): ModelId {
+  if (!useAuto) return requestedModelId;
+  const resolvable = listAvailableModels(apiKeys, hiddenModelIds).filter((model) =>
+    resolveIsanAgentTarget(model.id, apiKeys, targetInputs).ok,
+  );
+  return (pickAutoModel({ models: resolvable, agent, prompt })?.id ?? requestedModelId) as ModelId;
+}
+
 async function sendViaIsanAgent(
   text: string,
   chatId: string,
@@ -1309,15 +1345,27 @@ async function sendViaIsanAgent(
   // the user's selection — pick a model in the UI and IsanAgent now
   // actually targets it.
   const prefs = usePreferencesStore.getState();
-  const selectedModelId = store.selectedModelId;
-  const resolution = resolveIsanAgentTarget(selectedModelId, store.apiKeys, {
+  const targetInputs = {
     lmstudioBaseURL: prefs.lmstudioBaseURL,
     lmstudioModelId: prefs.lmstudioModelId,
     mlxBaseURL: prefs.mlxBaseURL,
     mlxModelId: prefs.mlxModelId,
     openaiCompatibleBaseURL: prefs.openaiCompatibleBaseURL,
     openaiCompatibleModelId: prefs.openaiCompatibleModelId,
+  };
+
+  const agentsState = useAgentsStore.getState();
+  const activeAgent = agentsState.all().find((a) => a.id === agentsState.activeId);
+  const selectedModelId = resolveRunModelId({
+    requestedModelId: store.selectedModelId,
+    useAuto: store.autoModelEnabled,
+    apiKeys: store.apiKeys,
+    hiddenModelIds: prefs.hiddenModelIds,
+    targetInputs,
+    agent: activeAgent,
+    prompt: text,
   });
+  const resolution = resolveIsanAgentTarget(selectedModelId, store.apiKeys, targetInputs);
   if (!resolution.ok) {
     store.patchAgentMeta({ status: "error", error: resolution.error });
     return false;
@@ -1328,9 +1376,6 @@ async function sendViaIsanAgent(
   // selected persona (Coder, Architect, custom agents, etc.). The runtime
   // captures this at first-start; switching agents mid-session does not
   // yet reapply — that needs a runtime restart and lives in a follow-up.
-  const agentsState = useAgentsStore.getState();
-  const activeAgent = agentsState.all().find((a) => a.id === agentsState.activeId);
-
   // IsanAgent roots its workspace (memory/sandbox/config) at
   // `<workspaceFolder>/.isanagent`. Passing it keeps each project's agent
   // state with the project instead of under ~/.isanagent.
@@ -1501,20 +1546,28 @@ export async function dispatchToSession(
 ): Promise<boolean> {
   const store = useChatStore.getState();
   const prefs = usePreferencesStore.getState();
-  const selectedModelId = runConfig?.modelId ?? store.selectedModelId;
-  const resolution = resolveIsanAgentTarget(selectedModelId, store.apiKeys, {
+  const targetInputs = {
     lmstudioBaseURL: prefs.lmstudioBaseURL,
     lmstudioModelId: prefs.lmstudioModelId,
     mlxBaseURL: prefs.mlxBaseURL,
     mlxModelId: prefs.mlxModelId,
     openaiCompatibleBaseURL: prefs.openaiCompatibleBaseURL,
     openaiCompatibleModelId: prefs.openaiCompatibleModelId,
-  });
-  if (!resolution.ok) return false;
-  const { providerName, apiKey, modelName, baseUrl } = resolution.target;
-
+  };
   const agentsState = useAgentsStore.getState();
   const activeAgent = agentsState.all().find((a) => a.id === (runConfig?.agentId ?? agentsState.activeId));
+  const selectedModelId = resolveRunModelId({
+    requestedModelId: (runConfig?.modelId ?? store.selectedModelId) as ModelId,
+    useAuto: !runConfig?.modelId && store.autoModelEnabled,
+    apiKeys: store.apiKeys,
+    hiddenModelIds: prefs.hiddenModelIds,
+    targetInputs,
+    agent: activeAgent,
+    prompt: text,
+  });
+  const resolution = resolveIsanAgentTarget(selectedModelId, store.apiKeys, targetInputs);
+  if (!resolution.ok) return false;
+  const { providerName, apiKey, modelName, baseUrl } = resolution.target;
   const workspacePath =
     runConfig?.workspacePath ?? currentWorkspaceFolder() ?? undefined;
   const instructions = combineAgentInstructions(

@@ -40,7 +40,7 @@ export function FilePickerContent({
       onOpenAutoFocus={(e) => e.preventDefault()}
       onCloseAutoFocus={(e) => e.preventDefault()}
       onMouseDown={(e) => e.preventDefault()}
-      className="w-80 overflow-hidden rounded-lg border border-border/60 bg-popover/95 p-0 shadow-xl backdrop-blur-xl"
+      className="w-80 overflow-hidden rounded-lg border border-border/80 bg-popover p-0 text-popover-foreground shadow-xl"
     >
       <div className="border-b border-border/60 px-2.5 py-1.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground/70">
         Workspace files
@@ -75,8 +75,10 @@ export function FilePickerContent({
                   onClick={() => onPick(path)}
                   onMouseEnter={() => onHover(idx)}
                   className={cn(
-                    "flex w-full items-center gap-2 px-2 py-1.5 text-left text-[12px]",
-                    idx === activeIndex ? "bg-accent" : "hover:bg-accent/60",
+                    "mx-1 my-0.5 flex w-[calc(100%-0.5rem)] items-center gap-2 rounded-md px-2 py-1.5 text-left text-[12px] text-popover-foreground",
+                    idx === activeIndex
+                      ? "bg-foreground/[0.065]"
+                      : "hover:bg-foreground/[0.055]",
                   )}
                 >
                   <img

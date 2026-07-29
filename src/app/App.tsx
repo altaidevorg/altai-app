@@ -616,6 +616,7 @@ export default function App() {
   const apiKeys = useChatStore((s) => s.apiKeys);
   const setApiKeys = useChatStore((s) => s.setApiKeys);
   const setSelectedModelId = useChatStore((s) => s.setSelectedModelId);
+  const setAutoModelEnabled = useChatStore((s) => s.setAutoModelEnabled);
   const setLive = useChatStore((s) => s.setLive);
   const respondToApproval = useChatStore((s) => s.respondToApproval);
   const lmstudioModelId = usePreferencesStore((s) => s.lmstudioModelId);
@@ -748,6 +749,7 @@ export default function App() {
   // into chatStore so the dropdown reflects what the user picked in Settings.
   const initPrefs = usePreferencesStore((s) => s.init);
   const prefDefaultModel = usePreferencesStore((s) => s.defaultModelId);
+  const prefAutoModelEnabled = usePreferencesStore((s) => s.autoModelEnabled);
   const autocompleteProvider = usePreferencesStore((s) => s.autocompleteProvider);
   const prefsHydrated = usePreferencesStore((s) => s.hydrated);
   useEffect(() => {
@@ -792,16 +794,20 @@ export default function App() {
     )?.provider;
     if (storedProvider && isProviderConfigured(storedProvider)) {
       setSelectedModelId(prefDefaultModel);
+      setAutoModelEnabled(prefAutoModelEnabled);
       return;
     }
     const fallback = pickDefaultModel(isProviderConfigured);
     setSelectedModelId(fallback ?? prefDefaultModel);
+    setAutoModelEnabled(prefAutoModelEnabled);
   }, [
     prefsHydrated,
     keysLoaded,
     prefDefaultModel,
+    prefAutoModelEnabled,
     isProviderConfigured,
     setSelectedModelId,
+    setAutoModelEnabled,
   ]);
 
   // Same idea for inline autocomplete: if its provider isn't configured, move

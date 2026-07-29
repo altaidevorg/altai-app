@@ -338,7 +338,7 @@ const ToolImpl = ({
       <CollapsibleTrigger
         disabled={!hasDetails}
         className={cn(
-          "altai-ai-tool-trigger flex w-full min-w-0 items-center gap-2 px-2 py-1.5 text-left",
+          "altai-ai-tool-trigger flex w-full min-w-0 items-center gap-2 px-2.5 py-2 text-left",
           "text-[12px] transition-colors",
           "hover:bg-muted/60 disabled:cursor-default disabled:hover:bg-transparent",
           "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
@@ -368,8 +368,8 @@ const ToolImpl = ({
           <span className="flex-1" />
         )}
         {isError && (
-          <span className="shrink-0 text-[10px] font-medium text-destructive">
-            failed
+          <span className="shrink-0 rounded-md bg-destructive/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-destructive">
+            Failed
           </span>
         )}
       </CollapsibleTrigger>
