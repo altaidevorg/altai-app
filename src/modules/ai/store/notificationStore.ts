@@ -22,7 +22,8 @@ type MutationKind = "notification" | "job" | "ticket";
 export type NotificationInboxView = {
   waitingTickets: AgentClarificationTicketInfo[];
   notifications: AgentNotificationInfo[];
-  activeJobs: AgentBackgroundJobInfo[];
+  /** Jobs with no ticket that are explicitly waiting on a user decision. */
+  waitingJobs: AgentBackgroundJobInfo[];
   attentionCount: number;
 };
 
@@ -95,7 +96,9 @@ function isLinkedTicketNotification(
 /**
  * Build the render model without duplicating the notification that IsanAgent
  * creates for every clarification ticket. Waiting tickets always count as
- * attention; ordinary notifications count only while unread.
+ * attention; ordinary notifications count only while unread. Running work is
+ * deliberately omitted: Work is its canonical home, Inbox is an attention
+ * queue rather than a second operations dashboard.
  */
 export function buildNotificationInboxView(
   notifications: AgentNotificationInfo[],
@@ -118,24 +121,21 @@ export function buildNotificationInboxView(
     )
     .sort(byNewest);
 
-  const activeJobs = backgroundJobs
+  const waitingJobs = backgroundJobs
     .filter((job) => !isTerminalJobState(job.state))
     .filter((job) => !waitingJobIds.has(job.id))
+    .filter((job) => job.state.trim().toLowerCase().includes("waiting"))
     .sort((a, b) => b.updatedAtMs - a.updatedAtMs);
 
   const unreadNotifications = visibleNotifications.filter(
     (notification) => notification.seenAtMs === null,
   ).length;
-  const orphanWaitingJobs = activeJobs.filter((job) =>
-    job.state.toLowerCase().includes("waiting"),
-  ).length;
-
   return {
     waitingTickets,
     notifications: visibleNotifications,
-    activeJobs,
+    waitingJobs,
     attentionCount:
-      waitingTickets.length + unreadNotifications + orphanWaitingJobs,
+      waitingTickets.length + unreadNotifications + waitingJobs.length,
   };
 }
 

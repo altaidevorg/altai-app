@@ -164,7 +164,7 @@ export function PlanDiffReview({
       }
     >
       {feedback ? (
-        <div className="border-b border-border/50 bg-muted/25 px-3 py-1.5 text-[10.5px] text-muted-foreground">
+        <div className="border-b border-border-subtle bg-muted/25 px-3 py-1.5 text-[10.5px] text-muted-foreground">
           {feedback}
         </div>
       ) : null}
@@ -190,7 +190,7 @@ export function PlanDiffReview({
           </ul>
         </section> : null}
         <ReviewHistory items={checkpoints} applied={applied} onCheckpointsChange={setCheckpoints} />
-        {!queue.length && !historyCount ? <div className="rounded-none border border-dashed border-border/60 px-4 py-8 text-center text-[11px] leading-relaxed text-muted-foreground">When the agent proposes a plan or edits a file, it will appear here with a safe restore option.</div> : null}
+        {!queue.length && !historyCount ? <div className="rounded-md border border-dashed border-border/60 px-4 py-8 text-center text-[11px] leading-relaxed text-muted-foreground">When the agent proposes a plan or edits a file, it will appear here with a safe restore option.</div> : null}
       </div>
     </AuxiliarySurface>
   );
@@ -222,7 +222,7 @@ function PlanRow({
       : FileEditIcon;
 
   return (
-    <li className="group/row overflow-hidden rounded-md border border-border/50 bg-card">
+    <li className="group/row overflow-hidden rounded-md border border-border bg-muted/30">
       <div className="flex items-start gap-2 px-2.5 py-1.5">
         <button
           type="button"
@@ -405,7 +405,7 @@ function HistoryRow({
   onRestore: () => void;
 }) {
   return (
-    <div className="flex items-center gap-2 rounded-md border border-border/50 bg-card/60 px-2.5 py-2">
+    <div className="flex items-center gap-2 rounded-md border border-border bg-muted/30 px-2.5 py-2">
       <HugeiconsIcon icon={FileEditIcon} size={12} strokeWidth={1.75} className="shrink-0 text-muted-foreground" />
       <div className="min-w-0 flex-1">
         <div className="truncate text-[11px] font-medium text-foreground" title={path}>{basename(path)}</div>

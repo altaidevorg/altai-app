@@ -135,9 +135,21 @@ describe("buildNotificationInboxView", () => {
       "notification-unread",
       "notification-seen",
     ]);
-    // job-1 is represented by the waiting ticket; terminal jobs stay hidden.
-    expect(view.activeJobs.map((item) => item.id)).toEqual(["job-waiting"]);
+    // job-1 is represented by the waiting ticket; normally progressing and
+    // terminal jobs live in Work rather than creating Inbox clutter.
+    expect(view.waitingJobs.map((item) => item.id)).toEqual(["job-waiting"]);
     expect(view.attentionCount).toBe(3); // ticket + unread notice + orphan wait
+  });
+
+  it("keeps normally progressing work out of Inbox", () => {
+    const view = buildNotificationInboxView(
+      [],
+      [job({ id: "running" }), job({ id: "streaming", state: "streaming" })],
+      [],
+    );
+
+    expect(view.waitingJobs).toEqual([]);
+    expect(view.attentionCount).toBe(0);
   });
 });
 

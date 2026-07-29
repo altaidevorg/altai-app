@@ -886,7 +886,7 @@ const CommitRow = memo(function CommitRow({
       )}
       style={{ gridTemplateColumns: gridTemplate }}
     >
-      <div className="flex items-center justify-start pl-1">
+      <div className="flex h-full min-w-0 items-center justify-start overflow-hidden pl-1">
         {graphRow ? (
           <GraphRail
             row={graphRow}

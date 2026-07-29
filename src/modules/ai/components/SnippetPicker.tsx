@@ -35,7 +35,7 @@ export function SnippetPickerContent({
       onOpenAutoFocus={(e) => e.preventDefault()}
       onCloseAutoFocus={(e) => e.preventDefault()}
       onMouseDown={(e) => e.preventDefault()}
-      className="w-72 overflow-hidden rounded-lg border border-border/60 bg-popover/95 p-0 shadow-xl backdrop-blur-xl"
+      className="w-72 overflow-hidden rounded-lg border border-border/80 bg-popover p-0 text-popover-foreground shadow-xl"
     >
       {items.length === 0 ? (
         <div className="px-3 py-2.5 text-[11px] text-muted-foreground">
@@ -61,10 +61,10 @@ export function SnippetPickerContent({
                         onMouseEnter={() => onHover(i)}
                         onClick={() => onPick(it)}
                         className={cn(
-                          "flex w-full items-center gap-2 px-2 py-1.5 text-left text-[12px]",
+                          "mx-1 my-0.5 flex w-[calc(100%-0.5rem)] items-center gap-2 rounded-md px-2 py-1.5 text-left text-[12px] text-popover-foreground",
                           i === activeIndex
-                            ? "bg-accent"
-                            : "hover:bg-accent/60",
+                            ? "bg-foreground/[0.065]"
+                            : "hover:bg-foreground/[0.055]",
                         )}
                       >
                         <HugeiconsIcon
@@ -114,10 +114,10 @@ export function SnippetPickerContent({
                         onMouseEnter={() => onHover(i)}
                         onClick={() => onPick(it)}
                         className={cn(
-                          "flex w-full flex-col items-start gap-0.5 px-2 py-1.5 text-left text-[12px]",
+                          "mx-1 my-0.5 flex w-[calc(100%-0.5rem)] flex-col items-start gap-0.5 rounded-md px-2 py-1.5 text-left text-[12px] text-popover-foreground",
                           i === activeIndex
-                            ? "bg-accent"
-                            : "hover:bg-accent/60",
+                            ? "bg-foreground/[0.065]"
+                            : "hover:bg-foreground/[0.055]",
                         )}
                       >
                         <span className="flex w-full items-center gap-1.5">

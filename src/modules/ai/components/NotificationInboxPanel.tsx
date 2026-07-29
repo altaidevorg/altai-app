@@ -15,8 +15,10 @@ import {
   Alert02Icon,
   Cancel01Icon,
   Notebook01Icon,
+  Notification01Icon,
   Refresh01Icon,
   Tick02Icon,
+  TickDouble01Icon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useEffect, useMemo, useState } from "react";
@@ -30,7 +32,14 @@ import {
   buildNotificationInboxView,
   useNotificationStore,
 } from "../store/notificationStore";
-import { AuxiliarySurface, SurfaceIconAction } from "./AuxiliarySurface";
+import {
+  AuxiliarySurface,
+  SurfaceEmptyState,
+  SurfaceIconAction,
+  SurfaceSearch,
+  SurfaceSectionHeader,
+  SurfaceTabs,
+} from "./AuxiliarySurface";
 
 type DismissTarget =
   | {
@@ -46,7 +55,7 @@ type DismissTarget =
       label: string;
     };
 
-type InboxFilter = "all" | "attention" | "work" | "updates";
+type InboxFilter = "all" | "attention" | "updates";
 
 export function NotificationInboxPanel({ onClose }: { onClose: () => void }) {
   const workspacePath = useWorkspaceFolderStore((state) => state.folder);
@@ -72,6 +81,8 @@ export function NotificationInboxPanel({ onClose }: { onClose: () => void }) {
   const clearError = useNotificationStore((state) => state.clearError);
   const [dismissTarget, setDismissTarget] = useState<DismissTarget | null>(null);
   const [filter, setFilter] = useState<InboxFilter>("all");
+  const [query, setQuery] = useState("");
+  const [markingAllRead, setMarkingAllRead] = useState(false);
 
   const view = useMemo(
     () =>
@@ -84,6 +95,10 @@ export function NotificationInboxPanel({ onClose }: { onClose: () => void }) {
   );
   const sessionIds = useMemo(
     () => new Set(sessions.map((session) => session.id)),
+    [sessions],
+  );
+  const sessionTitles = useMemo(
+    () => new Map(sessions.map((session) => [session.id, session.title])),
     [sessions],
   );
   useEffect(() => {
@@ -116,75 +131,143 @@ export function NotificationInboxPanel({ onClose }: { onClose: () => void }) {
   const empty =
     view.waitingTickets.length === 0 &&
     view.notifications.length === 0 &&
-    view.activeJobs.length === 0;
+    view.waitingJobs.length === 0;
   const unreadNotifications = useMemo(
     () => view.notifications.filter((notification) => notification.seenAtMs === null),
     [view.notifications],
   );
-  const waitingJobs = useMemo(
+  const matchesQuery = (values: Array<string | null | undefined>) => {
+    const normalizedQuery = query.trim().toLowerCase();
+    if (!normalizedQuery) return true;
+    return values
+      .filter(Boolean)
+      .join("\n")
+      .toLowerCase()
+      .includes(normalizedQuery);
+  };
+  const visibleTickets = useMemo(
     () =>
-      view.activeJobs.filter((job) =>
-        job.state.toLowerCase().includes("waiting"),
+      view.waitingTickets.filter((ticket) =>
+        matchesQuery([
+          ticket.prompt,
+          ...ticket.choices,
+          sessionTitles.get(ticket.chatId),
+        ]),
       ),
-    [view.activeJobs],
-  );
-  const activeJobs = useMemo(
-    () =>
-      view.activeJobs.filter(
-        (job) => !job.state.toLowerCase().includes("waiting"),
-      ),
-    [view.activeJobs],
+    [query, sessionTitles, view.waitingTickets],
   );
   const visibleNotifications = useMemo(
-    () => (filter === "attention" ? unreadNotifications : view.notifications),
-    [filter, unreadNotifications, view.notifications],
+    () =>
+      (filter === "attention" ? unreadNotifications : view.notifications).filter(
+        (notification) =>
+          matchesQuery([
+            notification.title,
+            notification.body,
+            notification.kind,
+            sessionTitles.get(notification.chatId),
+          ]),
+      ),
+    [filter, query, sessionTitles, unreadNotifications, view.notifications],
+  );
+  const visibleUnreadNotifications = visibleNotifications.filter(
+    (notification) => notification.seenAtMs === null,
+  );
+  const visibleReadNotifications = visibleNotifications.filter(
+    (notification) => notification.seenAtMs !== null,
+  );
+  const visibleWaitingJobs = useMemo(
+    () =>
+      view.waitingJobs.filter((job) =>
+        matchesQuery([
+          job.kind,
+          job.state,
+          job.lastError,
+          sessionTitles.get(job.chatId),
+        ]),
+      ),
+    [query, sessionTitles, view.waitingJobs],
   );
   const filterCounts: Record<InboxFilter, number> = {
     all:
       view.waitingTickets.length +
       view.notifications.length +
-      view.activeJobs.length,
+      view.waitingJobs.length,
     attention:
-      view.waitingTickets.length + unreadNotifications.length + waitingJobs.length,
-    work: view.activeJobs.length,
+      view.waitingTickets.length + unreadNotifications.length + view.waitingJobs.length,
     updates: view.notifications.length,
   };
-  const hasVisibleItems = filterCounts[filter] > 0;
+  const hasVisibleItems =
+    ((filter === "all" || filter === "attention") &&
+      visibleTickets.length > 0) ||
+    ((filter === "all" || filter === "attention" || filter === "updates") &&
+      visibleNotifications.length > 0) ||
+    ((filter === "all" || filter === "attention") &&
+      visibleWaitingJobs.length > 0);
+
+  const markAllRead = async () => {
+    if (!unreadNotifications.length || markingAllRead) return;
+    setMarkingAllRead(true);
+    try {
+      await Promise.all(
+        unreadNotifications.map((notification) =>
+          markSeen(notification.id, notification.chatId),
+        ),
+      );
+    } finally {
+      setMarkingAllRead(false);
+    }
+  };
 
   return (
     <>
       <AuxiliarySurface
         title="Inbox"
-        subtitle="Keep track of agents without losing your place in chat."
-        onClose={onClose}
-        actions={
-          <SurfaceIconAction
-            label="Refresh agent inbox"
-            onClick={() => void refresh(workspacePath)}
-            disabled={loading}
-          >
-            {loading ? (
-              <Spinner className="size-3.5" />
-            ) : (
-              <HugeiconsIcon icon={Refresh01Icon} size={13} strokeWidth={1.75} />
-            )}
-          </SurfaceIconAction>
+        eyebrow="Agent attention"
+        icon={Notification01Icon}
+        subtitle={
+          view.attentionCount
+            ? `${view.attentionCount} item${view.attentionCount === 1 ? "" : "s"} need your attention`
+            : "Nothing is blocking your agents"
         }
-      >
-        {view.attentionCount ? (
-          <div className="flex shrink-0 items-center gap-1.5 border-b border-border/50 px-3 py-1.5">
-            <span className="rounded-full bg-warning/15 px-1.5 py-0.5 text-[9px] font-semibold text-warning">
-              {view.attentionCount} need{view.attentionCount === 1 ? "s" : ""} attention
+        status={
+          view.attentionCount ? (
+            <span className="rounded bg-warning/12 px-1.5 py-0.5 text-[8.5px] font-semibold text-warning">
+              Action needed
             </span>
-          </div>
-        ) : (
-          <div className="flex shrink-0 items-center gap-1.5 border-b border-border/50 px-3 py-1.5">
-            <span className="rounded-full bg-success/10 px-1.5 py-0.5 text-[9px] font-medium text-success">
+          ) : (
+            <span className="rounded bg-success/10 px-1.5 py-0.5 text-[8.5px] font-semibold text-success">
               All clear
             </span>
-          </div>
-        )}
-
+          )
+        }
+        onClose={onClose}
+        actions={
+          <>
+            <SurfaceIconAction
+              label="Mark every notification as read"
+              onClick={() => void markAllRead()}
+              disabled={!unreadNotifications.length || markingAllRead}
+            >
+              {markingAllRead ? (
+                <Spinner className="size-3.5" />
+              ) : (
+                <HugeiconsIcon icon={TickDouble01Icon} size={13} strokeWidth={1.75} />
+              )}
+            </SurfaceIconAction>
+            <SurfaceIconAction
+              label="Refresh agent inbox"
+              onClick={() => void refresh(workspacePath)}
+              disabled={loading}
+            >
+              {loading ? (
+                <Spinner className="size-3.5" />
+              ) : (
+                <HugeiconsIcon icon={Refresh01Icon} size={13} strokeWidth={1.75} />
+              )}
+            </SurfaceIconAction>
+          </>
+        }
+      >
         {error ? (
           <div
             role="alert"
@@ -208,63 +291,32 @@ export function NotificationInboxPanel({ onClose }: { onClose: () => void }) {
           </div>
         ) : null}
 
-        <div className="shrink-0 border-b border-border/45 bg-muted/[0.12] px-3 py-2.5">
-          <div className="grid grid-cols-3 gap-1.5">
-            <InboxStat
-              label="Paused"
-              value={view.waitingTickets.length}
-              active={filter === "attention"}
-              tone="amber"
-              onClick={() => setFilter("attention")}
+        <div className="shrink-0 space-y-2 border-b border-border-subtle bg-card px-3 py-2.5">
+            <SurfaceSearch
+              value={query}
+              onChange={setQuery}
+              placeholder="Search by update, task, or conversation"
+              className="w-full"
             />
-            <InboxStat
-              label="Unread"
-              value={unreadNotifications.length}
-              active={filter === "updates"}
-              tone="sky"
-              onClick={() => setFilter("updates")}
+            <SurfaceTabs
+              label="Filter inbox"
+              value={filter}
+              onChange={(value) => setFilter(value as InboxFilter)}
+              items={[
+                { id: "all", label: "All", count: filterCounts.all },
+                {
+                  id: "attention",
+                  label: "Attention",
+                  count: filterCounts.attention,
+                },
+                {
+                  id: "updates",
+                  label: "Updates",
+                  count: filterCounts.updates,
+                },
+              ]}
+              className="border-0 bg-transparent p-0"
             />
-            <InboxStat
-              label="Working"
-              value={view.activeJobs.length}
-              active={filter === "work"}
-              tone="violet"
-              onClick={() => setFilter("work")}
-            />
-          </div>
-          <div
-            role="tablist"
-            aria-label="Filter inbox"
-            className="mt-2 flex items-center gap-1 overflow-x-auto rounded-lg bg-foreground/[0.045] p-1"
-          >
-            {(
-              [
-                ["all", "All"],
-                ["attention", "Attention"],
-                ["work", "Work"],
-                ["updates", "Updates"],
-              ] as const
-            ).map(([value, label]) => (
-              <button
-                key={value}
-                type="button"
-                role="tab"
-                aria-selected={filter === value}
-                onClick={() => setFilter(value)}
-                className={cn(
-                  "shrink-0 rounded-md px-2 py-1 text-[9.5px] font-medium transition-colors",
-                  filter === value
-                    ? "bg-background text-foreground shadow-sm"
-                    : "text-muted-foreground hover:text-foreground",
-                )}
-              >
-                {label}
-                {filterCounts[value] ? (
-                  <span className="ml-1 opacity-65">{filterCounts[value]}</span>
-                ) : null}
-              </button>
-            ))}
-          </div>
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto p-3">
@@ -282,16 +334,18 @@ export function NotificationInboxPanel({ onClose }: { onClose: () => void }) {
           ) : (
             <div className="space-y-4">
               {(filter === "all" || filter === "attention") &&
-              view.waitingTickets.length ? (
+              visibleTickets.length ? (
                 <InboxSection
                   title="Paused tasks"
-                  count={view.waitingTickets.length}
+                  count={visibleTickets.length}
                 >
-                  {view.waitingTickets.map((ticket) => (
+                  {visibleTickets.map((ticket) => (
                     <TicketCard
                       key={ticket.id}
                       ticket={ticket}
+                      sessionTitle={sessionTitles.get(ticket.chatId)}
                       busy={Boolean(pendingIds[`ticket:${ticket.id}`])}
+                      canOpenChat={sessionIds.has(ticket.chatId)}
                       canResume={backgroundJobs.some(
                         (job) =>
                           job.id === ticket.jobId &&
@@ -305,6 +359,7 @@ export function NotificationInboxPanel({ onClose }: { onClose: () => void }) {
                       onReply={(response) =>
                         void replyToTicket(ticket.id, ticket.chatId, response)
                       }
+                      onOpenChat={() => openChat(ticket.chatId)}
                       onDismiss={() =>
                         setDismissTarget({
                           kind: "ticket",
@@ -318,16 +373,53 @@ export function NotificationInboxPanel({ onClose }: { onClose: () => void }) {
                 </InboxSection>
               ) : null}
 
-              {(filter === "all" || filter === "updates" || filter === "attention") &&
-              visibleNotifications.length ? (
+              {(filter === "all" || filter === "attention") &&
+              visibleWaitingJobs.length ? (
+                <InboxSection title="Waiting work" count={visibleWaitingJobs.length}>
+                  {visibleWaitingJobs.map((job) => (
+                    <JobCard
+                      key={job.id}
+                      job={job}
+                      sessionTitle={sessionTitles.get(job.chatId)}
+                      canOpenChat={sessionIds.has(job.chatId)}
+                      busy={Boolean(pendingIds[`job:${job.id}`])}
+                      canDismiss
+                      onOpenChat={() => openChat(job.chatId)}
+                      onDismiss={() =>
+                        setDismissTarget({
+                          kind: "job",
+                          id: job.id,
+                          chatId: job.chatId,
+                          label: labelForJob(job),
+                        })
+                      }
+                    />
+                  ))}
+                </InboxSection>
+              ) : null}
+
+              {(filter === "all" ||
+                filter === "updates" ||
+                filter === "attention") &&
+              (filter === "updates"
+                ? visibleNotifications.length
+                : visibleUnreadNotifications.length) ? (
                 <InboxSection
-                  title={filter === "attention" ? "Unread updates" : "Notifications"}
-                  count={visibleNotifications.length}
+                  title={filter === "updates" ? "Updates" : "Unread updates"}
+                  count={
+                    filter === "updates"
+                      ? visibleNotifications.length
+                      : visibleUnreadNotifications.length
+                  }
                 >
-                  {visibleNotifications.map((notification) => (
+                  {(filter === "updates"
+                    ? visibleNotifications
+                    : visibleUnreadNotifications
+                  ).map((notification) => (
                     <NotificationCard
                       key={notification.id}
                       notification={notification}
+                      sessionTitle={sessionTitles.get(notification.chatId)}
                       canOpenChat={sessionIds.has(notification.chatId)}
                       busy={Boolean(
                         pendingIds[`notification:${notification.id}`],
@@ -347,50 +439,26 @@ export function NotificationInboxPanel({ onClose }: { onClose: () => void }) {
                 </InboxSection>
               ) : null}
 
-              {(filter === "all" || filter === "work") && activeJobs.length ? (
-                <InboxSection
-                  title="In progress"
-                  count={activeJobs.length}
-                >
-                  {activeJobs.map((job) => (
-                    <JobCard
-                      key={job.id}
-                      job={job}
-                      canOpenChat={sessionIds.has(job.chatId)}
-                      busy={Boolean(pendingIds[`job:${job.id}`])}
-                      canDismiss={false}
-                      onOpenChat={() => openChat(job.chatId)}
-                      onDismiss={() =>
-                        setDismissTarget({
-                          kind: "job",
-                          id: job.id,
-                          chatId: job.chatId,
-                          label: labelForJob(job),
-                        })
+              {filter === "all" && visibleReadNotifications.length ? (
+                <InboxSection title="Earlier updates" count={visibleReadNotifications.length}>
+                  {visibleReadNotifications.map((notification) => (
+                    <NotificationCard
+                      key={notification.id}
+                      notification={notification}
+                      sessionTitle={sessionTitles.get(notification.chatId)}
+                      canOpenChat={sessionIds.has(notification.chatId)}
+                      busy={Boolean(
+                        pendingIds[`notification:${notification.id}`],
+                      )}
+                      onOpenChat={() => openNotificationChat(notification)}
+                      onMarkSeen={() =>
+                        void markSeen(notification.id, notification.chatId)
                       }
-                    />
-                  ))}
-                </InboxSection>
-              ) : null}
-
-              {(filter === "all" || filter === "attention") &&
-              waitingJobs.length ? (
-                <InboxSection title="Waiting work" count={waitingJobs.length}>
-                  {waitingJobs.map((job) => (
-                    <JobCard
-                      key={job.id}
-                      job={job}
-                      canOpenChat={sessionIds.has(job.chatId)}
-                      busy={Boolean(pendingIds[`job:${job.id}`])}
-                      canDismiss
-                      onOpenChat={() => openChat(job.chatId)}
-                      onDismiss={() =>
-                        setDismissTarget({
-                          kind: "job",
-                          id: job.id,
-                          chatId: job.chatId,
-                          label: labelForJob(job),
-                        })
+                      onResolve={() =>
+                        void resolveNotification(
+                          notification.id,
+                          notification.chatId,
+                        )
                       }
                     />
                   ))}
@@ -442,69 +510,30 @@ function InboxSection({
 }) {
   return (
     <section>
-      <div className="mb-1.5 flex items-center gap-2 px-1">
-        <h3 className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-          {title}
-        </h3>
-        <span className="rounded-full bg-foreground/[0.07] px-1.5 py-0.5 text-[9px] font-medium text-muted-foreground">
-          {count}
-        </span>
-      </div>
+      <SurfaceSectionHeader title={title} count={count} className="mb-2 px-0.5" />
       <div className="space-y-2">{children}</div>
     </section>
   );
 }
 
-function InboxStat({
-  label,
-  value,
-  active,
-  tone,
-  onClick,
-}: {
-  label: string;
-  value: number;
-  active: boolean;
-  tone: "amber" | "sky" | "violet";
-  onClick: () => void;
-}) {
-  const tones = {
-    amber: "border-warning/25 bg-warning/[0.07] text-warning",
-    sky: "border-info/25 bg-info/[0.06] text-info",
-    violet: "border-primary/25 bg-primary/[0.07] text-primary",
-  };
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cn(
-        "rounded-lg border px-2 py-1.5 text-left transition-colors hover:brightness-95",
-        tones[tone],
-        active && "ring-1 ring-current/25",
-      )}
-    >
-      <span className="block text-[14px] font-semibold leading-none tabular-nums">
-        {value}
-      </span>
-      <span className="mt-1 block truncate text-[8.5px] font-medium opacity-75">
-        {label}
-      </span>
-    </button>
-  );
-}
-
 function TicketCard({
   ticket,
+  sessionTitle,
   busy,
+  canOpenChat,
   canResume,
   canDismiss,
+  onOpenChat,
   onReply,
   onDismiss,
 }: {
   ticket: AgentClarificationTicketInfo;
+  sessionTitle?: string;
   busy: boolean;
+  canOpenChat: boolean;
   canResume: boolean;
   canDismiss: boolean;
+  onOpenChat: () => void;
   onReply: (response: string) => void;
   onDismiss: () => void;
 }) {
@@ -521,6 +550,16 @@ function TicketCard({
           <div className="text-[10px] font-medium uppercase tracking-wide text-warning/80">
             Background task is paused
           </div>
+          {sessionTitle ? (
+            <button
+              type="button"
+              onClick={onOpenChat}
+              disabled={!canOpenChat}
+              className="mt-0.5 max-w-full truncate text-left text-[9.5px] text-muted-foreground hover:text-foreground disabled:opacity-45"
+            >
+              {sessionTitle}
+            </button>
+          ) : null}
           <p className="mt-1 whitespace-pre-wrap text-[11px] leading-relaxed text-foreground">
             {ticket.prompt}
           </p>
@@ -532,7 +571,7 @@ function TicketCard({
               {ticket.choices.map((choice, index) => (
                 <span
                   key={`${index}-${choice}`}
-                  className="rounded-full border border-warning/25 bg-background/55 px-2 py-0.5 text-[9.5px] text-muted-foreground"
+                  className="border border-warning/25 bg-muted px-2 py-0.5 text-[9.5px] text-muted-foreground"
                 >
                   {choice}
                 </span>
@@ -552,7 +591,7 @@ function TicketCard({
                 aria-label="Response to clarification ticket"
                 rows={2}
                 maxLength={10_000}
-                className="w-full resize-y rounded-md border border-warning/25 bg-background/65 px-2 py-1.5 text-[10.5px] leading-relaxed outline-none placeholder:text-muted-foreground/70 focus:border-warning/55 disabled:opacity-50"
+                className="w-full resize-y border border-warning/25 bg-muted px-2 py-1.5 text-[10.5px] leading-relaxed outline-none placeholder:text-muted-foreground/70 focus:border-warning/55 disabled:opacity-50"
               />
               {ticket.choices.length ? (
                 <div className="flex flex-wrap gap-1">
@@ -563,10 +602,10 @@ function TicketCard({
                       onClick={() => setResponse(choice)}
                       disabled={busy}
                       className={cn(
-                        "rounded-full border px-2 py-0.5 text-[9px] transition-colors disabled:opacity-45",
+                        "border px-2 py-0.5 text-[9px] transition-colors disabled:opacity-45",
                         response === choice
                           ? "border-warning/60 bg-warning/15 text-warning"
-                          : "border-warning/25 bg-background/55 text-muted-foreground hover:border-warning/45",
+                          : "border-warning/25 bg-muted text-muted-foreground hover:border-warning/45",
                       )}
                     >
                       {choice}
@@ -614,6 +653,7 @@ function TicketCard({
 
 function NotificationCard({
   notification,
+  sessionTitle,
   canOpenChat,
   busy,
   onOpenChat,
@@ -621,6 +661,7 @@ function NotificationCard({
   onResolve,
 }: {
   notification: AgentNotificationInfo;
+  sessionTitle?: string;
   canOpenChat: boolean;
   busy: boolean;
   onOpenChat: () => void;
@@ -631,7 +672,7 @@ function NotificationCard({
   return (
     <article
       className={cn(
-        "rounded-lg border border-border/60 bg-card/45 p-2.5",
+        "rounded-lg border border-border bg-muted/30 p-2.5",
         unread && "border-info/25 bg-info/[0.04]",
       )}
     >
@@ -644,9 +685,14 @@ function NotificationCard({
         />
         <div className="min-w-0 flex-1">
           <div className="flex items-start gap-2">
-            <h4 className="min-w-0 flex-1 text-[11px] font-medium leading-snug text-foreground">
+            <button
+              type="button"
+              onClick={onOpenChat}
+              disabled={!canOpenChat}
+              className="min-w-0 flex-1 text-left text-[11px] font-medium leading-snug text-foreground hover:underline disabled:no-underline"
+            >
               {notification.title}
-            </h4>
+            </button>
             <span className="shrink-0 text-[9px] text-muted-foreground">
               {formatRelativeTime(notification.createdAtMs)}
             </span>
@@ -656,8 +702,14 @@ function NotificationCard({
               {notification.body}
             </p>
           ) : null}
-          <div className="mt-1 text-[9px] text-muted-foreground/75">
-            {humanize(notification.kind)}
+          <div className="mt-1 flex flex-wrap items-center gap-x-1.5 text-[9px] text-muted-foreground/75">
+            <span>{humanize(notification.kind)}</span>
+            {sessionTitle ? (
+              <>
+                <span aria-hidden="true">·</span>
+                <span className="max-w-40 truncate">{sessionTitle}</span>
+              </>
+            ) : null}
           </div>
         </div>
       </div>
@@ -700,6 +752,7 @@ function NotificationCard({
 
 function JobCard({
   job,
+  sessionTitle,
   canOpenChat,
   busy,
   canDismiss,
@@ -707,6 +760,7 @@ function JobCard({
   onDismiss,
 }: {
   job: AgentBackgroundJobInfo;
+  sessionTitle?: string;
   canOpenChat: boolean;
   busy: boolean;
   canDismiss: boolean;
@@ -715,7 +769,7 @@ function JobCard({
 }) {
   const waiting = job.state.toLowerCase().includes("waiting");
   return (
-    <article className="rounded-lg border border-border/60 bg-card/45 p-2.5">
+    <article className="rounded-lg border border-border bg-muted/30 p-2.5">
       <div className="flex items-start gap-2">
         <span className="mt-0.5 inline-flex size-6 shrink-0 items-center justify-center rounded-md bg-foreground/[0.06] text-muted-foreground">
           <HugeiconsIcon icon={Notebook01Icon} size={13} strokeWidth={1.75} />
@@ -741,6 +795,11 @@ function JobCard({
             {job.resumeAfterRestart ? " · resumes after restart" : ""}
             {job.detached ? " · detached" : ""}
           </p>
+          {sessionTitle ? (
+            <p className="mt-0.5 truncate text-[9px] text-muted-foreground/75">
+              {sessionTitle}
+            </p>
+          ) : null}
           {job.lastError ? (
             <p className="mt-1.5 line-clamp-2 text-[10px] leading-relaxed text-destructive">
               {job.lastError}
@@ -779,18 +838,12 @@ function JobCard({
 
 function EmptyInbox() {
   return (
-    <div className="flex flex-col items-center justify-center px-4 py-12 text-center">
-      <span className="inline-flex size-9 items-center justify-center rounded-full bg-success/10 text-success">
-        <HugeiconsIcon icon={Tick02Icon} size={18} strokeWidth={1.75} />
-      </span>
-      <h3 className="mt-3 text-[11.5px] font-medium text-foreground">
-        You&apos;re all caught up
-      </h3>
-      <p className="mt-1 max-w-64 text-[10px] leading-relaxed text-muted-foreground">
-        Questions from background agents and durable task updates will appear
-        here.
-      </p>
-    </div>
+    <SurfaceEmptyState
+      icon={Tick02Icon}
+      title="You’re all caught up"
+      description="Questions, review-ready results, and durable agent updates will appear here."
+      className="border-0 bg-transparent"
+    />
   );
 }
 
@@ -824,9 +877,7 @@ function FilteredEmptyInbox({
   const label =
     filter === "attention"
       ? "Nothing needs your attention"
-      : filter === "work"
-        ? "No background work is running"
-        : "No notifications to show";
+      : "No updates to show";
   return (
     <div className="flex flex-col items-center justify-center px-4 py-12 text-center">
       <span className="inline-flex size-9 items-center justify-center rounded-full bg-muted text-muted-foreground">
