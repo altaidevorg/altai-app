@@ -42,9 +42,9 @@
 | Capability | Gap | Planned milestone |
 |---|---|---|
 | Full bus-message parity in the CLI journal sink (tool calls, thinking, usage) | Only `run_started` / `run_terminated` are journaled; desktop's richer per-turn events are not yet mirrored by the CLI | **M6 follow-up** |
-| Release packaging / installed-binary CI matrix | Not implemented | **M6** |
+| Release packaging / installed-binary CI matrix | Partial | `altai-cli smoke` CI job builds release binary + version/doctor/completion/dry-run; full archives/installers still open |
 | Upstream merge of oneshot + theme + approval + attachment host API | Local path pin; upstream PR open | Switch back to git rev after [isanagent#99](https://github.com/altaidevorg/isanagent/pull/99) merges |
-| Full PTY visual golden frames | Width-fit string snapshots only | Expand in M6 CI matrix |
+| Full PTY visual golden frames | Width-fit string snapshots only | Expand in CI matrix follow-up |
 
 ## Blocked
 
