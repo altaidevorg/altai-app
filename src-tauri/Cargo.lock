@@ -195,6 +195,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "altai-cli"
+version = "0.6.4"
+dependencies = [
+ "altai-core",
+ "clap",
+ "clap_complete",
+ "isanagent",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+]
+
+[[package]]
+name = "altai-core"
+version = "0.6.4"
+dependencies = [
+ "serde",
+ "serde_json",
+ "tempfile",
+ "toml 0.8.23",
+]
+
+[[package]]
 name = "android_log-sys"
 version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1134,6 +1158,15 @@ dependencies = [
  "anstyle",
  "clap_lex",
  "strsim",
+]
+
+[[package]]
+name = "clap_complete"
+version = "4.6.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b1f84a88507dbd05c695f2cb5e8558e747179134005e9893882dec964190ed89"
+dependencies = [
+ "clap",
 ]
 
 [[package]]
@@ -3637,7 +3670,6 @@ checksum = "a6cb138bb79a146c1bd460005623e142ef0181e3d0219cb493e02f7d08a35695"
 [[package]]
 name = "isanagent"
 version = "0.11.0"
-source = "git+https://github.com/altaidevorg/isanagent.git?branch=main#f40a5a48b120070b23a913f7637e8f89a71da540"
 dependencies = [
  "arboard",
  "async-stream",

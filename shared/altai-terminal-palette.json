@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "source": "src/styles/globals.css",
+  "description": "Semantic mapping from the ALTAI App design tokens to the IsanAgent terminal theme. CSS remains the source of color values; this file owns terminal roles only.",
+  "modes": {
+    "dark": {
+      "canvas": "--background",
+      "panel": "--card",
+      "raised": "--raised",
+      "overlay": "--overlay",
+      "text": "--foreground",
+      "muted_text": "--muted-foreground",
+      "active": "--primary",
+      "focus": "--ring",
+      "success": "--success",
+      "warning": "--warning",
+      "info": "--info",
+      "error": "--destructive",
+      "border": "--border",
+      "border_subtle": "--border-subtle"
+    },
+    "light": {
+      "canvas": "--background",
+      "panel": "--card",
+      "raised": "--raised",
+      "overlay": "--overlay",
+      "text": "--foreground",
+      "muted_text": "--muted-foreground",
+      "active": "--primary",
+      "focus": "--ring",
+      "success": "--success",
+      "warning": "--warning",
+      "info": "--info",
+      "error": "--destructive",
+      "border": "--border",
+      "border_subtle": "--border-subtle"
+    }
+  },
+  "fallbacks": ["truecolor", "ansi256", "ansi16", "no-color"]
+}
+
