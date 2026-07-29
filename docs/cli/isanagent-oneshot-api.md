@@ -46,10 +46,15 @@ pub use HostThemeMode;
   `<context-file>`, images/PDFs as media parts). Terminal `@path` parsing accepts
   text / image / PDF and fuzzy-resolves unique basenames under the sandbox.
 
-## Upstream constraint
+## Upstream status
 
-`gh` auth in this environment is invalid, so the change could not be pushed as an
-IsanAgent PR during M1. ALTAI temporarily path-depends on `tools/isanagent-oneshot`.
-After the upstream PR merges, switch `src-tauri/Cargo.toml` and
-`src-tauri/crates/altai-cli/Cargo.toml` back to the git revision and delete the
-local pin.
+Proposed as [`altaidevorg/isanagent#99`](https://github.com/altaidevorg/isanagent/pull/99).
+ALTAI still path-depends on `tools/isanagent-oneshot` until that PR merges;
+then switch `src-tauri/Cargo.toml` and `src-tauri/crates/altai-cli/Cargo.toml`
+back to the git revision and delete the local pin.
+
+## M5 / M6 notes
+
+- Shared durable journal lives in `altai-core::journal` (not this host surface).
+- Oneshot resumes approvals on `/dev/tty` when available; otherwise exits with
+  `ApprovalRequired` / `ClarificationRequired` for non-TTY callers.

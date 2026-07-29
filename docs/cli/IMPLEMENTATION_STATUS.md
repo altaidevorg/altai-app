@@ -32,26 +32,28 @@
 | Line-mode `/context` + `/compact [focus]` | Verified | `terminal.rs` memory GetContext / TriggerCompaction |
 | Real `--file` content loading (oneshot + first line-mode message) | Verified | `load_host_file_attachments` |
 | `@path` text / image / PDF + fuzzy basename resolve | Verified | `attachments.rs` unit tests |
+| Shared, Tauri-free event journal (`altai-core::journal`) | Verified | moved `event_journal.rs` unit tests now run under `altai-core` |
+| `altai run` appends `run_started` / `run_terminated` to the desktop journal | Verified | `journal_sink` unit tests + CLI smoke against a scratch workspace |
+| `altai journal summary` / `altai journal fetch` inspection commands | Verified | clap contract tests + round-trip test against a seeded journal |
+| Mid-run `/dev/tty` approval resume for `altai run` | Verified | oneshot prompts on controlling TTY; non-TTY still exits 4 |
 
 ## Incomplete
 
 | Capability | Gap | Planned milestone |
 |---|---|---|
-| Mid-run `/dev/tty` resume for `altai run` | Oneshot still exits 4 on approval | **M3 follow-up / M6** |
-| Multi-agent / desktop event journal parity | Not implemented | **M5** |
+| Full bus-message parity in the CLI journal sink (tool calls, thinking, usage) | Only `run_started` / `run_terminated` are journaled; desktop's richer per-turn events are not yet mirrored by the CLI | **M6 follow-up** |
 | Release packaging / installed-binary CI matrix | Not implemented | **M6** |
-| Upstream merge of oneshot + theme + approval + attachment host API | Local path pin only | Switch back to git rev after merge |
+| Upstream merge of oneshot + theme + approval + attachment host API | Local path pin; upstream PR open | Switch back to git rev after [isanagent#99](https://github.com/altaidevorg/isanagent/pull/99) merges |
 | Full PTY visual golden frames | Width-fit string snapshots only | Expand in M6 CI matrix |
 
 ## Blocked
 
 | Blocker | Impact | Resolution path |
 |---|---|---|
-| `gh` auth invalid for IsanAgent upstream push | Cannot land oneshot/theme API on `altaidevorg/isanagent` from this environment | Push/PR from an authenticated machine; then remove `tools/isanagent-oneshot` path pin |
-| ALTAI runtime events still Tauri-bound | Shared durable event journal incomplete | M5 |
+| IsanAgent upstream PR not yet merged | ALTAI still path-pins `tools/isanagent-oneshot` | Merge [isanagent#99](https://github.com/altaidevorg/isanagent/pull/99), then retarget Cargo deps to the git rev |
 
 ## Next milestone
 
-### M5 — Multi-agent / event journal parity
+### M6 — Packaging, CI matrix, richer journal parity
 
-Do not start until M4 is committed and context/attachment/compaction behavior above is accepted.
+Do not start until M5 is committed and journal + `/dev/tty` approval resume above are accepted.

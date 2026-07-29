@@ -134,3 +134,64 @@
   flag parse + preview.
 - `cargo test -p altai-core -p altai-cli` → 42 tests; IsanAgent
   `channels::terminal_ui::attachments` → 4 tests.
+
+## M5 results — 2026-07-29
+
+- Moved `EventJournal` / `JournalEvent` / `JournalError` / `AppendStatus` /
+  `RunJournalSummary` from `src-tauri/src/altai/agent/event_journal.rs` into
+  `altai-core::journal` (Tauri-free; `rusqlite` moved to `altai-core`'s own
+  dependencies). Desktop's `event_journal` module is now a one-line
+  `pub use altai_core::journal::*;` re-export, so `runtime.rs` and
+  `tauri_channel.rs` are unchanged. All of the moved journal unit tests
+  (migration idempotency, concurrent migration race, append/fetch ordering,
+  duplicate/conflict handling, terminal CAS race) now run under
+  `altai-core::journal::tests` and still pass.
+- Added `WorkspacePaths::agent_event_journal_db()` to `altai-core::workspace`
+  (`<isanagent_state>/.system_generated/agent_event_journal.db`), matching the
+  path desktop's `ensure_workspace_services` already used inline, plus a unit
+  test.
+- The main Tauri crate now depends on `altai-core` directly
+  (`src-tauri/Cargo.toml`), which it previously only referenced transitively
+  as a workspace member.
+- New `altai-cli::journal_sink::JournalSink` opens the same
+  `agent_event_journal_db()` during `altai run` and appends a minimal subset
+  mirroring desktop's journal `kind` conventions: `run_started` on the first
+  `RunLifecycle::Started` bus message, then a single `run_terminated` once the
+  oneshot host returns — synthesizing the run/chat identity from the final
+  `OneshotResult` if no bus message was ever observed (e.g. an early host
+  failure). Append failures are logged to stderr and never fail the run.
+  `describe_oneshot_outcome` was extracted from `run_output::FinalRunResult`
+  so the sink's terminal `outcome.kind` / `outcome.detail` match the
+  `run --output json` outcome labels exactly.
+- Added `altai journal summary [--chat ID] [--json]` (incomplete runs +
+  optional latest-run-for-chat) and `altai journal fetch --run ID [--after
+  SEQ] [--limit N] [--json]`, both reusing `altai_core::resolve_workspace` +
+  `EventJournal::open` the same way `config` / `models` do.
+- `CARGO_TARGET_DIR=src-tauri/target cargo test --manifest-path
+  src-tauri/Cargo.toml -p altai-core -p altai-cli` → 56 tests passed (30
+  `altai-core`, 26 `altai-cli`), including `journal::tests::*` (the moved
+  desktop tests) and the new `journal_sink::tests::*` / `journal_*_contract_*`
+  / `journal_summary_and_fetch_round_trip_a_run` tests.
+- `cargo check --manifest-path src-tauri/Cargo.toml -p altai` (desktop crate)
+  and `cargo test --manifest-path src-tauri/Cargo.toml -p altai --lib
+  altai::agent::runtime` (34 tests, including
+  `run_event_tests::restart_classifies_incomplete_runs_once_without_resuming_work`)
+  both passed against the re-exported journal module.
+- Manual smoke: `altai-cli run . --prompt "..." --permission plan --output
+  jsonl` against a scratch workspace with no provider configured (so the run
+  fails with `ProviderRetriesExhausted`) still committed `run_started` +
+  `run_terminated` (`outcome.kind = "failed"`) to
+  `.isanagent/.system_generated/agent_event_journal.db`; `altai journal
+  summary --chat <id> --json` and `altai journal fetch --run <id> --json`
+  round-tripped that run correctly.
+- Not covered in M5 (deferred to M6 follow-up): mirroring tool-call/thinking/usage
+  bus messages into the journal.
+
+## M6 partial — `/dev/tty` approval resume — 2026-07-29
+
+- Oneshot channel resumes approvals/clarifications on the controlling TTY when
+  available (`prompt_on_tty`); hotkeys `y/n/a/x` normalize to
+  approve/deny/always/abort. Non-TTY / failed tty still exits with code `4`.
+- Synced into IsanAgent upstream PR
+  [`altaidevorg/isanagent#99`](https://github.com/altaidevorg/isanagent/pull/99).
+- Packaging / installed-binary CI matrix and full PTY golden frames remain open.

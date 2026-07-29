@@ -12,6 +12,16 @@ pub struct WorkspacePaths {
     pub isanagent_state: PathBuf,
 }
 
+impl WorkspacePaths {
+    /// Path to the durable SQLite event journal shared by every host adapter
+    /// (desktop and CLI) that runs agent turns for this workspace.
+    pub fn agent_event_journal_db(&self) -> PathBuf {
+        self.isanagent_state
+            .join(".system_generated")
+            .join("agent_event_journal.db")
+    }
+}
+
 /// A user-correctable workspace resolution failure.
 #[derive(Debug)]
 pub enum WorkspaceError {
@@ -125,6 +135,21 @@ mod tests {
         let paths = resolve_workspace_from(Some(Path::new("README.md")), temp.path())
             .expect("relative parent workspace should resolve");
         assert_eq!(paths.root, temp.path().canonicalize().unwrap());
+    }
+
+    #[test]
+    fn agent_event_journal_db_lives_under_system_generated_state() {
+        let temp = tempfile::tempdir().expect("temporary directory");
+        let paths = resolve_workspace_from(Some(temp.path()), Path::new("/unused"))
+            .expect("workspace should resolve");
+
+        assert_eq!(
+            paths.agent_event_journal_db(),
+            paths
+                .isanagent_state
+                .join(".system_generated")
+                .join("agent_event_journal.db")
+        );
     }
 
     #[test]
