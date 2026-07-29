@@ -328,7 +328,7 @@ export function AiInputBar() {
   };
 
   return (
-    <div className="altai-ai-composer-wrap shrink-0 bg-transparent">
+    <div className="altai-ai-composer-wrap w-full min-w-0 max-w-full shrink-0 bg-transparent">
       <input
         ref={fileInputRef}
         type="file"
@@ -349,8 +349,8 @@ export function AiInputBar() {
 
       <div
         className={cn(
-          "altai-ai-composer flex flex-col overflow-hidden rounded-none border border-border-subtle bg-transparent",
-          "transition-[border-color] hover:border-border focus-within:border-primary/40",
+          "altai-ai-composer flex w-full min-w-0 max-w-full flex-col overflow-hidden rounded-xl border border-border-subtle bg-transparent",
+          "transition-[border-color,box-shadow] hover:border-border",
           c.isBusy && "opacity-95",
         )}
       >
@@ -376,7 +376,7 @@ export function AiInputBar() {
 
         <Popover open={pickerOpen}>
           <PopoverAnchor asChild>
-            <div className="relative px-3 pb-1 pt-2.5">
+            <div className="relative w-full min-w-0 px-3 pb-1 pt-2.5">
               <textarea
                 ref={c.textareaRef}
                 value={c.value}
@@ -431,64 +431,19 @@ export function AiInputBar() {
                     else if (action === "send") c.submit();
                   }
                 }}
-                placeholder="Ask ALTAI anything…  @ files  / commands  # snippets"
+                placeholder={
+                  c.isBusy
+                    ? "Add a follow-up, steer the active run, or queue the next task…"
+                    : "Describe a task or ask a follow-up…  @ files  / commands  # snippets"
+                }
                 aria-label="Message ALTAI"
                 rows={2}
                 className={cn(
-                  "block w-full max-h-44 min-h-[48px] resize-none bg-transparent",
-                  // Right padding reserves space for the absolutely-positioned
-                  // send/stop button so long text never slides under it.
-                  "pr-10 text-[13px] leading-5 text-foreground outline-none",
+                  "block w-full min-w-0 max-w-full max-h-44 min-h-[48px] resize-none bg-transparent",
+                  "pr-1 text-[13px] leading-5 text-foreground outline-none",
                   "placeholder:text-muted-foreground/55",
                 )}
               />
-              {/* Send / stop button floats in the textarea's top-right corner.
-                  Its accessible label is also exposed as a hover title. */}
-              <div className="absolute right-3 top-2.5">
-                {c.isBusy ? (
-                  <HoverTooltip label={c.isCancelling ? "Cancelling…" : "Stop"}>
-                    <Button
-                      type="button"
-                      size="icon-xs"
-                      onClick={c.stop}
-                      disabled={c.isCancelling}
-                      className={cn(
-                        "rounded-md p-0 transition-colors",
-                        "bg-foreground/10 text-foreground hover:bg-foreground/15",
-                      )}
-                      aria-label={c.isCancelling ? "Cancelling" : "Stop"}
-                    >
-                      {c.isCancelling ? (
-                        <Spinner className="size-3" />
-                      ) : (
-                        <span className="block size-2 rounded-[2px] bg-foreground" />
-                      )}
-                    </Button>
-                  </HoverTooltip>
-                ) : (
-                  <HoverTooltip label="Send (Enter)">
-                    <Button
-                      type="button"
-                      size="icon-xs"
-                      onClick={c.submit}
-                      disabled={!c.canSend}
-                      className={cn(
-                        "rounded-md p-0 transition-all",
-                        c.canSend
-                          ? "bg-primary text-primary-foreground hover:bg-primary/90 active:scale-95"
-                          : "bg-foreground/10 text-foreground/35",
-                      )}
-                      aria-label="Send"
-                    >
-                      <HugeiconsIcon
-                        icon={ArrowUpIcon}
-                        size={12}
-                        strokeWidth={2.25}
-                      />
-                    </Button>
-                  </HoverTooltip>
-                )}
-              </div>
             </div>
           </PopoverAnchor>
           {fileTrigger ? (
@@ -513,7 +468,7 @@ export function AiInputBar() {
         </Popover>
 
         {(c.canSteer || c.canQueue) && (
-          <div className="flex items-center gap-1.5 border-t border-border-subtle px-2.5 py-1.5">
+          <div className="altai-ai-run-followup flex items-center gap-1.5 border-t border-border-subtle px-2.5 py-1.5">
             <span className="min-w-0 flex-1 truncate text-[10px] text-muted-foreground">
               {c.isCancelling
                 ? "Cancellation requested — you can queue the next task"
@@ -556,79 +511,142 @@ export function AiInputBar() {
           </div>
         )}
 
-        <div className="flex flex-wrap items-center gap-0.5 border-t border-border-subtle px-2.5 pb-1.5 pt-1">
-          <ToolbarIcon
-            title="Attach file or image"
-            onClick={() => fileInputRef.current?.click()}
-          >
-            <HugeiconsIcon icon={Attachment01Icon} size={14} strokeWidth={1.75} />
-          </ToolbarIcon>
-
-          <Popover open={contextOpen} onOpenChange={setContextOpen}>
-            <PopoverTrigger asChild>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                aria-label="Add workspace context"
-                title="Add workspace context"
-                className="size-6 shrink-0 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
-              >
-                <HugeiconsIcon icon={CodeIcon} size={14} strokeWidth={1.75} />
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent side="top" align="start" sideOffset={6} className="w-56 p-1.5">
-              <ContextAction icon={File01Icon} label="Active file" detail="Attach the file open in the editor" disabled={!workspaceRoot || !useChatStore.getState().live.getActiveFile()} onClick={() => { setContextOpen(false); void attachActiveFile(); }} />
-              <ContextAction icon={Attachment01Icon} label="Workspace file map" detail="Attach a compact folder manifest" disabled={!workspaceRoot} onClick={() => { setContextOpen(false); void attachWorkspaceMap(); }} />
-              <ContextAction icon={TerminalIcon} label="Active terminal" detail="Attach the latest non-private output" disabled={!useChatStore.getState().live.getTerminalContext()} onClick={() => { setContextOpen(false); attachTerminalContext(); }} />
-              <ContextAction icon={CodeIcon} label="Working tree diff" detail="Attach unstaged Git changes" disabled={!workspaceRoot} onClick={() => { setContextOpen(false); void attachWorkingDiff(); }} />
-            </PopoverContent>
-          </Popover>
-
-
-          <ToolbarIcon
-            title="Research with Semble Scout"
-            onClick={prepareSembleSearch}
-            disabled={!workspaceRoot}
-          >
-            <HugeiconsIcon icon={Search01Icon} size={14} strokeWidth={1.75} />
-          </ToolbarIcon>
-
-          <HoverTooltip label="Permission mode">
-            <PermissionModeSwitcher variant="toolbar-icon" />
-          </HoverTooltip>
-          {agentPickerEnabled && <AgentSwitcher variant="toolbar" />}
-          <ModelDropdown />
-
-          {c.voice.supported && (
-            <ToolbarIcon
-              title={
-                !c.voice.hasKey
-                  ? "Voice needs an OpenAI key"
-                  : c.voice.recording
-                    ? "Stop & transcribe"
-                    : c.voice.transcribing
-                      ? "Transcribing…"
-                      : "Voice input"
-              }
-              onClick={() =>
-                c.voice.recording ? c.voice.stop() : void c.voice.start()
-              }
-              disabled={c.voice.transcribing || !c.voice.hasKey}
-              className={cn(
-                c.voice.recording &&
-                  "bg-destructive/10 text-destructive hover:bg-destructive/15 hover:text-destructive",
-              )}
-            >
-              {c.voice.recording ? (
-                <span className="size-2 animate-pulse rounded-full bg-destructive" />
-              ) : c.voice.transcribing ? (
-                <Spinner className="size-3" />
-              ) : (
-                <HugeiconsIcon icon={Mic01Icon} size={14} strokeWidth={1.75} />
-              )}
-            </ToolbarIcon>
+        <div
+          className={cn(
+            "altai-ai-composer-config grid w-full min-w-0 gap-1 border-t border-border-subtle px-2.5 py-1.5",
+            agentPickerEnabled ? "grid-cols-2" : "grid-cols-1",
           )}
+          aria-label="Chat configuration"
+        >
+          {agentPickerEnabled && (
+            <span className="altai-ai-composer-config-item altai-ai-composer-agent inline-flex min-w-0">
+              <AgentSwitcher variant="toolbar" />
+            </span>
+          )}
+          <span className="altai-ai-composer-config-item altai-ai-composer-model inline-flex min-w-0">
+            <ModelDropdown allowAuto className="w-full max-w-none" />
+          </span>
+        </div>
+
+        <div className="altai-ai-composer-primary flex w-full min-w-0 items-center gap-1 border-t border-border-subtle px-2.5 py-1.5">
+          <div className="altai-ai-composer-tools flex min-w-0 shrink-0 items-center gap-0.5 rounded-md bg-foreground/[0.035] p-0.5">
+            <ToolbarIcon
+              title="Attach file or image"
+              onClick={() => fileInputRef.current?.click()}
+            >
+              <HugeiconsIcon icon={Attachment01Icon} size={14} strokeWidth={1.75} />
+            </ToolbarIcon>
+
+            <Popover open={contextOpen} onOpenChange={setContextOpen}>
+              <Tooltip delayDuration={350} disableHoverableContent>
+                <TooltipTrigger asChild>
+                  <span className="inline-flex shrink-0">
+                    <PopoverTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        aria-label="Add workspace context"
+                        className="size-6 shrink-0 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+                      >
+                        <HugeiconsIcon icon={CodeIcon} size={14} strokeWidth={1.75} />
+                      </Button>
+                    </PopoverTrigger>
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent side="top" sideOffset={6} className="text-[11px]">
+                  Add workspace context
+                </TooltipContent>
+              </Tooltip>
+              <PopoverContent side="top" align="start" sideOffset={6} className="w-56 gap-0 rounded-lg border border-border/80 bg-popover p-1.5 text-popover-foreground shadow-xl">
+                <ContextAction icon={File01Icon} label="Active file" detail="Attach the file open in the editor" disabled={!workspaceRoot || !useChatStore.getState().live.getActiveFile()} onClick={() => { setContextOpen(false); void attachActiveFile(); }} />
+                <ContextAction icon={Attachment01Icon} label="Workspace file map" detail="Attach a compact folder manifest" disabled={!workspaceRoot} onClick={() => { setContextOpen(false); void attachWorkspaceMap(); }} />
+                <ContextAction icon={TerminalIcon} label="Active terminal" detail="Attach the latest non-private output" disabled={!useChatStore.getState().live.getTerminalContext()} onClick={() => { setContextOpen(false); attachTerminalContext(); }} />
+                <ContextAction icon={CodeIcon} label="Working tree diff" detail="Attach unstaged Git changes" disabled={!workspaceRoot} onClick={() => { setContextOpen(false); void attachWorkingDiff(); }} />
+              </PopoverContent>
+            </Popover>
+
+            <ToolbarIcon
+              title="Research with Semble Scout"
+              onClick={prepareSembleSearch}
+              disabled={!workspaceRoot}
+            >
+              <HugeiconsIcon icon={Search01Icon} size={14} strokeWidth={1.75} />
+            </ToolbarIcon>
+            {c.voice.supported && (
+              <ToolbarIcon
+                title={
+                  !c.voice.hasKey
+                    ? "Voice needs an OpenAI key"
+                    : c.voice.recording
+                      ? "Stop & transcribe"
+                      : c.voice.transcribing
+                        ? "Transcribing…"
+                        : "Voice input"
+                }
+                onClick={() =>
+                  c.voice.recording ? c.voice.stop() : void c.voice.start()
+                }
+                disabled={c.voice.transcribing || !c.voice.hasKey}
+                className={cn(
+                  c.voice.recording &&
+                    "bg-destructive/10 text-destructive hover:bg-destructive/15 hover:text-destructive",
+                )}
+              >
+                {c.voice.recording ? (
+                  <span className="size-2 animate-pulse rounded-full bg-destructive" />
+                ) : c.voice.transcribing ? (
+                  <Spinner className="size-3" />
+                ) : (
+                  <HugeiconsIcon icon={Mic01Icon} size={14} strokeWidth={1.75} />
+                )}
+              </ToolbarIcon>
+            )}
+          </div>
+
+          <div className="altai-ai-composer-actions ml-auto flex min-w-0 shrink-0 items-center gap-1">
+            <div className="altai-ai-composer-permission-bottom flex shrink-0 items-center">
+              <HoverTooltip label="Permission mode">
+                <PermissionModeSwitcher variant="toolbar-icon" />
+              </HoverTooltip>
+            </div>
+
+            <div className="altai-ai-composer-submit flex shrink-0 items-center">
+              {c.isBusy ? (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="secondary"
+                  onClick={c.stop}
+                  disabled={c.isCancelling}
+                  className="h-7 gap-1.5 rounded-md px-2.5 text-[11px]"
+                  aria-label={c.isCancelling ? "Cancelling" : "Stop"}
+                >
+                  {c.isCancelling ? (
+                    <Spinner className="size-3" />
+                  ) : (
+                    <span className="block size-2 rounded-sm bg-foreground" />
+                  )}
+                  <span className="altai-ai-composer-submit-label">
+                    {c.isCancelling ? "Stopping" : "Stop"}
+                  </span>
+                </Button>
+              ) : (
+                <HoverTooltip label="Send · Enter">
+                  <Button
+                    type="button"
+                    size="icon"
+                    onClick={c.submit}
+                    disabled={!c.canSend}
+                    className="size-7 rounded-md p-0 transition-all active:scale-[0.98]"
+                    aria-label="Send"
+                  >
+                    <HugeiconsIcon icon={ArrowUpIcon} size={13} strokeWidth={2.25} />
+                  </Button>
+                </HoverTooltip>
+              )}
+            </div>
+          </div>
         </div>
       </div>
 
@@ -669,22 +687,27 @@ function ToolbarIcon({
   children: React.ReactNode;
 }) {
   return (
-    <HoverTooltip label={title}>
-      <Button
-        type="button"
-        variant="ghost"
-        size="icon"
-        aria-label={title}
-        onClick={onClick}
-        disabled={disabled}
-        className={cn(
-          "size-6 shrink-0 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground",
-          className,
-        )}
-      >
-        {children}
-      </Button>
-    </HoverTooltip>
+    <Tooltip delayDuration={350} disableHoverableContent>
+      <TooltipTrigger asChild>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          aria-label={title}
+          onClick={onClick}
+          disabled={disabled}
+          className={cn(
+            "size-6 shrink-0 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground",
+            className,
+          )}
+        >
+          {children}
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent side="top" sideOffset={6} className="text-[11px]">
+        {title}
+      </TooltipContent>
+    </Tooltip>
   );
 }
 
@@ -760,7 +783,7 @@ function ChipsRow({
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 0.92 }}
             transition={{ duration: 0.12 }}
-            className="group flex items-center gap-1 rounded-md border border-primary/30 bg-primary/10 px-1.5 py-0.5 text-[11px] text-primary"
+            className="group flex items-center gap-1 rounded-md border border-border-subtle bg-card px-1.5 py-0.5 text-[11px] text-foreground"
             title={s.description || s.name}
           >
             <HugeiconsIcon
@@ -855,7 +878,7 @@ function ContextAction({
   onClick: () => void;
 }) {
   return (
-    <button type="button" disabled={disabled} onClick={onClick} className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left disabled:opacity-40 hover:bg-accent">
+    <button type="button" disabled={disabled} onClick={onClick} className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-popover-foreground disabled:opacity-40 hover:bg-foreground/[0.055]">
       <HugeiconsIcon icon={icon} size={13} strokeWidth={1.75} className="shrink-0 text-muted-foreground" />
       <span className="min-w-0"><span className="block text-[11px] font-medium">{label}</span><span className="block truncate text-[9.5px] text-muted-foreground">{detail}</span></span>
     </button>

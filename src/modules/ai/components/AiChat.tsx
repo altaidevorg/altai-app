@@ -26,6 +26,7 @@ import {
   GlobalSearchIcon,
   HashtagIcon,
   Refresh01Icon,
+  SparklesIcon,
   TerminalIcon,
 } from "@hugeicons/core-free-icons";
 import { ALTAI_CMD_RE, resolveSlashCommand } from "../lib/slashCommands";
@@ -274,7 +275,7 @@ export function AiChatView({
 
   return (
     <Conversation className="altai-ai-conversation overflow-x-hidden" aria-live={ariaLiveProp}>
-      <ConversationContent className="min-w-0 gap-3 p-3">
+      <ConversationContent className="altai-ai-transcript mx-auto min-w-0 w-full max-w-[52rem] gap-5 px-4 py-5 @[44rem]:px-6">
         {messages.map((m, i) => (
           <RenderedMessage
             key={m.id}
@@ -346,7 +347,7 @@ function HoverActionButton({
       title={title}
       aria-label={title}
       onClick={onClick}
-      className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10.5px] text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground"
+      className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[10.5px] text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground"
     >
       {children}
     </button>
@@ -412,6 +413,17 @@ const RenderedMessage = memo(function RenderedMessage({
   return (
     <Message from={message.role} className="altai-ai-message">
       <MessageContent>
+        <div className="altai-ai-assistant-label mb-0.5 flex items-center gap-1.5 text-[9.5px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">
+          <span className="flex size-5 items-center justify-center rounded-md bg-primary/10 text-primary">
+            <HugeiconsIcon icon={SparklesIcon} size={11} strokeWidth={1.8} />
+          </span>
+          ALTAI
+          {streaming ? (
+            <span className="ml-0.5 font-normal normal-case tracking-normal text-muted-foreground/75">
+              working
+            </span>
+          ) : null}
+        </div>
         <div className="flex min-w-0 flex-col gap-3">
           {groups.map((g) => {
             if (g.kind === "reads") {

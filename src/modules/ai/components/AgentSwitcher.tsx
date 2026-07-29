@@ -29,6 +29,7 @@ import {
 import { HugeiconsIcon } from "@hugeicons/react";
 import { ISANAGENT_AGENT_IDS, type AgentIconId } from "../lib/agents";
 import { useAgentsStore } from "../store/agentsStore";
+import { ComposerConfigTrigger } from "./ComposerConfigTrigger";
 
 const ICONS: Record<AgentIconId, typeof CodeIcon> = {
   coder: CodeIcon,
@@ -89,52 +90,55 @@ export function AgentSwitcher({
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button
-          size="xs"
-          variant="ghost"
-          className={cn(
-            "group",
-            resolved === "default"
-              ? "flex h-6 items-center gap-1 rounded-md border border-border/60 bg-card px-1.5 text-[10.5px] text-muted-foreground transition-colors hover:border-border hover:bg-accent hover:text-foreground"
-              : resolved === "mini"
-                ? "text-xs mr-1"
-                : isIconOnly
-                  ? "flex size-7 items-center justify-center rounded-md p-0 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-                  : "flex h-7 min-w-0 max-w-[9rem] items-center gap-1.5 rounded-md px-2 text-[11.5px] text-foreground/80 transition-colors hover:bg-accent hover:text-foreground",
-          )}
-          aria-label={`Switch agent — current: ${active.name}`}
-          title={`Agent: ${active.name}`}
-        >
-          <HugeiconsIcon
-            icon={ActiveIcon}
-            size={isToolbar ? 13 : 11}
-            strokeWidth={1.75}
-            className={cn("shrink-0", isToolbar && "opacity-80")}
-          />
-          {!isIconOnly && (
-            <>
-              <span
-                className={cn(
-                  "truncate",
-                  isToolbar ? "min-w-0 font-medium" : "max-w-[7rem]",
-                )}
-              >
-                {active.name}
-              </span>
+        {isToolbar && !isIconOnly ? (
+          <ComposerConfigTrigger
+            icon={
               <HugeiconsIcon
-                icon={ArrowDown01Icon}
-                size={isToolbar ? 11 : 10}
-                strokeWidth={2}
-                className={cn(
-                  "shrink-0",
-                  isToolbar
-                    ? "opacity-60 transition-opacity group-hover:opacity-90"
-                    : "opacity-70",
-                )}
+                icon={ActiveIcon}
+                size={13}
+                strokeWidth={1.75}
+                className="shrink-0 opacity-80"
               />
-            </>
-          )}
-        </Button>
+            }
+            label={active.name}
+            className="max-w-[9rem]"
+            aria-label={`Switch agent — current: ${active.name}`}
+            title={`Agent: ${active.name}`}
+          />
+        ) : (
+          <Button
+            size="xs"
+            variant="ghost"
+            className={cn(
+              "group",
+              resolved === "default"
+                ? "flex h-6 items-center gap-1 rounded-md border border-border/60 bg-card px-1.5 text-[10.5px] text-muted-foreground transition-colors hover:border-border hover:bg-foreground/[0.055]"
+                : resolved === "mini"
+                  ? "mr-1 text-xs"
+                  : "flex size-7 items-center justify-center rounded-md p-0 text-muted-foreground transition-colors hover:bg-foreground/[0.055]",
+            )}
+            aria-label={`Switch agent — current: ${active.name}`}
+            title={`Agent: ${active.name}`}
+          >
+            <HugeiconsIcon
+              icon={ActiveIcon}
+              size={11}
+              strokeWidth={1.75}
+              className="shrink-0"
+            />
+            {!isIconOnly && (
+              <>
+                <span className="max-w-[7rem] truncate">{active.name}</span>
+                <HugeiconsIcon
+                  icon={ArrowDown01Icon}
+                  size={10}
+                  strokeWidth={2}
+                  className="shrink-0 opacity-70"
+                />
+              </>
+            )}
+          </Button>
+        )}
       </DropdownMenuTrigger>
       <DropdownMenuContent
         side={dropdownSide}
@@ -142,7 +146,7 @@ export function AgentSwitcher({
         collisionPadding={isToolbar ? 8 : undefined}
         align="start"
         className={cn(
-          "min-w-60",
+          "min-w-60 bg-popover text-popover-foreground",
           isToolbar && "w-[min(22rem,calc(100vw-1rem))]",
         )}
       >
@@ -157,7 +161,7 @@ export function AgentSwitcher({
               onSelect={() => setActiveId(a.id)}
               className={cn(
                 "flex items-start gap-2 pr-2 text-[12px]",
-                a.id === activeId && "bg-accent/40",
+                a.id === activeId && "bg-foreground/[0.085]",
               )}
             >
               <HugeiconsIcon
@@ -193,7 +197,7 @@ export function AgentSwitcher({
             <DropdownMenuSubTrigger
               className={cn(
                 "flex items-center gap-2 px-2 py-1.5 text-[12px] font-normal",
-                activeIsMl && "bg-accent/40",
+                activeIsMl && "bg-foreground/[0.085]",
               )}
             >
               <HugeiconsIcon
@@ -210,7 +214,7 @@ export function AgentSwitcher({
             <DropdownMenuSubContent
               sideOffset={4}
               collisionPadding={8}
-              className="min-w-60"
+              className="min-w-60 bg-popover text-popover-foreground"
             >
               {mlAgents.map((a) => {
                 const Icon = ICONS[a.icon] ?? SparklesIcon;
@@ -220,7 +224,7 @@ export function AgentSwitcher({
                     onSelect={() => setActiveId(a.id)}
                     className={cn(
                       "flex items-start gap-2 pr-2 text-[12px]",
-                      a.id === activeId && "bg-accent/40",
+                      a.id === activeId && "bg-foreground/[0.085]",
                     )}
                   >
                     <HugeiconsIcon
@@ -268,7 +272,7 @@ export function AgentSwitcher({
                   onSelect={() => setActiveId(a.id)}
                   className={cn(
                     "flex items-start gap-2 text-[12px]",
-                    a.id === activeId && "bg-accent/40",
+                    a.id === activeId && "bg-foreground/[0.085]",
                   )}
                 >
                   <HugeiconsIcon

@@ -475,7 +475,7 @@ export function OrchestrationControlCenter({
                   className={cn(
                     "flex size-7 shrink-0 items-center justify-center rounded-lg",
                     activePreset === preset.id
-                      ? "bg-primary/12 text-primary"
+                      ? "bg-accent text-foreground"
                       : "bg-muted text-muted-foreground",
                   )}
                 >

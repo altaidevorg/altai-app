@@ -104,7 +104,7 @@ export function PermissionModeSwitcher({
           size="xs"
           variant="ghost"
           className={cn(
-            "group flex h-7 min-w-0 max-w-[10rem] items-center gap-1.5 rounded-md px-2 text-[11.5px] transition-colors hover:bg-accent",
+            "group flex h-7 min-w-0 max-w-[10rem] items-center gap-1.5 rounded-md px-2 text-[11.5px] transition-colors hover:bg-foreground/[0.055]",
             activeColors.trigger,
           )}
           aria-label={`Permission mode: ${PERMISSION_MODE_LABELS[effectiveMode]}`}
@@ -137,7 +137,7 @@ export function PermissionModeSwitcher({
         sideOffset={6}
         collisionPadding={8}
         align="start"
-        className="w-[min(22rem,calc(100vw-1rem))]"
+        className="w-[min(22rem,calc(100vw-1rem))] bg-popover text-popover-foreground"
       >
         <div className="px-2 pt-1.5 pb-1 text-[10px] font-medium tracking-wide text-muted-foreground uppercase">
           Permissions
@@ -153,7 +153,7 @@ export function PermissionModeSwitcher({
               onSelect={() => selectMode(m)}
               className={cn(
                 "flex items-start gap-2 pr-2 text-[12px]",
-                isActive && "bg-accent/40",
+                isActive && "bg-foreground/[0.085]",
                 danger && "focus:bg-destructive/10",
               )}
             >

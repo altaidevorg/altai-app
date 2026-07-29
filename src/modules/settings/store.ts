@@ -108,6 +108,8 @@ export type CompactionPrefs = {
 export type Preferences = {
   theme: ThemePref;
   defaultModelId: ModelId;
+  /** Keep model selection task-aware instead of pinning every chat to one model. */
+  autoModelEnabled: boolean;
   customInstructions: string;
   autostart: boolean;
   restoreWindowState: boolean;
@@ -166,6 +168,7 @@ export type Preferences = {
 const STORE_PATH = "altai-settings.json";
 const KEY_THEME = "theme";
 const KEY_DEFAULT_MODEL = "defaultModelId";
+const KEY_AUTO_MODEL_ENABLED = "autoModelEnabled";
 const KEY_CUSTOM_INSTRUCTIONS = "customInstructions";
 const KEY_AUTOSTART = "autostart";
 const KEY_RESTORE_WINDOW = "restoreWindowState";
@@ -233,6 +236,7 @@ export const TERMINAL_SCROLLBACK_PRESETS = [
 export const DEFAULT_PREFERENCES: Preferences = {
   theme: "system",
   defaultModelId: DEFAULT_MODEL_ID,
+  autoModelEnabled: true,
   customInstructions: "",
   autostart: false,
   restoreWindowState: true,
@@ -328,6 +332,8 @@ export async function loadPreferences(): Promise<Preferences> {
     theme: get<ThemePref>(KEY_THEME) ?? DEFAULT_PREFERENCES.theme,
     defaultModelId:
       get<ModelId>(KEY_DEFAULT_MODEL) ?? DEFAULT_PREFERENCES.defaultModelId,
+    autoModelEnabled:
+      get<boolean>(KEY_AUTO_MODEL_ENABLED) ?? DEFAULT_PREFERENCES.autoModelEnabled,
     customInstructions:
       get<string>(KEY_CUSTOM_INSTRUCTIONS) ??
       DEFAULT_PREFERENCES.customInstructions,
@@ -465,6 +471,10 @@ export async function setTheme(value: ThemePref): Promise<void> {
 
 export async function setDefaultModel(value: ModelId): Promise<void> {
   await writePref(KEY_DEFAULT_MODEL, value);
+}
+
+export async function setAutoModelEnabled(value: boolean): Promise<void> {
+  await writePref(KEY_AUTO_MODEL_ENABLED, value);
 }
 
 export async function setCustomInstructions(value: string): Promise<void> {
@@ -756,6 +766,7 @@ export async function onPreferencesChange(
   const map: Record<string, PrefKey> = {
     [KEY_THEME]: "theme",
     [KEY_DEFAULT_MODEL]: "defaultModelId",
+    [KEY_AUTO_MODEL_ENABLED]: "autoModelEnabled",
     [KEY_CUSTOM_INSTRUCTIONS]: "customInstructions",
     [KEY_AUTOSTART]: "autostart",
     [KEY_RESTORE_WINDOW]: "restoreWindowState",

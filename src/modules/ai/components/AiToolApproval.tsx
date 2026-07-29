@@ -47,7 +47,7 @@ function AiToolApprovalImpl({ part, toolName, onRespond }: Props) {
     <div
       role="group"
       aria-labelledby={titleId}
-      className="altai-ai-approval min-w-0 max-w-full overflow-hidden rounded-lg border border-border bg-card shadow-sm"
+      className="altai-ai-approval min-w-0 max-w-full overflow-hidden rounded-md border border-border bg-card shadow-sm"
     >
       {/* Off-screen live region. role="alert" → assertive (interrupts);
           role="status" → polite. Controlled by the accessibility pref. */}

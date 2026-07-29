@@ -80,7 +80,7 @@ const BUILTIN_COMMANDS: readonly SlashCommandMeta[] = [
   builtin({ name: "init", invocation: "/init", label: "Initialize workspace", description: "Scan the workspace and draft an ALTAI.md project guide.", category: "workspace", behavior: "prompt", icon: SparklesIcon }),
   builtin({ name: "index", invocation: "/index", label: "Map codebase", description: "Create a concise codebase map with entry points, boundaries, and commands.", aliases: ["map"], category: "workspace", behavior: "prompt", icon: Search01Icon }),
   builtin({ name: "search", invocation: "/search", label: "Search workspace", description: "Find code, configuration, or behaviour across the workspace.", aliases: ["find"], category: "workspace", behavior: "prompt", icon: Search01Icon }),
-  builtin({ name: "status", invocation: "/status", label: "Run status", description: "Open the current run activity and task inspector.", aliases: ["activity", "inspect"], category: "workspace", behavior: "action", icon: SparklesIcon }),
+  builtin({ name: "status", invocation: "/status", label: "Run details", description: "Open activity and details for the current run.", aliases: ["activity", "inspect"], category: "workspace", behavior: "action", icon: SparklesIcon }),
   builtin({ name: "git-status", invocation: "/git-status", label: "Git status", description: "Inspect changed files, branch state, and a concise next-step summary.", aliases: ["git"], category: "workspace", behavior: "prompt", icon: File01Icon }),
   builtin({ name: "diff", invocation: "/diff", label: "Review diff", description: "Inspect working-tree changes and explain risks before editing further.", category: "workspace", behavior: "prompt", icon: File01Icon }),
   builtin({ name: "plan", invocation: "/plan", label: "Plan mode", description: "Toggle plan-first mode before making changes. Use “off” to exit.", aliases: ["architect"], category: "code", behavior: "action", icon: CheckListIcon }),
@@ -98,9 +98,9 @@ const BUILTIN_COMMANDS: readonly SlashCommandMeta[] = [
   builtin({ name: "workflow", invocation: "/workflow", label: "Create workflow", description: "Design or update a reusable WORKFLOW.md automation process.", category: "project", behavior: "prompt", icon: CalendarSyncIcon }),
   builtin({ name: "research", invocation: "/research", label: "Research", description: "Research the question with primary sources and return cited findings.", category: "project", behavior: "prompt", icon: Search01Icon }),
   builtin({ name: "paper", invocation: "/paper", label: "Import arXiv paper", description: "Attach an arXiv paper as task context.", category: "project", behavior: "action", icon: File01Icon }),
-  builtin({ name: "tasks", invocation: "/tasks", label: "Background tasks", description: "Open running and completed background tasks.", category: "project", behavior: "action", icon: CheckListIcon }),
+  builtin({ name: "tasks", invocation: "/tasks", label: "Work", description: "Open active, completed, and review-ready agent work.", aliases: ["work"], category: "project", behavior: "action", icon: CheckListIcon }),
   builtin({ name: "inbox", invocation: "/inbox", label: "Notifications", description: "Open agent notifications and attention items.", category: "project", behavior: "action", icon: Notification01Icon }),
-  builtin({ name: "automations", invocation: "/automations", label: "Automations", description: "Open schedules owned by the active chat.", aliases: ["schedule"], category: "project", behavior: "action", icon: CalendarSyncIcon }),
+  builtin({ name: "automations", invocation: "/automations", label: "Scheduled", description: "Open one-time and recurring agent work.", aliases: ["schedule"], category: "project", behavior: "action", icon: CalendarSyncIcon }),
   builtin({ name: "agents", invocation: "/agents", label: "Agent settings", description: "Open agent selection and custom-agent settings. Add an agent name to switch directly.", aliases: ["agent"], category: "settings", behavior: "action", icon: SparklesIcon }),
   builtin({ name: "models", invocation: "/models", label: "Model settings", description: "Open model selection and provider settings.", aliases: ["model"], category: "settings", behavior: "action", icon: SparklesIcon }),
   builtin({ name: "permissions", invocation: "/permissions", label: "Permissions", description: "Open agent permission controls and safety settings.", aliases: ["permission"], category: "settings", behavior: "action", icon: ShieldUserIcon }),
@@ -309,7 +309,7 @@ function runLocalCommand(name: string, tail: string): SlashOutcome {
       return { kind: "handled", toast: "Compaction requested" };
     case "status":
       openAiSurface("inspector");
-      return { kind: "handled", toast: "Opened run inspector" };
+      return { kind: "handled", toast: "Opened run details" };
     case "plan": {
       const store = usePlanStore.getState();
       if (tail === "off" || tail === "exit") {
@@ -330,14 +330,14 @@ function runLocalCommand(name: string, tail: string): SlashOutcome {
       openAiSurface("review");
       return { kind: "handled", toast: "Opened change review" };
     case "tasks":
-      openAiSurface("tasks");
-      return { kind: "handled", toast: "Opened background tasks" };
+      openAiSurface("work", "runs");
+      return { kind: "handled", toast: "Opened work" };
     case "inbox":
       openAiSurface("inbox");
       return { kind: "handled", toast: "Opened inbox" };
     case "automations":
-      openAiSurface("automations");
-      return { kind: "handled", toast: "Opened automations" };
+      openAiSurface("work", "scheduled");
+      return { kind: "handled", toast: "Opened scheduled work" };
     case "agents": {
       if (tail) {
         const normalized = tail.toLowerCase();
@@ -372,9 +372,12 @@ function runLocalCommand(name: string, tail: string): SlashOutcome {
   }
 }
 
-function openAiSurface(surface: "history" | "inspector" | "tasks" | "inbox" | "automations" | "review"): void {
+function openAiSurface(
+  surface: "history" | "inspector" | "work" | "inbox" | "review",
+  view?: "runs" | "scheduled",
+): void {
   if (typeof window === "undefined") return;
-  window.dispatchEvent(new CustomEvent("altai:open-ai-surface", { detail: { surface } }));
+  window.dispatchEvent(new CustomEvent("altai:open-ai-surface", { detail: { surface, view } }));
 }
 
 function promptFor(name: string, tail: string): string {

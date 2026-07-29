@@ -1,8 +1,11 @@
 import { memo, type ReactElement } from "react";
 import type { GraphEdge, GraphRow } from "./lib/graph";
 
-export const LANE_WIDTH = 14;
-export const RAIL_PADDING_X = 8;
+// Give branch curves enough room to read as paths rather than a dense block
+// of colour. The rail is deliberately capped; history detail belongs in the
+// row, never in the SHA column beside it.
+export const LANE_WIDTH = 16;
+export const RAIL_PADDING_X = 10;
 export const MAX_VISIBLE_LANES = 6;
 
 const STRAIGHT_WIDTH = 1.5;
@@ -12,9 +15,9 @@ function laneX(lane: number): number {
   return RAIL_PADDING_X + lane * LANE_WIDTH;
 }
 
-export function railWidth(maxLane: number): number {
-  const visible = Math.min(maxLane, MAX_VISIBLE_LANES);
-  return RAIL_PADDING_X * 2 + Math.max(0, visible - 1) * LANE_WIDTH + 6;
+export function railWidth(maxLaneCount: number): number {
+  const visible = Math.min(maxLaneCount, MAX_VISIBLE_LANES);
+  return RAIL_PADDING_X * 2 + Math.max(0, visible - 1) * LANE_WIDTH + 8;
 }
 
 type Props = {
@@ -23,6 +26,12 @@ type Props = {
   maxLaneCount: number;
   active?: boolean;
 };
+
+/** Keep hidden lanes from drawing through the graph boundary into the SHA. */
+export function isVisibleGraphEdge(edge: GraphEdge, visibleLanes: number): boolean {
+  if (edge.kind === "straight") return edge.lane < visibleLanes;
+  return edge.fromLane < visibleLanes && edge.toLane < visibleLanes;
+}
 
 function renderTopEdge(edge: GraphEdge, midY: number): ReactElement | null {
   if (edge.kind === "straight") {
@@ -107,7 +116,11 @@ export const GraphRail = memo(function GraphRail({
   const nodeX = laneX(row.lane);
 
   const visible = Math.min(maxLaneCount, MAX_VISIBLE_LANES);
-  const overflow = row.laneCount > visible;
+  const nodeVisible = row.lane < visible;
+  const overflowCount = Math.max(
+    row.laneCount - visible,
+    nodeVisible ? 0 : 1,
+  );
 
   return (
     <svg
@@ -115,20 +128,29 @@ export const GraphRail = memo(function GraphRail({
       height={rowHeight}
       viewBox={`0 0 ${width} ${rowHeight}`}
       aria-hidden
-      className="shrink-0 overflow-visible"
+      // The SVG viewport is a hard boundary: without it, lanes allocated for
+      // deep histories paint over the adjacent SHA column.
+      className="shrink-0 overflow-hidden"
+      style={{ overflow: "hidden" }}
     >
-      {row.topEdges.map((e) => renderTopEdge(e, midY))}
-      {row.bottomEdges.map((e) => renderBottomEdge(e, midY, rowHeight))}
+      {row.topEdges
+        .filter((edge) => isVisibleGraphEdge(edge, visible))
+        .map((edge) => renderTopEdge(edge, midY))}
+      {row.bottomEdges
+        .filter((edge) => isVisibleGraphEdge(edge, visible))
+        .map((edge) => renderBottomEdge(edge, midY, rowHeight))}
       {/* Commit node */}
-      <circle
-        cx={nodeX}
-        cy={midY}
-        r={active ? 4.6 : 3.6}
-        fill={row.nodeColor}
-        stroke="var(--background)"
-        strokeWidth={1.5}
-      />
-      {active ? (
+      {nodeVisible ? (
+        <circle
+          cx={nodeX}
+          cy={midY}
+          r={active ? 4.6 : 3.6}
+          fill={row.nodeColor}
+          stroke="var(--background)"
+          strokeWidth={1.5}
+        />
+      ) : null}
+      {active && nodeVisible ? (
         <circle
           cx={nodeX}
           cy={midY}
@@ -139,7 +161,7 @@ export const GraphRail = memo(function GraphRail({
           strokeWidth={1.4}
         />
       ) : null}
-      {overflow ? (
+      {overflowCount > 0 ? (
         <text
           x={width - 4}
           y={midY + 3}
@@ -147,7 +169,7 @@ export const GraphRail = memo(function GraphRail({
           className="fill-muted-foreground"
           style={{ fontSize: 8 }}
         >
-          +{row.laneCount - visible}
+          +{overflowCount}
         </text>
       ) : null}
     </svg>
