@@ -1,0 +1,21 @@
+//! Tauri-independent primitives shared by the future ALTAI CLI and Desktop
+//! adapters. This crate intentionally contains no UI-runtime dependency.
+
+pub mod config;
+pub mod event;
+pub mod palette;
+pub mod policy;
+pub mod workspace;
+
+pub use config::{
+    load_agent_config, resolve_agent_config_layers, resolve_config, AgentConfigError,
+    AgentConfigLayer, ConfigSource, ResolvedAgentConfig, ResolvedConfig,
+};
+pub use event::{EventEnvelope, EVENT_SCHEMA_VERSION};
+pub use palette::{
+    load_terminal_palette, resolve_terminal_appearance, resolve_terminal_appearance_from_env,
+    EffectiveTerminalAppearance, PaletteError, ResolvedTerminalColors, Rgb, TerminalLayoutDensity,
+    TerminalPaletteManifest, TerminalThemeMode, DARK_TERMINAL_COLORS, LIGHT_TERMINAL_COLORS,
+};
+pub use policy::{shell_edit_modes_for, PermissionPolicyMode, ShellEditPolicyModes};
+pub use workspace::{resolve_workspace, resolve_workspace_from, WorkspaceError, WorkspacePaths};

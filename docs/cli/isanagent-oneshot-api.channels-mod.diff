@@ -1,0 +1,10 @@
+--- /Users/efecanceliksoy/.cargo/git/checkouts/isanagent-86f82ac4858594cb/8c9eef2/src/channels/mod.rs	2026-07-29 14:11:44
++++ /Users/efecanceliksoy/newforkaltai/altai-app/tools/isanagent-oneshot/src/channels/mod.rs	2026-07-29 16:26:30
+@@ -27,6 +27,7 @@
+ pub mod api;
+ pub(crate) mod api_store;
+ pub mod email;
++pub mod oneshot;
+ pub mod slack;
+ pub(crate) mod slack_store;
+ pub mod terminal;
