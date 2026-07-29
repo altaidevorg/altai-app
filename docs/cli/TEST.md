@@ -117,3 +117,20 @@
   when approval is required without a live TUI.
 - `cargo test -p altai-core -p altai-cli` → 38 tests; IsanAgent approval/diff/
   policy unit tests pass.
+
+## M4 results — 2026-07-29
+
+- `altai-core::compaction` resolves `--no-auto-compact` / `--compact-threshold` /
+  `--compact-tail` (plus `ALTAI_DISABLE_AUTOCOMPACT` / `ALTAI_COMPACT_*` env) into
+  IsanAgent `HostConfig.compact_*` / `AgentLogicParams`.
+- Line mode supports `/context`, `/compact [focus]`, and `@path` attachments
+  (text / image / PDF) with fuzzy basename resolve under the sandbox.
+- `altai run --file` and oneshot loads real file content via
+  `load_host_file_attachments` (not path-only notes). Line mode merges `--file`
+  attachments into the first user message; TUI still seeds `@path` into the
+  composer (parsed on send).
+- Dry-run for `agent` / `run` includes a `compaction` preview object.
+- Focused tests: `altai-core` compaction, attachment unit tests, clap compaction
+  flag parse + preview.
+- `cargo test -p altai-core -p altai-cli` → 42 tests; IsanAgent
+  `channels::terminal_ui::attachments` → 4 tests.

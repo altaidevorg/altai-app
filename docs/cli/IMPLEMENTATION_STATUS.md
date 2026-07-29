@@ -9,8 +9,8 @@
 
 | Capability | Status | Evidence |
 |---|---|---|
-| `altai-core` crate (config, event, palette, workspace primitives) | Verified | unit tests pass |
-| `altai-cli` crate (clap command tree, doctor, version, completion, config, models) | Verified | 18 unit/smoke tests pass |
+| `altai-core` crate (config, event, palette, workspace, policy, compaction) | Verified | unit tests pass |
+| `altai-cli` crate (clap command tree, doctor, version, completion, config, models) | Verified | unit/smoke tests pass |
 | Workspace path resolution and canonicalization | Verified | `altai-core::workspace` tests |
 | Configuration precedence | Verified | `altai-core::config` tests |
 | Event envelope schema v1 | Verified | `altai-core::event` + JSONL emitter tests |
@@ -28,16 +28,19 @@
 | Edit-diff TUI / line-mode rendering | Verified | `EditDiffPayload` + `parse_diff_lines` + line-mode `[edit_diff]` |
 | JSONL `clarification_requested` + `edit_diff` | Verified | `JsonlEmitter` unit test |
 | Plan mode parity (shell ask / edit deny) | Verified | host mapping + `altai_core::policy` |
+| Compaction prefs bridge (`--no-auto-compact`, `--compact-threshold`, `--compact-tail`) | Verified | `altai_core::compaction` + host `compact_*` + clap dry-run |
+| Line-mode `/context` + `/compact [focus]` | Verified | `terminal.rs` memory GetContext / TriggerCompaction |
+| Real `--file` content loading (oneshot + first line-mode message) | Verified | `load_host_file_attachments` |
+| `@path` text / image / PDF + fuzzy basename resolve | Verified | `attachments.rs` unit tests |
 
 ## Incomplete
 
 | Capability | Gap | Planned milestone |
 |---|---|---|
 | Mid-run `/dev/tty` resume for `altai run` | Oneshot still exits 4 on approval | **M3 follow-up / M6** |
-| `@file` fuzzy references, context, compaction | Not implemented | **M4** |
 | Multi-agent / desktop event journal parity | Not implemented | **M5** |
 | Release packaging / installed-binary CI matrix | Not implemented | **M6** |
-| Upstream merge of oneshot + theme + approval host API | Local path pin only | Switch back to git rev after merge |
+| Upstream merge of oneshot + theme + approval + attachment host API | Local path pin only | Switch back to git rev after merge |
 | Full PTY visual golden frames | Width-fit string snapshots only | Expand in M6 CI matrix |
 
 ## Blocked
@@ -49,6 +52,6 @@
 
 ## Next milestone
 
-### M4 — Context, `@file`, and compaction
+### M5 — Multi-agent / event journal parity
 
-Do not start until M3 is committed and approval/diff behavior above is accepted.
+Do not start until M4 is committed and context/attachment/compaction behavior above is accepted.

@@ -78,6 +78,7 @@ impl OneshotChannel {
         chat_id: String,
         prompt: String,
         files: Vec<PathBuf>,
+        attachments: Vec<ContentPart>,
         result_tx: oneshot::Sender<OneshotResult>,
         shutdown_tx: mpsc::UnboundedSender<()>,
         observe_tx: Option<mpsc::UnboundedSender<BusMessage>>,
@@ -86,7 +87,7 @@ impl OneshotChannel {
         Self {
             chat_id,
             prompt,
-            attachments: Vec::new(),
+            attachments,
             files,
             state: Arc::new(Mutex::new(OneshotState::default())),
             result_tx: Mutex::new(Some(result_tx)),
@@ -184,7 +185,10 @@ impl Channel for OneshotChannel {
 
     async fn start(&self, bus_tx: mpsc::Sender<BusMessage>) -> Result<(), String> {
         let mut content = self.prompt.clone();
-        content.push_str(&Self::attachment_note(&self.files));
+        // Prefer real multimodal attachments; only keep a path note when loading failed.
+        if self.attachments.is_empty() {
+            content.push_str(&Self::attachment_note(&self.files));
+        }
 
         let inbound = InboundMessage {
             channel: ONESHOT_CHANNEL_NAME.to_string(),
