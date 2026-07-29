@@ -4,6 +4,7 @@
 pub mod compaction;
 pub mod config;
 pub mod event;
+pub mod journal;
 pub mod palette;
 pub mod policy;
 pub mod workspace;
@@ -16,6 +17,9 @@ pub use config::{
     AgentConfigLayer, ConfigSource, ResolvedAgentConfig, ResolvedConfig,
 };
 pub use event::{EventEnvelope, EVENT_SCHEMA_VERSION};
+pub use journal::{
+    AppendStatus, EventJournal, JournalError, JournalEvent, JournalResult, RunJournalSummary,
+};
 pub use palette::{
     load_terminal_palette, resolve_terminal_appearance, resolve_terminal_appearance_from_env,
     EffectiveTerminalAppearance, PaletteError, ResolvedTerminalColors, Rgb, TerminalLayoutDensity,

@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
 
 mod host_adapter;
+mod journal_sink;
 mod run_output;
 
 #[derive(Debug, Parser)]
@@ -54,6 +55,49 @@ enum Commands {
     },
     /// Launch ALTAI Desktop. This router is safe to exercise with --dry-run.
     Open(OpenArgs),
+    /// Inspect the durable agent event journal shared with ALTAI Desktop.
+    Journal {
+        #[command(subcommand)]
+        command: JournalCommands,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum JournalCommands {
+    /// List incomplete runs and, optionally, the latest run for one chat.
+    Summary(JournalSummaryArgs),
+    /// Fetch journal events for one run after a sequence number.
+    Fetch(JournalFetchArgs),
+}
+
+#[derive(Debug, Args)]
+struct JournalSummaryArgs {
+    /// Workspace path. Defaults to the current directory.
+    path: Option<PathBuf>,
+    /// Restrict the latest-run lookup to one chat.
+    #[arg(long)]
+    chat: Option<String>,
+    /// Print machine-readable JSON.
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(Debug, Args)]
+struct JournalFetchArgs {
+    /// Workspace path. Defaults to the current directory.
+    path: Option<PathBuf>,
+    /// Run identifier to fetch events for.
+    #[arg(long)]
+    run: String,
+    /// Only return events with sequence greater than this value.
+    #[arg(long, default_value_t = 0)]
+    after: u64,
+    /// Maximum number of events to return.
+    #[arg(long, default_value_t = 200)]
+    limit: usize,
+    /// Print machine-readable JSON.
+    #[arg(long)]
+    json: bool,
 }
 
 #[derive(Debug, Clone, ValueEnum, PartialEq, Eq)]
@@ -331,7 +375,118 @@ fn run() -> Result<(), CliError> {
         Some(Commands::Config { command }) => config(command),
         Some(Commands::Models { command }) => models(command),
         Some(Commands::Open(args)) => open_desktop(args),
+        Some(Commands::Journal { command }) => journal(command),
     }
+}
+
+fn journal(command: JournalCommands) -> Result<(), CliError> {
+    match command {
+        JournalCommands::Summary(args) => journal_summary(args),
+        JournalCommands::Fetch(args) => journal_fetch(args),
+    }
+}
+
+fn open_workspace_journal(
+    path: Option<&Path>,
+) -> Result<(altai_core::WorkspacePaths, altai_core::EventJournal), CliError> {
+    let workspace = altai_core::resolve_workspace(path)
+        .map_err(|error| CliError::Message(error.to_string()))?;
+    let journal = altai_core::EventJournal::open(workspace.agent_event_journal_db())
+        .map_err(|error| CliError::Message(format!("could not open event journal: {error}")))?;
+    Ok((workspace, journal))
+}
+
+fn journal_summary(args: JournalSummaryArgs) -> Result<(), CliError> {
+    let (workspace, journal) = open_workspace_journal(args.path.as_deref())?;
+    let incomplete = journal
+        .incomplete_run_summaries()
+        .map_err(|error| CliError::Message(error.to_string()))?;
+    let latest = match &args.chat {
+        Some(chat_id) => journal
+            .latest_run_summary_for_chat(chat_id)
+            .map_err(|error| CliError::Message(error.to_string()))?,
+        None => None,
+    };
+
+    if args.json {
+        return print_preview(serde_json::json!({
+            "workspace": workspace.root,
+            "incomplete_runs": incomplete.iter().map(run_summary_json).collect::<Vec<_>>(),
+            "latest_run": latest.as_ref().map(run_summary_json),
+        }));
+    }
+
+    println!("Workspace: {}", workspace.root.display());
+    if incomplete.is_empty() {
+        println!("Incomplete runs: none");
+    } else {
+        println!("Incomplete runs:");
+        for summary in &incomplete {
+            println!(
+                "  {} (chat {}, last_seq {})",
+                summary.run_id, summary.chat_id, summary.last_seq
+            );
+        }
+    }
+    if let Some(chat_id) = &args.chat {
+        match latest {
+            Some(summary) => println!(
+                "Latest run for {chat_id}: {} (last_seq {}, terminal {})",
+                summary.run_id,
+                summary.last_seq,
+                summary.terminal_kind.as_deref().unwrap_or("pending")
+            ),
+            None => println!("Latest run for {chat_id}: none"),
+        }
+    }
+    Ok(())
+}
+
+fn journal_fetch(args: JournalFetchArgs) -> Result<(), CliError> {
+    let (_workspace, journal) = open_workspace_journal(args.path.as_deref())?;
+    let events = journal
+        .fetch_after(&args.run, args.after, args.limit)
+        .map_err(|error| CliError::Message(error.to_string()))?;
+
+    if args.json {
+        return print_preview(serde_json::json!({
+            "run_id": args.run,
+            "events": events.iter().map(journal_event_json).collect::<Vec<_>>(),
+        }));
+    }
+
+    for event in &events {
+        println!(
+            "{:>6}  {}  {}",
+            event.seq,
+            event.kind,
+            serde_json::to_string(&event.payload).unwrap_or_default()
+        );
+    }
+    Ok(())
+}
+
+fn run_summary_json(summary: &altai_core::RunJournalSummary) -> serde_json::Value {
+    serde_json::json!({
+        "run_id": summary.run_id,
+        "chat_id": summary.chat_id,
+        "last_seq": summary.last_seq,
+        "terminal_seq": summary.terminal_seq,
+        "terminal_kind": summary.terminal_kind,
+        "terminal_payload": summary.terminal_payload,
+    })
+}
+
+fn journal_event_json(event: &altai_core::JournalEvent) -> serde_json::Value {
+    serde_json::json!({
+        "version": event.version,
+        "run_id": event.run_id,
+        "seq": event.seq,
+        "chat_id": event.chat_id,
+        "recorded_at_ms": event.recorded_at_ms,
+        "kind": event.kind,
+        "payload": event.payload,
+    })
 }
 
 fn models(command: ModelsCommands) -> Result<(), CliError> {
@@ -701,11 +856,18 @@ async fn async_run_prompt(request: AsyncRunRequest) -> Result<(), CliError> {
     let workspace_display = request.workspace.root.display().to_string();
     let output_mode = request.output.clone();
     let quiet = request.quiet;
+    let journal_sink = std::sync::Arc::new(tokio::sync::Mutex::new(
+        journal_sink::JournalSink::open(&request.workspace),
+    ));
+    let journal_sink_for_observer = journal_sink.clone();
     let observer = tokio::spawn(async move {
         let mut emitter = run_output::JsonlEmitter::new(workspace_display);
         let mut stdout = io::stdout();
         let mut stderr = io::stderr();
         while let Some(message) = observe_rx.recv().await {
+            if let Some(sink) = journal_sink_for_observer.lock().await.as_mut() {
+                sink.observe_bus_message(&message);
+            }
             match output_mode {
                 OutputMode::Jsonl => {
                     if let Err(error) = emitter.observe_bus_message(&message, &mut stdout) {
@@ -770,6 +932,10 @@ async fn async_run_prompt(request: AsyncRunRequest) -> Result<(), CliError> {
     };
 
     let _ = tokio::time::timeout(std::time::Duration::from_millis(250), observer).await;
+
+    if let Some(sink) = journal_sink.lock().await.as_mut() {
+        sink.finalize(&result);
+    }
 
     let final_result =
         run_output::FinalRunResult::from_oneshot(&request.workspace.root.display().to_string(), &result);
@@ -1222,6 +1388,98 @@ mod tests {
                 "source": "project-config",
             })
         );
+    }
+
+    #[test]
+    fn journal_summary_contract_parses_chat_filter_and_json() {
+        let cli = Cli::try_parse_from([
+            "altai-cli",
+            "journal",
+            "summary",
+            ".",
+            "--chat",
+            "chat-1",
+            "--json",
+        ])
+        .expect("journal summary contract should parse");
+
+        let Some(Commands::Journal {
+            command: JournalCommands::Summary(args),
+        }) = cli.command
+        else {
+            panic!("journal summary command should parse");
+        };
+        assert_eq!(args.path, Some(PathBuf::from(".")));
+        assert_eq!(args.chat.as_deref(), Some("chat-1"));
+        assert!(args.json);
+    }
+
+    #[test]
+    fn journal_fetch_contract_parses_run_and_cursor() {
+        let cli = Cli::try_parse_from([
+            "altai-cli",
+            "journal",
+            "fetch",
+            ".",
+            "--run",
+            "run-1",
+            "--after",
+            "3",
+            "--limit",
+            "50",
+            "--json",
+        ])
+        .expect("journal fetch contract should parse");
+
+        let Some(Commands::Journal {
+            command: JournalCommands::Fetch(args),
+        }) = cli.command
+        else {
+            panic!("journal fetch command should parse");
+        };
+        assert_eq!(args.run, "run-1");
+        assert_eq!(args.after, 3);
+        assert_eq!(args.limit, 50);
+        assert!(args.json);
+    }
+
+    #[test]
+    fn journal_summary_and_fetch_round_trip_a_run() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let workspace = altai_core::WorkspacePaths {
+            root: temp.path().to_path_buf(),
+            isanagent_state: temp.path().join(".isanagent"),
+        };
+        std::fs::create_dir_all(workspace.agent_event_journal_db().parent().unwrap())
+            .expect("state dir");
+        let journal =
+            altai_core::EventJournal::open(workspace.agent_event_journal_db()).expect("open");
+        journal
+            .append(&altai_core::JournalEvent::now(
+                1,
+                "run-1",
+                1,
+                "chat-1",
+                "run_started",
+                serde_json::json!({ "type": "run_started", "run_id": "run-1" }),
+            ))
+            .expect("seed run_started");
+        drop(journal);
+
+        journal_summary(JournalSummaryArgs {
+            path: Some(workspace.root.clone()),
+            chat: Some("chat-1".to_string()),
+            json: true,
+        })
+        .expect("journal summary should succeed");
+        journal_fetch(JournalFetchArgs {
+            path: Some(workspace.root),
+            run: "run-1".to_string(),
+            after: 0,
+            limit: 10,
+            json: false,
+        })
+        .expect("journal fetch should succeed");
     }
 
     #[test]

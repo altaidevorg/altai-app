@@ -66,21 +66,27 @@ pub struct FinalRunResult {
     pub detail: Option<String>,
 }
 
+/// Stable outcome label and optional detail shared by the final-result
+/// contract and the CLI's event journal sink.
+pub fn describe_oneshot_outcome(outcome: &OneshotOutcome) -> (String, Option<String>) {
+    match outcome {
+        OneshotOutcome::Completed => ("completed".to_string(), None),
+        OneshotOutcome::Cancelled => ("cancelled".to_string(), None),
+        OneshotOutcome::TimedOut => ("timeout".to_string(), None),
+        OneshotOutcome::Failed(message) => ("failed".to_string(), Some(message.clone())),
+        OneshotOutcome::ApprovalRequired { detail } => {
+            ("approval_required".to_string(), Some(detail.clone()))
+        }
+        OneshotOutcome::ClarificationRequired { detail } => {
+            ("clarification_required".to_string(), Some(detail.clone()))
+        }
+    }
+}
+
 impl FinalRunResult {
     pub fn from_oneshot(workspace: &str, result: &OneshotResult) -> Self {
         let exit_code = RunExitCode::from_oneshot_outcome(&result.outcome);
-        let (outcome, detail) = match &result.outcome {
-            OneshotOutcome::Completed => ("completed".to_string(), None),
-            OneshotOutcome::Cancelled => ("cancelled".to_string(), None),
-            OneshotOutcome::TimedOut => ("timeout".to_string(), None),
-            OneshotOutcome::Failed(message) => ("failed".to_string(), Some(message.clone())),
-            OneshotOutcome::ApprovalRequired { detail } => {
-                ("approval_required".to_string(), Some(detail.clone()))
-            }
-            OneshotOutcome::ClarificationRequired { detail } => {
-                ("clarification_required".to_string(), Some(detail.clone()))
-            }
-        };
+        let (outcome, detail) = describe_oneshot_outcome(&result.outcome);
         Self {
             ok: matches!(exit_code, RunExitCode::Success),
             exit_code: exit_code.into(),

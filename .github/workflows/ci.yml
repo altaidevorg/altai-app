@@ -81,3 +81,50 @@ jobs:
       - run: pnpm lint
       - run: pnpm test
       - run: pnpm build
+
+  cli-smoke:
+    name: altai-cli smoke
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            librsvg2-dev \
+            patchelf \
+            build-essential \
+            libssl-dev \
+            libayatana-appindicator3-dev \
+            libgtk-3-dev \
+            libsoup-3.0-dev \
+            libjavascriptcoregtk-4.1-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+          key: cli-smoke
+
+      - name: Build altai-cli
+        run: cargo build --manifest-path src-tauri/Cargo.toml -p altai-cli --release
+
+      - name: Smoke installed-style command contract
+        run: |
+          BIN=src-tauri/target/release/altai-cli
+          "$BIN" version --verbose
+          "$BIN" doctor --json >/tmp/altai-doctor.json
+          "$BIN" completion bash >/tmp/altai.bash
+          "$BIN" open . --dry-run >/tmp/altai-open.json
+          "$BIN" run . --prompt "smoke" --dry-run >/tmp/altai-run.json
+          "$BIN" journal summary --json >/tmp/altai-journal.json || true
+          python3 - <<'PY'
+          import json
+          for path in ("/tmp/altai-doctor.json", "/tmp/altai-open.json", "/tmp/altai-run.json"):
+              with open(path) as f:
+                  json.load(f)
+          print("cli smoke ok")
+          PY
