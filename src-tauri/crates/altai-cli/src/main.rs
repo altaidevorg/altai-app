@@ -151,6 +151,15 @@ struct AgentOptions {
     /// Attach a local file to the next prompt. May be repeated.
     #[arg(long = "file")]
     files: Vec<PathBuf>,
+    /// Disable between-turn auto-compaction (manual `/compact` still works).
+    #[arg(long)]
+    no_auto_compact: bool,
+    /// Token threshold that triggers auto-compaction when auto is enabled.
+    #[arg(long)]
+    compact_threshold: Option<usize>,
+    /// Number of recent summaries / tail turns retained after compaction.
+    #[arg(long)]
+    compact_tail: Option<usize>,
 }
 
 #[derive(Debug, Args)]
@@ -469,6 +478,7 @@ fn agent(args: AgentArgs) -> Result<(), CliError> {
     host.resume = args.options.resume.clone();
     host.files = args.options.files.clone();
     host.line_mode = args.no_tui;
+    apply_compaction_overrides(&mut host, &args.options);
 
     if !args.dry_run {
         let runtime = tokio::runtime::Builder::new_multi_thread()
@@ -501,8 +511,58 @@ fn agent(args: AgentArgs) -> Result<(), CliError> {
         "effective_theme": appearance.as_str(),
         "resume": args.options.resume,
         "files": args.options.files,
+        "compaction": resolved_compaction_preview(&args.options),
     });
     print_preview(value)
+}
+
+fn apply_compaction_overrides(host: &mut isanagent::host::HostConfig, options: &AgentOptions) {
+    apply_compaction_fields(
+        host,
+        options.no_auto_compact,
+        options.compact_threshold,
+        options.compact_tail,
+    );
+}
+
+fn apply_compaction_fields(
+    host: &mut isanagent::host::HostConfig,
+    no_auto_compact: bool,
+    compact_threshold: Option<usize>,
+    compact_tail: Option<usize>,
+) {
+    let prefs = altai_core::resolve_compaction_prefs(altai_core::CompactionOverrides {
+        auto: if no_auto_compact { Some(false) } else { None },
+        threshold_tokens: compact_threshold,
+        tail_turns: compact_tail,
+    });
+    let logic = prefs.to_logic_params();
+    host.compact_auto = Some(prefs.auto);
+    host.compact_threshold_tokens = Some(logic.short_term_threshold_tokens);
+    host.compact_tail_turns = Some(logic.max_recent_summaries);
+}
+
+fn resolved_compaction_preview(options: &AgentOptions) -> serde_json::Value {
+    let prefs = altai_core::resolve_compaction_prefs(altai_core::CompactionOverrides {
+        auto: if options.no_auto_compact {
+            Some(false)
+        } else {
+            None
+        },
+        threshold_tokens: options.compact_threshold,
+        tail_turns: options.compact_tail,
+    });
+    let logic = prefs.to_logic_params();
+    serde_json::json!({
+        "auto": prefs.auto,
+        "threshold_tokens": prefs.threshold_tokens,
+        "tail_turns": prefs.tail_turns,
+        "logic": {
+            "max_recent_summaries": logic.max_recent_summaries,
+            "short_term_threshold_turns": logic.short_term_threshold_turns,
+            "short_term_threshold_tokens": logic.short_term_threshold_tokens,
+        }
+    })
 }
 
 fn resolve_cli_theme(theme: ThemeMode) -> altai_core::EffectiveTerminalAppearance {
@@ -559,6 +619,7 @@ fn run_prompt(args: RunArgs) -> Result<(), CliError> {
             "theme": args.options.theme.as_str(),
             "resume": args.options.resume,
             "files": args.options.files,
+            "compaction": resolved_compaction_preview(&args.options),
         });
         return print_preview(value);
     }
@@ -591,6 +652,9 @@ fn run_prompt(args: RunArgs) -> Result<(), CliError> {
             || std::env::var_os("NO_COLOR").is_some(),
         resume: args.options.resume,
         files: args.options.files,
+        no_auto_compact: args.options.no_auto_compact,
+        compact_threshold: args.options.compact_threshold,
+        compact_tail: args.options.compact_tail,
     }))
 }
 
@@ -606,6 +670,9 @@ struct AsyncRunRequest {
     no_color: bool,
     resume: Option<String>,
     files: Vec<PathBuf>,
+    no_auto_compact: bool,
+    compact_threshold: Option<usize>,
+    compact_tail: Option<usize>,
 }
 
 async fn async_run_prompt(request: AsyncRunRequest) -> Result<(), CliError> {
@@ -624,6 +691,12 @@ async fn async_run_prompt(request: AsyncRunRequest) -> Result<(), CliError> {
     host.no_color = request.no_color;
     host.resume = request.resume.clone();
     host.files = request.files.clone();
+    apply_compaction_fields(
+        &mut host,
+        request.no_auto_compact,
+        request.compact_threshold,
+        request.compact_tail,
+    );
 
     let workspace_display = request.workspace.root.display().to_string();
     let output_mode = request.output.clone();
@@ -969,6 +1042,41 @@ mod tests {
             ),
             altai_core::EffectiveTerminalAppearance::NoColor
         );
+    }
+
+    #[test]
+    fn run_contract_parses_compaction_flags() {
+        let cli = Cli::try_parse_from([
+            "altai-cli",
+            "run",
+            ".",
+            "--prompt",
+            "hi",
+            "--no-auto-compact",
+            "--compact-threshold",
+            "50000",
+            "--compact-tail",
+            "8",
+            "--dry-run",
+        ])
+        .expect("compaction flags should parse");
+
+        let Some(Commands::Run(args)) = cli.command else {
+            panic!("run command should parse");
+        };
+        assert!(args.options.no_auto_compact);
+        assert_eq!(args.options.compact_threshold, Some(50_000));
+        assert_eq!(args.options.compact_tail, Some(8));
+
+        let preview = resolved_compaction_preview(&args.options);
+        assert_eq!(preview["auto"], false);
+        assert_eq!(preview["threshold_tokens"], 50_000);
+        assert_eq!(preview["tail_turns"], 8);
+        assert_eq!(
+            preview["logic"]["short_term_threshold_tokens"],
+            serde_json::json!(usize::MAX)
+        );
+        assert_eq!(preview["logic"]["max_recent_summaries"], 8);
     }
 
     #[test]
