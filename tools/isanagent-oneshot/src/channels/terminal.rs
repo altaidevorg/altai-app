@@ -638,13 +638,13 @@ For headless or piped runs, set [terminal] enabled = false in config.toml (requi
             let session_short = truncate_leading_ellipsis(&chat_id, 13);
             std::thread::spawn(move || {
                 for message in rx {
-                    let prefix = if message
+                    let is_clarification = message
                         .metadata
                         .get(crate::clarification::METADATA_CLARIFICATION)
                         .and_then(|v| v.as_bool())
-                        == Some(true)
-                    {
-                        "clarification"
+                        == Some(true);
+                    let prefix = if is_clarification {
+                        "approval"
                     } else if message
                         .metadata
                         .get(ISANAGENT_TOOL_NOTIFY)
@@ -656,6 +656,26 @@ For headless or piped runs, set [terminal] enabled = false in config.toml (requi
                         "assistant"
                     };
                     println!("[{prefix}] {}", message.content);
+                    if let Some(edit) = message.metadata.get("edit_diff") {
+                        let file = edit
+                            .get("file")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("(unknown)");
+                        let truncated = edit
+                            .get("truncated")
+                            .and_then(|v| v.as_bool())
+                            .unwrap_or(false);
+                        let badge = if truncated { " [truncated]" } else { "" };
+                        println!("[edit_diff] {file}{badge}");
+                        if let Some(diff) = edit.get("diff").and_then(|v| v.as_str()) {
+                            println!("{diff}");
+                        }
+                    }
+                    if is_clarification {
+                        println!(
+                            "[choices] 1=approve 2=deny 3=always 4=abort  (type the word or number)"
+                        );
+                    }
                 }
             });
             std::thread::spawn(move || {

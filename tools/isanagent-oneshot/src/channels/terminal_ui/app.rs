@@ -238,6 +238,8 @@ pub enum Cell {
         text: String,
         /// From `ask_user` when provided; shown as a numbered list in the terminal.
         choices: Vec<String>,
+        /// Optional unified-diff payload for file-edit approvals.
+        edit_diff: Option<crate::channels::terminal_ui::EditDiffPayload>,
     },
     System {
         message: String,
@@ -393,6 +395,8 @@ pub struct App {
     pub status_permission: String,
     /// Short session / chat id for the status header.
     pub status_session: String,
+    /// Blocking approval overlay (shell / edit) awaiting a four-way reply.
+    pub pending_approval: bool,
 }
 
 impl Default for App {
@@ -494,6 +498,7 @@ impl App {
             status_workspace: String::new(),
             status_permission: String::new(),
             status_session: String::new(),
+            pending_approval: false,
         }
     }
 

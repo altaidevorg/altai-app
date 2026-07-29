@@ -4,6 +4,7 @@
 #![allow(dead_code, unused_imports)]
 
 mod app;
+pub(crate) mod approval;
 mod attachments;
 mod execution_browser;
 mod history_cells;
@@ -20,6 +21,7 @@ pub use app::{
     TerminalUiFocus, TerminalUiMode, ToastKind, ToolNoticePhase, ToolRailEntry,
     TranscriptSelection,
 };
+pub use approval::{approval_hotkey_reply, EditDiffPayload, APPROVAL_CHOICES};
 pub use theme::{
     current_appearance, init, init_appearance, init_from_env, init_from_host,
     resolve_host_appearance, uses_ansi_color, HostThemeMode, Theme, ThemeAppearance,

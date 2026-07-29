@@ -195,11 +195,53 @@ impl JsonlEmitter {
                     out,
                 )
             }
-            BusMessage::Outbound(outbound) => self.emit(
-                "assistant_message",
-                json!({ "content": outbound.content }),
-                out,
-            ),
+            BusMessage::Outbound(outbound) => {
+                let clarification = outbound
+                    .metadata
+                    .get(isanagent::clarification::METADATA_CLARIFICATION)
+                    .and_then(|value| value.as_bool())
+                    == Some(true)
+                    || outbound
+                        .metadata
+                        .get(isanagent::bus::METADATA_CLARIFICATION_TICKET_ID)
+                        .is_some();
+                if clarification {
+                    if let Some(edit) = outbound.metadata.get("edit_diff") {
+                        self.emit(
+                            "edit_diff",
+                            json!({
+                                "file": edit.get("file").and_then(|v| v.as_str()).unwrap_or(""),
+                                "diff": edit.get("diff").and_then(|v| v.as_str()).unwrap_or(""),
+                                "truncated": edit
+                                    .get("truncated")
+                                    .and_then(|v| v.as_bool())
+                                    .unwrap_or(false),
+                            }),
+                            out,
+                        )?;
+                    }
+                    let choices = outbound
+                        .metadata
+                        .get(isanagent::clarification::METADATA_CLARIFICATION_CHOICES)
+                        .cloned()
+                        .unwrap_or(json!([]));
+                    self.emit(
+                        "clarification_requested",
+                        json!({
+                            "content": outbound.content,
+                            "choices": choices,
+                            "has_edit_diff": outbound.metadata.contains_key("edit_diff"),
+                        }),
+                        out,
+                    )?;
+                    return Ok(());
+                }
+                self.emit(
+                    "assistant_message",
+                    json!({ "content": outbound.content }),
+                    out,
+                )
+            }
             BusMessage::Telemetry(TelemetryEvent::AgentThought { thought, .. }) => {
                 self.emit("thinking", json!({ "content": thought }), out)
             }
@@ -386,5 +428,48 @@ mod tests {
         assert_eq!(value["type"], "run_started");
         assert_eq!(value["sequence"], 1);
         assert_eq!(value["workspace"], "/workspace");
+    }
+
+    #[test]
+    fn jsonl_emits_edit_diff_and_clarification_events() {
+        use isanagent::bus::OutboundMessage;
+        use std::collections::HashMap;
+
+        let mut metadata = HashMap::new();
+        metadata.insert(
+            isanagent::clarification::METADATA_CLARIFICATION.to_string(),
+            json!(true),
+        );
+        metadata.insert(
+            isanagent::clarification::METADATA_CLARIFICATION_CHOICES.to_string(),
+            json!(["approve", "deny", "always", "abort"]),
+        );
+        metadata.insert(
+            "edit_diff".to_string(),
+            json!({
+                "file": "src/main.rs",
+                "diff": "--- a\n+++ b\n@@\n-old\n+new\n",
+                "truncated": false,
+            }),
+        );
+        // OutboundMessage is #[non_exhaustive] across crate boundaries; build via JSON.
+        let outbound: OutboundMessage = serde_json::from_value(json!({
+            "channel": "altai-cli",
+            "chat_id": "chat",
+            "content": "Approve edit?",
+            "metadata": metadata,
+        }))
+        .expect("outbound message");
+
+        let mut emitter = JsonlEmitter::new("/workspace");
+        let mut buffer = Vec::new();
+        emitter
+            .observe_bus_message(&BusMessage::Outbound(outbound), &mut buffer)
+            .unwrap();
+        let text = String::from_utf8(buffer).unwrap();
+        assert!(text.contains("\"type\":\"edit_diff\""), "{text}");
+        assert!(text.contains("\"type\":\"clarification_requested\""), "{text}");
+        assert!(text.contains("src/main.rs"), "{text}");
+        assert!(text.contains("has_edit_diff\":true"), "{text}");
     }
 }

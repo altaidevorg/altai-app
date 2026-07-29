@@ -390,9 +390,20 @@ fn outbound_to_cell(msg: &OutboundMessage) -> Cell {
                     .collect::<Vec<_>>()
             })
             .unwrap_or_default();
+        let edit_diff = msg.metadata.get("edit_diff").and_then(|v| {
+            let file = v.get("file")?.as_str()?.to_string();
+            let diff = v.get("diff")?.as_str()?.to_string();
+            let truncated = v.get("truncated").and_then(|t| t.as_bool()).unwrap_or(false);
+            Some(crate::channels::terminal_ui::EditDiffPayload {
+                file,
+                diff,
+                truncated,
+            })
+        });
         Cell::Clarification {
             text: msg.content.clone(),
             choices,
+            edit_diff,
         }
     } else {
         Cell::Assistant {
@@ -1789,6 +1800,9 @@ pub(crate) fn run_ratatui_main(config: RatatuiMainConfig) -> io::Result<()> {
                     app.upsert_tool_notice(tool_call_id, phase, content);
                 }
                 other => {
+                    if matches!(other, Cell::Clarification { .. }) {
+                        app.pending_approval = true;
+                    }
                     append_cell_merging_thought(&mut app.cells, other);
                 }
             }
@@ -2876,6 +2890,7 @@ pub(crate) fn run_ratatui_main(config: RatatuiMainConfig) -> io::Result<()> {
 
                         app.cells.push(Cell::User { text: raw.clone() });
                         app.thinking = true;
+                        app.pending_approval = false;
                         app.last_inbound_text = Some(text.to_string());
                         app.llm_retry_available = false;
                         let (clean_text, attachments) =
@@ -3176,6 +3191,37 @@ pub(crate) fn run_ratatui_main(config: RatatuiMainConfig) -> io::Result<()> {
                                     );
                                 }
                             }
+                        }
+                    }
+                    KeyCode::Char(c) if app.pending_approval && app.input.is_empty() => {
+                        if let Some(reply) =
+                            crate::channels::terminal_ui::approval_hotkey_reply(c)
+                        {
+                            app.cells.push(Cell::User {
+                                text: reply.to_string(),
+                            });
+                            app.thinking = true;
+                            app.pending_approval = false;
+                            app.last_inbound_text = Some(reply.to_string());
+                            let msg = InboundMessage {
+                                channel: channel_name.clone(),
+                                sender_id: "local_user".to_string(),
+                                chat_id: chat_id.clone(),
+                                thread_id: None,
+                                content: reply.to_string(),
+                                attachments: Vec::new(),
+                                metadata: Default::default(),
+                            };
+                            if bus_tx.blocking_send(BusMessage::Inbound(msg)).is_err() {
+                                app.thinking = false;
+                                app.cells.push(Cell::System {
+                                    message: "Bus closed; exiting.".into(),
+                                });
+                                app.request_quit();
+                            }
+                            app.scroll_to_bottom();
+                        } else {
+                            app.insert_char(c);
                         }
                     }
                     KeyCode::Char(c) => app.insert_char(c),

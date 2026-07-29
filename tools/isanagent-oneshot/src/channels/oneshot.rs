@@ -221,9 +221,33 @@ impl Channel for OneshotChannel {
                 .get(crate::bus::METADATA_CLARIFICATION_TICKET_ID)
                 .is_some()
         {
-            self.complete(OneshotOutcome::ClarificationRequired {
-                detail: msg.content.clone(),
-            });
+            if let Some(edit) = msg.metadata.get("edit_diff") {
+                let file = edit
+                    .get("file")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("(unknown)");
+                let truncated = edit
+                    .get("truncated")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
+                let diff = edit.get("diff").and_then(|v| v.as_str()).unwrap_or("");
+                let mut detail = format!("edit approval required for {file}");
+                if truncated {
+                    detail.push_str(" [diff truncated]");
+                }
+                if !diff.is_empty() {
+                    detail.push('\n');
+                    detail.push_str(diff);
+                } else if !msg.content.is_empty() {
+                    detail.push('\n');
+                    detail.push_str(&msg.content);
+                }
+                self.complete(OneshotOutcome::ApprovalRequired { detail });
+            } else {
+                self.complete(OneshotOutcome::ClarificationRequired {
+                    detail: msg.content.clone(),
+                });
+            }
             return Ok(());
         }
 

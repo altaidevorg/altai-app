@@ -33,6 +33,9 @@ pub use HostThemeMode;
 - Startup banners for oneshot mode go to stderr so JSONL stdout stays clean.
 - `theme` selects ALTAI dark/light truecolor roles (or no-color structure); combined with
   `no_color` before the Ratatui / line-mode channel starts.
+- Approval prompts offer `approve` / `deny` / `always` / `abort`. `always` grants for the
+  current process only. Edit approvals attach `metadata.edit_diff` and map oneshot
+  completion to `ApprovalRequired` with the diff detail.
 
 ## Upstream constraint
 
