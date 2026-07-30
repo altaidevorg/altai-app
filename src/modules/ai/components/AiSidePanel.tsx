@@ -34,6 +34,7 @@ import {
   SparklesIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { type ReactElement, useEffect, useRef, useState } from "react";
 import { EditApprovalCard } from "./EditApprovalCard";
 import { SurfaceHeader, SurfaceSearch } from "./AuxiliarySurface";
@@ -339,7 +340,10 @@ export function AiSidePanel({
                   aria-label="Chat sessions"
                   className="altai-ai-history-rail z-10 flex h-full min-h-0 min-w-0 flex-col overflow-hidden"
                 >
-                  <ChatHistoryPanel onClose={() => setActiveSurface(null)} />
+                  <ChatHistoryPanel
+                    onClose={() => setActiveSurface(null)}
+                    autoFocusSearch={historyOpen}
+                  />
                 </nav>
               </ResizablePanel>
               <ResizableHandle
@@ -882,6 +886,10 @@ function WorkspaceTopbar({
   const todoSummary =
     !historyOpen && activeId ? <TodoSummaryChip sessionId={activeId} /> : null;
 
+  const toggleWindowMaximize = () => {
+    void getCurrentWindow().toggleMaximize().catch(() => undefined);
+  };
+
   if (variant === "sidebar") {
     return (
       <div className="altai-ai-topbar flex shrink-0 flex-col border-b border-border-subtle bg-card">
@@ -917,38 +925,45 @@ function WorkspaceTopbar({
   }
 
   return (
-    <div
-      className={cn(
-        "altai-ai-topbar flex h-10 shrink-0 items-center gap-1.5 border-b border-border-subtle bg-card px-2.5",
-        IS_MAC && "pl-20",
-      )}
-    >
-      {historyControl}
-      <div data-tauri-drag-region className="h-full min-w-4 flex-1" />
-      {todoSummary}
-      {workspaceActions}
-      {onOpenSettings ? (
-        <IconTooltip label="ALTAI Studio settings">
+    <div className="altai-ai-topbar flex shrink-0 flex-col border-b border-border-subtle bg-card">
+      <div
+        className={cn(
+          "flex h-10 min-w-0 items-center gap-1.5 px-2.5",
+          IS_MAC && "pl-20",
+        )}
+      >
+        <div
+          data-tauri-drag-region
+          onDoubleClick={toggleWindowMaximize}
+          className="h-full min-w-4 flex-1"
+          aria-label="Window title bar"
+        />
+        {historyControl}
+        {todoSummary}
+        {workspaceActions}
+        {onOpenSettings ? (
+          <IconTooltip label="ALTAI Studio settings">
+            <button
+              type="button"
+              onClick={onOpenSettings}
+              aria-label="ALTAI Studio settings"
+              className="inline-flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            >
+              <HugeiconsIcon icon={Settings01Icon} size={14} strokeWidth={1.75} />
+            </button>
+          </IconTooltip>
+        ) : null}
+        {onOpenStudio ? (
           <button
             type="button"
-            onClick={onOpenSettings}
-            aria-label="ALTAI Studio settings"
-            className="inline-flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            onClick={onOpenStudio}
+            className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg border border-border bg-muted/45 px-2.5 text-[10.5px] font-medium text-foreground transition-colors hover:bg-accent"
           >
-            <HugeiconsIcon icon={Settings01Icon} size={14} strokeWidth={1.75} />
+            <HugeiconsIcon icon={CodeIcon} size={13} strokeWidth={1.8} />
+            <span className="hidden @[34rem]:inline">Open IDE</span>
           </button>
-        </IconTooltip>
-      ) : null}
-      {onOpenStudio ? (
-        <button
-          type="button"
-          onClick={onOpenStudio}
-          className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg border border-border bg-muted/45 px-2.5 text-[10.5px] font-medium text-foreground transition-colors hover:bg-accent"
-        >
-          <HugeiconsIcon icon={CodeIcon} size={13} strokeWidth={1.8} />
-          <span className="hidden @[34rem]:inline">Open IDE</span>
-        </button>
-      ) : null}
+        ) : null}
+      </div>
     </div>
   );
 }
