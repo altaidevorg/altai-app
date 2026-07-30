@@ -13,20 +13,8 @@ pub fn host_config_for_workspace(workspace: &WorkspacePaths) -> isanagent::host:
         workspace: Some(workspace.isanagent_state.clone()),
         config: Some(workspace.isanagent_state.join("config.toml")),
         sandbox: Some(workspace.root.clone()),
-        model: None,
-        fallback_model: None,
-        permission: None,
-        no_color: false,
         theme: isanagent::host::HostThemeMode::Auto,
-        resume: None,
-        files: Vec::new(),
-        line_mode: false,
-        compact_auto: None,
-        compact_threshold_tokens: None,
-        compact_tail_turns: None,
-        oneshot_prompt: None,
-        observe_tx: None,
-        scripted_responses: None,
+        ..Default::default()
     }
 }
 
