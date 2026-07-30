@@ -26,6 +26,14 @@ mod windows;
 #[derive(Default)]
 pub struct RecentFolders(pub Mutex<Vec<String>>);
 
+/// Generate the label for an independently-created IDE window.
+///
+/// `studio` is intentionally reserved for the singleton Studio window, while
+/// `main-*` is granted the same window capabilities as the primary IDE.
+fn new_ide_window_label() -> String {
+    format!("main-{}", uuid::Uuid::new_v4().simple())
+}
+
 /// Open a fresh ALTAI IDE window.
 ///
 /// The primary `main` window is the singleton Agent Workspace / Studio
@@ -37,7 +45,7 @@ pub fn spawn_new_window(app: &AppHandle) {
     // A unique label is mandatory (Tauri rejects duplicates). The `main-`
     // prefix matches the capability glob (`main-*`) so the new window inherits
     // the same plugin permissions as the primary one.
-    let label = format!("main-{}", uuid::Uuid::new_v4().simple());
+    let label = new_ide_window_label();
 
     let builder = WebviewWindowBuilder::new(
         app,
@@ -111,4 +119,22 @@ pub fn set_recent_folders(
 #[tauri::command]
 pub fn open_new_window(app: AppHandle) {
     spawn_new_window(&app);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::new_ide_window_label;
+
+    #[test]
+    fn new_ide_windows_never_reuse_the_singleton_studio_label() {
+        let label = new_ide_window_label();
+
+        assert!(label.starts_with("main-"));
+        assert_ne!(label, "studio");
+    }
+
+    #[test]
+    fn each_new_ide_window_gets_its_own_label() {
+        assert_ne!(new_ide_window_label(), new_ide_window_label());
+    }
 }
