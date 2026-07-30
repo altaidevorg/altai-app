@@ -222,6 +222,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "altai-collaboration"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "altai-core"
 version = "0.6.4"
 dependencies = [

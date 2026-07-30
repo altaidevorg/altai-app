@@ -11,6 +11,7 @@ repository = "https://github.com/altaidevorg/altai-app"
 members = [
 	"crates/altai-core",
 	"crates/altai-agent-service",
+	"crates/altai-collaboration",
 	"crates/altai-protocol",
 	"crates/altai-cli",
 ]
