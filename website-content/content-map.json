@@ -1,0 +1,71 @@
+{
+  "brand": {
+    "name": "ALTAI",
+    "category": "The open agentic development environment for code and machine learning",
+    "voice": ["precise", "calm", "technical", "outcome-led"],
+    "avoid": ["magic", "revolutionary", "10x", "no-code", "gradients"]
+  },
+  "navigation": [
+    "Product",
+    "Coding",
+    "ML Engineering",
+    "Data",
+    "Orchestration",
+    "Security",
+    "Docs",
+    "GitHub"
+  ],
+  "hero": {
+    "eyebrow": "THE OPEN AGENTIC DEVELOPMENT ENVIRONMENT",
+    "headline": "Build software. Engineer models. One agentic workspace.",
+    "subhead": "ALTAI is a local-first development environment where agents can understand your codebase, edit and verify code, research ML approaches, run experiments, generate training data, and carry the work all the way to a reviewable result.",
+    "primaryCta": "Download ALTAI",
+    "secondaryCta": "Explore the system",
+    "support": "Your workspace. Your models. Your keys. Your evidence.",
+    "interactiveScene": "workspace-overview"
+  },
+  "pillars": [
+    {
+      "id": "coding",
+      "eyebrow": "AGENTIC CODING",
+      "headline": "Your codebase, with an agent that can finish the loop.",
+      "proof": ["repository-wide context", "real edits and commands", "diff-first review", "GitHub and worktrees"],
+      "interactiveScene": "issue-to-reviewed-diff"
+    },
+    {
+      "id": "ml",
+      "eyebrow": "ALWAYS-ON ML ENGINEERING",
+      "headline": "Research, pilot, evaluate, scale.",
+      "proof": ["current research", "local/Jupyter/SSH/Colab execution", "background jobs", "artifacts and evaluation"],
+      "interactiveScene": "research-pilot-evaluate"
+    },
+    {
+      "id": "data",
+      "eyebrow": "DATASET ENGINEERING",
+      "headline": "Turn your corpus into training signal.",
+      "proof": ["conversations and tool traces", "preference data", "quality gates", "training-ready exports"],
+      "interactiveScene": "dataset-quality-pipeline"
+    },
+    {
+      "id": "orchestration",
+      "eyebrow": "ORCHESTRATION",
+      "headline": "One agent for a task. A governed system for the project.",
+      "proof": ["task DAG", "profiles and budgets", "quality gates", "ledger and replay"],
+      "interactiveScene": "governed-task-graph"
+    }
+  ],
+  "workflow": [
+    "Understand",
+    "Research",
+    "Build",
+    "Measure",
+    "Review",
+    "Remember"
+  ],
+  "finalCta": {
+    "headline": "Build the code. Run the experiment. Ship the evidence.",
+    "primary": "Download ALTAI",
+    "secondary": "Star on GitHub",
+    "availability": "macOS · Windows · Linux"
+  }
+}
