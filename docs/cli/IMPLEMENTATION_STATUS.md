@@ -39,18 +39,18 @@
 | Runtime `/key` API key entry (TUI + line mode) | Verified | persist to config.toml + SwitchModel hot-swap; mask suffix only |
 | CLI journal mirrors tool/thinking/usage telemetry | Verified | `journal_sink` Desktop-shaped payloads + redact |
 | CLI journal mirrors outbound + execution/subagent | Verified | `agent_message` / `clarification` / execution / subagent kinds |
+| CLI release archives (tar.gz/zip + sha256) | Verified | `scripts/package-altai-cli.sh` + CI artifacts + Release `cli` job |
 
 ## Incomplete
 
 | Capability | Gap | Planned milestone |
 |---|---|---|
 | Full bus-message parity in the CLI journal sink | Near-complete for run-scoped Desktop kinds; background/notification/system events still open | **M6 follow-up** |
-| Release packaging / installed-binary CI matrix | Partial | `altai-cli smoke` matrix on ubuntu/windows/macos release builds + command contract; full archives/installers still open |
 | Full PTY visual golden frames | Width-fit string snapshots only | Expand in CI matrix follow-up |
 
 ## Next milestone
 
-### M6 — Packaging + remaining system-scoped journal events
+### M6 — Remaining hardening
 
-Run-scoped Desktop journal kinds are largely mirrored by CLI. Remaining: release
-archives/installers, PTY golden frames, background/notification system events.
+CLI archives ship on GitHub Releases. Remaining: PTY golden frames,
+background/notification system journal events.

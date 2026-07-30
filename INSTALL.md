@@ -76,6 +76,50 @@ Linux binaries are not subject to Gatekeeper / SmartScreen — no bypass step is
 
 ---
 
+## CLI (`altai-cli`)
+
+Each `v*` GitHub Release also publishes portable CLI archives:
+
+| Platform | Archive |
+|---|---|
+| macOS Apple Silicon | `altai-cli_<tag>_aarch64-apple-darwin.tar.gz` |
+| macOS Intel | `altai-cli_<tag>_x86_64-apple-darwin.tar.gz` |
+| Linux x86_64 | `altai-cli_<tag>_x86_64-unknown-linux-gnu.tar.gz` |
+| Windows x86_64 | `altai-cli_<tag>_x86_64-pc-windows-msvc.zip` |
+
+Each archive ships `altai-cli` (or `altai-cli.exe`) plus a `.sha256` sidecar on the release.
+
+```bash
+# Example: Linux / macOS
+tar -xzf altai-cli_v0.6.4_aarch64-apple-darwin.tar.gz
+sudo mv altai-cli /usr/local/bin/
+altai-cli doctor
+altai-cli version --verbose
+
+# Optional shorter command name
+sudo ln -s /usr/local/bin/altai-cli /usr/local/bin/altai
+```
+
+```powershell
+# Example: Windows (PowerShell)
+Expand-Archive .\altai-cli_v0.6.4_x86_64-pc-windows-msvc.zip -DestinationPath .
+Move-Item .\altai-cli.exe $env:LOCALAPPDATA\Microsoft\WindowsApps\
+altai-cli doctor
+```
+
+Build the CLI from source without the desktop shell:
+
+```bash
+cargo build --manifest-path src-tauri/Cargo.toml -p altai-cli --release
+./scripts/package-altai-cli.sh \
+  --binary src-tauri/target/release/altai-cli \
+  --target "$(rustc -vV | sed -n 's/^host: //p')" \
+  --version local \
+  --out-dir dist/cli
+```
+
+---
+
 ## Verify the install
 
 Launch ALTAI. You should see:

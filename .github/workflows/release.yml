@@ -150,10 +150,109 @@ jobs:
 
             See [INSTALL.md](https://github.com/altaidevorg/altai-app/blob/main/INSTALL.md) for one-time install instructions per platform — the binaries are unsigned, so macOS Gatekeeper and Windows SmartScreen will warn the first time.
 
-            **macOS:** `xattr -dr com.apple.quarantine /Applications/ALTAI.app`
-            **Windows:** Click "More info" → "Run anyway" on the SmartScreen prompt.
-            **Linux:** Install the `.deb` or run the `.AppImage` directly.
+            **Desktop**
+            - **macOS:** `xattr -dr com.apple.quarantine /Applications/ALTAI.app`
+            - **Windows:** Click "More info" → "Run anyway" on the SmartScreen prompt.
+            - **Linux:** Install the `.deb` or run the `.AppImage` directly.
+
+            **CLI**
+            - Download `altai-cli_<tag>_<target>.tar.gz` / `.zip` from this release.
+            - Put `altai-cli` on your `PATH`, then run `altai-cli doctor`.
           releaseDraft: false
           prerelease: ${{ steps.tag.outputs.prerelease == 'true' }}
           includeUpdaterJson: false
           args: ${{ steps.build_args.outputs.args }}
+
+  cli:
+    name: CLI ${{ matrix.label }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            label: (Apple Silicon)
+            target: aarch64-apple-darwin
+            binary: altai-cli
+          - os: macos-14
+            label: (Intel)
+            target: x86_64-apple-darwin
+            binary: altai-cli
+          - os: ubuntu-22.04
+            label: (Linux x86_64)
+            target: x86_64-unknown-linux-gnu
+            binary: altai-cli
+          - os: windows-latest
+            label: (Windows x86_64)
+            target: x86_64-pc-windows-msvc
+            binary: altai-cli.exe
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Resolve release tag
+        id: tag
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            NAME="${{ inputs.tag }}"
+          else
+            NAME="${GITHUB_REF##refs/tags/}"
+          fi
+          echo "name=$NAME" >> "$GITHUB_OUTPUT"
+          if [[ "$NAME" == *-* ]]; then
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+          key: cli-release-${{ matrix.target }}
+
+      - name: Sync latest İsanAgent main
+        run: cargo update --manifest-path src-tauri/Cargo.toml -p isanagent
+
+      - name: Build altai-cli
+        run: cargo build --manifest-path src-tauri/Cargo.toml -p altai-cli --release --target ${{ matrix.target }}
+
+      - name: Package archive
+        shell: bash
+        run: |
+          ./scripts/package-altai-cli.sh \
+            --binary "src-tauri/target/${{ matrix.target }}/release/${{ matrix.binary }}" \
+            --target "${{ matrix.target }}" \
+            --version "${{ steps.tag.outputs.name }}" \
+            --out-dir dist/cli
+
+      - name: Smoke packaged binary
+        shell: bash
+        run: |
+          stage="$(mktemp -d)"
+          archive="$(ls dist/cli/altai-cli_${{ steps.tag.outputs.name }}_${{ matrix.target }}.* | grep -v sha256 | head -1)"
+          if [[ "$archive" == *.zip ]]; then
+            unzip -q "$archive" -d "$stage"
+            BIN="$stage/altai-cli.exe"
+          else
+            tar -xzf "$archive" -C "$stage"
+            BIN="$stage/altai-cli"
+          fi
+          "$BIN" version --verbose
+          "$BIN" doctor --json >/dev/null
+
+      - name: Upload CLI archive to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.name }}
+          name: ALTAI ${{ steps.tag.outputs.name }}
+          prerelease: ${{ steps.tag.outputs.prerelease == 'true' }}
+          files: |
+            dist/cli/*
+          fail_on_unmatched_files: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

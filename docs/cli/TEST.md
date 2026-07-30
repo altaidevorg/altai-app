@@ -219,7 +219,7 @@
   ignore.
 - `altai-cli smoke` CI job now runs on ubuntu-22.04, windows-latest, and
   macos-14 (release binary + version/doctor/completion/open/run/journal
-  contract). Full release archives/installers remain open.
+  contract).
 
 ## M6 partial — outbound + execution/subagent journal — 2026-07-30
 
@@ -230,3 +230,14 @@
   and `subagent_finished` telemetry kinds.
 - Unit tests: 12 `journal_sink` cases including pre-start ignore and malformed
   edit_diff omission.
+
+## M6 — CLI release archives — 2026-07-30
+
+- Added `scripts/package-altai-cli.sh` (tar.gz / zip + `.sha256`).
+- CI `altai-cli smoke` packs a release-style archive per target and uploads it
+  as a workflow artifact (`altai-cli-linux-x64` / `win32-x64` / `darwin-arm64`).
+- Release workflow gains a `cli` matrix job that builds
+  `aarch64-apple-darwin`, `x86_64-apple-darwin`, `x86_64-unknown-linux-gnu`,
+  and `x86_64-pc-windows-msvc`, smokes the packed binary, and attaches
+  archives to the GitHub Release via `softprops/action-gh-release`.
+- `INSTALL.md` documents CLI archive names and PATH install steps.
