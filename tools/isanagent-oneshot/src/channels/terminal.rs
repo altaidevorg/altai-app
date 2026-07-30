@@ -815,37 +815,20 @@ For headless or piped runs, set [terminal] enabled = false in config.toml (requi
                             let _ = std::io::Write::flush(&mut std::io::stdout());
                             continue;
                         }
-                        let mut parts = arg.splitn(2, char::is_whitespace);
-                        let first = parts.next().unwrap_or("").trim();
-                        let rest = parts.next().unwrap_or("").trim();
-                        let (config_key_arg, secret): (Option<&str>, &str) =
-                            if !rest.is_empty() && providers.contains_key(first) {
-                                (Some(first), rest)
-                            } else {
-                                (None, arg)
-                            };
-                        let resolved_config_key = config_key_arg
-                            .map(|s| s.to_string())
-                            .or_else(|| active_provider_key.clone())
-                            .or_else(|| {
-                                if providers.len() == 1 {
-                                    providers.keys().next().cloned()
-                                } else {
-                                    None
+                        let (resolved_config_key, secret) =
+                            match crate::channels::terminal_ui::resolve_key_command_args(
+                                arg,
+                                &providers,
+                                active_provider_key.as_deref(),
+                            ) {
+                                Ok(resolved) => resolved,
+                                Err(message) => {
+                                    println!("[system] {message}");
+                                    print!("> ");
+                                    let _ = std::io::Write::flush(&mut std::io::stdout());
+                                    continue;
                                 }
-                            });
-                        let Some(resolved_config_key) = resolved_config_key else {
-                            let mut available: Vec<&str> =
-                                providers.keys().map(|s| s.as_str()).collect();
-                            available.sort_unstable();
-                            println!(
-                                "[system] Multiple providers configured; specify one: /key <provider_config_key> <api_key>. Available: {}. Or run /model first, then /key.",
-                                available.join(", ")
-                            );
-                            print!("> ");
-                            let _ = std::io::Write::flush(&mut std::io::stdout());
-                            continue;
-                        };
+                            };
                         if crate::channels::terminal_ui::key_looks_like_placeholder(secret) {
                             println!(
                                 "[system] That doesn't look like a real API key. Usage: /key <api_key>"

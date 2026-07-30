@@ -32,7 +32,8 @@ pub use theme::{
 
 pub(crate) use run::{
     key_looks_like_placeholder, mask_api_key_suffix, persist_provider_api_key,
-    resolve_initial_active_provider_key, run_ratatui_main, RatatuiMainConfig,
+    resolve_initial_active_provider_key, resolve_key_command_args, run_ratatui_main,
+    RatatuiMainConfig,
 };
 
 use unicode_width::UnicodeWidthStr;
