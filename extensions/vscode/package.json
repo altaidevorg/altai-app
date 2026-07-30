@@ -1,0 +1,147 @@
+{
+  "name": "@altai/vscode",
+  "displayName": "ALTAI",
+  "version": "0.1.0",
+  "private": true,
+  "description": "ALTAI agent workspace for VS Code",
+  "license": "Apache-2.0",
+  "publisher": "altaidevorg",
+  "type": "commonjs",
+  "main": "./dist/extension.js",
+  "engines": {
+    "vscode": "^1.95.0"
+  },
+  "extensionKind": ["workspace"],
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": "limited",
+      "description": "ALTAI can show its static UI and logs in Restricted Mode, but will not start an agent host until the workspace is trusted.",
+      "restrictedConfigurations": ["altai.host.executable"]
+    },
+    "virtualWorkspaces": {
+      "supported": false,
+      "description": "ALTAI needs a filesystem workspace where its Rust host can run."
+    }
+  },
+  "activationEvents": [
+    "onView:altai.chat",
+    "onCommand:altai.openChat",
+    "onCommand:altai.newChat",
+    "onCommand:altai.runDoctor",
+    "onCommand:altai.openLogs",
+    "onCommand:altai.askAboutSelection",
+    "onCommand:altai.explainSelection",
+    "onCommand:altai.fixSelection",
+    "onCommand:altai.refactorSelection",
+    "onCommand:altai.reviewFile",
+    "onCommand:altai.addFileToContext"
+  ],
+  "categories": ["Other"],
+  "contributes": {
+    "configuration": {
+      "title": "ALTAI",
+      "properties": {
+        "altai.host.executable": {
+          "type": "string",
+          "default": "",
+          "scope": "machine",
+          "markdownDescription": "Optional path to an ALTAI host binary. This setting is only read from user or machine scope; workspace values are ignored for safety."
+        }
+      }
+    },
+    "configurationDefaults": {
+      "altai.host.executable": ""
+    },
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "altai",
+          "title": "ALTAI",
+          "icon": "media/altai.svg"
+        }
+      ]
+    },
+    "views": {
+      "altai": [
+        {
+          "id": "altai.chat",
+          "name": "Chat",
+          "type": "webview"
+        },
+        {
+          "id": "altai.work",
+          "name": "Work"
+        },
+        {
+          "id": "altai.inbox",
+          "name": "Inbox"
+        }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "altai.work",
+        "contents": "No active ALTAI work. Open Chat to get started.\\n\\nRun projection is in memory only until host replay is available."
+      },
+      {
+        "view": "altai.inbox",
+        "contents": "No items need your attention.\\n\\nItems here are visibility-only; approval and steering resolution are not supported by the current host protocol."
+      }
+    ],
+    "commands": [
+      { "command": "altai.openChat", "title": "ALTAI: Open Chat" },
+      { "command": "altai.newChat", "title": "ALTAI: New Chat" },
+      { "command": "altai.askAboutSelection", "title": "ALTAI: Ask About Selection" },
+      { "command": "altai.explainSelection", "title": "ALTAI: Explain Selection" },
+      { "command": "altai.fixSelection", "title": "ALTAI: Fix Selection" },
+      { "command": "altai.refactorSelection", "title": "ALTAI: Refactor Selection" },
+      { "command": "altai.reviewFile", "title": "ALTAI: Review File" },
+      { "command": "altai.addFileToContext", "title": "ALTAI: Add File to Context" },
+      { "command": "altai.runDoctor", "title": "ALTAI: Run Doctor" },
+      { "command": "altai.openLogs", "title": "ALTAI: Open Logs" }
+    ],
+    "menus": {
+      "commandPalette": [
+        { "command": "altai.openChat" },
+        { "command": "altai.newChat" },
+        { "command": "altai.askAboutSelection", "when": "editorHasSelection && workspaceTrustState == trusted" },
+        { "command": "altai.explainSelection", "when": "editorHasSelection && workspaceTrustState == trusted" },
+        { "command": "altai.fixSelection", "when": "editorHasSelection && workspaceTrustState == trusted" },
+        { "command": "altai.refactorSelection", "when": "editorHasSelection && workspaceTrustState == trusted" },
+        { "command": "altai.reviewFile", "when": "resourceScheme == file && workspaceTrustState == trusted" },
+        { "command": "altai.addFileToContext", "when": "resourceScheme == file && workspaceTrustState == trusted" },
+        { "command": "altai.runDoctor", "when": "workspaceTrustState == trusted" },
+        { "command": "altai.openLogs" }
+      ],
+      "editor/context": [
+        { "command": "altai.askAboutSelection", "when": "editorHasSelection && workspaceTrustState == trusted", "group": "navigation@20" },
+        { "command": "altai.explainSelection", "when": "editorHasSelection && workspaceTrustState == trusted", "group": "navigation@21" },
+        { "command": "altai.fixSelection", "when": "editorHasSelection && workspaceTrustState == trusted", "group": "navigation@22" },
+        { "command": "altai.refactorSelection", "when": "editorHasSelection && workspaceTrustState == trusted", "group": "navigation@23" },
+        { "command": "altai.reviewFile", "when": "resourceScheme == file && workspaceTrustState == trusted", "group": "navigation@24" }
+      ],
+      "explorer/context": [
+        { "command": "altai.addFileToContext", "when": "resourceScheme == file && workspaceTrustState == trusted", "group": "navigation@20" },
+        { "command": "altai.reviewFile", "when": "resourceScheme == file && workspaceTrustState == trusted", "group": "navigation@21" }
+      ]
+    }
+  },
+  "scripts": {
+    "build": "node esbuild.mjs",
+    "watch": "node esbuild.mjs --watch",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "test:integration": "node ./scripts/integration-placeholder.mjs"
+  },
+  "dependencies": {
+    "@altai/agent-protocol": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^25.6.0",
+    "@types/vscode": "^1.95.0",
+    "esbuild": "^0.27.7",
+    "typescript": "~5.8.3",
+    "vitest": "^2.1.9"
+  }
+}
