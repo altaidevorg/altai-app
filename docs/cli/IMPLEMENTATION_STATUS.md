@@ -36,6 +36,7 @@
 | `altai run` appends `run_started` / `run_terminated` to the desktop journal | Verified | `journal_sink` unit tests + CLI smoke against a scratch workspace |
 | `altai journal summary` / `altai journal fetch` inspection commands | Verified | clap contract tests + round-trip test against a seeded journal |
 | Mid-run `/dev/tty` approval resume for `altai run` | Verified | oneshot prompts on controlling TTY; non-TTY still exits 4 |
+| Runtime `/key` API key entry (TUI + line mode) | Verified | persist to config.toml + SwitchModel hot-swap; mask suffix only |
 
 ## Incomplete
 
