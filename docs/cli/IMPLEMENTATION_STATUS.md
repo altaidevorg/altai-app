@@ -37,17 +37,19 @@
 | `altai journal summary` / `altai journal fetch` inspection commands | Verified | clap contract tests + round-trip test against a seeded journal |
 | Mid-run `/dev/tty` approval resume for `altai run` | Verified | oneshot prompts on controlling TTY; non-TTY still exits 4 |
 | Runtime `/key` API key entry (TUI + line mode) | Verified | persist to config.toml + SwitchModel hot-swap; mask suffix only |
+| CLI journal mirrors tool/thinking/usage telemetry | Verified | `journal_sink` Desktop-shaped payloads + redact |
 
 ## Incomplete
 
 | Capability | Gap | Planned milestone |
 |---|---|---|
-| Full bus-message parity in the CLI journal sink (tool calls, thinking, usage) | Only `run_started` / `run_terminated` are journaled; desktop's richer per-turn events are not yet mirrored by the CLI | **M6 follow-up** |
-| Release packaging / installed-binary CI matrix | Partial | `altai-cli smoke` CI job builds release binary + version/doctor/completion/dry-run; full archives/installers still open |
+| Full bus-message parity in the CLI journal sink (tool calls, thinking, usage) | Partial: tool/thinking/usage/progress mirrored; outbound/assistant/subagent/execution still open | **M6 follow-up** |
+| Release packaging / installed-binary CI matrix | Partial | `altai-cli smoke` matrix on ubuntu/windows/macos release builds + command contract; full archives/installers still open |
 | Full PTY visual golden frames | Width-fit string snapshots only | Expand in CI matrix follow-up |
 
 ## Next milestone
 
-### M6 — Packaging, CI matrix, richer journal parity
+### M6 — Packaging, CI matrix, remaining journal parity
 
-Do not start until M5 is committed and journal + `/dev/tty` approval resume above are accepted.
+Core tool/thinking/usage journal mirroring is in progress. Remaining: outbound
+assistant/subagent/execution events, release archives/installers, PTY golden frames.

@@ -83,12 +83,17 @@ jobs:
       - run: pnpm build
 
   cli-smoke:
-    name: altai-cli smoke
-    runs-on: ubuntu-22.04
+    name: altai-cli smoke (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-latest, macos-14]
     steps:
       - uses: actions/checkout@v6
 
       - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -107,12 +112,16 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri -> target
-          key: cli-smoke
+          key: cli-smoke-${{ matrix.os }}
+
+      - name: Sync latest İsanAgent main
+        run: cargo update --manifest-path src-tauri/Cargo.toml -p isanagent
 
       - name: Build altai-cli
         run: cargo build --manifest-path src-tauri/Cargo.toml -p altai-cli --release
 
-      - name: Smoke installed-style command contract
+      - name: Smoke installed-style command contract (Unix)
+        if: runner.os != 'Windows'
         run: |
           BIN=src-tauri/target/release/altai-cli
           "$BIN" version --verbose
@@ -125,6 +134,26 @@ jobs:
           import json
           for path in ("/tmp/altai-doctor.json", "/tmp/altai-open.json", "/tmp/altai-run.json"):
               with open(path) as f:
+                  json.load(f)
+          print("cli smoke ok")
+          PY
+
+      - name: Smoke installed-style command contract (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          BIN=src-tauri/target/release/altai-cli.exe
+          "$BIN" version --verbose
+          "$BIN" doctor --json >"$RUNNER_TEMP/altai-doctor.json"
+          "$BIN" completion powershell >"$RUNNER_TEMP/altai.ps1"
+          "$BIN" open . --dry-run >"$RUNNER_TEMP/altai-open.json"
+          "$BIN" run . --prompt "smoke" --dry-run >"$RUNNER_TEMP/altai-run.json"
+          "$BIN" journal summary --json >"$RUNNER_TEMP/altai-journal.json" || true
+          python - <<PY
+          import json, os
+          root = os.environ["RUNNER_TEMP"]
+          for name in ("altai-doctor.json", "altai-open.json", "altai-run.json"):
+              with open(os.path.join(root, name), encoding="utf-8-sig") as f:
                   json.load(f)
           print("cli smoke ok")
           PY
