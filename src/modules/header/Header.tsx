@@ -17,6 +17,7 @@ import {
   SidebarRightIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import {
   SearchInline,
@@ -180,83 +181,85 @@ export function Header({
     </button>
   ) : null;
 
+  const toggleWindowMaximize = () => {
+    // Tauri's drag-region attribute handles dragging, but it does not restore
+    // the native titlebar's familiar double-click maximize behavior.
+    void getCurrentWindow().toggleMaximize().catch(() => undefined);
+  };
+
   return (
     <header
       ref={rootRef}
       role="banner"
       aria-label="Workspace toolbar"
-      className={`flex h-10 shrink-0 items-center gap-1.5 border-b border-border-subtle bg-raised select-none ${
-        IS_MAC && !embedded ? "pr-2 pl-20" : "pr-0 pl-2"
-      }`}
+      className="flex shrink-0 flex-col border-b border-border-subtle bg-raised select-none"
     >
-      <div className="flex shrink-0 items-center gap-0.5">
-        <ToolbarIconButton
-          active={sidebarActive}
-          onClick={onToggleSidebar}
-          title="Show or hide sidebar"
-          className={cn(
-            CHROME_BTN,
-            sidebarActive &&
-              "text-primary hover:text-primary hover:bg-primary/12 dark:hover:bg-primary/20",
-          )}
-          aria-label="Show or hide sidebar"
-        >
-          <HugeiconsIcon
-            icon={SidebarLeftIcon}
-            size={CHROME_ICON}
-            strokeWidth={1.75}
-          />
-        </ToolbarIconButton>
+      <div
+        className={cn(
+          "flex h-10 shrink-0 items-center gap-1.5",
+          IS_MAC && !embedded ? "pr-2 pl-20" : "pr-0 pl-2",
+        )}
+      >
+        <div className="flex shrink-0 items-center gap-0.5">
+          <ToolbarIconButton
+            active={sidebarActive}
+            onClick={onToggleSidebar}
+            title="Show or hide sidebar"
+            className={cn(
+              CHROME_BTN,
+              sidebarActive &&
+                "text-primary hover:text-primary hover:bg-primary/12 dark:hover:bg-primary/20",
+            )}
+            aria-label="Show or hide sidebar"
+          >
+            <HugeiconsIcon
+              icon={SidebarLeftIcon}
+              size={CHROME_ICON}
+              strokeWidth={1.75}
+            />
+          </ToolbarIconButton>
+          {!IS_MAC && shortcutsButton}
+        </div>
 
-        {!IS_MAC && shortcutsButton}
-      </div>
-
-      {!IS_MAC && <span className="mx-1 h-5 w-px shrink-0 bg-border" />}
-
-      {IS_MAC && <span className="mr-1 h-full w-px shrink-0 bg-border" />}
-
-      <div className="flex min-w-0 flex-1 items-center gap-2">
-        <TabBar
-          tabs={tabs}
-          activeId={activeId}
-          onSelect={onSelect}
-          onNew={onNew}
-          onNewPrivate={onNewPrivate}
-          onNewPreview={onNewPreview}
-          onNewEditor={onNewEditor}
-          onNewGitGraph={onNewGitGraph}
-          onClose={onClose}
-          onPin={onPin}
-          compact={compact}
+        <div
+          data-tauri-drag-region
+          onDoubleClick={toggleWindowMaximize}
+          className="h-full min-w-2 flex-1"
+          aria-label="Window title bar"
         />
-        <div data-tauri-drag-region className="h-full min-w-2 flex-1" />
+
+        {agentWorkspaceButton}
+        {IS_MAC ? (
+          <>{shortcutsButton}{agentSidebarButton}{settingsButton}</>
+        ) : (
+          <>{agentSidebarButton}{settingsButton}</>
+        )}
+        {USE_CUSTOM_WINDOW_CONTROLS && (
+          <>
+            <span className="ml-1 h-5 w-px shrink-0 bg-border" />
+            <WindowControls />
+          </>
+        )}
       </div>
 
-      <SearchInline ref={searchRef} target={searchTarget} compact={compact} />
-
-      {agentWorkspaceButton}
-
-      {IS_MAC && (
-        <>
-          {shortcutsButton}
-          {agentSidebarButton}
-          {settingsButton}
-        </>
-      )}
-
-      {!IS_MAC && (
-        <>
-          {agentSidebarButton}
-          {settingsButton}
-        </>
-      )}
-
-      {USE_CUSTOM_WINDOW_CONTROLS && (
-        <>
-          <span className="ml-1 h-5 w-px shrink-0 bg-border" />
-          <WindowControls />
-        </>
-      )}
+      <div className="flex h-10 min-w-0 items-center gap-2 border-t border-border-subtle/70 px-2">
+        <div className="min-w-0 flex-1">
+          <TabBar
+            tabs={tabs}
+            activeId={activeId}
+            onSelect={onSelect}
+            onNew={onNew}
+            onNewPrivate={onNewPrivate}
+            onNewPreview={onNewPreview}
+            onNewEditor={onNewEditor}
+            onNewGitGraph={onNewGitGraph}
+            onClose={onClose}
+            onPin={onPin}
+            compact={compact}
+          />
+        </div>
+        <SearchInline ref={searchRef} target={searchTarget} compact={compact} />
+      </div>
     </header>
   );
 }
