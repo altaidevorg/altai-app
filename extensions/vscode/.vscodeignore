@@ -1,0 +1,12 @@
+.gitignore
+.vscode/**
+src/**
+dist-types/**
+**/*.test.ts
+**/*.spec.ts
+vitest.config.*
+scripts/**
+node_modules/**
+pnpm-lock.yaml
+tsconfig.json
+esbuild.mjs
