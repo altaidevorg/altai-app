@@ -3,14 +3,14 @@
 //! runs regardless of which surface produced them.
 //!
 //! Lifecycle identity comes from `run_started` / oneshot finalize. After the
-//! run is known, selected IsanAgent telemetry is mirrored with Desktop's
-//! payload vocabulary (`tool_call_start` / `tool_call_end` / `thinking` /
-//! `usage`). Failures to append are logged to stderr and never fail the run
-//! itself.
+//! run is known, selected IsanAgent telemetry and outbound messages are
+//! mirrored with Desktop's payload vocabulary (`tool_call_*`, `thinking`,
+//! `usage`, `agent_message`, `clarification`). Failures to append are logged
+//! to stderr and never fail the run itself.
 
 use crate::run_output::describe_oneshot_outcome;
 use altai_core::{AppendStatus, EventJournal, JournalEvent, WorkspacePaths};
-use isanagent::bus::{BusMessage, RunLifecycleEvent, TelemetryEvent};
+use isanagent::bus::{BusMessage, OutboundMessage, RunLifecycleEvent, TelemetryEvent};
 use isanagent::host::OneshotResult;
 use serde_json::{json, Value};
 
@@ -51,7 +51,8 @@ impl JournalSink {
         }
     }
 
-    /// Records `run_started` once, then mirrors selected run-scoped telemetry.
+    /// Records `run_started` once, then mirrors selected run-scoped telemetry
+    /// and outbound assistant / clarification messages.
     pub fn observe_bus_message(&mut self, message: &BusMessage) {
         if self.terminated {
             return;
@@ -70,16 +71,36 @@ impl JournalSink {
                 );
             }
             BusMessage::Telemetry(telemetry) => {
-                if self.run_id.is_none() {
+                if !self.matches_run_chat(telemetry_scope_chat_id(telemetry)) {
                     return;
                 }
-                if let Some((kind, mut payload)) = map_telemetry_payload(telemetry) {
-                    isanagent::redact::shared().redact_json(&mut payload);
-                    self.append(kind, payload, false);
+                if let Some((kind, payload)) = map_telemetry_payload(telemetry) {
+                    self.append_redacted(kind, payload);
                 }
+            }
+            BusMessage::Outbound(outbound) => {
+                // Keep child-chat outbound (subagent traffic) out of the parent
+                // run journal — Desktop scopes outbound by outbound.chat_id.
+                if !self.matches_run_chat(Some(outbound.chat_id.as_str())) {
+                    return;
+                }
+                let (kind, payload) = map_outbound_payload(outbound);
+                self.append_redacted(kind, payload);
             }
             _ => {}
         }
+    }
+
+    fn matches_run_chat(&self, chat_id: Option<&str>) -> bool {
+        match (&self.run_id, &self.chat_id, chat_id) {
+            (Some(_), Some(run_chat), Some(event_chat)) => run_chat == event_chat,
+            _ => false,
+        }
+    }
+
+    fn append_redacted(&mut self, kind: &str, mut payload: Value) {
+        isanagent::redact::shared().redact_json(&mut payload);
+        self.append(kind, payload, false);
     }
 
     /// Ensures a terminal event is committed once the oneshot host returns.
@@ -147,6 +168,77 @@ impl JournalSink {
                 eprintln!("altai-cli: failed to append event journal entry ({kind}): {error}");
             }
         }
+    }
+}
+
+/// Maps IsanAgent outbound onto Desktop's durable event kinds/payloads.
+/// Clarification detection matches Desktop: metadata key presence
+/// (`METADATA_CLARIFICATION`), not a boolean true check.
+fn map_outbound_payload(outbound: &OutboundMessage) -> (&'static str, Value) {
+    let is_clarification = outbound
+        .metadata
+        .contains_key(isanagent::clarification::METADATA_CLARIFICATION);
+    if !is_clarification {
+        return (
+            "agent_message",
+            json!({
+                "type": "agent_message",
+                "content": outbound.content,
+                "role": "assistant",
+            }),
+        );
+    }
+
+    let choices = outbound
+        .metadata
+        .get(isanagent::clarification::METADATA_CLARIFICATION_CHOICES)
+        .and_then(|value| value.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|item| item.as_str().map(str::to_string))
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    let mut payload = json!({
+        "type": "clarification",
+        "content": outbound.content,
+        "choices": choices,
+    });
+    if let Some(edit_diff) = outbound.metadata.get("edit_diff").and_then(parse_edit_diff) {
+        payload["edit_diff"] = edit_diff;
+    }
+    ("clarification", payload)
+}
+
+fn parse_edit_diff(value: &Value) -> Option<Value> {
+    let obj = value.as_object()?;
+    let file = obj.get("file").and_then(|v| v.as_str())?.to_string();
+    let diff = obj.get("diff").and_then(|v| v.as_str())?.to_string();
+    let truncated = obj
+        .get("truncated")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    Some(json!({
+        "file": file,
+        "diff": diff,
+        "truncated": truncated,
+    }))
+}
+
+/// Chat scope used to decide whether telemetry belongs on the active run.
+/// Subagent lifecycle events are attributed to the parent chat (Desktop parity).
+fn telemetry_scope_chat_id(telemetry: &TelemetryEvent) -> Option<&str> {
+    match telemetry {
+        TelemetryEvent::ToolCall { chat_id, .. }
+        | TelemetryEvent::ToolResult { chat_id, .. }
+        | TelemetryEvent::AgentThought { chat_id, .. }
+        | TelemetryEvent::AgentUsage { chat_id, .. }
+        | TelemetryEvent::ToolProgress { chat_id, .. }
+        | TelemetryEvent::ExecutionRunFinished { chat_id, .. }
+        | TelemetryEvent::ExecutionJobFinished { chat_id, .. } => Some(chat_id.as_str()),
+        TelemetryEvent::SubagentSpawned { parent_chat_id, .. }
+        | TelemetryEvent::SubagentFinished { parent_chat_id, .. } => Some(parent_chat_id.as_str()),
+        _ => None,
     }
 }
 
@@ -225,6 +317,94 @@ fn map_telemetry_payload(telemetry: &TelemetryEvent) -> Option<(&'static str, Va
                 "total_tokens": total_tokens,
                 "cache_read_tokens": cache_read_tokens,
                 "cache_creation_tokens": cache_creation_tokens,
+            }),
+        )),
+        TelemetryEvent::ExecutionRunFinished {
+            provider_id,
+            session_id,
+            exit_code,
+            duration_ms,
+            stdout_len,
+            stderr_len,
+            artifact_count,
+            git_head,
+            description,
+            ..
+        } => Some((
+            "execution_run_finished",
+            json!({
+                "type": "execution_run_finished",
+                "provider_id": provider_id,
+                "session_id": session_id,
+                "exit_code": exit_code,
+                "duration_ms": duration_ms,
+                "stdout_len": stdout_len,
+                "stderr_len": stderr_len,
+                "artifact_count": artifact_count,
+                "git_head": git_head,
+                "description": description,
+            }),
+        )),
+        TelemetryEvent::ExecutionJobFinished {
+            job_id,
+            session_id,
+            provider_id,
+            status,
+            exit_code,
+            duration_ms,
+            stdout_len,
+            stderr_len,
+            artifact_count,
+            description,
+            ..
+        } => Some((
+            "execution_job_finished",
+            json!({
+                "type": "execution_job_finished",
+                "job_id": job_id,
+                "session_id": session_id,
+                "provider_id": provider_id,
+                "status": status,
+                "exit_code": exit_code,
+                "duration_ms": duration_ms,
+                "stdout_len": stdout_len,
+                "stderr_len": stderr_len,
+                "artifact_count": artifact_count,
+                "description": description,
+            }),
+        )),
+        TelemetryEvent::SubagentSpawned {
+            child_chat_id,
+            task_id,
+            display_name,
+            agent_name,
+            background_job_id,
+            ..
+        } => Some((
+            "subagent_spawned",
+            json!({
+                "type": "subagent_spawned",
+                "task_id": task_id,
+                "child_chat_id": child_chat_id,
+                "display_name": display_name,
+                "agent_name": agent_name,
+                "background_job_id": background_job_id,
+            }),
+        )),
+        TelemetryEvent::SubagentFinished {
+            child_chat_id,
+            task_id,
+            status,
+            agent_name,
+            ..
+        } => Some((
+            "subagent_finished",
+            json!({
+                "type": "subagent_finished",
+                "task_id": task_id,
+                "child_chat_id": child_chat_id,
+                "status": status,
+                "agent_name": agent_name,
             }),
         )),
         _ => None,
@@ -514,6 +694,207 @@ mod tests {
         assert!(
             !encoded.contains("sk-secret-token-123456"),
             "expected redaction, got {encoded}"
+        );
+    }
+
+    fn outbound_from(value: Value) -> OutboundMessage {
+        serde_json::from_value(value).expect("outbound message")
+    }
+
+    #[test]
+    fn outbound_assistant_message_is_journaled() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let workspace = workspace(temp.path());
+        let mut sink = start_sink(temp.path());
+
+        sink.observe_bus_message(&BusMessage::Outbound(outbound_from(json!({
+            "channel": "altai-cli",
+            "chat_id": "chat-1",
+            "content": "hello from agent",
+            "metadata": {},
+        }))));
+        sink.finalize(&OneshotResult {
+            chat_id: "chat-1".into(),
+            run_id: Some("run-1".into()),
+            outcome: OneshotOutcome::Completed,
+            final_text: Some("hello from agent".into()),
+        });
+
+        let journal = EventJournal::open(workspace.agent_event_journal_db()).expect("reopen");
+        let events = journal.fetch_after("run-1", 0, 10).expect("fetch");
+        assert_eq!(
+            events.iter().map(|e| e.kind.as_str()).collect::<Vec<_>>(),
+            ["run_started", "agent_message", "run_terminated"]
+        );
+        assert_eq!(events[1].payload["content"], json!("hello from agent"));
+        assert_eq!(events[1].payload["role"], json!("assistant"));
+    }
+
+    #[test]
+    fn clarification_outbound_keeps_choices_and_valid_edit_diff() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let workspace = workspace(temp.path());
+        let mut sink = start_sink(temp.path());
+
+        sink.observe_bus_message(&BusMessage::Outbound(outbound_from(json!({
+            "channel": "altai-cli",
+            "chat_id": "chat-1",
+            "content": "Approve edit?",
+            "metadata": {
+                "isanagent_clarification": true,
+                "isanagent_clarification_choices": ["approve", "deny", 42, "abort"],
+                "edit_diff": {
+                    "file": "src/main.rs",
+                    "diff": "--- a\n+++ b\n",
+                    "truncated": false
+                }
+            },
+        }))));
+
+        let journal = EventJournal::open(workspace.agent_event_journal_db()).expect("reopen");
+        let events = journal.fetch_after("run-1", 0, 10).expect("fetch");
+        assert_eq!(events[1].kind, "clarification");
+        assert_eq!(
+            events[1].payload["choices"],
+            json!(["approve", "deny", "abort"])
+        );
+        assert_eq!(events[1].payload["edit_diff"]["file"], json!("src/main.rs"));
+        assert_eq!(events[1].payload["edit_diff"]["truncated"], json!(false));
+    }
+
+    #[test]
+    fn malformed_edit_diff_is_omitted_from_clarification() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let workspace = workspace(temp.path());
+        let mut sink = start_sink(temp.path());
+
+        sink.observe_bus_message(&BusMessage::Outbound(outbound_from(json!({
+            "channel": "altai-cli",
+            "chat_id": "chat-1",
+            "content": "Approve?",
+            "metadata": {
+                "isanagent_clarification": true,
+                "edit_diff": { "file": 1, "diff": null }
+            },
+        }))));
+
+        let journal = EventJournal::open(workspace.agent_event_journal_db()).expect("reopen");
+        let events = journal.fetch_after("run-1", 0, 10).expect("fetch");
+        assert_eq!(events[1].kind, "clarification");
+        assert!(events[1].payload.get("edit_diff").is_none());
+    }
+
+    #[test]
+    fn outbound_before_run_started_is_ignored() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let workspace = workspace(temp.path());
+        let mut sink = JournalSink::open(&workspace).expect("journal opens");
+
+        sink.observe_bus_message(&BusMessage::Outbound(outbound_from(json!({
+            "channel": "altai-cli",
+            "chat_id": "chat-1",
+            "content": "too early",
+            "metadata": {},
+        }))));
+        sink.finalize(&OneshotResult {
+            chat_id: "chat-1".into(),
+            run_id: Some("run-late".into()),
+            outcome: OneshotOutcome::Completed,
+            final_text: None,
+        });
+
+        let journal = EventJournal::open(workspace.agent_event_journal_db()).expect("reopen");
+        let events = journal.fetch_after("run-late", 0, 10).expect("fetch");
+        assert_eq!(events.len(), 2);
+        assert_eq!(events[0].kind, "run_started");
+        assert_eq!(events[1].kind, "run_terminated");
+    }
+
+    #[test]
+    fn execution_and_subagent_telemetry_are_journaled() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let workspace = workspace(temp.path());
+        let mut sink = start_sink(temp.path());
+
+        sink.observe_bus_message(&BusMessage::Telemetry(
+            TelemetryEvent::ExecutionRunFinished {
+                chat_id: "chat-1".into(),
+                channel: "altai-cli".into(),
+                provider_id: "local".into(),
+                session_id: "s1".into(),
+                exit_code: Some(0),
+                duration_ms: 12,
+                stdout_len: 3,
+                stderr_len: 0,
+                artifact_count: 1,
+                git_head: Some("abc".into()),
+                description: Some("train".into()),
+            },
+        ));
+        sink.observe_bus_message(&BusMessage::Telemetry(TelemetryEvent::SubagentSpawned {
+            parent_chat_id: "chat-1".into(),
+            child_chat_id: "child-1".into(),
+            task_id: "t1".into(),
+            display_name: Some("Research".into()),
+            agent_name: Some("researcher".into()),
+            background_job_id: None,
+        }));
+        sink.observe_bus_message(&BusMessage::Telemetry(TelemetryEvent::SubagentFinished {
+            parent_chat_id: "chat-1".into(),
+            child_chat_id: "child-1".into(),
+            task_id: "t1".into(),
+            status: "completed".into(),
+            agent_name: Some("researcher".into()),
+        }));
+
+        let journal = EventJournal::open(workspace.agent_event_journal_db()).expect("reopen");
+        let events = journal.fetch_after("run-1", 0, 10).expect("fetch");
+        assert_eq!(
+            events.iter().map(|e| e.kind.as_str()).collect::<Vec<_>>(),
+            [
+                "run_started",
+                "execution_run_finished",
+                "subagent_spawned",
+                "subagent_finished"
+            ]
+        );
+        assert_eq!(events[1].payload["provider_id"], json!("local"));
+        assert_eq!(events[2].payload["task_id"], json!("t1"));
+        assert_eq!(events[3].payload["status"], json!("completed"));
+    }
+
+    #[test]
+    fn child_chat_outbound_is_not_written_to_parent_run() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let workspace = workspace(temp.path());
+        let mut sink = start_sink(temp.path());
+
+        sink.observe_bus_message(&BusMessage::Outbound(outbound_from(json!({
+            "channel": "altai-cli",
+            "chat_id": "child-subagent",
+            "content": "subagent says hi",
+            "metadata": {},
+        }))));
+        sink.observe_bus_message(&BusMessage::Telemetry(TelemetryEvent::AgentThought {
+            chat_id: "child-subagent".into(),
+            thought: "child thought".into(),
+            background_job_id: None,
+        }));
+        // Parent-scoped subagent lifecycle still journals.
+        sink.observe_bus_message(&BusMessage::Telemetry(TelemetryEvent::SubagentSpawned {
+            parent_chat_id: "chat-1".into(),
+            child_chat_id: "child-subagent".into(),
+            task_id: "t-child".into(),
+            display_name: None,
+            agent_name: None,
+            background_job_id: None,
+        }));
+
+        let journal = EventJournal::open(workspace.agent_event_journal_db()).expect("reopen");
+        let events = journal.fetch_after("run-1", 0, 10).expect("fetch");
+        assert_eq!(
+            events.iter().map(|e| e.kind.as_str()).collect::<Vec<_>>(),
+            ["run_started", "subagent_spawned"]
         );
     }
 }
