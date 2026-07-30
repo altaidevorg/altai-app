@@ -30,7 +30,6 @@ import {
   GithubIcon,
   Notebook01Icon,
   Notification01Icon,
-  Search01Icon,
   Settings01Icon,
   SparklesIcon,
 } from "@hugeicons/core-free-icons";
@@ -891,25 +890,6 @@ function WorkspaceTopbar({
     void getCurrentWindow().toggleMaximize().catch(() => undefined);
   };
 
-  const historySearchControl = (
-    <IconTooltip label="Search chats">
-      <button
-        type="button"
-        onClick={() => {
-          if (!historyOpen) onToggleHistory();
-        }}
-        aria-label="Search chats"
-        aria-pressed={historyOpen}
-        className={cn(
-          "inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground",
-          historyOpen && "bg-foreground/[0.09] text-foreground",
-        )}
-      >
-        <HugeiconsIcon icon={Search01Icon} size={14} strokeWidth={1.75} />
-      </button>
-    </IconTooltip>
-  );
-
   if (variant === "sidebar") {
     return (
       <div className="altai-ai-topbar flex shrink-0 flex-col border-b border-border-subtle bg-card">
@@ -958,6 +938,8 @@ function WorkspaceTopbar({
           className="h-full min-w-4 flex-1"
           aria-label="Window title bar"
         />
+        {historyControl}
+        {todoSummary}
         {workspaceActions}
         {onOpenSettings ? (
           <IconTooltip label="ALTAI Studio settings">
@@ -981,18 +963,6 @@ function WorkspaceTopbar({
             <span className="hidden @[34rem]:inline">Open IDE</span>
           </button>
         ) : null}
-      </div>
-      <div className="flex h-10 min-w-0 items-center gap-1.5 border-t border-border-subtle/70 px-2.5">
-        {historyControl}
-        <ChatTabStrip
-          embedded
-          openChatIds={openChatIds}
-          onSelect={onSelectChat}
-          onCloseChat={onCloseChat}
-          onNewChat={onNewChat}
-        />
-        {historySearchControl}
-        {todoSummary}
       </div>
     </div>
   );
