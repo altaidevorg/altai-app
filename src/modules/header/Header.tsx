@@ -26,6 +26,17 @@ import {
 } from "./SearchInline";
 
 type Props = {
+  tabs: Tab[];
+  activeId: number;
+  onSelect: (id: number) => void;
+  onNew: () => void;
+  onNewPrivate: () => void;
+  onNewPreview: () => void;
+  onNewEditor: () => void;
+  onNewGitGraph: () => void;
+  onClose: (id: number) => void;
+  /** Promote a preview (transient) tab to persistent. */
+  onPin: (id: number) => void;
   onToggleSidebar: () => void;
   sidebarActive?: boolean;
   onOpenShortcuts: () => void;
@@ -35,6 +46,8 @@ type Props = {
   onToggleAgentSidebar?: () => void;
   agentSidebarActive?: boolean;
   agentSidebarAvailable?: boolean;
+  searchTarget: SearchTarget;
+  searchRef: RefObject<SearchInlineHandle | null>;
   /** True when another app-level titlebar already owns the native chrome row. */
   embedded?: boolean;
 };
@@ -50,6 +63,16 @@ const CHROME_BTN = "size-6 translate-y-[0.5px]";
 const CHROME_ICON = 12;
 
 export function Header({
+  tabs,
+  activeId,
+  onSelect,
+  onNew,
+  onNewPrivate,
+  onNewPreview,
+  onNewEditor,
+  onNewGitGraph,
+  onClose,
+  onPin,
   onToggleSidebar,
   sidebarActive,
   onOpenShortcuts,
@@ -58,8 +81,12 @@ export function Header({
   onToggleAgentSidebar,
   agentSidebarActive,
   agentSidebarAvailable,
+  searchTarget,
+  searchRef,
   embedded = false,
 }: Props) {
+  const rootRef = useRef<HTMLDivElement>(null);
+  const [compact, setCompact] = useState(false);
   const userShortcuts = usePreferencesStore((s) => s.shortcuts);
 
   const tokensFor = (id: ShortcutId): string => {
@@ -75,6 +102,17 @@ export function Header({
     return tokens ? `Keyboard shortcuts (${tokens})` : "Keyboard shortcuts";
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userShortcuts]);
+
+  useEffect(() => {
+    const el = rootRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver((entries) => {
+      const w = entries[0]?.contentRect.width ?? 0;
+      setCompact(w < COMPACT_WIDTH);
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
 
   const shortcutsButton = (
     <ToolbarIconButton
@@ -151,6 +189,7 @@ export function Header({
 
   return (
     <header
+      ref={rootRef}
       role="banner"
       aria-label="Workspace toolbar"
       className="flex shrink-0 flex-col border-b border-border-subtle bg-raised select-none"
@@ -203,79 +242,24 @@ export function Header({
         )}
       </div>
 
-    </header>
-  );
-}
-
-type WorkbenchNavigationProps = {
-  tabs: Tab[];
-  activeId: number;
-  onSelect: (id: number) => void;
-  onNew: () => void;
-  onNewPrivate: () => void;
-  onNewPreview: () => void;
-  onNewEditor: () => void;
-  onNewGitGraph: () => void;
-  onClose: (id: number) => void;
-  onPin: (id: number) => void;
-  searchTarget: SearchTarget;
-  searchRef: RefObject<SearchInlineHandle | null>;
-};
-
-/**
- * The editor navigation belongs to the workbench content row, not the native
- * titlebar. App places this next to the Files/GitHub/Project Management rail
- * so both sets of destinations share one vertical baseline.
- */
-export function WorkbenchNavigation({
-  tabs,
-  activeId,
-  onSelect,
-  onNew,
-  onNewPrivate,
-  onNewPreview,
-  onNewEditor,
-  onNewGitGraph,
-  onClose,
-  onPin,
-  searchTarget,
-  searchRef,
-}: WorkbenchNavigationProps) {
-  const rootRef = useRef<HTMLDivElement>(null);
-  const [compact, setCompact] = useState(false);
-
-  useEffect(() => {
-    const el = rootRef.current;
-    if (!el) return;
-    const observer = new ResizeObserver((entries) => {
-      setCompact((entries[0]?.contentRect.width ?? 0) < COMPACT_WIDTH);
-    });
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, []);
-
-  return (
-    <div
-      ref={rootRef}
-      aria-label="Editor tabs and search"
-      className="flex h-9 min-w-0 shrink-0 items-center gap-2 border-b border-border-subtle bg-raised px-2"
-    >
-      <div className="min-w-0 flex-1">
-        <TabBar
-          tabs={tabs}
-          activeId={activeId}
-          onSelect={onSelect}
-          onNew={onNew}
-          onNewPrivate={onNewPrivate}
-          onNewPreview={onNewPreview}
-          onNewEditor={onNewEditor}
-          onNewGitGraph={onNewGitGraph}
-          onClose={onClose}
-          onPin={onPin}
-          compact={compact}
-        />
+      <div className="flex h-10 min-w-0 items-center gap-2 border-t border-border-subtle/70 px-2">
+        <div className="min-w-0 flex-1">
+          <TabBar
+            tabs={tabs}
+            activeId={activeId}
+            onSelect={onSelect}
+            onNew={onNew}
+            onNewPrivate={onNewPrivate}
+            onNewPreview={onNewPreview}
+            onNewEditor={onNewEditor}
+            onNewGitGraph={onNewGitGraph}
+            onClose={onClose}
+            onPin={onPin}
+            compact={compact}
+          />
+        </div>
+        <SearchInline ref={searchRef} target={searchTarget} compact={compact} />
       </div>
-      <SearchInline ref={searchRef} target={searchTarget} compact={compact} />
-    </div>
+    </header>
   );
 }

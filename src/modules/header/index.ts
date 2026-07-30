@@ -1,4 +1,4 @@
-export { Header, WorkbenchNavigation } from "./Header";
+export { Header } from "./Header";
 export {
   SearchInline,
   type SearchInlineHandle,
