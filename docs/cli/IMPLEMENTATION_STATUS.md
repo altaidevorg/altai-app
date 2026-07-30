@@ -1,9 +1,9 @@
 # ALTAI CLI Implementation Status
 
-**Date:** 2026-07-29
+**Date:** 2026-07-30
 **Desktop base:** v0.6.4
-**IsanAgent dependency:** temporary path pin `tools/isanagent-oneshot`
-(based on `8c9eef2` + oneshot host API; see `docs/cli/isanagent-oneshot-api.md`)
+**IsanAgent dependency:** git `altaidevorg/isanagent` `main`
+(oneshot host API merged in [`isanagent#101`](https://github.com/altaidevorg/isanagent/pull/101); see `docs/cli/isanagent-oneshot-api.md`)
 
 ## Existing
 
@@ -44,14 +44,7 @@
 |---|---|---|
 | Full bus-message parity in the CLI journal sink (tool calls, thinking, usage) | Only `run_started` / `run_terminated` are journaled; desktop's richer per-turn events are not yet mirrored by the CLI | **M6 follow-up** |
 | Release packaging / installed-binary CI matrix | Partial | `altai-cli smoke` CI job builds release binary + version/doctor/completion/dry-run; full archives/installers still open |
-| Upstream merge of oneshot + theme + approval + attachment host API | Local path pin; upstream PR open | Switch back to git rev after [isanagent#99](https://github.com/altaidevorg/isanagent/pull/99) merges |
 | Full PTY visual golden frames | Width-fit string snapshots only | Expand in CI matrix follow-up |
-
-## Blocked
-
-| Blocker | Impact | Resolution path |
-|---|---|---|
-| IsanAgent upstream PR not yet merged | ALTAI still path-pins `tools/isanagent-oneshot` | Merge [isanagent#99](https://github.com/altaidevorg/isanagent/pull/99), then retarget Cargo deps to the git rev |
 
 ## Next milestone
 
