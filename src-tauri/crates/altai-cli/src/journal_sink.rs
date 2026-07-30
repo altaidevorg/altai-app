@@ -71,7 +71,7 @@ impl JournalSink {
                 );
             }
             BusMessage::Telemetry(telemetry) => {
-                if self.run_id.is_none() {
+                if !self.matches_run_chat(telemetry_scope_chat_id(telemetry)) {
                     return;
                 }
                 if let Some((kind, payload)) = map_telemetry_payload(telemetry) {
@@ -79,13 +79,22 @@ impl JournalSink {
                 }
             }
             BusMessage::Outbound(outbound) => {
-                if self.run_id.is_none() {
+                // Keep child-chat outbound (subagent traffic) out of the parent
+                // run journal — Desktop scopes outbound by outbound.chat_id.
+                if !self.matches_run_chat(Some(outbound.chat_id.as_str())) {
                     return;
                 }
                 let (kind, payload) = map_outbound_payload(outbound);
                 self.append_redacted(kind, payload);
             }
             _ => {}
+        }
+    }
+
+    fn matches_run_chat(&self, chat_id: Option<&str>) -> bool {
+        match (&self.run_id, &self.chat_id, chat_id) {
+            (Some(_), Some(run_chat), Some(event_chat)) => run_chat == event_chat,
+            _ => false,
         }
     }
 
@@ -214,6 +223,23 @@ fn parse_edit_diff(value: &Value) -> Option<Value> {
         "diff": diff,
         "truncated": truncated,
     }))
+}
+
+/// Chat scope used to decide whether telemetry belongs on the active run.
+/// Subagent lifecycle events are attributed to the parent chat (Desktop parity).
+fn telemetry_scope_chat_id(telemetry: &TelemetryEvent) -> Option<&str> {
+    match telemetry {
+        TelemetryEvent::ToolCall { chat_id, .. }
+        | TelemetryEvent::ToolResult { chat_id, .. }
+        | TelemetryEvent::AgentThought { chat_id, .. }
+        | TelemetryEvent::AgentUsage { chat_id, .. }
+        | TelemetryEvent::ToolProgress { chat_id, .. }
+        | TelemetryEvent::ExecutionRunFinished { chat_id, .. }
+        | TelemetryEvent::ExecutionJobFinished { chat_id, .. } => Some(chat_id.as_str()),
+        TelemetryEvent::SubagentSpawned { parent_chat_id, .. }
+        | TelemetryEvent::SubagentFinished { parent_chat_id, .. } => Some(parent_chat_id.as_str()),
+        _ => None,
+    }
 }
 
 /// Maps IsanAgent telemetry onto Desktop's durable event kinds/payloads.
@@ -835,5 +861,40 @@ mod tests {
         assert_eq!(events[1].payload["provider_id"], json!("local"));
         assert_eq!(events[2].payload["task_id"], json!("t1"));
         assert_eq!(events[3].payload["status"], json!("completed"));
+    }
+
+    #[test]
+    fn child_chat_outbound_is_not_written_to_parent_run() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let workspace = workspace(temp.path());
+        let mut sink = start_sink(temp.path());
+
+        sink.observe_bus_message(&BusMessage::Outbound(outbound_from(json!({
+            "channel": "altai-cli",
+            "chat_id": "child-subagent",
+            "content": "subagent says hi",
+            "metadata": {},
+        }))));
+        sink.observe_bus_message(&BusMessage::Telemetry(TelemetryEvent::AgentThought {
+            chat_id: "child-subagent".into(),
+            thought: "child thought".into(),
+            background_job_id: None,
+        }));
+        // Parent-scoped subagent lifecycle still journals.
+        sink.observe_bus_message(&BusMessage::Telemetry(TelemetryEvent::SubagentSpawned {
+            parent_chat_id: "chat-1".into(),
+            child_chat_id: "child-subagent".into(),
+            task_id: "t-child".into(),
+            display_name: None,
+            agent_name: None,
+            background_job_id: None,
+        }));
+
+        let journal = EventJournal::open(workspace.agent_event_journal_db()).expect("reopen");
+        let events = journal.fetch_after("run-1", 0, 10).expect("fetch");
+        assert_eq!(
+            events.iter().map(|e| e.kind.as_str()).collect::<Vec<_>>(),
+            ["run_started", "subagent_spawned"]
+        );
     }
 }
