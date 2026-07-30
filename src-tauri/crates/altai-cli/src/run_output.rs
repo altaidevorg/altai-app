@@ -149,7 +149,11 @@ impl JsonlEmitter {
         if let Some(run_id) = &self.run_id {
             envelope = envelope.with_run_id(run_id.clone());
         }
-        writeln!(out, "{}", serde_json::to_string(&envelope).map_err(io::Error::other)?)
+        writeln!(
+            out,
+            "{}",
+            serde_json::to_string(&envelope).map_err(io::Error::other)?
+        )
     }
 
     pub fn observe_bus_message(
@@ -340,7 +344,11 @@ impl JsonlEmitter {
     ) -> io::Result<()> {
         self.chat_id = Some(result.chat_id.clone());
         self.run_id = result.run_id.clone();
-        self.emit("run_finished", serde_json::to_value(result).unwrap_or(json!({})), out)
+        self.emit(
+            "run_finished",
+            serde_json::to_value(result).unwrap_or(json!({})),
+            out,
+        )
     }
 }
 
@@ -394,9 +402,18 @@ mod tests {
 
     #[test]
     fn timeout_parser_accepts_common_suffixes() {
-        assert_eq!(parse_timeout("30").unwrap(), std::time::Duration::from_secs(30));
-        assert_eq!(parse_timeout("10m").unwrap(), std::time::Duration::from_secs(600));
-        assert_eq!(parse_timeout("1h").unwrap(), std::time::Duration::from_secs(3600));
+        assert_eq!(
+            parse_timeout("30").unwrap(),
+            std::time::Duration::from_secs(30)
+        );
+        assert_eq!(
+            parse_timeout("10m").unwrap(),
+            std::time::Duration::from_secs(600)
+        );
+        assert_eq!(
+            parse_timeout("1h").unwrap(),
+            std::time::Duration::from_secs(3600)
+        );
     }
 
     #[test]
@@ -474,7 +491,10 @@ mod tests {
             .unwrap();
         let text = String::from_utf8(buffer).unwrap();
         assert!(text.contains("\"type\":\"edit_diff\""), "{text}");
-        assert!(text.contains("\"type\":\"clarification_requested\""), "{text}");
+        assert!(
+            text.contains("\"type\":\"clarification_requested\""),
+            "{text}"
+        );
         assert!(text.contains("src/main.rs"), "{text}");
         assert!(text.contains("has_edit_diff\":true"), "{text}");
     }

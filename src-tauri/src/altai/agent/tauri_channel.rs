@@ -9,10 +9,11 @@ use tokio::sync::Mutex;
 
 use super::commands::DocumentArg;
 use super::event_journal::EventJournal;
-use super::runtime::{
-    admit_queued_user_message, admit_user_message, deliver_next_run_event, rollback_run_admission,
-    Event, SendAck, SharedRunCoordinator,
+use altai_agent_service::{
+    admit_queued_user_message, admit_user_message, rollback_run_admission, SharedRunCoordinator,
 };
+
+use super::runtime::{deliver_next_run_event, Event, SendAck};
 
 /// A Tauri-native channel that bridges IsanAgent's bus system to the
 /// frontend via the Tauri event bus (`agent://event`).
