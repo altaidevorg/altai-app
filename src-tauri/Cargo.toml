@@ -10,6 +10,8 @@ repository = "https://github.com/altaidevorg/altai-app"
 [workspace]
 members = [
 	"crates/altai-core",
+	"crates/altai-agent-service",
+	"crates/altai-protocol",
 	"crates/altai-cli",
 ]
 resolver = "2"
@@ -23,6 +25,7 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 altai-core = { path = "crates/altai-core" }
+altai-agent-service = { path = "crates/altai-agent-service" }
 tauri = { version = "2", features = ["protocol-asset"] }
 tauri-plugin-opener = "2"
 serde = { version = "1", features = ["derive"] }

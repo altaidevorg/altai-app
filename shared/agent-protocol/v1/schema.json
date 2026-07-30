@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://altai.dev/agent-protocol/v1/schema.json",
+  "title": "ALTAI Agent Host Protocol v1",
+  "oneOf": [
+    { "$ref": "#/$defs/request" },
+    { "$ref": "#/$defs/notification" },
+    { "$ref": "#/$defs/response" }
+  ],
+  "$defs": {
+    "id": { "oneOf": [{ "type": "string", "minLength": 1, "pattern": "\\S" }, { "type": "number" }] },
+    "base": {
+      "type": "object",
+      "required": ["jsonrpc"],
+      "properties": { "jsonrpc": { "const": "2.0" } },
+      "additionalProperties": true
+    },
+    "request": {
+      "allOf": [
+        { "$ref": "#/$defs/base" },
+        { "required": ["id", "method"], "properties": { "id": { "$ref": "#/$defs/id" }, "method": { "enum": ["initialize", "workspace/status", "config/get", "models/list", "agents/list", "sessions/list", "sessions/get", "sessions/create", "run/start", "run/steer", "run/cancel", "run/replay", "clarification/respond", "context/compact", "checkpoints/list", "checkpoints/restore", "shutdown"] } } }
+      ]
+    },
+    "notification": {
+      "oneOf": [
+        { "$ref": "#/$defs/run_event_notification" },
+        { "$ref": "#/$defs/other_notification" }
+      ]
+    },
+    "run_event_notification": {
+      "allOf": [
+        { "$ref": "#/$defs/base" },
+        { "required": ["method", "params"], "not": { "required": ["id"] }, "properties": { "method": { "const": "run/event" }, "params": { "$ref": "#/$defs/run_event_params" } } }
+      ]
+    },
+    "other_notification": {
+      "allOf": [
+        { "$ref": "#/$defs/base" },
+        { "required": ["method"], "not": { "required": ["id"] }, "properties": { "method": { "enum": ["workspace/changed", "host/log", "host/status"] } } }
+      ]
+    },
+    "run_event_params": {
+      "type": "object",
+      "required": ["chat_id", "run_id", "seq", "event"],
+      "properties": {
+        "chat_id": { "type": "string", "minLength": 1, "pattern": "\\S" },
+        "run_id": { "type": "string", "minLength": 1, "pattern": "\\S" },
+        "seq": { "type": "integer", "minimum": 1 },
+        "event": { "type": "object" }
+      },
+      "additionalProperties": true
+    },
+    "error": {
+      "type": "object",
+      "required": ["code", "message"],
+      "properties": {
+        "code": { "type": "number" },
+        "message": { "type": "string", "minLength": 1, "pattern": "\\S" },
+        "data": {}
+      },
+      "additionalProperties": true
+    },
+    "response": {
+      "allOf": [
+        { "$ref": "#/$defs/base" },
+        { "required": ["id"], "properties": { "id": { "$ref": "#/$defs/id" } }, "oneOf": [{ "required": ["result"], "not": { "required": ["error"] } }, { "required": ["error"], "not": { "required": ["result"] }, "properties": { "error": { "$ref": "#/$defs/error" } } }] }
+      ]
+    }
+  }
+}

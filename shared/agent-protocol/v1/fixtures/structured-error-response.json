@@ -1,0 +1,12 @@
+{
+  "name": "structured error response",
+  "message": {
+    "jsonrpc": "2.0",
+    "id": "start-1",
+    "error": {
+      "code": -32001,
+      "message": "unsupported_protocol",
+      "data": { "supported_min": 1, "supported_max": 1 }
+    }
+  }
+}

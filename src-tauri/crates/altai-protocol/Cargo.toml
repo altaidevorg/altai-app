@@ -1,0 +1,11 @@
+[package]
+name = "altai-protocol"
+version = "0.1.0"
+description = "Versioned JSON-RPC framing and message contract for ALTAI agent hosts"
+edition = "2021"
+license = "Apache-2.0"
+repository = "https://github.com/altaidevorg/altai-app"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

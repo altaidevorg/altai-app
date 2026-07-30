@@ -1,0 +1,13 @@
+{
+  "name": "run event without seq is invalid",
+  "valid": false,
+  "message": {
+    "jsonrpc": "2.0",
+    "method": "run/event",
+    "params": {
+      "chat_id": "chat-fixture-invalid",
+      "run_id": "run-fixture-invalid",
+      "event": { "type": "thinking" }
+    }
+  }
+}

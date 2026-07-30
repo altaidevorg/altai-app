@@ -1,0 +1,14 @@
+{
+  "name": "initialize request accepts forward-compatible optional fields",
+  "message": {
+    "jsonrpc": "2.0",
+    "id": "init-1",
+    "method": "initialize",
+    "params": {
+      "protocol_min": 1,
+      "protocol_max": 1,
+      "client": { "name": "altai-vscode", "version": "0.1.0" },
+      "optional_future_client_field": true
+    }
+  }
+}

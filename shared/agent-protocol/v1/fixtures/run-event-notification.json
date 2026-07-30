@@ -1,0 +1,14 @@
+{
+  "name": "run event requires stable identity and sequence",
+  "message": {
+    "jsonrpc": "2.0",
+    "method": "run/event",
+    "params": {
+      "chat_id": "chat-fixture-1",
+      "run_id": "run-fixture-1",
+      "seq": 1,
+      "event": { "type": "thinking", "content": "working" },
+      "optional_future_event_field": { "safe": true }
+    }
+  }
+}

@@ -7,6 +7,7 @@ use std::process::{Command, ExitCode};
 mod host_adapter;
 mod journal_sink;
 mod run_output;
+mod serve;
 
 #[derive(Debug, Parser)]
 #[command(
@@ -26,6 +27,8 @@ enum Commands {
     Agent(AgentArgs),
     /// Run one prompt without starting an interactive terminal session.
     Run(RunArgs),
+    /// Start the machine-facing ALTAI agent-host stdio protocol.
+    Serve(ServeArgs),
     /// Print release and dependency information.
     Version {
         /// Include terminal-contract metadata.
@@ -60,6 +63,19 @@ enum Commands {
         #[command(subcommand)]
         command: JournalCommands,
     },
+}
+
+#[derive(Debug, Args)]
+struct ServeArgs {
+    /// Required guard that prevents accidentally treating a terminal as a protocol transport.
+    #[arg(long)]
+    stdio: bool,
+    /// Agent-host protocol version to serve.
+    #[arg(long, default_value_t = 1)]
+    protocol: u8,
+    /// Canonical workspace root for this host process.
+    #[arg(long)]
+    workspace: PathBuf,
 }
 
 #[derive(Debug, Subcommand)]
@@ -309,7 +325,9 @@ struct ModelsCurrentArgs {
 enum CliError {
     Message(String),
     #[allow(dead_code)] // Reserved for commands that still lack a host integration.
-    HostUnavailable { command: &'static str },
+    HostUnavailable {
+        command: &'static str,
+    },
     RunFailed {
         code: run_output::RunExitCode,
         message: String,
@@ -364,6 +382,7 @@ fn run() -> Result<(), CliError> {
         }
         Some(Commands::Agent(args)) => agent(args),
         Some(Commands::Run(args)) => run_prompt(args),
+        Some(Commands::Serve(args)) => serve_command(args),
         Some(Commands::Version { verbose }) => print_version(verbose),
         Some(Commands::Completion { shell }) => {
             let mut command = Cli::command();
@@ -377,6 +396,22 @@ fn run() -> Result<(), CliError> {
         Some(Commands::Open(args)) => open_desktop(args),
         Some(Commands::Journal { command }) => journal(command),
     }
+}
+
+fn serve_command(args: ServeArgs) -> Result<(), CliError> {
+    if !args.stdio || args.protocol != altai_protocol::PROTOCOL_VERSION {
+        return Err(CliError::Message(
+            "serve requires --stdio --protocol 1".into(),
+        ));
+    }
+    let workspace = altai_core::resolve_workspace(Some(&args.workspace))
+        .map_err(|error| CliError::Message(error.to_string()))?;
+    tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .map_err(|error| CliError::Message(format!("could not start serve runtime: {error}")))?
+        .block_on(serve::run(workspace))
+        .map_err(CliError::Message)
 }
 
 fn journal(command: JournalCommands) -> Result<(), CliError> {
@@ -790,9 +825,7 @@ fn run_prompt(args: RunArgs) -> Result<(), CliError> {
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
-        .map_err(|error| {
-            CliError::Message(format!("could not start the host runtime: {error}"))
-        })?;
+        .map_err(|error| CliError::Message(format!("could not start the host runtime: {error}")))?;
 
     runtime.block_on(async_run_prompt(AsyncRunRequest {
         workspace,
@@ -937,8 +970,10 @@ async fn async_run_prompt(request: AsyncRunRequest) -> Result<(), CliError> {
         sink.finalize(&result);
     }
 
-    let final_result =
-        run_output::FinalRunResult::from_oneshot(&request.workspace.root.display().to_string(), &result);
+    let final_result = run_output::FinalRunResult::from_oneshot(
+        &request.workspace.root.display().to_string(),
+        &result,
+    );
     match request.output {
         OutputMode::Jsonl => {
             let mut emitter =
@@ -979,7 +1014,9 @@ fn resolve_prompt(prompt: &str) -> Result<String, CliError> {
         let mut buffer = String::new();
         std::io::stdin()
             .read_to_string(&mut buffer)
-            .map_err(|error| CliError::Message(format!("could not read prompt from stdin: {error}")))?;
+            .map_err(|error| {
+                CliError::Message(format!("could not read prompt from stdin: {error}"))
+            })?;
         let trimmed = buffer.trim_end().to_string();
         if trimmed.is_empty() {
             return Err(CliError::Message("stdin prompt was empty".into()));

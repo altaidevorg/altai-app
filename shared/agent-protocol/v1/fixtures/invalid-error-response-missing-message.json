@@ -1,0 +1,9 @@
+{
+  "name": "error response without message is invalid",
+  "valid": false,
+  "message": {
+    "jsonrpc": "2.0",
+    "id": "invalid-error-1",
+    "error": { "code": -32001 }
+  }
+}

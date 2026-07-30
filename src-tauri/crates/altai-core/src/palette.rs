@@ -241,7 +241,11 @@ pub fn resolve_terminal_appearance_from_env(
 fn detect_auto_appearance(colorfgbg: Option<&str>) -> EffectiveTerminalAppearance {
     // COLORFGBG is typically `fg;bg` with 0–15 ANSI indexes. High bg ⇒ light terminal.
     if let Some(raw) = colorfgbg {
-        if let Some(bg) = raw.split(';').nth(1).and_then(|part| part.trim().parse::<u8>().ok()) {
+        if let Some(bg) = raw
+            .split(';')
+            .nth(1)
+            .and_then(|part| part.trim().parse::<u8>().ok())
+        {
             if bg >= 8 {
                 return EffectiveTerminalAppearance::Light;
             }
@@ -335,10 +339,22 @@ mod tests {
 
     #[test]
     fn layout_density_breakpoints() {
-        assert_eq!(TerminalLayoutDensity::from_cols(79), TerminalLayoutDensity::Narrow);
-        assert_eq!(TerminalLayoutDensity::from_cols(80), TerminalLayoutDensity::Medium);
-        assert_eq!(TerminalLayoutDensity::from_cols(119), TerminalLayoutDensity::Medium);
-        assert_eq!(TerminalLayoutDensity::from_cols(120), TerminalLayoutDensity::Wide);
+        assert_eq!(
+            TerminalLayoutDensity::from_cols(79),
+            TerminalLayoutDensity::Narrow
+        );
+        assert_eq!(
+            TerminalLayoutDensity::from_cols(80),
+            TerminalLayoutDensity::Medium
+        );
+        assert_eq!(
+            TerminalLayoutDensity::from_cols(119),
+            TerminalLayoutDensity::Medium
+        );
+        assert_eq!(
+            TerminalLayoutDensity::from_cols(120),
+            TerminalLayoutDensity::Wide
+        );
     }
 
     #[test]

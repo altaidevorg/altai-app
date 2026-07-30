@@ -1,11 +1,21 @@
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex as StdMutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tauri::async_runtime;
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Manager};
 use tokio::sync::mpsc;
+
+use altai_agent_service::{
+    admit_run, admit_user_message, coordinator_guard, queue_run, rollback_run_admission,
+    AgentEventEnvelope, AgentEventSink, AgentInstanceRegistry, ReplayService, RunCoordinator,
+    RunTransitionError, SessionIdentity, SharedRunCoordinator,
+    WorkspaceServices as SharedWorkspaceServices,
+};
+
+#[cfg(test)]
+use altai_agent_service::RunAdmission;
 
 use isanagent::agent::{AgentLogic, AgentLogicParams};
 use isanagent::bus::BusMessage;
@@ -32,7 +42,12 @@ use super::event_journal::{AppendStatus, EventJournal, JournalEvent};
 use super::tauri_channel::{
     map_lifecycle_to_event, map_telemetry_to_event, telemetry_chat_id, TauriChannel,
 };
+use super::tauri_sink::TauriEventSink;
 use crate::modules::mcp;
+
+pub use altai_agent_service::{
+    AgentReplayEventEnvelope, AgentRunReplayCursor, EditDiffPayload, Event,
+};
 
 /// Context-condensing (compaction) configuration received from the JS layer
 /// (camelCase IPC) and threaded into the isanagent `AgentLogicParams`. The
@@ -79,183 +94,6 @@ impl CompactionArg {
         (self.auto, self.threshold_tokens, self.tail_turns)
     }
 }
-/// Structured file-edit diff attached to a clarification when the crate's edit
-/// gate requests approval. Mirrors the `metadata.edit_diff` object the crate
-/// attaches to the `ask_user` outbound (`builtin.rs` edit gate). The UI uses
-/// this to render a diff-review card; the `before`/`after` are derived from
-/// the crate's unified `diff` so the frontend doesn't need to re-read files.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct EditDiffPayload {
-    /// Workspace-relative path of the file being mutated (e.g. `src/lib.rs`).
-    pub file: String,
-    /// Unified-diff preview of the proposed change.
-    pub diff: String,
-    /// Whether the diff was truncated to stay under the crate's display cap.
-    pub truncated: bool,
-}
-
-/// Serializable agent event surface sent to the frontend.
-/// Stabilize this enum — every change is a breaking downstream contract.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
-pub enum Event {
-    RunStarted {
-        run_id: String,
-    },
-    RunWarning {
-        run_id: String,
-        warning: serde_json::Value,
-    },
-    RunWarningCleared {
-        run_id: String,
-    },
-    RunTerminated {
-        run_id: String,
-        outcome: serde_json::Value,
-    },
-    AgentMessage {
-        content: String,
-        role: String,
-    },
-    ToolCallStart {
-        id: String,
-        name: String,
-        input: serde_json::Value,
-    },
-    ToolCallEnd {
-        id: String,
-        name: String,
-        output: serde_json::Value,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        error: Option<String>,
-    },
-    EditDiff {
-        file: String,
-        before: String,
-        after: String,
-        hunk_id: String,
-    },
-    ApprovalRequest {
-        id: String,
-        action: String,
-        payload: serde_json::Value,
-    },
-    Thinking {
-        content: String,
-    },
-    /// An `ask_user` clarification surfaced by IsanAgent's ClarificationHub.
-    /// `content` is the question; `choices` are optional preset answers the UI
-    /// can render as buttons. Replying with a normal message resolves it (the
-    /// runtime routes the next inbound message to the pending wait).
-    ///
-    /// `edit_diff` is present when the clarification is actually a file-edit
-    /// approval request (the crate's edit gate attaches a structured diff to
-    /// the `ask_user` outbound metadata). The UI renders a richer diff-review
-    /// card in that case instead of the plain choice chips; the reply path
-    /// (`approve` / `deny` as a normal message) is identical.
-    Clarification {
-        content: String,
-        choices: Vec<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        edit_diff: Option<EditDiffPayload>,
-    },
-    /// Per-LLM-call token accounting forwarded from IsanAgent's `AgentUsage`
-    /// telemetry. The frontend accumulates these into the run's token meter.
-    Usage {
-        prompt_tokens: u32,
-        completion_tokens: u32,
-        total_tokens: u32,
-        cache_read_tokens: u32,
-        cache_creation_tokens: u32,
-    },
-    /// A synchronous `execution_run` completed.
-    ExecutionRunFinished {
-        provider_id: String,
-        session_id: String,
-        exit_code: Option<i32>,
-        duration_ms: u64,
-        stdout_len: usize,
-        stderr_len: usize,
-        artifact_count: usize,
-        git_head: Option<String>,
-        description: Option<String>,
-    },
-    /// A background `execution_run_background` job reached a terminal state.
-    ExecutionJobFinished {
-        job_id: String,
-        session_id: String,
-        provider_id: String,
-        /// `completed`, `failed`, `cancelled`, or `timeout`.
-        status: String,
-        exit_code: Option<i32>,
-        duration_ms: u64,
-        stdout_len: usize,
-        stderr_len: usize,
-        artifact_count: usize,
-        description: Option<String>,
-    },
-    /// A background job changed state (spawned → running → terminal).
-    BackgroundJobUpdated {
-        job_id: String,
-        state: String,
-        kind: String,
-        detail: Option<String>,
-    },
-    /// A persisted notification was created for this Tauri conversation.
-    NotificationCreated {
-        notification_id: String,
-        kind: String,
-        title: String,
-    },
-    /// A persisted notification changed state.
-    NotificationUpdated {
-        notification_id: String,
-        state: String,
-    },
-    /// A subagent task was spawned by the main agent (via `subagent_spawn`).
-    SubagentSpawned {
-        task_id: String,
-        child_chat_id: String,
-        display_name: Option<String>,
-        agent_name: Option<String>,
-        background_job_id: Option<String>,
-    },
-    /// A subagent task reached a terminal state.
-    SubagentFinished {
-        task_id: String,
-        child_chat_id: String,
-        /// `completed`, `failed`, or `cancelled`.
-        status: String,
-        agent_name: Option<String>,
-    },
-    NotebookOutput {
-        notebook_id: String,
-        cell_index: usize,
-        output: serde_json::Value,
-    },
-    ExperimentResult {
-        experiment_id: String,
-        metrics: serde_json::Value,
-        artifacts: Vec<String>,
-    },
-}
-
-/// Wire envelope for `agent://event`: every event carries the `chat_id` of the
-/// ALTAI chat tab it belongs to, so the frontend can drop events that aren't
-/// for the chat currently on screen (per-session isolation).
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct AgentEventEnvelope<'a> {
-    version: u8,
-    scope: &'static str,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    run_id: Option<&'a str>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    seq: Option<u64>,
-    chat_id: &'a str,
-    event: &'a serde_json::Value,
-}
-
 #[derive(Debug)]
 enum RunEventDeliveryError {
     Serialization,
@@ -281,454 +119,6 @@ impl std::fmt::Display for RunEventDeliveryError {
     }
 }
 
-/// Owned replay form of the live `agent://event` envelope. Replayed records
-/// intentionally preserve the same wire contract so the renderer can feed
-/// them through the exact same reducer without starting any agent work.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AgentReplayEventEnvelope {
-    pub version: u8,
-    pub scope: String,
-    pub run_id: String,
-    pub seq: u64,
-    pub chat_id: String,
-    pub event: Event,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AgentRunReplayCursor {
-    pub run_id: String,
-    pub last_seq: u64,
-    pub terminal_seq: Option<u64>,
-}
-
-pub(crate) type SharedRunCoordinator = Arc<StdMutex<RunCoordinator>>;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum RunPhase {
-    Admitted,
-    Running,
-    WaitingUser,
-    CancellingBeforeStart,
-    CancellingRunning,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum RunAdmission {
-    New,
-    ExistingReply,
-    Queued,
-    Confirmed,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum RunTransitionError {
-    ActiveLease,
-    MissingLease,
-    RunMismatch,
-    OwnerMismatch,
-    OwnerDraining,
-    InvalidPhase,
-}
-
-#[derive(Clone, Default)]
-pub(crate) struct RunCoordinator {
-    active: HashMap<String, ActiveRun>,
-    pending: HashMap<String, VecDeque<PendingRun>>,
-    draining_owners: HashSet<String>,
-}
-
-#[derive(Clone)]
-struct ActiveRun {
-    run_id: String,
-    owner_id: String,
-    next_seq: u64,
-    phase: RunPhase,
-}
-
-#[derive(Clone)]
-struct PendingRun {
-    run_id: String,
-    owner_id: String,
-}
-
-impl RunCoordinator {
-    fn admit(
-        &mut self,
-        chat_id: &str,
-        run_id: &str,
-        owner_id: &str,
-    ) -> Result<(), RunTransitionError> {
-        if self.draining_owners.contains(owner_id) {
-            return Err(RunTransitionError::OwnerDraining);
-        }
-        if self.active.contains_key(chat_id) {
-            return Err(RunTransitionError::ActiveLease);
-        }
-        self.active.insert(
-            chat_id.to_string(),
-            ActiveRun {
-                run_id: run_id.to_string(),
-                owner_id: owner_id.to_string(),
-                next_seq: 1,
-                phase: RunPhase::Admitted,
-            },
-        );
-        Ok(())
-    }
-
-    fn admit_user_message(
-        &mut self,
-        chat_id: &str,
-        run_id: &str,
-        owner_id: &str,
-    ) -> Result<RunAdmission, RunTransitionError> {
-        if let Some(active) = self.active.get(chat_id) {
-            if active.owner_id == owner_id && active.phase == RunPhase::WaitingUser {
-                return Ok(RunAdmission::ExistingReply);
-            }
-            return Err(RunTransitionError::ActiveLease);
-        }
-        self.admit(chat_id, run_id, owner_id)?;
-        Ok(RunAdmission::New)
-    }
-
-    fn admit_or_queue(
-        &mut self,
-        chat_id: &str,
-        run_id: &str,
-        owner_id: &str,
-    ) -> Result<RunAdmission, RunTransitionError> {
-        let Some(active) = self.active.get(chat_id) else {
-            self.admit(chat_id, run_id, owner_id)?;
-            return Ok(RunAdmission::New);
-        };
-        if active.owner_id != owner_id {
-            return Err(RunTransitionError::OwnerMismatch);
-        }
-        if active.phase == RunPhase::WaitingUser {
-            return Err(RunTransitionError::InvalidPhase);
-        }
-        if active.run_id == run_id
-            && matches!(
-                active.phase,
-                RunPhase::Admitted | RunPhase::CancellingBeforeStart
-            )
-        {
-            return Ok(RunAdmission::Confirmed);
-        }
-        let pending = self.pending.entry(chat_id.to_string()).or_default();
-        if pending
-            .iter()
-            .any(|run| run.run_id == run_id && run.owner_id == owner_id)
-        {
-            return Ok(RunAdmission::Confirmed);
-        }
-        pending.push_back(PendingRun {
-            run_id: run_id.to_string(),
-            owner_id: owner_id.to_string(),
-        });
-        Ok(RunAdmission::Queued)
-    }
-
-    fn started(
-        &mut self,
-        chat_id: &str,
-        run_id: &str,
-        owner_id: &str,
-    ) -> Result<(String, u64), RunTransitionError> {
-        let active = self
-            .active
-            .get_mut(chat_id)
-            .ok_or(RunTransitionError::MissingLease)?;
-        if active.run_id != run_id {
-            return Err(RunTransitionError::RunMismatch);
-        }
-        if active.owner_id != owner_id {
-            return Err(RunTransitionError::OwnerMismatch);
-        }
-        active.phase = match active.phase {
-            RunPhase::Admitted => RunPhase::Running,
-            RunPhase::CancellingBeforeStart => RunPhase::CancellingRunning,
-            RunPhase::Running | RunPhase::WaitingUser | RunPhase::CancellingRunning => {
-                return Err(RunTransitionError::InvalidPhase);
-            }
-        };
-        active.next_seq = 2;
-        Ok((run_id.to_string(), 1))
-    }
-
-    fn next(&mut self, chat_id: &str, owner_id: &str) -> Result<(String, u64), RunTransitionError> {
-        let active = self
-            .active
-            .get_mut(chat_id)
-            .ok_or(RunTransitionError::MissingLease)?;
-        if active.owner_id != owner_id {
-            return Err(RunTransitionError::OwnerMismatch);
-        }
-        if !matches!(
-            active.phase,
-            RunPhase::Running | RunPhase::WaitingUser | RunPhase::CancellingRunning
-        ) {
-            return Err(RunTransitionError::InvalidPhase);
-        }
-        if active.phase == RunPhase::WaitingUser {
-            active.phase = RunPhase::Running;
-        }
-        let seq = active.next_seq;
-        active.next_seq = active.next_seq.saturating_add(1);
-        Ok((active.run_id.clone(), seq))
-    }
-
-    fn next_for_run(
-        &mut self,
-        chat_id: &str,
-        run_id: &str,
-        owner_id: &str,
-    ) -> Result<(String, u64), RunTransitionError> {
-        let active = self
-            .active
-            .get(chat_id)
-            .ok_or(RunTransitionError::MissingLease)?;
-        if active.run_id != run_id {
-            return Err(RunTransitionError::RunMismatch);
-        }
-        self.next(chat_id, owner_id)
-    }
-
-    fn cancel_requested(
-        &mut self,
-        chat_id: &str,
-        expected_run_id: Option<&str>,
-    ) -> Result<String, RunTransitionError> {
-        let active = self
-            .active
-            .get_mut(chat_id)
-            .ok_or(RunTransitionError::MissingLease)?;
-        if expected_run_id.is_some_and(|run_id| run_id != active.run_id) {
-            return Err(RunTransitionError::RunMismatch);
-        }
-        self.pending.remove(chat_id);
-        active.phase = match active.phase {
-            RunPhase::Admitted => RunPhase::CancellingBeforeStart,
-            RunPhase::Running | RunPhase::WaitingUser => RunPhase::CancellingRunning,
-            RunPhase::CancellingBeforeStart | RunPhase::CancellingRunning => {
-                return Err(RunTransitionError::InvalidPhase);
-            }
-        };
-        Ok(active.run_id.clone())
-    }
-
-    fn active_run(&self, chat_id: &str) -> Option<(&str, &str)> {
-        self.active
-            .get(chat_id)
-            .map(|run| (run.run_id.as_str(), run.owner_id.as_str()))
-    }
-
-    fn accepts_steer(
-        &self,
-        chat_id: &str,
-        run_id: &str,
-        owner_id: &str,
-    ) -> Result<(), RunTransitionError> {
-        let active = self
-            .active
-            .get(chat_id)
-            .ok_or(RunTransitionError::MissingLease)?;
-        if active.run_id != run_id {
-            return Err(RunTransitionError::RunMismatch);
-        }
-        if active.owner_id != owner_id {
-            return Err(RunTransitionError::OwnerMismatch);
-        }
-        if active.phase != RunPhase::Running {
-            return Err(RunTransitionError::InvalidPhase);
-        }
-        Ok(())
-    }
-
-    fn begin_draining(&mut self, owner_ids: &HashSet<String>) -> Result<(), RunTransitionError> {
-        if self
-            .active
-            .values()
-            .any(|run| owner_ids.contains(&run.owner_id))
-        {
-            return Err(RunTransitionError::ActiveLease);
-        }
-        self.draining_owners.extend(owner_ids.iter().cloned());
-        Ok(())
-    }
-
-    fn end_draining(&mut self, owner_ids: &HashSet<String>) {
-        self.draining_owners
-            .retain(|owner_id| !owner_ids.contains(owner_id));
-    }
-
-    fn terminated(
-        &mut self,
-        chat_id: &str,
-        run_id: &str,
-        owner_id: &str,
-    ) -> Result<(String, u64), RunTransitionError> {
-        let active = self
-            .active
-            .get(chat_id)
-            .ok_or(RunTransitionError::MissingLease)?;
-        if active.run_id != run_id {
-            return Err(RunTransitionError::RunMismatch);
-        }
-        if active.owner_id != owner_id {
-            return Err(RunTransitionError::OwnerMismatch);
-        }
-        if !matches!(
-            active.phase,
-            RunPhase::Running | RunPhase::WaitingUser | RunPhase::CancellingRunning
-        ) {
-            return Err(RunTransitionError::InvalidPhase);
-        }
-        let seq = active.next_seq;
-        self.active.remove(chat_id);
-        self.promote_next(chat_id);
-        Ok((run_id.to_string(), seq))
-    }
-
-    fn promote_next(&mut self, chat_id: &str) {
-        let next = self.pending.get_mut(chat_id).and_then(VecDeque::pop_front);
-        if self.pending.get(chat_id).is_some_and(VecDeque::is_empty) {
-            self.pending.remove(chat_id);
-        }
-        if let Some(next) = next {
-            self.active.insert(
-                chat_id.to_string(),
-                ActiveRun {
-                    run_id: next.run_id,
-                    owner_id: next.owner_id,
-                    next_seq: 1,
-                    phase: RunPhase::Admitted,
-                },
-            );
-        }
-    }
-
-    fn mark_waiting_user(
-        &mut self,
-        chat_id: &str,
-        owner_id: &str,
-    ) -> Result<(), RunTransitionError> {
-        let active = self
-            .active
-            .get_mut(chat_id)
-            .ok_or(RunTransitionError::MissingLease)?;
-        if active.owner_id != owner_id {
-            return Err(RunTransitionError::OwnerMismatch);
-        }
-        if active.phase != RunPhase::Running {
-            return Err(RunTransitionError::InvalidPhase);
-        }
-        active.phase = RunPhase::WaitingUser;
-        Ok(())
-    }
-
-    fn rollback_admission(&mut self, chat_id: &str, run_id: &str, owner_id: &str) {
-        let should_remove = self.active.get(chat_id).is_some_and(|active| {
-            active.run_id == run_id
-                && active.owner_id == owner_id
-                && matches!(
-                    active.phase,
-                    RunPhase::Admitted | RunPhase::CancellingBeforeStart
-                )
-        });
-        if should_remove {
-            self.active.remove(chat_id);
-            self.promote_next(chat_id);
-            return;
-        }
-        if let Some(pending) = self.pending.get_mut(chat_id) {
-            pending.retain(|run| run.run_id != run_id || run.owner_id != owner_id);
-            if pending.is_empty() {
-                self.pending.remove(chat_id);
-            }
-        }
-    }
-}
-
-fn coordinator_guard(
-    coordinator: &SharedRunCoordinator,
-) -> std::sync::MutexGuard<'_, RunCoordinator> {
-    coordinator
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
-}
-
-pub(crate) fn admit_run(
-    coordinator: &SharedRunCoordinator,
-    chat_id: &str,
-    run_id: &str,
-    owner_id: &str,
-) -> Result<(), String> {
-    coordinator_guard(coordinator)
-        .admit(chat_id, run_id, owner_id)
-        .map_err(|error| format!("Cannot start a second run for chat {chat_id}: {error:?}"))
-}
-
-pub(crate) fn admit_user_message(
-    coordinator: &SharedRunCoordinator,
-    chat_id: &str,
-    run_id: &str,
-    owner_id: &str,
-) -> Result<String, String> {
-    let mut coordinator = coordinator_guard(coordinator);
-    let admission = coordinator
-        .admit_user_message(chat_id, run_id, owner_id)
-        .map_err(|error| format!("Cannot accept user input for chat {chat_id}: {error:?}"))?;
-    match admission {
-        RunAdmission::New => Ok(run_id.to_string()),
-        RunAdmission::ExistingReply => coordinator
-            .active_run(chat_id)
-            .map(|(active_run_id, _)| active_run_id.to_string())
-            .ok_or_else(|| format!("The active run for chat {chat_id} disappeared")),
-        RunAdmission::Queued | RunAdmission::Confirmed => Err(format!(
-            "Unexpected direct-message admission for chat {chat_id}: {admission:?}"
-        )),
-    }
-}
-
-fn queue_run(
-    coordinator: &SharedRunCoordinator,
-    chat_id: &str,
-    run_id: &str,
-    owner_id: &str,
-) -> Result<RunAdmission, String> {
-    coordinator_guard(coordinator)
-        .admit_or_queue(chat_id, run_id, owner_id)
-        .map_err(|error| format!("Cannot queue run for chat {chat_id}: {error:?}"))
-}
-
-pub(crate) fn admit_queued_user_message(
-    coordinator: &SharedRunCoordinator,
-    chat_id: &str,
-    run_id: &str,
-    owner_id: &str,
-) -> Result<(String, bool), String> {
-    match queue_run(coordinator, chat_id, run_id, owner_id)? {
-        RunAdmission::New | RunAdmission::Confirmed => Ok((run_id.to_string(), false)),
-        RunAdmission::Queued => Ok((run_id.to_string(), true)),
-        RunAdmission::ExistingReply => Err(format!(
-            "Unexpected queued-message admission for chat {chat_id}: ExistingReply"
-        )),
-    }
-}
-
-pub(crate) fn rollback_run_admission(
-    coordinator: &SharedRunCoordinator,
-    chat_id: &str,
-    run_id: &str,
-    owner_id: &str,
-) {
-    coordinator_guard(coordinator).rollback_admission(chat_id, run_id, owner_id);
-}
-
 fn emit_event(
     app: &AppHandle,
     chat_id: &str,
@@ -745,22 +135,13 @@ fn emit_payload(
     payload: &serde_json::Value,
     run: Option<(String, u64)>,
 ) -> Result<(), RunEventDeliveryError> {
-    let (run_id, seq) = match run.as_ref() {
-        Some((run_id, seq)) => (Some(run_id.as_str()), Some(*seq)),
-        None => (None, None),
+    let envelope = match run {
+        Some((run_id, seq)) => AgentEventEnvelope::run(chat_id, run_id, seq, payload.clone()),
+        None => AgentEventEnvelope::system(chat_id, payload.clone()),
     };
-    app.emit(
-        "agent://event",
-        &AgentEventEnvelope {
-            version: 1,
-            scope: if run.is_some() { "run" } else { "system" },
-            run_id,
-            seq,
-            chat_id,
-            event: payload,
-        },
-    )
-    .map_err(|error| RunEventDeliveryError::Renderer(error.to_string()))
+    TauriEventSink::new(app.clone())
+        .try_send(envelope)
+        .map_err(|error| RunEventDeliveryError::Renderer(error.to_string()))
 }
 
 fn redacted_event_payload(event: &Event) -> Result<serde_json::Value, RunEventDeliveryError> {
@@ -1142,7 +523,11 @@ async fn stop_instance(instance: Instance) {
 /// dispatcher join this record in the next A2 steps. Establishing the shared
 /// memory actor and clarification hub first prevents model switches from
 /// orphaning an in-flight `ask_user` wait.
-struct WorkspaceServices {
+struct DesktopWorkspaceServices {
+    /// Durable paths/journal are opened and restart-classified by the shared,
+    /// host-neutral service boundary. Desktop retains only its Tauri-specific
+    /// actors and routes in this task.
+    _shared: Arc<SharedWorkspaceServices>,
     memory_node: NodeHandle<isanagent::memory::MemoryMessage>,
     event_journal: Arc<EventJournal>,
     clarification_hub: Arc<ClarificationHub>,
@@ -1303,23 +688,25 @@ pub struct AgentRuntime {
     pub app: AppHandle,
     /// One instance per distinct config. All emit to `agent://event` tagged by
     /// chat_id, which the frontend routes on.
-    instances: tokio::sync::Mutex<HashMap<RuntimeFingerprint, Instance>>,
+    /// Host-neutral fingerprint/instance ownership. The concrete `Instance`
+    /// remains Desktop-owned because its channel emits through Tauri, while
+    /// selection, successful-send chat binding, and stale-instance removal are
+    /// shared service semantics usable by stdio hosts as well.
+    instance_registry: AgentInstanceRegistry<RuntimeFingerprint, Instance>,
     /// One service record per workspace root. Provider/persona instances share
     /// this record instead of reconstructing workspace-owned state.
-    workspace_services_by_root: tokio::sync::Mutex<HashMap<String, Arc<WorkspaceServices>>>,
+    workspace_services_by_root: tokio::sync::Mutex<HashMap<String, Arc<DesktopWorkspaceServices>>>,
     /// Last successfully delivered model/persona runtime for each workspace
     /// chat. This is only an ownership record today; A2's dispatcher will use
     /// it to route synthetic work and ticket resumes to exactly one instance.
-    chat_owner_by_workspace: tokio::sync::Mutex<HashMap<(String, String), RuntimeFingerprint>>,
     run_coordinator: SharedRunCoordinator,
 }
 
 pub fn init(app: AppHandle) -> Result<(), Box<dyn std::error::Error>> {
     app.manage(AgentRuntime {
         app: app.clone(),
-        instances: tokio::sync::Mutex::new(HashMap::new()),
+        instance_registry: AgentInstanceRegistry::new(),
         workspace_services_by_root: tokio::sync::Mutex::new(HashMap::new()),
-        chat_owner_by_workspace: tokio::sync::Mutex::new(HashMap::new()),
         run_coordinator: Arc::new(StdMutex::new(RunCoordinator::default())),
     });
 
@@ -1370,7 +757,7 @@ fn make_fingerprint(
 async fn ensure_workspace_services(
     runtime: &AgentRuntime,
     workspace_root: &str,
-) -> Result<Arc<WorkspaceServices>, String> {
+) -> Result<Arc<DesktopWorkspaceServices>, String> {
     let mut guard = runtime.workspace_services_by_root.lock().await;
     if let Some(existing) = guard.get(workspace_root) {
         return Ok(existing.clone());
@@ -1381,18 +768,15 @@ async fn ensure_workspace_services(
         Some(workspace_root)
     };
     let dir = resolve_workspace_root(ws_opt);
-    let db_path = dir.join(".system_generated").join("agent_memory.db");
-    if let Some(parent) = db_path.parent() {
-        let _ = std::fs::create_dir_all(parent);
-    }
+    let shared = Arc::new(
+        SharedWorkspaceServices::open(&dir)
+            .map_err(|error| format!("Failed to initialize workspace services: {error}"))?,
+    );
+    let db_path = shared.memory_db_path();
     let db_path_str = db_path
         .to_str()
         .ok_or("workspace DB path is not valid UTF-8")?;
-    let event_journal =
-        EventJournal::open(dir.join(".system_generated").join("agent_event_journal.db"))
-            .map_err(|error| format!("Failed to initialize agent event journal: {error}"))?;
-    classify_runs_abandoned_by_restart(&event_journal)?;
-    let event_journal = Arc::new(event_journal);
+    let event_journal = shared.event_journal();
     let memory_actor = isanagent::memory::SqliteMemoryActor::new(db_path_str)
         .map_err(|e| format!("Failed to initialize SqliteMemoryActor: {}", e))?;
     let node = NodeHandle::<isanagent::memory::MemoryMessage>::new(
@@ -1466,7 +850,8 @@ async fn ensure_workspace_services(
         }
     });
 
-    let services = Arc::new(WorkspaceServices {
+    let services = Arc::new(DesktopWorkspaceServices {
+        _shared: shared,
         memory_node: node,
         event_journal,
         clarification_hub: ClarificationHub::shared(),
@@ -1508,21 +893,14 @@ pub async fn replay_run_events(
     after_seq: u64,
     limit: usize,
 ) -> Result<Vec<AgentReplayEventEnvelope>, String> {
-    let chat_id = validate_tauri_chat_id(chat_id)?;
-    let run_id = run_id.trim();
-    if run_id.is_empty() {
-        return Err("runId is required".to_string());
-    }
-    if run_id.len() > 256 {
-        return Err("runId is too long".to_string());
-    }
-    if limit == 0 || limit > 1_000 {
-        return Err("limit must be between 1 and 1000".to_string());
-    }
+    let chat_id = SessionIdentity::parse(validate_tauri_chat_id(chat_id)?)
+        .map_err(|error| error.to_string())?;
 
     let workspace_root = format!("{}/.isanagent", workspace_path.trim_end_matches('/'));
     let services = ensure_workspace_services(runtime, &workspace_root).await?;
-    replay_events_from_journal(&services.event_journal, chat_id, run_id, after_seq, limit)
+    ReplayService::new(&services.event_journal)
+        .replay_run_events(&chat_id, run_id, after_seq, limit)
+        .map_err(|error| error.to_string())
 }
 
 /// Discover the newest durable run for a restored chat without replaying or
@@ -1534,64 +912,16 @@ pub async fn latest_run_replay_cursor(
     workspace_path: &str,
     chat_id: &str,
 ) -> Result<Option<AgentRunReplayCursor>, String> {
-    let chat_id = validate_tauri_chat_id(chat_id)?;
+    let chat_id = SessionIdentity::parse(validate_tauri_chat_id(chat_id)?)
+        .map_err(|error| error.to_string())?;
     let workspace_root = format!("{}/.isanagent", workspace_path.trim_end_matches('/'));
     let services = ensure_workspace_services(runtime, &workspace_root).await?;
-    services
-        .event_journal
-        .latest_run_summary_for_chat(chat_id)
-        .map(|summary| {
-            summary.map(|summary| AgentRunReplayCursor {
-                run_id: summary.run_id,
-                last_seq: summary.last_seq,
-                terminal_seq: summary.terminal_seq,
-            })
-        })
-        .map_err(|error| format!("Failed to inspect agent event journal: {error}"))
+    ReplayService::new(&services.event_journal)
+        .latest_run_replay_cursor(&chat_id)
+        .map_err(|error| error.to_string())
 }
 
-fn classify_runs_abandoned_by_restart(journal: &EventJournal) -> Result<(), String> {
-    for summary in journal
-        .incomplete_run_summaries()
-        .map_err(|error| format!("Failed to inspect incomplete agent runs: {error}"))?
-    {
-        let seq = summary
-            .last_seq
-            .checked_add(1)
-            .ok_or_else(|| "Cannot classify an agent run with an exhausted sequence".to_string())?;
-        let event = Event::RunTerminated {
-            run_id: summary.run_id.clone(),
-            outcome: serde_json::json!({
-                "kind": "failed",
-                "failure": "The previous app process ended before this run completed.",
-                "retryable": false
-            }),
-        };
-        let payload = serde_json::to_value(&event)
-            .map_err(|_| "Failed to serialize restart recovery event".to_string())?;
-        let terminal = JournalEvent::now(
-            1,
-            summary.run_id.clone(),
-            seq,
-            summary.chat_id,
-            "run_terminated",
-            payload,
-        );
-        if let Err(error) = journal.append_terminal(&terminal) {
-            // Another host may have won the terminal CAS. Accept only a
-            // verified terminal summary; all other failures abort startup.
-            let committed = journal
-                .run_summary(&summary.run_id)
-                .map_err(|inspect| format!("Failed to verify recovered run: {inspect}"))?
-                .is_some_and(|current| current.terminal_seq.is_some());
-            if !committed {
-                return Err(format!("Failed to classify abandoned agent run: {error}"));
-            }
-        }
-    }
-    Ok(())
-}
-
+#[cfg(test)]
 fn replay_events_from_journal(
     journal: &EventJournal,
     chat_id: &str,
@@ -1599,46 +929,10 @@ fn replay_events_from_journal(
     after_seq: u64,
     limit: usize,
 ) -> Result<Vec<AgentReplayEventEnvelope>, String> {
-    let summary = journal
-        .run_summary(run_id)
-        .map_err(|error| format!("Failed to inspect agent event journal: {error}"))?
-        .filter(|summary| summary.chat_id == chat_id)
-        .ok_or_else(|| "Run was not found for this chat".to_string())?;
-    if summary.run_id != run_id {
-        return Err("Journal returned an invalid run identity".to_string());
-    }
-
-    journal
-        .fetch_after(run_id, after_seq, limit)
-        .map_err(|error| format!("Failed to replay agent events: {error}"))?
-        .into_iter()
-        .map(|record| {
-            if record.version != 1
-                || record.run_id != run_id
-                || record.chat_id != chat_id
-                || record.seq <= after_seq
-            {
-                return Err("Journal returned an invalid event envelope".to_string());
-            }
-            let payload_kind = record
-                .payload
-                .get("type")
-                .and_then(serde_json::Value::as_str);
-            if payload_kind != Some(record.kind.as_str()) {
-                return Err("Journal event type does not match its payload".to_string());
-            }
-            let event = serde_json::from_value(record.payload)
-                .map_err(|error| format!("Journal contains an invalid agent event: {error}"))?;
-            Ok(AgentReplayEventEnvelope {
-                version: 1,
-                scope: "run".to_string(),
-                run_id: record.run_id,
-                seq: record.seq,
-                chat_id: record.chat_id,
-                event,
-            })
-        })
-        .collect()
+    let chat_id = SessionIdentity::parse(chat_id).map_err(|error| error.to_string())?;
+    ReplayService::new(journal)
+        .replay_run_events(&chat_id, run_id, after_seq, limit)
+        .map_err(|error| error.to_string())
 }
 
 /// Ensure an instance exists for this config and return its channel. The app
@@ -1679,24 +973,26 @@ async fn ensure_instance(
     // config churn; revisit with idle-eviction if that proves heavy.
 
     // Fast path: instance already built for this exact config.
+    if let Some(channel) = runtime
+        .instance_registry
+        .with_instance(&fp, |instance| instance.channel.clone())
+        .map_err(|error| error.to_string())?
     {
-        let instances = runtime.instances.lock().await;
-        if let Some(inst) = instances.get(&fp) {
-            return Ok(inst.channel.clone());
-        }
+        return Ok(channel);
     }
 
     // Atomically prevent new admission to instances that are about to be
     // removed. If one still owns a run, preserve it and reject the workspace
     // switch instead of orphaning its terminal event and coordinator lease.
-    let stale_owner_ids: HashSet<String> = {
-        let instances = runtime.instances.lock().await;
-        instances
-            .iter()
-            .filter(|(key, _)| key.workspace_root != workspace_root)
-            .map(|(_, instance)| instance.channel.owner_id().to_string())
-            .collect()
-    };
+    let stale_owner_ids: HashSet<String> = runtime
+        .instance_registry
+        .collect_matching(
+            |key, _| key.workspace_root != workspace_root,
+            |_, instance| instance.channel.owner_id().to_string(),
+        )
+        .map_err(|error| error.to_string())?
+        .into_iter()
+        .collect();
     coordinator_guard(&runtime.run_coordinator)
         .begin_draining(&stale_owner_ids)
         .map_err(|_| "Stop active agent runs before switching workspaces".to_string())?;
@@ -1707,17 +1003,10 @@ async fn ensure_instance(
     // drops and the `bus_tx` cycle unwinds); `stop()` then closes the channel.
     // We keep the fingerprint alongside each stale instance so the MCP status
     // registry (keyed by workspace) can be cleared for exactly those roots.
-    let stale: Vec<(RuntimeFingerprint, Instance)> = {
-        let mut instances = runtime.instances.lock().await;
-        let keys: Vec<RuntimeFingerprint> = instances
-            .keys()
-            .filter(|k| k.workspace_root != workspace_root)
-            .cloned()
-            .collect();
-        keys.into_iter()
-            .filter_map(|k| instances.remove(&k).map(|inst| (k, inst)))
-            .collect()
-    };
+    let stale = runtime
+        .instance_registry
+        .take_matching(|key, _| key.workspace_root != workspace_root)
+        .map_err(|error| error.to_string())?;
     // Clear MCP runtime status for the workspaces we're tearing down so a
     // stale "connected" badge doesn't survive a workspace switch.
     let stale_workspace_roots: Vec<String> = stale
@@ -1738,10 +1027,9 @@ async fn ensure_instance(
         .await
         .retain(|k, _| k == &workspace_root);
     runtime
-        .chat_owner_by_workspace
-        .lock()
-        .await
-        .retain(|(root, _), _| root == &workspace_root);
+        .instance_registry
+        .retain_chat_owners_for_workspace(&workspace_root)
+        .map_err(|error| error.to_string())?;
     if let Some(mcp_statuses) = runtime.app.try_state::<mcp::McpStatusRegistry>() {
         for root in &stale_workspace_roots {
             if !root.is_empty() {
@@ -1781,31 +1069,29 @@ async fn ensure_instance(
 
     // Re-acquire to insert. If a concurrent call built the same config while we
     // were building, keep theirs and tear down our now-duplicate instance.
-    let mut instances = runtime.instances.lock().await;
-    if let Some(inst) = instances.get(&fp) {
-        let winner = inst.channel.clone();
-        drop(instances);
-        stop_instance(Instance {
-            channel,
-            bus_tx,
-            shutdown,
-            bus_router,
-            outbound_router,
-        })
-        .await;
-        return Ok(winner);
+    let candidate = Instance {
+        channel: channel.clone(),
+        bus_tx,
+        shutdown,
+        bus_router,
+        outbound_router,
+    };
+    match runtime
+        .instance_registry
+        .insert_if_absent(fp.clone(), candidate)
+        .map_err(|error| error.to_string())?
+    {
+        Ok(()) => Ok(channel),
+        Err(loser) => {
+            let winner = runtime
+                .instance_registry
+                .with_instance(&fp, |instance| instance.channel.clone())
+                .map_err(|error| error.to_string())?
+                .ok_or_else(|| "The concurrent agent runtime is unavailable".to_string())?;
+            stop_instance(loser).await;
+            Ok(winner)
+        }
     }
-    instances.insert(
-        fp,
-        Instance {
-            channel: channel.clone(),
-            bus_tx,
-            shutdown,
-            bus_router,
-            outbound_router,
-        },
-    );
-    Ok(channel)
 }
 
 /// Route a user message to the instance for `config` (built or reused).
@@ -1857,21 +1143,23 @@ pub async fn route_send(
         .await?;
     if !chat_id.trim().is_empty() {
         let bus_tx = runtime
-            .instances
-            .lock()
-            .await
-            .get(&fingerprint)
-            .map(|instance| instance.bus_tx.clone())
+            .instance_registry
+            .with_instance(&fingerprint, |instance| instance.bus_tx.clone())
+            .map_err(|error| error.to_string())?
             .ok_or_else(|| "The owning agent runtime is no longer available".to_string())?;
         let services = ensure_workspace_services(runtime, &fingerprint.workspace_root).await?;
         services
             .dispatcher
             .bind(&chat_id, bus_tx, channel.owner_id())
             .await;
-        let previous_owner = runtime.chat_owner_by_workspace.lock().await.insert(
-            (fingerprint.workspace_root.clone(), chat_id.clone()),
-            fingerprint,
-        );
+        let previous_owner = runtime
+            .instance_registry
+            .bind_chat(
+                fingerprint.workspace_root.clone(),
+                chat_id.clone(),
+                fingerprint,
+            )
+            .map_err(|error| error.to_string())?;
         // A workspace service is recreated after an app/workspace restart, so
         // the first explicit user send is the first moment we have a trusted
         // provider configuration and a concrete runtime to own persisted cron
@@ -2088,21 +1376,17 @@ pub async fn route_manual_compaction(
     }
     let workspace_root = format!("{}/.isanagent", workspace_path.trim_end_matches('/'));
     let fingerprint = runtime
-        .chat_owner_by_workspace
-        .lock()
-        .await
-        .get(&(workspace_root, chat_id.clone()))
-        .cloned()
+        .instance_registry
+        .chat_owner(&workspace_root, &chat_id)
+        .map_err(|error| error.to_string())?
         .ok_or_else(|| {
             "This chat has no active runtime in the current app session; send a message first"
                 .to_string()
         })?;
     let bus_tx = runtime
-        .instances
-        .lock()
-        .await
-        .get(&fingerprint)
-        .map(|instance| instance.bus_tx.clone())
+        .instance_registry
+        .with_instance(&fingerprint, |instance| instance.bus_tx.clone())
+        .map_err(|error| error.to_string())?
         .ok_or_else(|| "The chat's agent runtime is unavailable".to_string())?;
     let coordinator = coordinator_guard(&runtime.run_coordinator);
     if coordinator.active_run(&chat_id).is_some() {
@@ -2125,13 +1409,12 @@ pub async fn route_cancel(
     if active_run_id != run_id {
         return Err("The requested agent run is no longer active".to_string());
     }
-    let channel = {
-        let instances = runtime.instances.lock().await;
-        instances
-            .values()
-            .find(|instance| instance.channel.owner_id() == owner_id)
-            .map(|instance| instance.channel.clone())
-    };
+    let channel = runtime
+        .instance_registry
+        .find_instance(|instance| {
+            (instance.channel.owner_id() == owner_id).then(|| instance.channel.clone())
+        })
+        .map_err(|error| error.to_string())?;
     let channel = channel.ok_or_else(|| "The owning agent runtime is unavailable".to_string())?;
     channel.cancel_run(chat_id.clone(), run_id.clone()).await?;
     Ok(CancelAck { chat_id, run_id })
@@ -2169,13 +1452,12 @@ pub async fn route_steer(
             })?;
         owner_id.to_string()
     };
-    let channel = {
-        let instances = runtime.instances.lock().await;
-        instances
-            .values()
-            .find(|instance| instance.channel.owner_id() == owner_id)
-            .map(|instance| instance.channel.clone())
-    };
+    let channel = runtime
+        .instance_registry
+        .find_instance(|instance| {
+            (instance.channel.owner_id() == owner_id).then(|| instance.channel.clone())
+        })
+        .map_err(|error| error.to_string())?;
     let channel = channel.ok_or_else(|| "The owning agent runtime is unavailable".to_string())?;
     channel
         .steer_run(chat_id.clone(), run_id.clone(), content)
@@ -2375,17 +1657,14 @@ pub async fn list_sessions(
         .map_err(|_| "Memory actor closed before replying".to_string())?
         .map_err(|e| format!("Memory actor error: {}", e))?;
 
-    // Strip the `tauri:<chat_id>:` envelope → bare chat id.
+    // Read existing Desktop history through the shared legacy alias instead
+    // of re-parsing `tauri:<chat_id>:` in every host adapter.
     let sessions = rows
         .into_iter()
         .map(|r| {
-            let bare_id = r
-                .thread_id
-                .trim_end_matches(':')
-                .split(':')
-                .nth(1)
-                .unwrap_or(&r.thread_id)
-                .to_string();
+            let bare_id = SessionIdentity::from_legacy_tauri_thread_id(&r.thread_id)
+                .map(|identity| identity.as_str().to_string())
+                .unwrap_or(r.thread_id);
             SessionInfo {
                 id: bare_id,
                 updated_at: r.last_activity_ms,
@@ -2413,8 +1692,9 @@ pub async fn get_session_messages(
         .unwrap_or_default();
     let memory_node = ensure_memory(runtime, &workspace_root).await?;
 
-    // Reconstruct the backend thread_id envelope: `tauri:<chat_id>:`.
-    let thread_id = format!("tauri:{}:", chat_id);
+    let thread_id = SessionIdentity::parse(chat_id)
+        .map_err(|error| error.to_string())?
+        .legacy_tauri_thread_id();
 
     let (tx, rx) = tokio::sync::oneshot::channel();
     let reply = isanagent::memory::SharedReply::new(tx);
@@ -2449,7 +1729,9 @@ pub async fn truncate_after_user_message(
         .unwrap_or_default();
     let memory_node = ensure_memory(runtime, &workspace_root).await?;
 
-    let thread_id = format!("tauri:{}:", chat_id);
+    let thread_id = SessionIdentity::parse(chat_id)
+        .map_err(|error| error.to_string())?
+        .legacy_tauri_thread_id();
 
     let (tx, rx) = tokio::sync::oneshot::channel();
     let reply = isanagent::memory::SharedReply::new(tx);
@@ -4400,8 +3682,10 @@ mod run_event_tests {
             journal.append(&event).expect("seed incomplete run");
         }
 
-        classify_runs_abandoned_by_restart(&journal).expect("classify abandoned runs");
-        classify_runs_abandoned_by_restart(&journal).expect("repeat is a no-op");
+        altai_agent_service::classify_runs_abandoned_by_restart(&journal)
+            .expect("classify abandoned runs");
+        altai_agent_service::classify_runs_abandoned_by_restart(&journal)
+            .expect("repeat is a no-op");
 
         for (run_id, terminal_seq) in [("run-before-tool-end", 3), ("run-after-tool-end", 3)] {
             let summary = journal.run_summary(run_id).expect("summary").expect("run");
@@ -4658,14 +3942,7 @@ mod run_event_tests {
             run_id: "run-1".to_string(),
         };
         let payload = redacted_event_payload(&event).expect("event payload");
-        let envelope = AgentEventEnvelope {
-            version: 1,
-            scope: "run",
-            run_id: Some("run-1"),
-            seq: Some(1),
-            chat_id: "chat-a",
-            event: &payload,
-        };
+        let envelope = AgentEventEnvelope::run("chat-a", "run-1", 1, payload);
         let value = serde_json::to_value(envelope).expect("serialize envelope");
         assert_eq!(value["version"], 1);
         assert_eq!(value["scope"], "run");
