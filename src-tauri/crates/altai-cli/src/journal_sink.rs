@@ -2,16 +2,17 @@
 //! Desktop uses, so restart-discovery and `altai journal` tooling see CLI
 //! runs regardless of which surface produced them.
 //!
-//! This is intentionally a minimal subset: only a `run_started` event (once
-//! the bus reports one) and a single `run_terminated` event once the oneshot
-//! host returns a final outcome. Failures to append are logged to stderr and
-//! never fail the run itself.
+//! Lifecycle identity comes from `run_started` / oneshot finalize. After the
+//! run is known, selected IsanAgent telemetry is mirrored with Desktop's
+//! payload vocabulary (`tool_call_start` / `tool_call_end` / `thinking` /
+//! `usage`). Failures to append are logged to stderr and never fail the run
+//! itself.
 
 use crate::run_output::describe_oneshot_outcome;
 use altai_core::{AppendStatus, EventJournal, JournalEvent, WorkspacePaths};
-use isanagent::bus::{BusMessage, RunLifecycleEvent};
+use isanagent::bus::{BusMessage, RunLifecycleEvent, TelemetryEvent};
 use isanagent::host::OneshotResult;
-use serde_json::json;
+use serde_json::{json, Value};
 
 const JOURNAL_EVENT_VERSION: u32 = 1;
 
@@ -50,19 +51,34 @@ impl JournalSink {
         }
     }
 
-    /// Records a `run_started` event the first time the bus reports one.
+    /// Records `run_started` once, then mirrors selected run-scoped telemetry.
     pub fn observe_bus_message(&mut self, message: &BusMessage) {
-        if let BusMessage::RunLifecycle(RunLifecycleEvent::Started { run_id, chat_id }) = message {
-            if self.run_id.is_some() {
-                return;
+        if self.terminated {
+            return;
+        }
+        match message {
+            BusMessage::RunLifecycle(RunLifecycleEvent::Started { run_id, chat_id }) => {
+                if self.run_id.is_some() {
+                    return;
+                }
+                self.chat_id = Some(chat_id.clone());
+                self.run_id = Some(run_id.clone());
+                self.append(
+                    "run_started",
+                    json!({ "type": "run_started", "run_id": run_id }),
+                    false,
+                );
             }
-            self.chat_id = Some(chat_id.clone());
-            self.run_id = Some(run_id.clone());
-            self.append(
-                "run_started",
-                json!({ "type": "run_started", "run_id": run_id }),
-                false,
-            );
+            BusMessage::Telemetry(telemetry) => {
+                if self.run_id.is_none() {
+                    return;
+                }
+                if let Some((kind, mut payload)) = map_telemetry_payload(telemetry) {
+                    isanagent::redact::shared().redact_json(&mut payload);
+                    self.append(kind, payload, false);
+                }
+            }
+            _ => {}
         }
     }
 
@@ -104,7 +120,7 @@ impl JournalSink {
         );
     }
 
-    fn append(&mut self, kind: &str, payload: serde_json::Value, terminal: bool) {
+    fn append(&mut self, kind: &str, payload: Value, terminal: bool) {
         let (Some(run_id), Some(chat_id)) = (self.run_id.clone(), self.chat_id.clone()) else {
             return;
         };
@@ -134,6 +150,100 @@ impl JournalSink {
     }
 }
 
+/// Maps IsanAgent telemetry onto Desktop's durable event kinds/payloads.
+/// Legacy `ToolCallStarted` / `ToolCallFinished` are intentionally ignored so
+/// each logical tool invocation is journaled once (matching Desktop).
+fn map_telemetry_payload(telemetry: &TelemetryEvent) -> Option<(&'static str, Value)> {
+    match telemetry {
+        TelemetryEvent::ToolCall {
+            tool_name,
+            tool_call_id,
+            args,
+            ..
+        } => {
+            let id = tool_call_id
+                .clone()
+                .unwrap_or_else(|| uuid_fallback(tool_name));
+            let input = serde_json::from_str(args).unwrap_or(Value::String(args.clone()));
+            Some((
+                "tool_call_start",
+                json!({
+                    "type": "tool_call_start",
+                    "id": id,
+                    "name": tool_name,
+                    "input": input,
+                }),
+            ))
+        }
+        TelemetryEvent::ToolResult {
+            tool_name,
+            tool_call_id,
+            result,
+            is_error,
+            ..
+        } => {
+            let id = tool_call_id
+                .clone()
+                .unwrap_or_else(|| tool_name.clone());
+            let mut payload = json!({
+                "type": "tool_call_end",
+                "id": id,
+                "name": tool_name,
+                "output": result,
+            });
+            if *is_error {
+                payload["error"] = json!(result);
+            }
+            Some(("tool_call_end", payload))
+        }
+        TelemetryEvent::AgentThought { thought, .. } => Some((
+            "thinking",
+            json!({ "type": "thinking", "content": thought }),
+        )),
+        TelemetryEvent::ToolProgress {
+            tool_name, message, ..
+        } => Some((
+            "thinking",
+            json!({
+                "type": "thinking",
+                "content": format!("[{tool_name}] {message}"),
+            }),
+        )),
+        TelemetryEvent::AgentUsage {
+            prompt_tokens,
+            completion_tokens,
+            total_tokens,
+            cache_read_tokens,
+            cache_creation_tokens,
+            ..
+        } => Some((
+            "usage",
+            json!({
+                "type": "usage",
+                "prompt_tokens": prompt_tokens,
+                "completion_tokens": completion_tokens,
+                "total_tokens": total_tokens,
+                "cache_read_tokens": cache_read_tokens,
+                "cache_creation_tokens": cache_creation_tokens,
+            }),
+        )),
+        _ => None,
+    }
+}
+
+fn uuid_fallback(tool_name: &str) -> String {
+    // Prefer a stable-looking id when IsanAgent omits tool_call_id. Desktop
+    // uses Uuid::new_v4(); CLI avoids a uuid crate dep and still keeps ids
+    // unique enough for journal inspection.
+    format!("{tool_name}-{}", next_seq())
+}
+
+fn next_seq() -> u64 {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static COUNTER: AtomicU64 = AtomicU64::new(1);
+    COUNTER.fetch_add(1, Ordering::Relaxed)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -144,6 +254,16 @@ mod tests {
             root: root.to_path_buf(),
             isanagent_state: root.join(".isanagent"),
         }
+    }
+
+    fn start_sink(root: &std::path::Path) -> JournalSink {
+        let workspace = workspace(root);
+        let mut sink = JournalSink::open(&workspace).expect("journal opens");
+        sink.observe_bus_message(&BusMessage::RunLifecycle(RunLifecycleEvent::Started {
+            run_id: "run-1".to_string(),
+            chat_id: "chat-1".to_string(),
+        }));
+        sink
     }
 
     #[test]
@@ -218,5 +338,182 @@ mod tests {
             .incomplete_run_summaries()
             .expect("query")
             .is_empty());
+    }
+
+    #[test]
+    fn mirrors_tool_thought_usage_and_progress_in_desktop_shape() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let workspace = workspace(temp.path());
+        let mut sink = start_sink(temp.path());
+
+        sink.observe_bus_message(&BusMessage::Telemetry(TelemetryEvent::ToolCall {
+            chat_id: "chat-1".into(),
+            channel: "altai-cli".into(),
+            tool_name: "read_file".into(),
+            args: r#"{"path":"/x"}"#.into(),
+            tool_call_id: Some("tc1".into()),
+            background_job_id: None,
+        }));
+        sink.observe_bus_message(&BusMessage::Telemetry(TelemetryEvent::ToolResult {
+            chat_id: "chat-1".into(),
+            channel: "altai-cli".into(),
+            tool_name: "read_file".into(),
+            result: "hello".into(),
+            is_error: false,
+            tool_call_id: Some("tc1".into()),
+            background_job_id: None,
+        }));
+        sink.observe_bus_message(&BusMessage::Telemetry(TelemetryEvent::AgentThought {
+            chat_id: "chat-1".into(),
+            thought: "hmm".into(),
+            background_job_id: None,
+        }));
+        sink.observe_bus_message(&BusMessage::Telemetry(TelemetryEvent::ToolProgress {
+            chat_id: "chat-1".into(),
+            channel: "altai-cli".into(),
+            tool_name: "execution_run".into(),
+            tool_call_id: Some("tc2".into()),
+            message: "installing deps".into(),
+            background_job_id: None,
+        }));
+        sink.observe_bus_message(&BusMessage::Telemetry(TelemetryEvent::AgentUsage {
+            chat_id: "chat-1".into(),
+            model: "gpt-4".into(),
+            prompt_tokens: 100,
+            completion_tokens: 50,
+            total_tokens: 150,
+            cache_read_tokens: 10,
+            cache_creation_tokens: 2,
+            background_job_id: None,
+        }));
+        // Legacy duplicates must not create extra journal rows.
+        sink.observe_bus_message(&BusMessage::Telemetry(TelemetryEvent::ToolCallStarted {
+            chat_id: "chat-1".into(),
+            tool_name: "read_file".into(),
+            args: r#"{"path":"/x"}"#.into(),
+            tool_call_id: Some("tc1".into()),
+            background_job_id: None,
+        }));
+        sink.observe_bus_message(&BusMessage::Telemetry(TelemetryEvent::ToolCallFinished {
+            chat_id: "chat-1".into(),
+            tool_name: "read_file".into(),
+            result: "hello".into(),
+            is_error: false,
+            tool_call_id: Some("tc1".into()),
+            background_job_id: None,
+        }));
+
+        sink.finalize(&OneshotResult {
+            chat_id: "chat-1".to_string(),
+            run_id: Some("run-1".to_string()),
+            outcome: OneshotOutcome::Completed,
+            final_text: Some("done".to_string()),
+        });
+
+        let journal = EventJournal::open(workspace.agent_event_journal_db()).expect("reopen");
+        let events = journal.fetch_after("run-1", 0, 20).expect("fetch");
+        let kinds: Vec<&str> = events.iter().map(|e| e.kind.as_str()).collect();
+        assert_eq!(
+            kinds,
+            [
+                "run_started",
+                "tool_call_start",
+                "tool_call_end",
+                "thinking",
+                "thinking",
+                "usage",
+                "run_terminated",
+            ]
+        );
+        assert_eq!(events[1].payload["input"], json!({"path": "/x"}));
+        assert_eq!(events[2].payload["output"], json!("hello"));
+        assert!(events[2].payload.get("error").is_none());
+        assert_eq!(events[3].payload["content"], json!("hmm"));
+        assert_eq!(
+            events[4].payload["content"],
+            json!("[execution_run] installing deps")
+        );
+        assert_eq!(events[5].payload["prompt_tokens"], 100);
+        assert_eq!(events[5].payload["cache_read_tokens"], 10);
+        assert_eq!(events[5].payload["cache_creation_tokens"], 2);
+        assert_eq!(events.last().map(|e| e.seq), Some(7));
+    }
+
+    #[test]
+    fn failed_tool_result_records_error_field() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let workspace = workspace(temp.path());
+        let mut sink = start_sink(temp.path());
+
+        sink.observe_bus_message(&BusMessage::Telemetry(TelemetryEvent::ToolResult {
+            chat_id: "chat-1".into(),
+            channel: "altai-cli".into(),
+            tool_name: "edit_file".into(),
+            result: "Error: old_text not found".into(),
+            is_error: true,
+            tool_call_id: Some("tc-err".into()),
+            background_job_id: None,
+        }));
+
+        let journal = EventJournal::open(workspace.agent_event_journal_db()).expect("reopen");
+        let events = journal.fetch_after("run-1", 0, 10).expect("fetch");
+        assert_eq!(events[1].kind, "tool_call_end");
+        assert_eq!(
+            events[1].payload["error"],
+            json!("Error: old_text not found")
+        );
+        assert_eq!(
+            events[1].payload["output"],
+            json!("Error: old_text not found")
+        );
+    }
+
+    #[test]
+    fn telemetry_before_run_started_is_ignored() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let workspace = workspace(temp.path());
+        let mut sink = JournalSink::open(&workspace).expect("journal opens");
+
+        sink.observe_bus_message(&BusMessage::Telemetry(TelemetryEvent::AgentThought {
+            chat_id: "chat-1".into(),
+            thought: "too early".into(),
+            background_job_id: None,
+        }));
+        sink.finalize(&OneshotResult {
+            chat_id: "chat-1".to_string(),
+            run_id: Some("run-late".to_string()),
+            outcome: OneshotOutcome::Completed,
+            final_text: None,
+        });
+
+        let journal = EventJournal::open(workspace.agent_event_journal_db()).expect("reopen");
+        let events = journal.fetch_after("run-late", 0, 10).expect("fetch");
+        assert_eq!(events.len(), 2);
+        assert_eq!(events[0].kind, "run_started");
+        assert_eq!(events[1].kind, "run_terminated");
+    }
+
+    #[test]
+    fn redacts_sensitive_tool_arguments_before_persist() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let workspace = workspace(temp.path());
+        let mut sink = start_sink(temp.path());
+
+        sink.observe_bus_message(&BusMessage::Telemetry(TelemetryEvent::ToolCall {
+            chat_id: "chat-1".into(),
+            channel: "altai-cli".into(),
+            tool_name: "shell".into(),
+            args: r#"{"command":"export OPENAI_API_KEY=sk-secret-token-123456"}"#.into(),
+            tool_call_id: Some("tc-secret".into()),
+            background_job_id: None,
+        }));
+
+        let journal = EventJournal::open(workspace.agent_event_journal_db()).expect("reopen");
+        let events = journal.fetch_after("run-1", 0, 10).expect("fetch");
+        let encoded = events[1].payload.to_string();
+        assert!(
+            !encoded.contains("sk-secret-token-123456"),
+            "expected redaction, got {encoded}"
+        );
     }
 }

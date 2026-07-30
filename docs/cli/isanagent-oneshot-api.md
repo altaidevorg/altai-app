@@ -59,3 +59,5 @@ removed. `pnpm isanagent:sync` / CI continue to refresh the lockfile tip.
 - Shared durable journal lives in `altai-core::journal` (not this host surface).
 - Oneshot resumes approvals on `/dev/tty` when available; otherwise exits with
   `ApprovalRequired` / `ClarificationRequired` for non-TTY callers.
+- CLI `JournalSink` mirrors Desktop tool/thinking/usage/progress payloads into
+  that journal after `run_started` (see `altai-cli` `journal_sink` tests).

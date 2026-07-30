@@ -207,3 +207,13 @@
 - `cargo test -p altai-core -p altai-cli` and `cargo check -p altai --lib`
   passed against the git tip; `pnpm isanagent:sync` (`cargo update -p isanagent`)
   works again.
+
+## M6 partial — richer CLI journal telemetry — 2026-07-30
+
+- `JournalSink` mirrors Desktop-shaped durable events after `run_started`:
+  `tool_call_start`, `tool_call_end`, `thinking` (ToolProgress as
+  `[tool] message`), and `usage`, with `isanagent::redact` before append.
+- Legacy `ToolCallStarted` / `ToolCallFinished` ignored (no duplicate rows).
+- Telemetry before run identity is known is dropped.
+- Unit tests cover ordered kinds, tool error field, redaction, and pre-start
+  ignore. Outbound assistant / subagent / execution journal parity remains open.
