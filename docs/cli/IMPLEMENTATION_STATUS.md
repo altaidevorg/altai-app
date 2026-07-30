@@ -44,7 +44,7 @@
 | Capability | Gap | Planned milestone |
 |---|---|---|
 | Full bus-message parity in the CLI journal sink (tool calls, thinking, usage) | Partial: tool/thinking/usage/progress mirrored; outbound/assistant/subagent/execution still open | **M6 follow-up** |
-| Release packaging / installed-binary CI matrix | Partial | `altai-cli smoke` CI job builds release binary + version/doctor/completion/dry-run; full archives/installers still open |
+| Release packaging / installed-binary CI matrix | Partial | `altai-cli smoke` matrix on ubuntu/windows/macos release builds + command contract; full archives/installers still open |
 | Full PTY visual golden frames | Width-fit string snapshots only | Expand in CI matrix follow-up |
 
 ## Next milestone

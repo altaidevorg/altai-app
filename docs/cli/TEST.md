@@ -217,3 +217,6 @@
 - Telemetry before run identity is known is dropped.
 - Unit tests cover ordered kinds, tool error field, redaction, and pre-start
   ignore. Outbound assistant / subagent / execution journal parity remains open.
+- `altai-cli smoke` CI job now runs on ubuntu-22.04, windows-latest, and
+  macos-14 (release binary + version/doctor/completion/open/run/journal
+  contract). Full release archives/installers remain open.
