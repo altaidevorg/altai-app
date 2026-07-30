@@ -70,6 +70,39 @@ impl JournalSink {
                     false,
                 );
             }
+            BusMessage::RunLifecycle(RunLifecycleEvent::Warning {
+                run_id,
+                chat_id,
+                warning,
+            }) => {
+                if !self.matches_run(chat_id, run_id) {
+                    return;
+                }
+                let warning_value = serde_json::to_value(warning).unwrap_or_else(|_| json!({}));
+                self.append_redacted(
+                    "run_warning",
+                    json!({
+                        "type": "run_warning",
+                        "run_id": run_id,
+                        "warning": warning_value,
+                    }),
+                );
+            }
+            BusMessage::RunLifecycle(RunLifecycleEvent::WarningCleared { run_id, chat_id }) => {
+                if !self.matches_run(chat_id, run_id) {
+                    return;
+                }
+                self.append_redacted(
+                    "run_warning_cleared",
+                    json!({
+                        "type": "run_warning_cleared",
+                        "run_id": run_id,
+                    }),
+                );
+            }
+            // Terminated is ignored: oneshot `finalize` is authoritative for the
+            // terminal journal row (same as the existing M5 contract).
+            BusMessage::RunLifecycle(RunLifecycleEvent::Terminated { .. }) => {}
             BusMessage::Telemetry(telemetry) => {
                 if !self.matches_run_chat(telemetry_scope_chat_id(telemetry)) {
                     return;
@@ -88,6 +121,15 @@ impl JournalSink {
                 self.append_redacted(kind, payload);
             }
             _ => {}
+        }
+    }
+
+    fn matches_run(&self, chat_id: &str, run_id: &str) -> bool {
+        match (&self.run_id, &self.chat_id) {
+            (Some(active_run), Some(active_chat)) => {
+                active_run == run_id && active_chat == chat_id
+            }
+            _ => false,
         }
     }
 
@@ -896,5 +938,47 @@ mod tests {
             events.iter().map(|e| e.kind.as_str()).collect::<Vec<_>>(),
             ["run_started", "subagent_spawned"]
         );
+    }
+
+    #[test]
+    fn lifecycle_warning_and_clear_are_journaled() {
+        use isanagent::bus::{RunBudgetSnapshot, RunBudgetWarning, RunBudgetWarningReason};
+
+        let temp = tempfile::tempdir().expect("tempdir");
+        let workspace = workspace(temp.path());
+        let mut sink = start_sink(temp.path());
+
+        sink.observe_bus_message(&BusMessage::RunLifecycle(RunLifecycleEvent::Warning {
+            run_id: "run-1".into(),
+            chat_id: "chat-1".into(),
+            warning: RunBudgetWarning {
+                reason: RunBudgetWarningReason::NoProgress { turns: 6 },
+                budget: RunBudgetSnapshot::default(),
+            },
+        }));
+        sink.observe_bus_message(&BusMessage::RunLifecycle(
+            RunLifecycleEvent::WarningCleared {
+                run_id: "run-1".into(),
+                chat_id: "chat-1".into(),
+            },
+        ));
+        // Foreign run warnings must not land on this journal.
+        sink.observe_bus_message(&BusMessage::RunLifecycle(RunLifecycleEvent::Warning {
+            run_id: "other-run".into(),
+            chat_id: "chat-1".into(),
+            warning: RunBudgetWarning {
+                reason: RunBudgetWarningReason::NoProgress { turns: 9 },
+                budget: RunBudgetSnapshot::default(),
+            },
+        }));
+
+        let journal = EventJournal::open(workspace.agent_event_journal_db()).expect("reopen");
+        let events = journal.fetch_after("run-1", 0, 10).expect("fetch");
+        assert_eq!(
+            events.iter().map(|e| e.kind.as_str()).collect::<Vec<_>>(),
+            ["run_started", "run_warning", "run_warning_cleared"]
+        );
+        assert_eq!(events[1].payload["warning"]["reason"]["kind"], "no_progress");
+        assert_eq!(events[1].payload["warning"]["reason"]["turns"], 6);
     }
 }

@@ -241,3 +241,13 @@
   and `x86_64-pc-windows-msvc`, smokes the packed binary, and attaches
   archives to the GitHub Release via `softprops/action-gh-release`.
 - `INSTALL.md` documents CLI archive names and PATH install steps.
+
+## M6 — run_warning journal parity — 2026-07-30
+
+- `JournalSink` mirrors `RunLifecycleEvent::Warning` /
+  `WarningCleared` as Desktop `run_warning` / `run_warning_cleared` after
+  `run_started`, scoped by `(chat_id, run_id)`.
+- `Terminated` still ignored (oneshot `finalize` owns the terminal row).
+- Background / notification bus traffic is **not** journaled — matches Desktop
+  (`is_system_event` UI-only), not a CLI gap.
+- Unit tests: 14 `journal_sink` cases including foreign-run warning ignore.

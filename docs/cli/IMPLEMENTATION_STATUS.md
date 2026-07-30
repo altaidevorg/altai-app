@@ -39,18 +39,19 @@
 | Runtime `/key` API key entry (TUI + line mode) | Verified | persist to config.toml + SwitchModel hot-swap; mask suffix only |
 | CLI journal mirrors tool/thinking/usage telemetry | Verified | `journal_sink` Desktop-shaped payloads + redact |
 | CLI journal mirrors outbound + execution/subagent | Verified | `agent_message` / `clarification` / execution / subagent kinds |
+| CLI journal mirrors run budget warnings | Verified | `run_warning` / `run_warning_cleared` (Desktop-shaped) |
 | CLI release archives (tar.gz/zip + sha256) | Verified | `scripts/package-altai-cli.sh` + CI artifacts + Release `cli` job |
 
 ## Incomplete
 
 | Capability | Gap | Planned milestone |
 |---|---|---|
-| Full bus-message parity in the CLI journal sink | Near-complete for run-scoped Desktop kinds; background/notification/system events still open | **M6 follow-up** |
-| Full PTY visual golden frames | Width-fit string snapshots only | Expand in CI matrix follow-up |
+| Full PTY visual golden frames | Width-fit string snapshots only; buffer goldens live in IsanAgent | Expand in IsanAgent + lock bump |
+| Background / notification journal rows | Intentionally not journaled (Desktop UI-only via `is_system_event`) | N/A — Desktop parity |
 
 ## Next milestone
 
 ### M6 — Remaining hardening
 
-CLI archives ship on GitHub Releases. Remaining: PTY golden frames,
-background/notification system journal events.
+CLI archives ship on GitHub Releases. Run-scoped Desktop journal kinds are
+covered (including warnings). Remaining: PTY golden frames in IsanAgent.
