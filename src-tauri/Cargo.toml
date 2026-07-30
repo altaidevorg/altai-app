@@ -65,9 +65,12 @@ tar = "0.4"
 base64 = "0.22"
 pdf-extract = "0.12"
 
-# Temporary path pin for the M1 oneshot host API. Switch back to the upstream
-# git revision after the oneshot host PR merges into altaidevorg/isanagent.
-isanagent = { path = "../tools/isanagent-oneshot" }
+# İsanAgent — embedded as Rust crate (direct API, no sidecar).
+# Track upstream `main`. Dev (`beforeDevCommand`), CI, and release all run
+# `cargo update -p isanagent` before compile so builds pick up the tip.
+# Cargo.lock still records the last resolved commit for reproducibility;
+# `.github/workflows/isanagent-bump.yml` opens a sync PR when that tip moves.
+isanagent = { git = "https://github.com/altaidevorg/isanagent.git", branch = "main" }
 tauri-plugin-single-instance = "2"
 tauri-plugin-cli = "2"
 tauri-plugin-deep-link = "2"

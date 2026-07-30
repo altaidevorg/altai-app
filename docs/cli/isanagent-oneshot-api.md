@@ -1,9 +1,9 @@
 # IsanAgent oneshot host API (M1)
 
-**Status:** Temporary path pin pending upstream merge  
-**Base revision:** `8c9eef2cf63f0b888f5b73778f056ba7d21467cf`  
-**Local pin:** `tools/isanagent-oneshot`  
-**Diff artifacts:** `docs/cli/isanagent-oneshot-api.*.diff`
+**Status:** Merged upstream — ALTAI tracks `altaidevorg/isanagent` `main`  
+**Merged via:** [`altaidevorg/isanagent#101`](https://github.com/altaidevorg/isanagent/pull/101) (`ea90fa0`)  
+**Historical base (path pin era):** `8c9eef2cf63f0b888f5b73778f056ba7d21467cf`  
+**Diff artifacts (historical):** `docs/cli/isanagent-oneshot-api.*.diff`
 
 ## Public additions
 
@@ -48,10 +48,11 @@ pub use HostThemeMode;
 
 ## Upstream status
 
-Proposed as [`altaidevorg/isanagent#99`](https://github.com/altaidevorg/isanagent/pull/99).
-ALTAI still path-depends on `tools/isanagent-oneshot` until that PR merges;
-then switch `src-tauri/Cargo.toml` and `src-tauri/crates/altai-cli/Cargo.toml`
-back to the git revision and delete the local pin.
+Host oneshot / theme / approval / attachment APIs landed on IsanAgent `main` via
+[#101](https://github.com/altaidevorg/isanagent/pull/101) (superseding the earlier
+[#99](https://github.com/altaidevorg/isanagent/pull/99) / revert cycle). ALTAI
+depends on git `main` again; the temporary `tools/isanagent-oneshot` path pin is
+removed. `pnpm isanagent:sync` / CI continue to refresh the lockfile tip.
 
 ## M5 / M6 notes
 

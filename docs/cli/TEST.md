@@ -77,8 +77,9 @@
 
 - Added a narrow IsanAgent oneshot host API (`run_oneshot`, `oneshot_prompt`,
   `observe_tx`, `scripted_responses`, headless `altai-cli` channel). Temporarily
-  path-pinned at `tools/isanagent-oneshot` pending upstream merge; see
-  `docs/cli/isanagent-oneshot-api.md`.
+  later merged upstream via
+  [`altaidevorg/isanagent#101`](https://github.com/altaidevorg/isanagent/pull/101);
+  see `docs/cli/isanagent-oneshot-api.md`.
 - `altai run` now performs a real one-shot host session (pretty / json / jsonl,
   Ctrl-C → exit 7, timeout → exit 8, non-TTY approval/clarification → exit 4).
 - Non-interactive runs default to `--permission plan` when no permission flag is
@@ -100,8 +101,8 @@
 - `--no-tui` line mode prints a status banner and labeled outbound lines.
 - Width-fit snapshot coverage at 80/100/160 columns (string snapshots; full PTY
   golden frames deferred).
-- `cargo test -p altai-core -p altai-cli` → 35 tests; IsanAgent `width_fit` +
-  `theme` + oneshot host tests pass against the path pin.
+-   `cargo test -p altai-core -p altai-cli` → 35 tests; IsanAgent `width_fit` +
+  `theme` + oneshot host tests pass against the (then) path pin.
 
 ## M3 results — 2026-07-29
 
@@ -192,6 +193,17 @@
 - Oneshot channel resumes approvals/clarifications on the controlling TTY when
   available (`prompt_on_tty`); hotkeys `y/n/a/x` normalize to
   approve/deny/always/abort. Non-TTY / failed tty still exits with code `4`.
-- Synced into IsanAgent upstream PR
-  [`altaidevorg/isanagent#99`](https://github.com/altaidevorg/isanagent/pull/99).
+- Synced into IsanAgent upstream via
+  [`altaidevorg/isanagent#101`](https://github.com/altaidevorg/isanagent/pull/101)
+  (superseding the [#99](https://github.com/altaidevorg/isanagent/pull/99) / revert cycle).
 - Packaging / installed-binary CI matrix and full PTY golden frames remain open.
+
+## Retarget — drop path pin — 2026-07-30
+
+- After IsanAgent `main` landed the oneshot host surface (`ea90fa0`), ALTAI
+  `Cargo.toml` deps switched back to
+  `git = "https://github.com/altaidevorg/isanagent.git", branch = "main"`.
+- Removed `tools/isanagent-oneshot`.
+- `cargo test -p altai-core -p altai-cli` and `cargo check -p altai --lib`
+  passed against the git tip; `pnpm isanagent:sync` (`cargo update -p isanagent`)
+  works again.
