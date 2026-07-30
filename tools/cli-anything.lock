@@ -1,0 +1,7 @@
+# This file pins the CLI-Anything development harness used to design and
+# validate ALTAI's terminal product. It is not a runtime dependency.
+repository = "https://github.com/HKUDS/CLI-Anything.git"
+commit = "bc536c9bebb7c3d9f7bb2736a732609139c1acdb"
+reference = "cli-anything-plugin/HARNESS.md"
+license = "Apache-2.0"
+
