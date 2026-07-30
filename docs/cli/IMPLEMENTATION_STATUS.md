@@ -3,7 +3,7 @@
 **Date:** 2026-07-30
 **Desktop base:** v0.6.4
 **IsanAgent dependency:** git `altaidevorg/isanagent` `main`
-(oneshot host API merged in [`isanagent#101`](https://github.com/altaidevorg/isanagent/pull/101); see `docs/cli/isanagent-oneshot-api.md`)
+(oneshot: [`isanagent#101`](https://github.com/altaidevorg/isanagent/pull/101); ACP agent: [`isanagent#102`](https://github.com/altaidevorg/isanagent/pull/102) / `7018685`)
 
 ## Existing
 
@@ -15,6 +15,7 @@
 | Configuration precedence | Verified | `altai-core::config` tests |
 | Event envelope schema v1 | Verified | `altai-core::event` + JSONL emitter tests |
 | `altai agent` host config + supported TUI start | Verified | dry-run + `start_host` path |
+| `altai acp` Agent Client Protocol over stdio | Verified | `HostConfig.acp_mode` + clap dry-run; distinct from `altai serve` |
 | ALTAI terminal theme (dark/light/auto/no-color) | Verified | palette resolve + host `theme` + TUI Theme roles |
 | Responsive layout (80 / 100 / 120+) | Verified | `LayoutDensity` + wide secondary split + width-fit tests |
 | Dense status header (workspace/model/permission/session) | Verified | title/status width-fit snapshots |

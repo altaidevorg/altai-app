@@ -30,6 +30,17 @@ pub fn oneshot_host_config(
     host
 }
 
+/// Build an ACP (Agent Client Protocol) host for `altai acp`.
+///
+/// Stdin/stdout become the ACP JSON-RPC transport; the interactive terminal is
+/// disabled. This is distinct from `altai serve --stdio`, which speaks ALTAI's
+/// own agent-host protocol.
+pub fn acp_host_config(workspace: &WorkspacePaths) -> isanagent::host::HostConfig {
+    let mut host = host_config_for_workspace(workspace);
+    host.acp_mode = true;
+    host
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -50,6 +61,7 @@ mod tests {
         );
         assert_eq!(config.sandbox, Some(PathBuf::from("/project")));
         assert!(config.oneshot_prompt.is_none());
+        assert!(!config.acp_mode);
     }
 
     #[test]
@@ -61,5 +73,18 @@ mod tests {
         let config = oneshot_host_config(&workspace, "summarize".into(), None);
         assert_eq!(config.oneshot_prompt.as_deref(), Some("summarize"));
         assert!(!config.line_mode);
+        assert!(!config.acp_mode);
+    }
+
+    #[test]
+    fn acp_config_enables_protocol_mode_without_oneshot() {
+        let workspace = WorkspacePaths {
+            root: PathBuf::from("/project"),
+            isanagent_state: PathBuf::from("/project/.isanagent"),
+        };
+        let config = acp_host_config(&workspace);
+        assert!(config.acp_mode);
+        assert!(config.oneshot_prompt.is_none());
+        assert_eq!(config.sandbox, Some(PathBuf::from("/project")));
     }
 }
