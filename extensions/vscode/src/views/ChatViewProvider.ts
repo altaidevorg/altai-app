@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import type { HostManager } from "../host/HostManager.js";
 import type { ManagedHost } from "../host/HostManager.js";
 import type { ProtocolNotification } from "../protocol/RpcClient.js";
@@ -257,10 +257,9 @@ body{font-family:var(--vscode-font-family);font-size:var(--vscode-font-size);pad
 }
 
 function createNonce(): string {
-  const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-  let nonce = "";
-  for (let index = 0; index < 32; index += 1) nonce += alphabet[Math.floor(Math.random() * alphabet.length)];
-  return nonce;
+  // CSP nonces are security tokens, not display identifiers. `base64url`
+  // keeps the generated value safe for both the header and HTML attribute.
+  return randomBytes(24).toString("base64url");
 }
 
 function userFacingError(error: unknown): string {

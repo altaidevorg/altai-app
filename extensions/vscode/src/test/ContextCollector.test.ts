@@ -20,6 +20,14 @@ describe("ContextCollector", () => {
       .rejects.toEqual(expect.objectContaining({ reason: "outside_workspace" } satisfies Partial<ContextError>));
   });
 
+  it("accepts a contained filename beginning with two dots", async () => {
+    const item = await collector().file(
+      { ...resource, fsPath: "/canonical/app/..notes/plan.md" },
+      workspace,
+    );
+    expect(item.uri).toBe(resource.uri);
+  });
+
   it("rejects virtual, binary, oversized, and excessive context", async () => {
     await expect(collector().file({ ...resource, scheme: "memfs" }, workspace)).rejects.toEqual(expect.objectContaining({ reason: "virtual_file" } satisfies Partial<ContextError>));
     await expect(collector(new Uint8Array([1, 0, 2])).file(resource, workspace)).rejects.toEqual(expect.objectContaining({ reason: "binary_file" } satisfies Partial<ContextError>));

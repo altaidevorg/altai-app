@@ -44,17 +44,25 @@ export class HostManager {
     if (this.options.gate.isVirtual(folder)) throw new HostStartError("virtual_workspace");
 
     const workspace = await this.options.canonicalize(folder);
+    return this.getOrStartWorkspace(workspace);
+  }
+
+  /**
+   * Keep lookup and promise registration in the same synchronous turn. This
+   * makes the pending promise the lease for a workspace while initialization is
+   * in flight, so concurrent callers cannot spawn a second child process.
+   */
+  private getOrStartWorkspace(workspace: string): Promise<ManagedHost> {
     const existing = this.hosts.get(workspace);
     if (existing) return existing;
 
     const starting = this.start(workspace);
     this.hosts.set(workspace, starting);
-    try {
-      return await starting;
-    } catch (error) {
-      this.hosts.delete(workspace);
-      throw error;
-    }
+    void starting.catch(() => {
+      // Do not remove a newer lease if a later retry has already replaced it.
+      if (this.hosts.get(workspace) === starting) this.hosts.delete(workspace);
+    });
+    return starting;
   }
 
   async shutdownAll(timeoutMs = 1_500): Promise<void> {

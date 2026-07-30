@@ -30,4 +30,17 @@ describe("WorkspaceRegistry", () => {
     await expect(registry.folderForResource({ fsPath: "/two/src/index.ts", scheme: "file" })).resolves.toBe(second);
     await expect(registry.folderForResource({ fsPath: "/elsewhere/a.ts", scheme: "file" })).rejects.toEqual(expect.objectContaining({ reason: "outside_workspace" }));
   });
+
+  it("accepts a contained path that begins with two dots", async () => {
+    const root: WorkspaceFolderRef = { ...first, fsPath: "/workspace/app" };
+    const registry = new WorkspaceRegistry(
+      () => [root],
+      { pick: async () => undefined },
+      async (path) => path,
+    );
+
+    await expect(
+      registry.folderForResource({ fsPath: "/workspace/app/..notes/plan.md", scheme: "file" }),
+    ).resolves.toBe(root);
+  });
 });

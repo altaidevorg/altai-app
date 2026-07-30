@@ -1,4 +1,4 @@
-import { relative, resolve } from "node:path";
+import { isAbsolute, relative, resolve, sep } from "node:path";
 import { MAX_CONTEXT_BYTES, MAX_CONTEXT_ITEM_BYTES, MAX_CONTEXT_ITEMS, MAX_DIAGNOSTICS, utf8Bytes } from "./limits.js";
 
 export type ContextResource = {
@@ -143,7 +143,9 @@ function isRunnableScheme(scheme: string): boolean {
 
 function isInside(root: string, target: string): boolean {
   const rel = relative(resolve(root), resolve(target));
-  return rel === "" || (!rel.startsWith("..") && !rel.includes(`..${process.platform === "win32" ? "\\" : "/"}`) && !rel.startsWith("/"));
+  // Only `..` as a path segment escapes the root. A file named `..notes` is a
+  // legitimate child and must not be confused with traversal.
+  return rel === "" || (rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel));
 }
 
 function decodeText(bytes: Uint8Array): string | undefined {

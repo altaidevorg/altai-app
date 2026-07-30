@@ -47,6 +47,23 @@ describe("HostManager", () => {
     await manager.shutdownAll();
   });
 
+  it("shares the pending host lease across concurrent starts", async () => {
+    let spawned = 0;
+    const manager = createManager(() => {
+      spawned += 1;
+      return new FakeProcess();
+    });
+
+    const [first, second] = await Promise.all([
+      manager.getOrStart(folderA),
+      manager.getOrStart({ ...folderA, fsPath: "/symlink/alpha" }),
+    ]);
+
+    expect(first).toBe(second);
+    expect(spawned).toBe(1);
+    await manager.shutdownAll();
+  });
+
   it("never accepts a workspace-scoped executable override", () => {
     const resolver = new HostResolver({
       extensionPath: "/extension",

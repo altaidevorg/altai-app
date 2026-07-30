@@ -1,5 +1,5 @@
 import { realpath } from "node:fs/promises";
-import { relative, resolve } from "node:path";
+import { isAbsolute, relative, resolve, sep } from "node:path";
 
 export type WorkspaceFolderRef = {
   readonly name: string;
@@ -82,7 +82,9 @@ export class WorkspaceRegistry {
 
 function isInside(root: string, target: string): boolean {
   const rel = relative(resolve(root), resolve(target));
-  return rel === "" || (!rel.startsWith("..") && !rel.startsWith("/") && !rel.startsWith("\\"));
+  // `relative` uses the host separator. On POSIX a backslash is a legal file
+  // name character, while on Windows an absolute or parent path is rejected.
+  return rel === "" || (rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel));
 }
 
 export async function canonicalizePath(path: string): Promise<string> {
