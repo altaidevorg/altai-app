@@ -40,11 +40,15 @@ type Props = {
   sidebarActive?: boolean;
   onOpenShortcuts: () => void;
   onOpenSettings: () => void;
+  /** Focus the separate agent-first app window without changing IDE state. */
+  onOpenAgentWorkspace?: () => void;
   onToggleAgentSidebar?: () => void;
   agentSidebarActive?: boolean;
   agentSidebarAvailable?: boolean;
   searchTarget: SearchTarget;
   searchRef: RefObject<SearchInlineHandle | null>;
+  /** True when another app-level titlebar already owns the native chrome row. */
+  embedded?: boolean;
 };
 
 const COMPACT_WIDTH = 720;
@@ -72,11 +76,13 @@ export function Header({
   sidebarActive,
   onOpenShortcuts,
   onOpenSettings,
+  onOpenAgentWorkspace,
   onToggleAgentSidebar,
   agentSidebarActive,
   agentSidebarAvailable,
   searchTarget,
   searchRef,
+  embedded = false,
 }: Props) {
   const rootRef = useRef<HTMLDivElement>(null);
   const [compact, setCompact] = useState(false);
@@ -159,14 +165,28 @@ export function Header({
       </ToolbarIconButton>
     ) : null;
 
+  const agentWorkspaceButton = onOpenAgentWorkspace ? (
+    <button
+      type="button"
+      onClick={onOpenAgentWorkspace}
+      title="Open Agent workspace"
+      aria-label="Open Agent workspace"
+      className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-lg border border-border/70 bg-muted/45 px-2.5 text-[10.5px] font-medium text-foreground transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+    >
+      <span>Agent workspace</span>
+      <span aria-hidden="true" className="text-[12px] leading-none text-muted-foreground">
+        ↗
+      </span>
+    </button>
+  ) : null;
+
   return (
     <header
       ref={rootRef}
       role="banner"
       aria-label="Workspace toolbar"
-      data-tauri-drag-region
       className={`flex h-10 shrink-0 items-center gap-1.5 border-b border-border-subtle bg-raised select-none ${
-        IS_MAC ? "pr-2 pl-20" : "pr-0 pl-2"
+        IS_MAC && !embedded ? "pr-2 pl-20" : "pr-0 pl-2"
       }`}
     >
       <div className="flex shrink-0 items-center gap-0.5">
@@ -195,10 +215,7 @@ export function Header({
 
       {IS_MAC && <span className="mr-1 h-full w-px shrink-0 bg-border" />}
 
-      <div
-        className="flex min-w-0 flex-1 items-center gap-2"
-        data-tauri-drag-region
-      >
+      <div className="flex min-w-0 flex-1 items-center gap-2">
         <TabBar
           tabs={tabs}
           activeId={activeId}
@@ -216,6 +233,8 @@ export function Header({
       </div>
 
       <SearchInline ref={searchRef} target={searchTarget} compact={compact} />
+
+      {agentWorkspaceButton}
 
       {IS_MAC && (
         <>

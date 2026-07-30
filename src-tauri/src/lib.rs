@@ -159,16 +159,18 @@ fn parse_initial_launch(state: &PendingLaunch) {
     pending.extend(payloads);
 }
 
-#[tauri::command]
-async fn open_settings_window(app: tauri::AppHandle, tab: Option<String>) -> Result<(), String> {
-    let url_path = match tab.as_deref() {
-        Some(t) if !t.is_empty() => format!("settings.html?tab={}", t),
-        _ => "settings.html".to_string(),
-    };
-
-    if let Some(window) = app.get_webview_window("settings") {
+pub(crate) fn show_or_create_settings_window(
+    app: &tauri::AppHandle,
+    label: &str,
+    title: &str,
+    surface: &str,
+    tab: Option<&str>,
+) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window(label) {
+        let _ = window.show();
+        let _ = window.unminimize();
         let _ = window.set_focus();
-        if let Some(t) = tab.as_deref().filter(|s| !s.is_empty()) {
+        if let Some(t) = tab.filter(|s| !s.is_empty()) {
             // emit() serializes via JSON — no string-escape footgun, unlike
             // eval() with format!(). Frontend listens via Tauri event API.
             let _ = window.emit("altai:settings-tab", t);
@@ -176,20 +178,19 @@ async fn open_settings_window(app: tauri::AppHandle, tab: Option<String>) -> Res
         return Ok(());
     }
 
-    let mut builder = WebviewWindowBuilder::new(&app, "settings", WebviewUrl::App(url_path.into()))
-        .title("Settings")
-        .inner_size(720.0, 520.0)
-        .min_inner_size(720.0, 520.0)
-        .max_inner_size(720.0, 520.0)
-        .resizable(false)
-        // Keep settings above the main app window so it doesn't get hidden
-        // when the user clicks back into the editor or terminal (#33).
-        .always_on_top(true);
-
-    // Tie lifecycle to the main window so settings minimizes/closes with it.
-    if let Some(main) = app.get_webview_window("main") {
-        builder = builder.parent(&main).map_err(|e| e.to_string())?;
+    let mut url_path = format!("settings.html?surface={surface}");
+    if let Some(t) = tab.filter(|s| !s.is_empty()) {
+        url_path.push_str("&tab=");
+        url_path.push_str(t);
     }
+
+    let builder = WebviewWindowBuilder::new(app, label, WebviewUrl::App(url_path.into()))
+        .title(title)
+        .inner_size(860.0, 620.0)
+        .min_inner_size(760.0, 520.0)
+        .resizable(true)
+        .focused(true)
+        .visible(true);
 
     // Settings header is h-11 (44px); inset lights to the vertical center.
     // Opt out of Apple Intelligence Writing Tools / Siri AI selection popover.
@@ -206,6 +207,9 @@ async fn open_settings_window(app: tauri::AppHandle, tab: Option<String>) -> Res
     let builder = builder.decorations(false).transparent(true);
 
     let window = builder.build().map_err(|e| e.to_string())?;
+    let _ = window.show();
+    let _ = window.unminimize();
+    let _ = window.set_focus();
 
     // Some Linux compositors (GNOME/Mutter with CSD-by-default) ignore the
     // builder-time decorations flag — re-assert it after realize.
@@ -215,6 +219,77 @@ async fn open_settings_window(app: tauri::AppHandle, tab: Option<String>) -> Res
     }
     let _ = window;
     Ok(())
+}
+
+#[tauri::command]
+fn open_settings_window(app: tauri::AppHandle, tab: Option<String>) -> Result<(), String> {
+    show_or_create_settings_window(
+        &app,
+        "settings",
+        "ALTAI Studio Settings",
+        "app",
+        tab.as_deref(),
+    )
+}
+
+pub(crate) fn show_or_create_studio_window(app: &tauri::AppHandle) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window("studio") {
+        let _ = window.show();
+        let _ = window.unminimize();
+        let _ = window.set_focus();
+        return Ok(());
+    }
+
+    let builder = WebviewWindowBuilder::new(
+        app,
+        "studio",
+        WebviewUrl::App("index.html?mode=studio".into()),
+    )
+    .title("ALTAI IDE")
+    .inner_size(1280.0, 800.0)
+    .min_inner_size(900.0, 600.0)
+    .focused(true)
+    .visible(true);
+
+    #[cfg(target_os = "macos")]
+    let builder = builder
+        .title_bar_style(tauri::TitleBarStyle::Overlay)
+        .hidden_title(true)
+        // Tauri's macOS Y value includes the native titlebar inset. `22`
+        // places the 16px traffic lights at y=12 inside our 40px IDE header,
+        // so both centers land exactly on y=20.
+        .traffic_light_position(tauri::LogicalPosition::new(16.0, 22.0))
+        .with_webview_configuration(modules::macos_webview::config_without_writing_tools());
+
+    #[cfg(any(target_os = "linux", target_os = "windows"))]
+    let builder = builder.decorations(false).transparent(true);
+
+    let window = builder.build().map_err(|e| e.to_string())?;
+
+    #[cfg(target_os = "linux")]
+    {
+        let _ = window.set_decorations(false);
+    }
+
+    let _ = window.show();
+    let _ = window.unminimize();
+    let _ = window.set_focus();
+    Ok(())
+}
+
+#[tauri::command]
+fn open_studio_window(app: tauri::AppHandle) -> Result<(), String> {
+    show_or_create_studio_window(&app)
+}
+
+#[tauri::command]
+async fn focus_agent_window(app: tauri::AppHandle) -> Result<(), String> {
+    let window = app
+        .get_webview_window("main")
+        .ok_or_else(|| "Agent window is not available".to_string())?;
+    let _ = window.show();
+    let _ = window.unminimize();
+    window.set_focus().map_err(|error| error.to_string())
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -438,6 +513,8 @@ pub fn run() {
             env_get_flag,
             open_with,
             open_settings_window,
+            open_studio_window,
+            focus_agent_window,
             // ALTAI — OS taskbar/Dock menu: new window + recent folders
             os_menu::open_new_window,
             os_menu::set_recent_folders,

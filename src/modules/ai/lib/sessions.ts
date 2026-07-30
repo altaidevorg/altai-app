@@ -6,6 +6,10 @@ export type SessionMeta = {
   title: string;
   createdAt: number;
   updatedAt: number;
+  /** Optional execution target. Missing/null means a project-free chat. */
+  workspacePath?: string | null;
+  workspaceKind?: "local" | "github" | null;
+  repositoryUrl?: string | null;
 };
 
 const STORE_PATH = "altai-ai-sessions.json";
@@ -121,8 +125,9 @@ function backendMessageToUi(
 async function loadMessagesFromBackend(id: string): Promise<UIMessage[] | null> {
   try {
     const { native } = await import("./native");
-    const { currentWorkspaceFolder } = await import("@/modules/workspace/folder");
-    const workspacePath = currentWorkspaceFolder() ?? undefined;
+    const sessions = (await store.get<SessionMeta[]>(KEY_SESSIONS)) ?? [];
+    const workspacePath =
+      sessions.find((session) => session.id === id)?.workspacePath ?? undefined;
     const backend = await native.agentGetSessionMessages(id, workspacePath);
     if (!backend || backend.length === 0) return null;
     const ui = backend.map((m, i) => backendMessageToUi(m, i));
@@ -221,14 +226,21 @@ export async function mergeBackendSessions(
     // Lazy import to avoid a static Tauri dependency in this otherwise
     // pure-storage module — keeps it testable without the IPC bridge.
     const { native } = await import("./native");
-    // The backend memory DB is per-workspace (`<folder>/.isanagent/...`).
-    // Querying without the workspace path opens the wrong (empty) DB and
-    // recovers nothing — which is why closed chats never reappeared in history.
-    const { currentWorkspaceFolder } = await import(
-      "@/modules/workspace/folder"
-    );
-    const workspacePath = currentWorkspaceFolder() ?? undefined;
-    backend = await native.agentListSessions(workspacePath);
+    // Query the project-free store plus every workspace represented by the
+    // persisted conversation list. Targets belong to chats, not to the app
+    // window, so there is no single global workspace to query.
+    const targets = [
+      undefined,
+      ...new Set(
+        frontend
+          .map((session) => session.workspacePath ?? undefined)
+          .filter((path): path is string => Boolean(path)),
+      ),
+    ];
+    for (const workspacePath of targets) {
+      const items = await native.agentListSessions(workspacePath);
+      backend.push(...items);
+    }
   } catch {
     // Backend unavailable (e.g. non-Tauri test context) — no-op, keep frontend.
     return { merged: frontend, recoveredIds: [] };

@@ -55,7 +55,12 @@ const APPEARANCE: {
   { id: "dark", label: "Dark", icon: Moon02Icon },
 ];
 
-export function GeneralSection() {
+export function GeneralSection({
+  surface = "app",
+}: {
+  surface?: "app" | "ide";
+}) {
+  const isApp = surface === "app";
   const { theme, setTheme } = useTheme();
   const autostart = usePreferencesStore((s) => s.autostart);
   const restoreWindowState = usePreferencesStore((s) => s.restoreWindowState);
@@ -118,7 +123,11 @@ export function GeneralSection() {
     <div className="flex flex-col gap-6">
       <SectionHeader
         title="General"
-        description="Appearance, editor, and startup."
+        description={
+          isApp
+            ? "Appearance, startup, and agent behavior for ALTAI Studio."
+            : "Appearance, editor, and startup."
+        }
       />
 
       <div className="flex flex-col gap-2">
@@ -143,7 +152,8 @@ export function GeneralSection() {
         </div>
       </div>
 
-      <div className="flex flex-col gap-2">
+      {!isApp ? <div className="flex flex-col gap-2">
+        <Label>Editor</Label>
         <SettingRow
           title="Vim mode"
           description="Enable Vim keybindings in the code editor."
@@ -162,9 +172,9 @@ export function GeneralSection() {
             onCheckedChange={(v) => void setMinimapEnabled(v)}
           />
         </SettingRow>
-      </div>
+      </div> : null}
 
-      <div className="flex flex-col gap-2">
+      {!isApp ? <div className="flex flex-col gap-2">
         <Label>Explorer</Label>
         <SettingRow
           title="Show hidden files"
@@ -175,9 +185,9 @@ export function GeneralSection() {
             onCheckedChange={(v) => void setShowHidden(v)}
           />
         </SettingRow>
-      </div>
+      </div> : null}
 
-      <div className="flex flex-col gap-2">
+      {!isApp ? <div className="flex flex-col gap-2">
         <Label>Source Control</Label>
         <div className="flex flex-col gap-1.5">
           <span className="text-[12px] text-muted-foreground">
@@ -194,9 +204,9 @@ export function GeneralSection() {
             className="min-h-20 w-full resize-y rounded-none border border-border bg-background px-2.5 py-1.5 font-mono text-[12px] outline-none focus:border-foreground/40"
           />
         </div>
-      </div>
+      </div> : null}
 
-      <div className="flex flex-col gap-2">
+      {!isApp ? <div className="flex flex-col gap-2">
         <Label>Terminal</Label>
         <SettingRow
           title={
@@ -341,7 +351,7 @@ export function GeneralSection() {
             </DropdownMenuContent>
           </DropdownMenu>
         </SettingRow>
-      </div>
+      </div> : null}
 
       <div className="flex flex-col gap-2">
         <Label>Startup</Label>

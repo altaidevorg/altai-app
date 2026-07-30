@@ -1,14 +1,12 @@
-import { getCurrentWindow } from "@tauri-apps/api/window";
 import { ask, open } from "@tauri-apps/plugin-dialog";
 import { LazyStore } from "@tauri-apps/plugin-store";
 import { create } from "zustand";
 import { native } from "../ai/lib/native";
 
 /**
- * The user-selected workspace folder — ALTAI's IDE-style project root. It is
- * the explorer root AND the parent of the IsanAgent workspace (the agent roots
- * its memory/sandbox/config at `<folder>/.isanagent`). Persisted so the last
- * workspace reopens automatically; the picker is only forced when none is set.
+ * Transient mirror of the active conversation's optional project target.
+ * Recents persist, but the active folder does not: a chat starts project-free
+ * unless that conversation's own metadata attaches a local or cloned repo.
  */
 const STORE_PATH = "altai-workspace.json";
 const KEY_FOLDER = "folder";
@@ -21,19 +19,6 @@ const store = new LazyStore(STORE_PATH, { defaults: {}, autoSave: 200 });
 
 function prependRecent(recents: string[], path: string): string[] {
   return [path, ...recents.filter((p) => p !== path)].slice(0, RECENTS_CAP);
-}
-
-/**
- * Only the primary window (`main`) reopens the persisted workspace. Windows
- * spawned via "New Window" (label `main-<uuid>`) start on the welcome screen so
- * the user can pick a different folder. See the `os_menu` Rust backend.
- */
-function isPrimaryWindow(): boolean {
-  try {
-    return getCurrentWindow().label === "main";
-  } catch {
-    return true; // non-Tauri context — behave as the primary window.
-  }
 }
 
 /**
@@ -76,7 +61,7 @@ type State = {
   clearJustCloned: () => void;
   hydrate: () => Promise<void>;
   setFolder: (path: string) => void;
-  /** Open the native directory picker; persists + returns the chosen path. */
+  /** Open the native directory picker; adds + returns the chosen path. */
   pickFolder: () => Promise<string | null>;
   /**
    * Prompt for a destination directory, clone `url` into it via the Rust
@@ -94,9 +79,7 @@ type State = {
    */
   openRecent: (path: string) => Promise<boolean>;
   /**
-   * Close the current workspace → return to the welcome screen. Keeps recents
-   * (the just-closed folder stays at the top of the list). The persisted
-   * folder is cleared so the next launch shows the welcome too.
+   * Clear the transient folder mirror while keeping the recent-project list.
    */
   closeFolder: () => void;
 };
@@ -112,29 +95,22 @@ export const useWorkspaceFolderStore = create<State>((set, get) => ({
   hydrate: async () => {
     if (get().hydrated) return;
     let recentList: string[] = [];
-    let saved: string | null = null;
     try {
       const recents = (await store.get<string[]>(KEY_RECENTS)) ?? [];
       recentList = Array.isArray(recents) ? recents : [];
-      // New windows start on the welcome screen; only `main` reopens the folder.
-      saved = isPrimaryWindow()
-        ? ((await store.get<string>(KEY_FOLDER)) ?? null)
-        : null;
-      // If the persisted workspace was deleted/moved/unmounted, fall back to the
-      // welcome screen instead of loading into a broken workspace, and forget it
-      // as the active folder (it stays in recents so the user can re-pick it).
-      if (saved && !(await folderIsAccessible(saved))) {
-        saved = null;
-        void store.delete(KEY_FOLDER).then(() => store.save());
-      }
+      // Agent Workspace starts project-free. Workspace targets are restored
+      // from each conversation's metadata, never inherited globally from the
+      // last IDE session.
+      await store.delete(KEY_FOLDER);
+      await store.save();
     } catch (error) {
       // A missing/corrupt store or a transient native-plugin failure must never
       // leave the entire app permanently blank. Start clean and let the user
-      // pick a workspace instead.
+      // attach a project later if needed.
       console.warn("workspace hydration failed; starting without a workspace", error);
     }
     set({
-      folder: saved,
+      folder: null,
       recents: recentList,
       hydrated: true,
     });
@@ -144,10 +120,9 @@ export const useWorkspaceFolderStore = create<State>((set, get) => ({
     const recents = prependRecent(get().recents, path);
     set({ folder: path, recents });
     pushRecentFolders(recents);
-    // Force an immediate write (not the autoSave debounce) so the last folder
-    // survives even if the app is closed right after selecting it.
+    // Conversation metadata owns target persistence. The folder store only
+    // mirrors the active chat for Explorer/terminal integration.
     void (async () => {
-      await store.set(KEY_FOLDER, path);
       await store.set(KEY_RECENTS, recents);
       await store.save();
     })();

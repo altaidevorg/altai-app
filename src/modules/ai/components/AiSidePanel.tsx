@@ -1,7 +1,18 @@
 import { cn } from "@/lib/utils";
-import { MOD_KEY, fmtShortcut } from "@/lib/platform";
-import { Kbd } from "@/components/ui/kbd";
+import { IS_MAC } from "@/lib/platform";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import {
+  ResizableHandle,
+  ResizablePanel,
+  ResizablePanelGroup,
+} from "@/components/ui/resizable";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   Collapsible,
   CollapsibleContent,
@@ -12,13 +23,18 @@ import {
   ArrowDown01Icon,
   Cancel01Icon,
   Clock01Icon,
+  CodeIcon,
   FileEditIcon,
+  FolderOpenIcon,
+  Folder01Icon,
+  GithubIcon,
   Notebook01Icon,
   Notification01Icon,
+  Settings01Icon,
   SparklesIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { type ReactElement, useEffect, useState } from "react";
+import { type ReactElement, useEffect, useRef, useState } from "react";
 import { EditApprovalCard } from "./EditApprovalCard";
 import { SurfaceHeader, SurfaceSearch } from "./AuxiliarySurface";
 import {
@@ -40,7 +56,6 @@ import { usePlanStore, type AppliedPlanEdit } from "../store/planStore";
 import { useTodosStore } from "../store/todoStore";
 import { native, type CheckpointInfo } from "../lib/native";
 import { openSettingsWindow } from "@/modules/settings/openSettingsWindow";
-import { useWorkspaceFolderStore } from "@/modules/workspace/folder";
 import { AiChatView } from "./AiChat";
 import { AiInputBar, AiInputBarConnect } from "./AiInputBar";
 import { AgentStatusPill } from "./AgentStatusPill";
@@ -59,20 +74,75 @@ import {
 // store loop detector and can blank the whole renderer.
 const EMPTY_TODOS: Array<{ id: string; title: string; status: string }> = [];
 type PanelSurface = "history" | "inspector" | "work" | "inbox" | null;
+const HISTORY_PANEL_WIDTH_KEY = "altai.ai.historyPanel.width";
+const INSPECTOR_PANEL_WIDTH_KEY = "altai.ai.inspectorPanel.width";
+const HISTORY_PANEL_MIN_WIDTH = 176;
+const HISTORY_PANEL_MAX_WIDTH = 360;
+const INSPECTOR_PANEL_MIN_WIDTH = 240;
+const INSPECTOR_PANEL_MAX_WIDTH = 480;
+
+function readPanelWidth(
+  key: string,
+  fallback: number,
+  min: number,
+  max: number,
+): number {
+  try {
+    const parsed = Number.parseInt(window.localStorage.getItem(key) ?? "", 10);
+    return Number.isFinite(parsed)
+      ? Math.min(max, Math.max(min, parsed))
+      : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function persistPanelWidth(key: string, width: number, min: number, max: number) {
+  if (width <= 0) return;
+  try {
+    window.localStorage.setItem(
+      key,
+      String(Math.round(Math.min(max, Math.max(min, width)))),
+    );
+  } catch {
+    // Storage can be unavailable in restricted webviews; resizing still works.
+  }
+}
+
+export type AiSidePanelProps = {
+  onClose?: () => void;
+  hasComposer?: boolean;
+  variant?: "workspace" | "sidebar";
+  workspaceName?: string;
+  workspacePath?: string | null;
+  workspaceKind?: "local" | "github" | null;
+  onOpenStudio?: () => void;
+  onOpenSettings?: () => void;
+  onChooseLocalWorkspace?: () => Promise<string | null>;
+  onCloneGithubRepository?: (url: string) => Promise<string | null>;
+  onClearWorkspace?: () => void;
+};
 
 export function AiSidePanel({
   onClose,
   hasComposer = true,
-}: {
-  onClose: () => void;
-  hasComposer?: boolean;
-}) {
+  variant = "sidebar",
+  workspaceName = "Local workspace",
+  workspacePath = null,
+  workspaceKind = null,
+  onOpenStudio,
+  onOpenSettings,
+  onChooseLocalWorkspace,
+  onCloneGithubRepository,
+  onClearWorkspace,
+}: AiSidePanelProps) {
   const sessionId = useChatStore((s) => s.activeSessionId);
   const chatSessions = useChatStore((s) => s.sessions);
   const switchSession = useChatStore((s) => s.switchSession);
   const newSession = useChatStore((s) => s.newSession);
 
   useEffect(() => {
+    if (!onClose) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
       const target = e.target as HTMLElement | null;
@@ -100,14 +170,40 @@ export function AiSidePanel({
   const [workView, setWorkView] = useState<WorkHubView>("runs");
   const [openChatIds, setOpenChatIds] = useState<string[]>([]);
   const [reviewOpen, setReviewOpen] = useState(false);
+  const [targetDialogOpen, setTargetDialogOpen] = useState(false);
+  const panelRootRef = useRef<HTMLElement | null>(null);
+  const [panelWidth, setPanelWidth] = useState(0);
   const historyOpen = activeSurface === "history";
   const inspectorOpen = activeSurface === "inspector";
   const workOpen = activeSurface === "work";
   const inboxOpen = activeSurface === "inbox";
+  // Run details is a stable destination for the active chat. Keep its control
+  // visible while History, Work, Inbox, or Review is open so switching surfaces
+  // never causes the toolbar geometry to jump.
+  const inspectorAvailable = Boolean(sessionId);
+  // A persistent history rail belongs only to the standalone Agent Workspace.
+  // Inside the IDE, widening the chat must never introduce a second left
+  // sidebar; history remains an explicit, single-surface destination.
+  const showHistorySidebar = variant === "workspace" && panelWidth >= 768;
+  const showInspectorSidebar =
+    panelWidth >= 1216 && inspectorOpen && inspectorAvailable;
   const toggleSurface = (surface: Exclude<PanelSurface, null>) => {
     setReviewOpen(false);
     setActiveSurface((current) => (current === surface ? null : surface));
   };
+
+  useEffect(() => {
+    const root = panelRootRef.current;
+    if (!root || typeof ResizeObserver === "undefined") return;
+    const updateWidth = () => setPanelWidth(Math.round(root.getBoundingClientRect().width));
+    updateWidth();
+    const observer = new ResizeObserver((entries) => {
+      const width = entries[0]?.contentRect.width;
+      if (typeof width === "number") setPanelWidth(Math.round(width));
+    });
+    observer.observe(root);
+    return () => observer.disconnect();
+  }, []);
 
   useEffect(() => {
     const openSurface = (event: Event) => {
@@ -186,95 +282,342 @@ export function AiSidePanel({
 
   return (
     <aside
+      ref={panelRootRef}
       data-ai-side-panel
+      data-ai-workspace={variant === "workspace" ? "true" : undefined}
       id="altai-ai-panel"
-      aria-label="AI assistant"
-      className="altai-ai-panel @container relative flex h-full min-h-0 flex-col overflow-hidden bg-card text-[12px]"
+      aria-label={variant === "workspace" ? "ALTAI agent workspace" : "AI assistant"}
+      className="altai-ai-panel @container relative flex h-full min-h-0 overflow-hidden bg-card text-[12px]"
     >
-      <WorkspaceTopbar
-        onClose={onClose}
-        openChatIds={openChatIds}
-        onSelectChat={() => setActiveSurface(null)}
-        onCloseChat={closeChatTab}
-        onNewChat={createChatTab}
-        historyOpen={historyOpen}
-        onToggleHistory={() => toggleSurface("history")}
-        inspectorOpen={inspectorOpen}
-        onToggleInspector={() => toggleSurface("inspector")}
-        workOpen={workOpen}
-        onToggleWork={() => toggleSurface("work")}
-        inboxOpen={inboxOpen}
-        onToggleInbox={() => toggleSurface("inbox")}
-      />
-      <div className="relative isolate grid min-h-0 flex-1 grid-cols-1 overflow-hidden @[48rem]:grid-cols-[minmax(12rem,13.5rem)_minmax(0,1fr)] @[76rem]:grid-cols-[minmax(12rem,13.5rem)_minmax(0,1fr)_18rem]">
-        <nav
-          aria-label="Chat sessions"
-          className="altai-ai-history-rail z-10 hidden h-full min-h-0 min-w-0 self-stretch overflow-hidden border-r border-border-subtle @[48rem]:flex @[48rem]:flex-col"
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+        <WorkspaceTopbar
+          variant={variant}
+          workspacePath={workspacePath}
+          onOpenStudio={onOpenStudio}
+          onClose={onClose}
+          openChatIds={openChatIds}
+          onSelectChat={() => setActiveSurface(null)}
+          onCloseChat={closeChatTab}
+          onNewChat={createChatTab}
+          historyOpen={historyOpen}
+          onToggleHistory={() => toggleSurface("history")}
+          inspectorOpen={inspectorOpen}
+          inspectorAvailable={inspectorAvailable}
+          onToggleInspector={() => toggleSurface("inspector")}
+          workOpen={workOpen}
+          onToggleWork={() => toggleSurface("work")}
+          inboxOpen={inboxOpen}
+          onToggleInbox={() => toggleSurface("inbox")}
+          onOpenSettings={onOpenSettings}
+        />
+        <ResizablePanelGroup
+          orientation="horizontal"
+          className="relative isolate min-h-0 flex-1 overflow-hidden"
         >
-          <ChatHistoryPanel onClose={() => setActiveSurface(null)} />
-        </nav>
-
-        <main className="altai-ai-main relative z-0 flex min-h-0 min-w-0 flex-col overflow-hidden bg-card">
-          {historyOpen ? (
-            <div className="flex min-h-0 flex-1 @[48rem]:hidden">
-              <ChatHistoryPanel
-                autoFocusSearch
-                onClose={() => setActiveSurface(null)}
+          {showHistorySidebar ? (
+            <>
+              <ResizablePanel
+                id="ai-history-sidebar"
+                defaultSize={`${readPanelWidth(
+                  HISTORY_PANEL_WIDTH_KEY,
+                  216,
+                  HISTORY_PANEL_MIN_WIDTH,
+                  HISTORY_PANEL_MAX_WIDTH,
+                )}px`}
+                minSize={`${HISTORY_PANEL_MIN_WIDTH}px`}
+                maxSize={`${HISTORY_PANEL_MAX_WIDTH}px`}
+                onResize={(size) =>
+                  persistPanelWidth(
+                    HISTORY_PANEL_WIDTH_KEY,
+                    size.inPixels,
+                    HISTORY_PANEL_MIN_WIDTH,
+                    HISTORY_PANEL_MAX_WIDTH,
+                  )
+                }
+              >
+                <nav
+                  aria-label="Chat sessions"
+                  className="altai-ai-history-rail z-10 flex h-full min-h-0 min-w-0 flex-col overflow-hidden"
+                >
+                  <ChatHistoryPanel onClose={() => setActiveSurface(null)} />
+                </nav>
+              </ResizablePanel>
+              <ResizableHandle
+                withHandle
+                aria-label="Resize chat history sidebar"
+                title="Resize chat history sidebar"
               />
-            </div>
+            </>
           ) : null}
-          {sessionId ? (
-            <div
-              className={cn(
-                "relative min-h-0 flex-1",
-                historyOpen ? "hidden @[48rem]:flex" : "flex",
-              )}
-            >
-              <Body
-                hasComposer={hasComposer}
-                onOpenReview={() => {
-                  setActiveSurface(null);
-                  setReviewOpen(true);
-                }}
-              />
-              {workOpen ? (
-                <WorkHubPanel
-                  initialView={workView}
-                  onClose={() => setActiveSurface(null)}
-                />
-              ) : null}
-              {inboxOpen ? (
-                <NotificationInboxPanel onClose={() => setActiveSurface(null)} />
-              ) : null}
-              {inspectorOpen ? (
-                <div className="absolute inset-0 z-20 flex bg-card @[76rem]:hidden">
-                  <RunInspector className="flex w-full" onClose={() => setActiveSurface(null)} />
+
+          <ResizablePanel id="ai-chat-main" minSize="240px">
+            <main className="altai-ai-main relative z-0 flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-card">
+              {historyOpen && !showHistorySidebar ? (
+                <div className="flex min-h-0 flex-1">
+                  <ChatHistoryPanel
+                    autoFocusSearch
+                    onClose={() => setActiveSurface(null)}
+                  />
                 </div>
               ) : null}
-              {reviewOpen ? (
-                <PlanDiffReview
-                  open
-                  autoOpen={false}
-                  onClose={() => setReviewOpen(false)}
-                />
-              ) : null}
-            </div>
-          ) : (
-            <div
-              className={cn(
-                "flex flex-1 items-center justify-center text-[11px] text-muted-foreground",
-                historyOpen && "hidden @[48rem]:flex",
+              {sessionId ? (
+                <div
+                  className={cn(
+                    "relative min-h-0 flex-1",
+                    historyOpen && !showHistorySidebar ? "hidden" : "flex",
+                  )}
+                >
+                  <Body
+                    hasComposer={hasComposer}
+                    onOpenReview={() => {
+                      setActiveSurface(null);
+                      setReviewOpen(true);
+                    }}
+                    projectTarget={
+                      variant === "workspace"
+                        ? {
+                            name: workspaceName,
+                            path: workspacePath,
+                            kind: workspaceKind,
+                            onChange: () => setTargetDialogOpen(true),
+                          }
+                        : undefined
+                    }
+                  />
+                  {workOpen ? (
+                    <WorkHubPanel
+                      initialView={workView}
+                      onClose={() => setActiveSurface(null)}
+                    />
+                  ) : null}
+                  {inboxOpen ? (
+                    <NotificationInboxPanel onClose={() => setActiveSurface(null)} />
+                  ) : null}
+                  {inspectorOpen &&
+                  inspectorAvailable &&
+                  !showInspectorSidebar ? (
+                    <div className="absolute inset-0 z-20 flex bg-card">
+                      <RunInspector
+                        className="flex w-full"
+                        onClose={() => setActiveSurface(null)}
+                      />
+                    </div>
+                  ) : null}
+                  {reviewOpen ? (
+                    <PlanDiffReview
+                      open
+                      autoOpen={false}
+                      onClose={() => setReviewOpen(false)}
+                    />
+                  ) : null}
+                </div>
+              ) : (
+                <div
+                  className={cn(
+                    "flex flex-1 items-center justify-center text-[11px] text-muted-foreground",
+                    historyOpen && !showHistorySidebar && "hidden",
+                  )}
+                >
+                  Loading sessions…
+                </div>
               )}
-            >
-              Loading sessions…
-            </div>
-          )}
-        </main>
+            </main>
+          </ResizablePanel>
 
-        <RunInspector className="hidden w-full min-w-0 overflow-hidden @[76rem]:flex" />
-
+          {showInspectorSidebar ? (
+            <>
+              <ResizableHandle
+                withHandle
+                aria-label="Resize run inspector sidebar"
+                title="Resize run inspector sidebar"
+              />
+              <ResizablePanel
+                id="ai-run-inspector-sidebar"
+                defaultSize={`${readPanelWidth(
+                  INSPECTOR_PANEL_WIDTH_KEY,
+                  288,
+                  INSPECTOR_PANEL_MIN_WIDTH,
+                  INSPECTOR_PANEL_MAX_WIDTH,
+                )}px`}
+                minSize={`${INSPECTOR_PANEL_MIN_WIDTH}px`}
+                maxSize={`${INSPECTOR_PANEL_MAX_WIDTH}px`}
+                onResize={(size) =>
+                  persistPanelWidth(
+                    INSPECTOR_PANEL_WIDTH_KEY,
+                    size.inPixels,
+                    INSPECTOR_PANEL_MIN_WIDTH,
+                    INSPECTOR_PANEL_MAX_WIDTH,
+                  )
+                }
+              >
+                <RunInspector
+                  className="flex h-full w-full min-w-0 overflow-hidden"
+                  onClose={() => setActiveSurface(null)}
+                />
+              </ResizablePanel>
+            </>
+          ) : null}
+        </ResizablePanelGroup>
       </div>
+      {variant === "workspace" ? (
+        <WorkspaceTargetDialog
+          open={targetDialogOpen}
+          onOpenChange={setTargetDialogOpen}
+          workspacePath={workspacePath}
+          onChooseLocalWorkspace={onChooseLocalWorkspace}
+          onCloneGithubRepository={onCloneGithubRepository}
+          onClearWorkspace={onClearWorkspace}
+        />
+      ) : null}
     </aside>
+  );
+}
+
+function WorkspaceTargetDialog({
+  open,
+  onOpenChange,
+  workspacePath,
+  onChooseLocalWorkspace,
+  onCloneGithubRepository,
+  onClearWorkspace,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  workspacePath: string | null;
+  onChooseLocalWorkspace?: () => Promise<string | null>;
+  onCloneGithubRepository?: (url: string) => Promise<string | null>;
+  onClearWorkspace?: () => void;
+}) {
+  const [repoUrl, setRepoUrl] = useState("");
+  const [busy, setBusy] = useState<"local" | "github" | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const chooseLocal = async () => {
+    if (!onChooseLocalWorkspace || busy) return;
+    setError(null);
+    setBusy("local");
+    try {
+      const path = await onChooseLocalWorkspace();
+      if (path) onOpenChange(false);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const cloneGithub = async () => {
+    if (!onCloneGithubRepository || busy || !repoUrl.trim()) return;
+    setError(null);
+    setBusy("github");
+    try {
+      const path = await onCloneGithubRepository(repoUrl.trim());
+      if (path) {
+        setRepoUrl("");
+        onOpenChange(false);
+      }
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="gap-4 rounded-2xl p-5 sm:max-w-[460px]">
+        <DialogHeader>
+          <DialogTitle>Choose a project</DialogTitle>
+          <DialogDescription>
+            Keep the conversation project-free, attach a local folder, or clone
+            a GitHub repository. ALTAI only receives file context after you
+            choose a project target.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-2">
+          <button
+            type="button"
+            onClick={() => void chooseLocal()}
+            disabled={!onChooseLocalWorkspace || busy !== null}
+            className="flex w-full items-center gap-3 rounded-xl border border-border bg-card px-3.5 py-3 text-left transition-colors hover:bg-accent disabled:opacity-50"
+          >
+            <span className="inline-flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
+              <HugeiconsIcon icon={FolderOpenIcon} size={17} strokeWidth={1.75} />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-[12.5px] font-medium text-foreground">
+                {busy === "local" ? "Opening…" : "Local workspace"}
+              </span>
+              <span className="mt-0.5 block text-[10.5px] text-muted-foreground">
+                Choose a folder only for chats that need local files and tools.
+              </span>
+            </span>
+          </button>
+
+          <div className="rounded-xl border border-border bg-card p-3.5">
+            <div className="flex items-center gap-3">
+              <span className="inline-flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
+                <HugeiconsIcon icon={GithubIcon} size={17} strokeWidth={1.75} />
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block text-[12.5px] font-medium text-foreground">
+                  GitHub repository
+                </span>
+                <span className="mt-0.5 block text-[10.5px] text-muted-foreground">
+                  Clone a repository and attach the resulting isolated workspace.
+                </span>
+              </span>
+            </div>
+            <div className="mt-3 flex min-w-0 gap-2">
+              <input
+                value={repoUrl}
+                onChange={(event) => setRepoUrl(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") void cloneGithub();
+                }}
+                placeholder="https://github.com/org/repository.git"
+                aria-label="GitHub repository URL"
+                className="h-8 min-w-0 flex-1 rounded-lg border border-border bg-background px-2.5 font-mono text-[10.5px] text-foreground outline-none placeholder:text-muted-foreground/60 focus:border-ring"
+              />
+              <button
+                type="button"
+                onClick={() => void cloneGithub()}
+                disabled={
+                  !onCloneGithubRepository || busy !== null || !repoUrl.trim()
+                }
+                className="h-8 shrink-0 rounded-lg bg-primary px-3 text-[10.5px] font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
+              >
+                {busy === "github" ? "Cloning…" : "Clone"}
+              </button>
+            </div>
+          </div>
+
+          {workspacePath && onClearWorkspace ? (
+            <button
+              type="button"
+              onClick={() => {
+                onClearWorkspace();
+                onOpenChange(false);
+              }}
+              disabled={busy !== null}
+              className="w-full rounded-xl border border-border px-3.5 py-2.5 text-left text-[11px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-50"
+            >
+              Continue without a project
+            </button>
+          ) : null}
+        </div>
+
+        {error ? (
+          <div
+            role="alert"
+            className="rounded-lg border border-destructive/30 bg-destructive/[0.06] px-3 py-2 text-[10.5px] text-destructive"
+          >
+            {error}
+          </div>
+        ) : null}
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -337,13 +680,13 @@ function ChatTabStrip({
       <div
         role="tablist"
         aria-label="Open chats"
-        className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto"
+        className="flex min-w-0 shrink items-center gap-1 overflow-x-auto"
       >
         {openSessions.map((session) => (
           <div
             key={session.id}
             className={cn(
-              "group flex max-w-44 shrink-0 items-center rounded-lg border text-[10.5px] transition-colors",
+              "group flex h-7 max-w-44 shrink-0 items-center rounded-lg border text-[10.5px] transition-colors",
               session.id === activeId
                 ? "border-border bg-muted/70 font-medium text-foreground"
                 : "border-transparent text-muted-foreground hover:border-border/60 hover:bg-accent hover:text-foreground",
@@ -357,7 +700,7 @@ function ChatTabStrip({
               aria-selected={session.id === activeId}
               onClick={() => select(session.id)}
               title={session.title || "New chat"}
-              className="min-w-0 truncate px-2.5 py-1.5 text-left outline-none"
+              className="h-full min-w-0 truncate px-2.5 text-left outline-none"
             >
               {session.title || "New chat"}
             </button>
@@ -394,6 +737,9 @@ function ChatTabStrip({
  * Run details is contextual to the current run.
  */
 function WorkspaceTopbar({
+  variant,
+  workspacePath,
+  onOpenStudio,
   onClose,
   openChatIds,
   onSelectChat,
@@ -402,13 +748,18 @@ function WorkspaceTopbar({
   historyOpen,
   onToggleHistory,
   inspectorOpen,
+  inspectorAvailable,
   onToggleInspector,
   workOpen,
   onToggleWork,
   inboxOpen,
   onToggleInbox,
+  onOpenSettings,
 }: {
-  onClose: () => void;
+  variant: "workspace" | "sidebar";
+  workspacePath: string | null;
+  onOpenStudio?: () => void;
+  onClose?: () => void;
   openChatIds: string[];
   onSelectChat: () => void;
   onCloseChat: (id: string) => void;
@@ -416,14 +767,15 @@ function WorkspaceTopbar({
   historyOpen: boolean;
   onToggleHistory: () => void;
   inspectorOpen: boolean;
+  inspectorAvailable: boolean;
   onToggleInspector: () => void;
   workOpen: boolean;
   onToggleWork: () => void;
   inboxOpen: boolean;
   onToggleInbox: () => void;
+  onOpenSettings?: () => void;
 }) {
   const activeId = useChatStore((s) => s.activeSessionId);
-  const workspacePath = useWorkspaceFolderStore((s) => s.folder);
   const inboxAttentionCount = useNotificationStore(selectNotificationAttentionCount);
   const refreshInbox = useNotificationStore((s) => s.refresh);
 
@@ -431,45 +783,26 @@ function WorkspaceTopbar({
     void refreshInbox(workspacePath);
   }, [refreshInbox, workspacePath]);
 
-  return (
-    <div className="altai-ai-topbar flex h-12 shrink-0 items-center gap-1.5 border-b border-border-subtle bg-card px-2.5">
-      <IconTooltip label={historyOpen ? "Back to task" : "Chat sessions"}>
-        <button
-          type="button"
-          onClick={onToggleHistory}
-          aria-label={historyOpen ? "Back to task" : "Chat sessions"}
-          aria-pressed={historyOpen}
-          className={cn(
-            "inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground @[48rem]:hidden",
-            historyOpen && "bg-foreground/[0.09] text-foreground",
-          )}
-        >
-          <HugeiconsIcon icon={Clock01Icon} size={14} strokeWidth={1.75} />
-        </button>
-      </IconTooltip>
-      <ChatTabStrip
-        embedded
-        openChatIds={openChatIds}
-        onSelect={onSelectChat}
-        onCloseChat={onCloseChat}
-        onNewChat={onNewChat}
-      />
-      {!historyOpen && activeId ? <TodoSummaryChip sessionId={activeId} /> : null}
-      <div className="altai-ai-topbar-actions flex shrink-0 items-center gap-0.5 rounded-lg border border-border/60 bg-muted/35 p-0.5">
-        <IconTooltip label={inspectorOpen ? "Close run details" : "Open run details"}>
-          <button
-            type="button"
-            onClick={onToggleInspector}
-            aria-label={inspectorOpen ? "Close run details" : "Open run details"}
-            aria-pressed={inspectorOpen}
-            className={cn(
-              "inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground @[76rem]:hidden",
-              inspectorOpen ? "bg-foreground/[0.09] text-foreground" : "",
-            )}
-          >
-            <HugeiconsIcon icon={SparklesIcon} size={14} strokeWidth={1.75} />
-          </button>
-        </IconTooltip>
+  const historyControl = (
+    <IconTooltip label={historyOpen ? "Back to task" : "Chat sessions"}>
+      <button
+        type="button"
+        onClick={onToggleHistory}
+        aria-label={historyOpen ? "Back to task" : "Chat sessions"}
+        aria-pressed={historyOpen}
+        className={cn(
+          "inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground",
+          variant === "workspace" && "@[48rem]:hidden",
+          historyOpen && "bg-foreground/[0.09] text-foreground",
+        )}
+      >
+        <HugeiconsIcon icon={Clock01Icon} size={14} strokeWidth={1.75} />
+      </button>
+    </IconTooltip>
+  );
+
+  const workspaceActions = (
+    <div className="altai-ai-topbar-actions flex shrink-0 items-center gap-0.5 rounded-lg border border-border/60 bg-muted/35 p-0.5">
         <IconTooltip label={workOpen ? "Close work" : "Open work"}>
           <button
             type="button"
@@ -477,11 +810,16 @@ function WorkspaceTopbar({
             aria-label={workOpen ? "Close work" : "Open work"}
             aria-pressed={workOpen}
             className={cn(
-              "inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground",
+              "inline-flex h-7 shrink-0 items-center justify-center gap-1.5 rounded-md px-1.5 text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground",
               workOpen && "bg-foreground/[0.09] text-foreground",
             )}
           >
             <HugeiconsIcon icon={Notebook01Icon} size={14} strokeWidth={1.75} />
+            {variant === "workspace" ? (
+              <span className="hidden pr-0.5 text-[10px] font-medium @[40rem]:inline">
+                Work
+              </span>
+            ) : null}
           </button>
         </IconTooltip>
         <IconTooltip
@@ -505,11 +843,16 @@ function WorkspaceTopbar({
             }
             aria-pressed={inboxOpen}
             className={cn(
-              "relative inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground",
+              "relative inline-flex h-7 shrink-0 items-center justify-center gap-1.5 rounded-md px-1.5 text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground",
               inboxOpen && "bg-foreground/[0.09] text-foreground",
             )}
           >
             <HugeiconsIcon icon={Notification01Icon} size={14} strokeWidth={1.75} />
+            {variant === "workspace" ? (
+              <span className="hidden pr-0.5 text-[10px] font-medium @[40rem]:inline">
+                Inbox
+              </span>
+            ) : null}
             {inboxAttentionCount ? (
               <span className="absolute -right-1 -top-1 flex min-w-3.5 items-center justify-center rounded-full bg-warning px-1 text-[8px] font-semibold leading-3 text-warning-foreground">
                 {inboxAttentionCount > 99 ? "99+" : inboxAttentionCount}
@@ -517,17 +860,95 @@ function WorkspaceTopbar({
             ) : null}
           </button>
         </IconTooltip>
+        {inspectorAvailable ? (
+          <IconTooltip label={inspectorOpen ? "Close run details" : "Open run details"}>
+            <button
+              type="button"
+              onClick={onToggleInspector}
+              aria-label={inspectorOpen ? "Close run details" : "Open run details"}
+              aria-pressed={inspectorOpen}
+              className={cn(
+                "inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground",
+                inspectorOpen ? "bg-foreground/[0.09] text-foreground" : "",
+              )}
+            >
+              <HugeiconsIcon icon={SparklesIcon} size={14} strokeWidth={1.75} />
+            </button>
+          </IconTooltip>
+        ) : null}
+    </div>
+  );
+
+  const todoSummary =
+    !historyOpen && activeId ? <TodoSummaryChip sessionId={activeId} /> : null;
+
+  if (variant === "sidebar") {
+    return (
+      <div className="altai-ai-topbar flex shrink-0 flex-col border-b border-border-subtle bg-card">
+        <div className="flex h-10 min-w-0 items-center gap-1.5 px-2.5">
+          {historyControl}
+          <ChatTabStrip
+            embedded
+            openChatIds={openChatIds}
+            onSelect={onSelectChat}
+            onCloseChat={onCloseChat}
+            onNewChat={onNewChat}
+          />
+          {onClose ? (
+            <IconTooltip label="Close panel">
+              <button
+                type="button"
+                onClick={onClose}
+                aria-label="Close panel"
+                className="inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground"
+              >
+                <HugeiconsIcon icon={Cancel01Icon} size={13} strokeWidth={1.75} />
+              </button>
+            </IconTooltip>
+          ) : null}
+        </div>
+        <div className="flex h-9 min-w-0 items-center gap-1.5 border-t border-border-subtle/70 px-2.5">
+          {workspaceActions}
+          <div className="min-w-0 flex-1" />
+          {todoSummary}
+        </div>
       </div>
-      <IconTooltip label="Close panel">
+    );
+  }
+
+  return (
+    <div
+      className={cn(
+        "altai-ai-topbar flex h-10 shrink-0 items-center gap-1.5 border-b border-border-subtle bg-card px-2.5",
+        IS_MAC && "pl-20",
+      )}
+    >
+      {historyControl}
+      <div data-tauri-drag-region className="h-full min-w-4 flex-1" />
+      {todoSummary}
+      {workspaceActions}
+      {onOpenSettings ? (
+        <IconTooltip label="ALTAI Studio settings">
+          <button
+            type="button"
+            onClick={onOpenSettings}
+            aria-label="ALTAI Studio settings"
+            className="inline-flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+          >
+            <HugeiconsIcon icon={Settings01Icon} size={14} strokeWidth={1.75} />
+          </button>
+        </IconTooltip>
+      ) : null}
+      {onOpenStudio ? (
         <button
           type="button"
-          onClick={onClose}
-          aria-label="Close panel"
-          className="inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground"
+          onClick={onOpenStudio}
+          className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg border border-border bg-muted/45 px-2.5 text-[10.5px] font-medium text-foreground transition-colors hover:bg-accent"
         >
-          <HugeiconsIcon icon={Cancel01Icon} size={13} strokeWidth={1.75} />
+          <HugeiconsIcon icon={CodeIcon} size={13} strokeWidth={1.8} />
+          <span className="hidden @[34rem]:inline">Open IDE</span>
         </button>
-      </IconTooltip>
+      ) : null}
     </div>
   );
 }
@@ -1191,9 +1612,16 @@ function SnapshotsInspector({
 function Body({
   hasComposer,
   onOpenReview,
+  projectTarget,
 }: {
   hasComposer: boolean;
   onOpenReview: () => void;
+  projectTarget?: {
+    name: string;
+    path: string | null;
+    kind: "local" | "github" | null;
+    onChange: () => void;
+  };
 }) {
   const nativeMessages = useChatStore((s) => s.nativeMessages);
   const agentStatus = useChatStore((s) => s.agentMeta.status);
@@ -1244,6 +1672,57 @@ function Body({
       ) : (
         <AiInputBarConnect onAdd={() => void openSettingsWindow("models")} />
       )}
+      {projectTarget ? <ChatProjectTarget {...projectTarget} /> : null}
+    </div>
+  );
+}
+
+function ChatProjectTarget({
+  name,
+  path,
+  kind,
+  onChange,
+}: {
+  name: string;
+  path: string | null;
+  kind: "local" | "github" | null;
+  onChange: () => void;
+}) {
+  const label = path ? name : "Choose a project";
+  const detail =
+    kind === "github"
+      ? "GitHub repository"
+      : path
+        ? "Local folder"
+        : "Optional · Local folder or GitHub";
+
+  return (
+    <div className="flex min-w-0 shrink-0 px-3 pb-2 pt-1">
+      <button
+        type="button"
+        onClick={onChange}
+        className="group flex h-8 min-w-0 max-w-full items-center gap-2 rounded-lg border border-border/70 bg-muted/25 px-2.5 text-left text-muted-foreground transition-colors hover:border-border hover:bg-accent hover:text-foreground"
+        aria-label={path ? `Change project, currently ${name}` : "Choose a project"}
+      >
+        <HugeiconsIcon
+          icon={kind === "github" ? GithubIcon : Folder01Icon}
+          size={13}
+          strokeWidth={1.75}
+          className="shrink-0"
+        />
+        <span className="min-w-0 truncate text-[10.5px] font-medium text-foreground">
+          {label}
+        </span>
+        <span className="hidden shrink-0 text-[9.5px] text-muted-foreground @[28rem]:inline">
+          {detail}
+        </span>
+        <HugeiconsIcon
+          icon={ArrowDown01Icon}
+          size={11}
+          strokeWidth={2}
+          className="shrink-0 text-muted-foreground/70"
+        />
+      </button>
     </div>
   );
 }
@@ -1508,10 +1987,7 @@ function EmptyState() {
       </div>
 
       <div className="flex shrink-0 items-center justify-center gap-1.5 pt-4 text-[10px] text-muted-foreground/70">
-        <span>Toggle assistant</span>
-        <Kbd className="h-4 gap-px px-1.5 font-mono text-[10px]">
-          {fmtShortcut(MOD_KEY, "I")}
-        </Kbd>
+        <span>Files, terminal, and previews stay available from Open IDE.</span>
       </div>
     </div>
   );

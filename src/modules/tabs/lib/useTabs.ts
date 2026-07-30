@@ -559,32 +559,39 @@ export function useTabs(initial?: Partial<TerminalTab>) {
    * Code's "Open Settings" command behaves — never duplicates.
    */
   const openSettingsTab = useCallback((section?: string) => {
-    let targetId: number | null = null;
-    setTabs((curr) => {
-      const existing = curr.find((t) => t.kind === "settings");
-      if (existing && existing.kind === "settings") {
-        targetId = existing.id;
-        if (!section || section === existing.section) return curr;
-        return curr.map((t) =>
-          t.id === existing.id && t.kind === "settings"
-            ? { ...t, section }
-            : t,
+    const current = tabsRef.current;
+    const existing = current.find(
+      (tab): tab is SettingsTab => tab.kind === "settings",
+    );
+
+    if (existing) {
+      if (section && section !== existing.section) {
+        const next = current.map((tab) =>
+          tab.id === existing.id && tab.kind === "settings"
+            ? { ...tab, section }
+            : tab,
         );
+        tabsRef.current = next;
+        setTabs(next);
       }
-      const id = nextIdRef.current++;
-      targetId = id;
-      return [
-        ...curr,
-        {
-          id,
-          kind: "settings",
-          title: "Settings",
-          section: section ?? "general",
-        } satisfies SettingsTab,
-      ];
-    });
-    if (targetId !== null) setActiveId(targetId);
-    return targetId;
+      setActiveId(existing.id);
+      return existing.id;
+    }
+
+    const id = nextIdRef.current++;
+    const next: Tab[] = [
+      ...current,
+      {
+        id,
+        kind: "settings",
+        title: "Settings",
+        section: section ?? "general",
+      },
+    ];
+    tabsRef.current = next;
+    setTabs(next);
+    setActiveId(id);
+    return id;
   }, []);
 
   /**

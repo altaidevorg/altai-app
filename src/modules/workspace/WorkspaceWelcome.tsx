@@ -14,10 +14,8 @@ import { useAppMenuCommands } from "@/modules/app-menu/useAppMenuCommands";
 import { folderName, prettyDir, useWorkspaceFolderStore } from "./folder";
 
 /**
- * Cursor-style start screen shown until a workspace folder is chosen. Brand +
- * primary actions on top, recent projects below. Open project clones/opens a
- * folder; Clone repo clones a Git URL then opens it; Recent reopens past
- * workspaces.
+ * Agent-first project picker. A project supplies the durable scope for chats,
+ * runs, permissions, worktrees, and optional Studio tools.
  */
 export function WorkspaceWelcome() {
   const recents = useWorkspaceFolderStore((s) => s.recents);
@@ -89,42 +87,47 @@ export function WorkspaceWelcome() {
   return (
     <main
       aria-labelledby="workspace-welcome-title"
-      className="flex h-screen w-screen items-center justify-center bg-background px-6 text-foreground"
+      className="relative flex h-screen w-screen items-center justify-center overflow-hidden bg-background px-6 text-foreground"
     >
-      <div className="flex w-full max-w-sm flex-col items-center">
+      <div className="pointer-events-none absolute inset-x-[18%] top-[-12rem] h-72 rounded-full bg-primary/[0.055] blur-3xl" />
+      <div className="relative flex w-full max-w-md flex-col items-center rounded-2xl border border-border-subtle bg-card/65 px-7 py-8 shadow-xl backdrop-blur">
         {/* Brand */}
         <img
           src="/logo.png"
           alt="ALTAI"
           draggable={false}
-          className="size-16 rounded-2xl"
+          className="size-14 rounded-2xl"
         />
+        <div className="mt-4 text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+          Agent workspace
+        </div>
         <h1
           id="workspace-welcome-title"
           ref={titleRef}
           tabIndex={-1}
-          className="mt-4 text-xl font-semibold tracking-tight outline-none"
+          className="mt-1.5 text-xl font-semibold tracking-tight outline-none"
         >
-          ALTAI
+          Start with a project
         </h1>
-        <p className="mt-1 text-[12.5px] text-muted-foreground">
-          Open a project to start
+        <p className="mt-1 max-w-sm text-center text-[12.5px] leading-relaxed text-muted-foreground">
+          Chats, agent runs, permissions, and worktrees stay organized around
+          the project you choose.
         </p>
 
         {/* Primary actions */}
         <div className="mt-8 flex w-full flex-col gap-1">
           <ActionRow
             icon={FolderOpenIcon}
-            title="Open project"
-            hint="Open a folder as your workspace"
+            title="Open local project"
+            hint="Choose a folder and start in Agent Workspace"
             onClick={() => void onOpen()}
             disabled={picking}
             loading={picking}
           />
           <ActionRow
             icon={GitForkIcon}
-            title="Clone repo"
-            hint="Clone a Git repository"
+            title="Clone repository"
+            hint="Bring a Git project into a new workspace"
             onClick={() => setCloneOpen((v) => !v)}
             active={cloneOpen}
             disabled={cloning}
@@ -191,7 +194,7 @@ export function WorkspaceWelcome() {
             className="mb-2 flex items-center justify-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground/70"
           >
             <HugeiconsIcon icon={Clock01Icon} size={12} strokeWidth={1.75} />
-            Recent
+            Recent projects
           </h2>
           {recents.length === 0 ? (
             <div className="rounded-lg border border-dashed border-border/60 px-3 py-5 text-center text-[12px] text-muted-foreground/70">

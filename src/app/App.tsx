@@ -79,7 +79,6 @@ import {
 } from "@/modules/preview";
 import {
   openSettingsWindow,
-  registerOpenSettings,
   type SettingsTab as SettingsSection,
 } from "@/modules/settings/openSettingsWindow";
 import {
@@ -138,6 +137,7 @@ import {
   useWorkspaceEnvStore,
   type WorkspaceEnv,
 } from "@/modules/workspace";
+import { invoke } from "@tauri-apps/api/core";
 import { homeDir } from "@tauri-apps/api/path";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import type { SearchAddon } from "@xterm/addon-search";
@@ -162,6 +162,13 @@ const AGENT_SIDEBAR_DEFAULT_WIDTH = 380;
 const AGENT_SIDEBAR_MIN_WIDTH = 200;
 const AGENT_SIDEBAR_WIDTH_STORAGE_KEY = "altai.agentSidebar.width";
 const PLAN_REVIEW_DIFF_PREFIX = "plan-review:";
+type AppMode = "agent" | "studio";
+
+function initialAppMode(): AppMode {
+  return new URLSearchParams(window.location.search).get("mode") === "studio"
+    ? "studio"
+    : "agent";
+}
 
 // Terminal bottom drawer (#61).
 const TERMINAL_DRAWER_DEFAULT_HEIGHT = 280;
@@ -233,9 +240,8 @@ export default function App() {
   // globals.css apply reduce-motion, high-contrast, larger-text,
   // strong-focus, underline-links, and visible-skip-link rules app-wide.
   useApplyA11yClasses();
-  // The first terminal should open in the chosen workspace folder. App only
-  // mounts once the WorkspaceGate has a folder, so a non-reactive read here is
-  // safe and reflects the active workspace (a folder switch remounts App).
+  // Studio terminals prefer an explicitly attached project. Agent-only chats
+  // can remain project-free; the launch directory is merely the IDE fallback.
   const initialTabCwd =
     useWorkspaceFolderStore.getState().folder ?? getLaunchDir() ?? undefined;
   const {
@@ -304,6 +310,7 @@ export default function App() {
   const explorerReturnFocusRef = useRef<HTMLElement | null>(null);
 
   const sidebarRef = useRef<PanelImperativeHandle | null>(null);
+  const studioShellRef = useRef<PanelImperativeHandle | null>(null);
   const sidebarWidthRef = useRef(readSidebarWidth());
   const sidebarWidthWriteTimerRef = useRef(0);
   const agentSidebarRef = useRef<PanelImperativeHandle | null>(null);
@@ -609,6 +616,11 @@ export default function App() {
 
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [newEditorOpen, setNewEditorOpen] = useState(false);
+  const isStudioWindow = initialAppMode() === "studio";
+  // Agent Workspace and IDE are separate native pages. This mode is fixed for
+  // the lifetime of each window; navigation only focuses the other window.
+  const appMode: AppMode = isStudioWindow ? "studio" : "agent";
+  const studioHasOpened = isStudioWindow;
   const miniOpen = useChatStore((s) => s.mini.open);
   const openMini = useChatStore((s) => s.openMini);
   const closeMini = useChatStore((s) => s.closeMini);
@@ -619,6 +631,30 @@ export default function App() {
   const setAutoModelEnabled = useChatStore((s) => s.setAutoModelEnabled);
   const setLive = useChatStore((s) => s.setLive);
   const respondToApproval = useChatStore((s) => s.respondToApproval);
+  const setSessionWorkspace = useChatStore((s) => s.setSessionWorkspace);
+  const openStudio = useCallback(() => {
+    if (isStudioWindow) return;
+    void invoke("open_studio_window").catch((error) => {
+      console.warn("Could not open ALTAI IDE", error);
+    });
+  }, [isStudioWindow]);
+
+  const returnToAgentWorkspace = useCallback(() => {
+    void invoke("focus_agent_window").catch((error) => {
+      console.warn("Could not focus the Agent Workspace window", error);
+    });
+  }, []);
+
+  const openSettingsFromAgentWorkspace = useCallback(() => {
+    void openSettingsWindow();
+  }, []);
+  const openSettingsForCurrentSurface = useCallback(() => {
+    if (isStudioWindow) {
+      openSettingsTab();
+      return;
+    }
+    void openSettingsWindow();
+  }, [isStudioWindow, openSettingsTab]);
   const lmstudioModelId = usePreferencesStore((s) => s.lmstudioModelId);
   const lmstudioBaseURL = usePreferencesStore((s) => s.lmstudioBaseURL);
   const mlxModelId = usePreferencesStore((s) => s.mlxModelId);
@@ -661,6 +697,7 @@ export default function App() {
           useWorkspaceFolderStore.getState().setFolder(path);
         }
       } else if (payload.type === "file" || payload.type === "multi_file") {
+        openStudio();
         payload.paths.forEach((path) => {
           openFileTab(path, true);
         });
@@ -704,7 +741,7 @@ export default function App() {
         }
       }
     },
-    [openFileTab, handleAttachFileToAgent],
+    [handleAttachFileToAgent, openFileTab, openStudio],
   );
 
   useEffect(() => {
@@ -869,6 +906,12 @@ export default function App() {
   }, [hydrateSessions]);
 
   const activeTab = tabs.find((t) => t.id === activeId);
+  const activeChatSession = useChatStore((state) =>
+    state.sessions.find(
+      (item) => item.id === state.activeSessionId,
+    ),
+  );
+  const activeChatTitle = activeChatSession?.title?.trim() || "New chat";
   // Terminals live in the bottom drawer, not the main tab bar (#61).
   const mainTabs = useMemo(
     () => tabs.filter((t) => t.kind !== "terminal"),
@@ -885,19 +928,14 @@ export default function App() {
   // Reflect the active tab in the document title so the OS window/tab and
   // screen-reader title announcements track context (a11y D6).
   useEffect(() => {
+    if (appMode === "agent") {
+      document.title = `${activeChatTitle} — ALTAI`;
+      return;
+    }
     const name = activeTab?.title?.trim();
     document.title = name ? `${name} — ALTAI` : "ALTAI";
-  }, [activeTab?.title]);
+  }, [activeChatTitle, activeTab?.title, appMode]);
 
-  // Route every `openSettingsWindow(...)` call through this hook's tabs
-  // store. The registration is idempotent across HMR re-mounts; the
-  // returned cleanup wipes the impl so callers fail loud if the host
-  // ever unmounts.
-  useEffect(() => {
-    return registerOpenSettings((section) => {
-      openSettingsTab(section);
-    });
-  }, [openSettingsTab]);
   const isAiDiffTab = activeTab?.kind === "ai-diff";
   const isGitDiffTab =
     activeTab?.kind === "git-diff" || activeTab?.kind === "git-commit-file";
@@ -947,6 +985,55 @@ export default function App() {
 
   const workspaceFolder = useWorkspaceFolderStore((s) => s.folder);
   const closeFolder = useWorkspaceFolderStore((s) => s.closeFolder);
+  const chooseLocalWorkspace = useCallback(async () => {
+    const path = await useWorkspaceFolderStore.getState().pickFolder();
+    const sessionId = useChatStore.getState().activeSessionId;
+    if (path && sessionId) {
+      setSessionWorkspace(sessionId, { path, kind: "local" });
+      resetWorkspace(path);
+    }
+    return path;
+  }, [resetWorkspace, setSessionWorkspace]);
+  const cloneGithubWorkspace = useCallback(
+    async (url: string) => {
+      const path = await useWorkspaceFolderStore.getState().cloneRepo(url);
+      const sessionId = useChatStore.getState().activeSessionId;
+      if (path && sessionId) {
+        setSessionWorkspace(sessionId, {
+          path,
+          kind: "github",
+          repositoryUrl: url,
+        });
+        resetWorkspace(path);
+      }
+      return path;
+    },
+    [resetWorkspace, setSessionWorkspace],
+  );
+  const clearWorkspaceTarget = useCallback(() => {
+    const sessionId = useChatStore.getState().activeSessionId;
+    if (sessionId) {
+      setSessionWorkspace(sessionId, { path: null, kind: null });
+    }
+    closeFolder();
+    resetWorkspace();
+  }, [closeFolder, resetWorkspace, setSessionWorkspace]);
+
+  const activeChatWorkspacePath = activeChatSession?.workspacePath ?? null;
+  useEffect(() => {
+    const folderState = useWorkspaceFolderStore.getState();
+    if (activeChatWorkspacePath) {
+      if (folderState.folder !== activeChatWorkspacePath) {
+        folderState.setFolder(activeChatWorkspacePath);
+        resetWorkspace(activeChatWorkspacePath);
+      }
+      return;
+    }
+    if (folderState.folder) {
+      folderState.closeFolder();
+      resetWorkspace();
+    }
+  }, [activeChatWorkspacePath, resetWorkspace]);
 
   // Consume the one-shot "just cloned" flag that steered the initial sidebar
   // view, so a later folder switch falls back to the persisted preference.
@@ -1061,6 +1148,10 @@ export default function App() {
   }, [tabs, activeId]);
 
   const togglePanelAndFocus = useCallback(() => {
+    if (appMode === "agent") {
+      focusInput(null);
+      return;
+    }
     // Read directly from the store so rapid shortcut presses cannot observe a
     // stale render-time value of `miniOpen`.
     if (useChatStore.getState().mini.open) {
@@ -1069,13 +1160,19 @@ export default function App() {
       openMini();
       focusInput(null);
     }
-  }, [openMini, closeMini, focusInput]);
+  }, [appMode, openMini, closeMini, focusInput]);
 
   const attachSelection = useChatStore((s) => s.attachSelection);
 
   useEffect(() => {
     const panel = agentSidebarRef.current;
     if (!panel) return;
+    if (appMode === "agent") {
+      if (!useChatStore.getState().mini.open) openMini();
+      panel.expand();
+      panel.resize("100%");
+      return;
+    }
     const collapsed = panel.isCollapsed();
     if (miniOpen && collapsed) {
       const target = clampAgentSidebarWidth(agentSidebarWidthRef.current);
@@ -1085,7 +1182,25 @@ export default function App() {
     } else if (!miniOpen && !collapsed) {
       panel.collapse();
     }
-  }, [miniOpen]);
+  }, [appMode, miniOpen, openMini]);
+
+  useEffect(() => {
+    const studio = studioShellRef.current;
+    const agent = agentSidebarRef.current;
+    if (!studio || !agent) return;
+    const frame = requestAnimationFrame(() => {
+      if (appMode === "agent") {
+        studio.collapse();
+        agent.expand();
+        agent.resize("100%");
+        return;
+      }
+      studio.expand();
+      agent.expand();
+      agent.resize(`${clampAgentSidebarWidth(agentSidebarWidthRef.current)}px`);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [appMode]);
 
   // Sync the terminal drawer panel to its open state (#61).
   useEffect(() => {
@@ -1244,11 +1359,14 @@ export default function App() {
   useEffect(() => {
     const onOpenFile = (event: Event) => {
       const path = (event as CustomEvent<string>).detail;
-      if (typeof path === "string" && path.trim()) handleOpenFile(path, true);
+      if (typeof path === "string" && path.trim()) {
+        openStudio();
+        handleOpenFile(path, true);
+      }
     };
     window.addEventListener("altai:open-file", onOpenFile);
     return () => window.removeEventListener("altai:open-file", onOpenFile);
-  }, [handleOpenFile]);
+  }, [handleOpenFile, openStudio]);
 
   // Plan review lives inside the AI panel while the detailed CodeMirror diff
   // belongs in the central tab area. A small DOM event keeps those modules
@@ -1257,6 +1375,7 @@ export default function App() {
     const onPlanReviewDiff = (event: Event) => {
       const edit = (event as CustomEvent<QueuedEdit>).detail;
       if (!edit || typeof edit.id !== "string" || !edit.path) return;
+      openStudio();
       openAiDiffTab({
         path: edit.path,
         originalContent: edit.originalContent,
@@ -1268,7 +1387,7 @@ export default function App() {
     window.addEventListener("altai:plan-review-diff", onPlanReviewDiff);
     return () =>
       window.removeEventListener("altai:plan-review-diff", onPlanReviewDiff);
-  }, [openAiDiffTab]);
+  }, [openAiDiffTab, openStudio]);
 
   const handleAiDiffDecision = useCallback(
     (approvalId: string, approved: boolean) => {
@@ -1610,10 +1729,22 @@ export default function App() {
 
   const shortcutHandlers = useMemo<ShortcutHandlers>(
     () => ({
-      "tab.new": openNewTab,
-      "tab.newPrivate": openNewPrivateTab,
-      "tab.newPreview": () => openPreviewTab(""),
-      "tab.newEditor": () => setNewEditorOpen(true),
+      "tab.new": () => {
+        openStudio();
+        openNewTab();
+      },
+      "tab.newPrivate": () => {
+        openStudio();
+        openNewPrivateTab();
+      },
+      "tab.newPreview": () => {
+        openStudio();
+        openPreviewTab("");
+      },
+      "tab.newEditor": () => {
+        openStudio();
+        setNewEditorOpen(true);
+      },
       "tab.close": handleCloseTabOrPane,
       "tab.next": () => cycleTab(1),
       "tab.prev": () => cycleTab(-1),
@@ -1626,15 +1757,30 @@ export default function App() {
       "pane.focusPrev": () => {
         if (activeTerminalId != null) focusNextPaneInTab(activeTerminalId, -1);
       },
-      "pane.source": toggleSourceControl,
-      "terminal.toggle": toggleTerminalDrawer,
-      "search.focus": () => searchInlineRef.current?.focus(),
+      "pane.source": () => {
+        openStudio();
+        toggleSourceControl();
+      },
+      "terminal.toggle": () => {
+        openStudio();
+        toggleTerminalDrawer();
+      },
+      "search.focus": () => {
+        openStudio();
+        requestAnimationFrame(() => searchInlineRef.current?.focus());
+      },
       "ai.toggle": togglePanelAndFocus,
       "ai.askSelection": askFromSelection,
       "shortcuts.open": () => setShortcutsOpen((v) => !v),
-      "settings.open": () => void openSettingsWindow(),
-      "sidebar.toggle": toggleSidebar,
-      "explorer.focus": toggleExplorerFocus,
+      "settings.open": openSettingsForCurrentSurface,
+      "sidebar.toggle": () => {
+        openStudio();
+        toggleSidebar();
+      },
+      "explorer.focus": () => {
+        openStudio();
+        requestAnimationFrame(toggleExplorerFocus);
+      },
       "view.zoomIn": zoomIn,
       "view.zoomOut": zoomOut,
       "view.zoomReset": zoomReset,
@@ -1648,6 +1794,8 @@ export default function App() {
       openNewTab,
       openNewPrivateTab,
       openPreviewTab,
+      openSettingsForCurrentSurface,
+      openStudio,
       selectByIndex,
       splitActivePaneInActiveTab,
       focusNextPaneInTab,
@@ -1689,12 +1837,13 @@ export default function App() {
   useAppMenuCommands((command) => {
     switch (command.id) {
       case "app.settings":
-        void openSettingsWindow();
+        openSettingsForCurrentSurface();
         break;
       case "app.shortcuts":
         setShortcutsOpen(true);
         break;
       case "file.newFile":
+        openStudio();
         setNewEditorOpen(true);
         break;
       case "file.openFolder":
@@ -1714,7 +1863,7 @@ export default function App() {
         }
         break;
       case "file.closeWorkspace":
-        closeFolder();
+        clearWorkspaceTarget();
         break;
       case "file.save":
         editorRefs.current.get(activeId)?.save();
@@ -1723,9 +1872,11 @@ export default function App() {
         handleCloseTabOrPane();
         break;
       case "edit.find":
-        searchInlineRef.current?.focus();
+        openStudio();
+        requestAnimationFrame(() => searchInlineRef.current?.focus());
         break;
       case "edit.findInFiles": {
+        openStudio();
         const panel = sidebarRef.current;
         if (panel?.isCollapsed()) panel.resize(`${sidebarWidthRef.current}px`);
         if (sidebarView !== "explorer" || sidebarRailItem !== "explorer") {
@@ -1738,9 +1889,11 @@ export default function App() {
         editorRefs.current.get(activeId)?.toggleLineComment();
         break;
       case "view.explorer":
+        openStudio();
         cycleSidebarView("explorer");
         break;
       case "view.sourceControl":
+        openStudio();
         toggleSourceControl();
         break;
       case "view.agent":
@@ -1748,9 +1901,11 @@ export default function App() {
         break;
       case "view.terminal":
       case "terminal.toggle":
+        openStudio();
         toggleTerminalDrawer();
         break;
       case "view.sidebar":
+        openStudio();
         toggleSidebar();
         break;
       case "view.zoomIn":
@@ -1775,9 +1930,11 @@ export default function App() {
         if (activeTerminalId != null) focusNextPaneInTab(activeTerminalId, -1);
         break;
       case "terminal.new":
+        openStudio();
         openNewTab();
         break;
       case "terminal.newPrivate":
+        openStudio();
         openNewPrivateTab();
         break;
       case "help.shortcuts":
@@ -1935,7 +2092,7 @@ export default function App() {
         const cwd = findLeafCwd(t.paneTree, t.activeLeafId) ?? t.cwd;
         if (cwd) return cwd;
       }
-      return explorerRoot ?? launchCwd ?? home ?? null;
+      return activeChatWorkspacePath;
     };
 
     setLive({
@@ -1960,12 +2117,13 @@ export default function App() {
         term.focus();
         return true;
       },
-      getWorkspaceRoot: () => explorerRoot ?? launchCwd ?? home ?? null,
+      getWorkspaceRoot: () => activeChatWorkspacePath,
       getActiveFile: () => {
         const t = tabs.find((x) => x.id === activeId);
         return t?.kind === "editor" ? t.path : null;
       },
       openPreview: (url: string) => {
+        openStudio();
         openPreviewTab(url);
         return true;
       },
@@ -1978,6 +2136,8 @@ export default function App() {
     explorerRoot,
     launchCwd,
     home,
+    activeChatWorkspacePath,
+    openStudio,
     openPreviewTab,
   ]);
 
@@ -2197,28 +2357,6 @@ export default function App() {
           >
             Skip to AI assistant
           </a>
-          <Header
-            tabs={mainTabs}
-            activeId={activeId}
-            onSelect={setActiveId}
-            onNew={openNewTab}
-            onNewPrivate={openNewPrivateTab}
-            onNewPreview={() => openPreviewTab("")}
-            onNewEditor={() => setNewEditorOpen(true)}
-            onNewGitGraph={openGitGraphFromContext}
-            onClose={handleClose}
-            onPin={pinTab}
-            onToggleSidebar={toggleSidebar}
-            sidebarActive={!sidebarCollapsed}
-            onOpenShortcuts={() => setShortcutsOpen(true)}
-            onOpenSettings={() => void openSettingsWindow()}
-            onToggleAgentSidebar={togglePanelAndFocus}
-            agentSidebarActive={miniOpen}
-            agentSidebarAvailable={true}
-            searchTarget={searchTarget}
-            searchRef={searchInlineRef}
-          />
-
           <main
             id="altai-main"
             className="zoom-content flex min-h-0 flex-1 flex-col"
@@ -2227,6 +2365,55 @@ export default function App() {
               orientation="horizontal"
               className="min-h-0 flex-1"
             >
+              <ResizablePanel
+                id="studio-shell"
+                panelRef={studioShellRef}
+                defaultSize={
+                  isStudioWindow
+                    ? miniOpen
+                      ? "70%"
+                      : "100%"
+                    : "0px"
+                }
+                minSize="30%"
+                collapsible
+                collapsedSize={0}
+              >
+                {studioHasOpened ? (
+                  <div
+                    className={cn(
+                      "flex h-full min-h-0 flex-col overflow-hidden bg-background",
+                      appMode !== "studio" && "pointer-events-none invisible",
+                    )}
+                    aria-hidden={appMode !== "studio"}
+                  >
+                    <Header
+                      tabs={mainTabs}
+                      activeId={activeId}
+                      onSelect={setActiveId}
+                      onNew={openNewTab}
+                      onNewPrivate={openNewPrivateTab}
+                      onNewPreview={() => openPreviewTab("")}
+                      onNewEditor={() => setNewEditorOpen(true)}
+                      onNewGitGraph={openGitGraphFromContext}
+                      onClose={handleClose}
+                      onPin={pinTab}
+                      onToggleSidebar={toggleSidebar}
+                      sidebarActive={!sidebarCollapsed}
+                      onOpenShortcuts={() => setShortcutsOpen(true)}
+                      onOpenSettings={openSettingsForCurrentSurface}
+                      onOpenAgentWorkspace={returnToAgentWorkspace}
+                      onToggleAgentSidebar={togglePanelAndFocus}
+                      agentSidebarActive={miniOpen}
+                      agentSidebarAvailable={true}
+                      searchTarget={searchTarget}
+                      searchRef={searchInlineRef}
+                    />
+                    <div className="min-h-0 flex-1">
+                      <ResizablePanelGroup
+                        orientation="horizontal"
+                        className="min-h-0 flex-1"
+                      >
               <ResizablePanel
                 id="sidebar"
                 panelRef={sidebarRef}
@@ -2367,25 +2554,51 @@ export default function App() {
                   </ResizablePanel>
                 </ResizablePanelGroup>
               </ResizablePanel>
+                      </ResizablePanelGroup>
+                    </div>
+                    <StatusBar
+                      cwd={activeCwd}
+                      filePath={activeFilePath}
+                      home={home}
+                      onCd={sendCd}
+                      onWorkspaceChange={switchWorkspace}
+                      privateActive={activeTerminalTab?.private === true}
+                      terminalOpen={terminalDrawerOpen}
+                      onToggleTerminal={toggleTerminalDrawer}
+                    />
+                  </div>
+                ) : null}
+              </ResizablePanel>
               <ResizableHandle
                 withHandle
-                aria-label="Resize AI panel"
-                title="Resize AI panel (use arrow keys for precise control)"
+                aria-label="Resize Studio and agent workspace"
+                title="Resize Studio and agent workspace"
+                className={cn(appMode !== "studio" && "pointer-events-none opacity-0")}
               />
               <ResizablePanel
                 id="agent-sidebar"
                 panelRef={agentSidebarRef}
                 defaultSize={
-                  miniOpen
+                  appMode === "agent"
+                    ? "100%"
+                    : miniOpen
                     ? `${clampAgentSidebarWidth(agentSidebarWidthRef.current)}px`
                     : "0px"
                 }
-                minSize={`${AGENT_SIDEBAR_MIN_WIDTH}px`}
+                minSize={
+                  appMode === "agent"
+                    ? "30%"
+                    : `${AGENT_SIDEBAR_MIN_WIDTH}px`
+                }
                 groupResizeBehavior="preserve-pixel-size"
                 collapsible
                 collapsedSize={0}
                 onResize={(size) => {
                   const px = size.inPixels;
+                  if (appMode === "agent") {
+                    if (!useChatStore.getState().mini.open) openMini();
+                    return;
+                  }
                   // Read from zustand directly to avoid stale closures (#62).
                   const wasOpen = useChatStore.getState().mini.open;
                   const collapsed =
@@ -2399,9 +2612,27 @@ export default function App() {
                   }
                 }}
               >
-                <div className="h-full min-h-0 min-w-0 overflow-hidden border-l border-border-subtle">
+                <div
+                  className={cn(
+                    "h-full min-h-0 min-w-0 overflow-hidden",
+                    appMode === "studio" && "border-l border-border-subtle",
+                  )}
+                >
                   <AiSidePanel
-                    onClose={closeMini}
+                    variant={appMode === "agent" ? "workspace" : "sidebar"}
+                    workspaceName={
+                      activeChatWorkspacePath
+                        ? folderName(activeChatWorkspacePath)
+                        : "Choose a project"
+                    }
+                    workspacePath={activeChatWorkspacePath}
+                    workspaceKind={activeChatSession?.workspaceKind ?? null}
+                    onChooseLocalWorkspace={chooseLocalWorkspace}
+                    onCloneGithubRepository={cloneGithubWorkspace}
+                    onClearWorkspace={clearWorkspaceTarget}
+                    onOpenStudio={openStudio}
+                    onOpenSettings={openSettingsFromAgentWorkspace}
+                    onClose={appMode === "studio" ? closeMini : undefined}
                     hasComposer={keysLoaded && hasComposer}
                   />
                 </div>
@@ -2409,20 +2640,12 @@ export default function App() {
             </ResizablePanelGroup>
           </main>
 
-          <StatusBar
-            cwd={activeCwd}
-            filePath={activeFilePath}
-            home={home}
-            onCd={sendCd}
-            onWorkspaceChange={switchWorkspace}
-            privateActive={activeTerminalTab?.private === true}
-            terminalOpen={terminalDrawerOpen}
-            onToggleTerminal={toggleTerminalDrawer}
-          />
-
           {hasComposer ? (
             <AgentRunBridge
-              openAiDiffTab={openAiDiffTab}
+              openAiDiffTab={(diff) => {
+                openStudio();
+                return openAiDiffTab(diff);
+              }}
               closeAiDiffTab={closeAiDiffTab}
             />
           ) : null}
