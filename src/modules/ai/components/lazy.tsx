@@ -1,5 +1,6 @@
 import { lazy, Suspense } from "react";
 import type { AgentRunBridgeProps } from "./AgentRunBridge";
+import type { AiSidePanelProps } from "./AiSidePanel";
 import type { SelectionAskAiProps } from "./SelectionAskAi";
 
 const AgentRunBridgeInner = lazy(() =>
@@ -32,16 +33,10 @@ export function AgentRunBridge(props: AgentRunBridgeProps) {
   );
 }
 
-export function AiSidePanel({
-  onClose,
-  hasComposer,
-}: {
-  onClose: () => void;
-  hasComposer?: boolean;
-}) {
+export function AiSidePanel(props: AiSidePanelProps) {
   return (
     <Suspense fallback={null}>
-      <AiSidePanelInner onClose={onClose} hasComposer={hasComposer} />
+      <AiSidePanelInner {...props} />
     </Suspense>
   );
 }

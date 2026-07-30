@@ -203,7 +203,10 @@ pub fn build(app: &AppHandle, recents: &[String]) -> tauri::Result<Menu<Wry>> {
         .item(&toggle_terminal)
         .build()?;
 
+    let open_ide = item(app, "window.openIde", "Open IDE", None)?;
     let window_menu = SubmenuBuilder::new(app, "Window")
+        .item(&open_ide)
+        .separator()
         .minimize()
         .maximize()
         .fullscreen()
@@ -257,6 +260,30 @@ pub fn handle_event(app: &AppHandle, event: MenuEvent) {
     let id = event.id().as_ref();
     match id {
         "window.new" => os_menu::spawn_new_window(app),
+        "window.openIde" => {
+            if let Err(error) = crate::show_or_create_studio_window(app) {
+                log::error!("Could not open ALTAI IDE window: {error}");
+            }
+        }
+        "app.settings" => {
+            // Studio settings are a native app-level window. IDE settings
+            // remain the existing in-IDE tab and still flow through React.
+            let ide_is_focused = app
+                .get_webview_window("studio")
+                .and_then(|window| window.is_focused().ok())
+                .unwrap_or(false);
+            if ide_is_focused {
+                emit_command(app, id, None);
+            } else if let Err(error) = crate::show_or_create_settings_window(
+                app,
+                "settings",
+                "ALTAI Studio Settings",
+                "app",
+                None,
+            ) {
+                log::error!("Could not open ALTAI Studio settings: {error}");
+            }
+        }
         "help.github" => {
             let _ = tauri_plugin_opener::open_url(
                 "https://github.com/altaidevorg/altai-app",

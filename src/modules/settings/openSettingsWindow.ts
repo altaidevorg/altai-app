@@ -1,3 +1,5 @@
+import { invoke } from "@tauri-apps/api/core";
+
 export type SettingsTab =
   | "general"
   | "shortcuts"
@@ -13,15 +15,8 @@ export type SettingsTab =
   | "about";
 
 /**
- * Settings renders as an in-app tab, not a separate window. The host app
- * (which owns the tab system) registers the actual "open tab"
- * implementation on mount via [registerOpenSettings]. Every other module
- * just calls `openSettingsWindow(...)` and the registered impl does the
- * right thing — no need to thread the tabs hook through every component
- * that opens settings.
- *
- * The old separate-window implementation has been removed; the function
- * name is preserved for backward-compat with existing call sites.
+ * ALTAI Studio (the agent-first app) and ALTAI IDE settings are intentionally
+ * different surfaces. This registry remains as a browser/dev fallback.
  */
 type OpenImpl = (tab?: SettingsTab) => void;
 
@@ -38,14 +33,26 @@ export function registerOpenSettings(impl: OpenImpl): () => void {
   };
 }
 
-/** Open (or refocus) the settings tab. */
-export function openSettingsWindow(tab?: SettingsTab): void {
-  if (!openImpl) {
-    if (typeof console !== "undefined") {
-      // eslint-disable-next-line no-console
-      console.warn("openSettingsWindow called before registration");
+function openNativeSettingsWindow(
+  command: "open_settings_window",
+  label: "Studio",
+  tab?: SettingsTab,
+): Promise<void> {
+  return invoke<void>(command, { tab: tab ?? null }).catch((error) => {
+    if (openImpl) {
+      openImpl(tab);
+      return;
     }
-    return;
-  }
-  openImpl(tab);
+    if (typeof console !== "undefined") {
+      console.warn(`Could not open ALTAI ${label} settings`, error);
+    }
+    throw error;
+  });
+}
+
+/** Open (or refocus) the agent-first ALTAI Studio settings window. */
+export function openSettingsWindow(tab?: SettingsTab): Promise<void> {
+  return openNativeSettingsWindow("open_settings_window", "Studio", tab).catch(
+    () => undefined,
+  );
 }

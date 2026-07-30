@@ -6,18 +6,13 @@ import { useEffect, useState } from "react";
 import { normalizeSettingsTab, SettingsContent } from "./SettingsContent";
 
 /**
- * Legacy window entry for the settings UI. Kept so a pre-existing
- * separate `settings` webview keeps working, but new entry points should
- * use the in-tab `SettingsPane` instead.
- *
- * Reads its initial section from the URL `?tab=` query (set by the Rust
- * `open_settings_window` command) and listens for the `altai:settings-tab`
- * event so a second invocation re-focuses without spawning a new window.
+ * Native settings window for the agent-first ALTAI Studio app. IDE settings
+ * deliberately remain an in-IDE tab and do not use this entry point.
  */
 function readInitialTab(): SettingsTab {
   if (typeof window === "undefined") return "general";
   const url = new URL(window.location.href);
-  return normalizeSettingsTab(url.searchParams.get("tab") ?? undefined);
+  return normalizeSettingsTab(url.searchParams.get("tab") ?? undefined, "app");
 }
 
 export function SettingsApp() {
@@ -26,7 +21,7 @@ export function SettingsApp() {
   useEffect(() => {
     const unlistenPromise = getCurrentWebviewWindow().listen<string>(
       "altai:settings-tab",
-      (e) => setActive(normalizeSettingsTab(e.payload)),
+      (e) => setActive(normalizeSettingsTab(e.payload, "app")),
     );
     return () => {
       void unlistenPromise.then((un) => un());
@@ -45,7 +40,11 @@ export function SettingsApp() {
         {USE_CUSTOM_WINDOW_CONTROLS && <WindowControls closeOnly />}
       </header>
       <div className="min-h-0 flex-1">
-        <SettingsContent active={active} onActiveChange={setActive} />
+        <SettingsContent
+          surface="app"
+          active={active}
+          onActiveChange={setActive}
+        />
       </div>
     </div>
   );

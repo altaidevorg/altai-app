@@ -11,7 +11,6 @@ import {
 } from "../config";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import { setAutoModelEnabled as persistAutoModelEnabled } from "@/modules/settings/store";
-import { currentWorkspaceFolder } from "@/modules/workspace/folder";
 import { useAgentsStore } from "./agentsStore";
 import { useTodosStore } from "./todoStore";
 import type { AgentUsage } from "../lib/provider";
@@ -317,6 +316,14 @@ type StoreState = {
   reorderSessions: (id: string, targetId: string, after: boolean) => void;
   deleteSession: (id: string) => void;
   renameSession: (id: string, title: string) => void;
+  setSessionWorkspace: (
+    id: string,
+    target: {
+      path: string | null;
+      kind: "local" | "github" | null;
+      repositoryUrl?: string | null;
+    },
+  ) => void;
 };
 
 const NOOP_LIVE: Live = {
@@ -1081,6 +1088,25 @@ export const useChatStore = create<StoreState>((set, get) => ({
     set({ sessions: next });
     void saveSessionsList(next);
   },
+
+  setSessionWorkspace: (id, target) => {
+    const next = get().sessions.map((session) =>
+      session.id === id
+        ? {
+            ...session,
+            workspacePath: target.path,
+            workspaceKind: target.kind,
+            repositoryUrl: target.repositoryUrl ?? null,
+            updatedAt: Date.now(),
+          }
+        : session,
+    );
+    set({ sessions: next });
+    void saveSessionsList(next);
+    // The runtime fingerprint includes workspacePath. Clearing this cache
+    // guarantees the next message starts/routes to the newly selected target.
+    lastStartFingerprint = null;
+  },
 }));
 
 // Persist the native message thread of the active session whenever it
@@ -1128,6 +1154,17 @@ function cutThroughNthUser(messages: UIMessage[], keep: number): UIMessage[] {
   return messages.slice();
 }
 
+function workspacePathForChat(chatId?: string | null): string | undefined {
+  const state = useChatStore.getState();
+  const id = chatId ?? state.activeSessionId;
+  if (!id) return undefined;
+  return state.sessions.find((session) => session.id === id)?.workspacePath ?? undefined;
+}
+
+export function activeSessionWorkspacePath(): string | null {
+  return workspacePathForChat() ?? null;
+}
+
 /**
  * Rewind the active chat to `keepUserMessages` user turns on the backend (the
  * durable source of truth), mirror the trim on the frontend, then resend `text`
@@ -1142,7 +1179,7 @@ async function rewindAndResend(
   keepUserMessages: number,
   text: string,
 ): Promise<boolean> {
-  const workspacePath = currentWorkspaceFolder() ?? undefined;
+  const workspacePath = workspacePathForChat(sessionId);
   // Stop any in-flight run and wait for its terminal lifecycle event before
   // trimming durable history. An acknowledgement alone does not mean the old
   // run has stopped emitting events.
@@ -1379,7 +1416,7 @@ async function sendViaIsanAgent(
   // IsanAgent roots its workspace (memory/sandbox/config) at
   // `<workspaceFolder>/.isanagent`. Passing it keeps each project's agent
   // state with the project instead of under ~/.isanagent.
-  const workspacePath = currentWorkspaceFolder() ?? undefined;
+  const workspacePath = workspacePathForChat(chatId);
   const instructions = combineAgentInstructions(
     activeAgent?.instructions?.trim() || undefined,
     await readProjectInstructions(workspacePath),
@@ -1569,7 +1606,7 @@ export async function dispatchToSession(
   if (!resolution.ok) return false;
   const { providerName, apiKey, modelName, baseUrl } = resolution.target;
   const workspacePath =
-    runConfig?.workspacePath ?? currentWorkspaceFolder() ?? undefined;
+    runConfig?.workspacePath ?? workspacePathForChat(chatId);
   const instructions = combineAgentInstructions(
     activeAgent?.instructions?.trim() || undefined,
     await readProjectInstructions(workspacePath),

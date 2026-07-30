@@ -27,7 +27,7 @@ export function SettingsStack({
       {settingsTabs.map((tab) => {
         if (tab.kind !== "settings") return null;
         const isActive = tab.id === activeId;
-        const section = normalizeSettingsTab(tab.section);
+        const section = normalizeSettingsTab(tab.section, "ide");
         return (
           <div
             key={tab.id}
@@ -38,6 +38,7 @@ export function SettingsStack({
             aria-hidden={!isActive}
           >
             <SettingsContent
+              surface="ide"
               active={section}
               onActiveChange={(next) => onSectionChange(tab.id, next)}
             />

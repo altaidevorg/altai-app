@@ -26,34 +26,38 @@ mod windows;
 #[derive(Default)]
 pub struct RecentFolders(pub Mutex<Vec<String>>);
 
-/// Open a fresh ALTAI window. It loads the same app as the main window, but —
-/// because its label isn't `main` — the frontend starts it on the welcome
-/// screen instead of reopening the persisted folder, so the user can pick a
-/// different workspace. Shared by every entry point: the single-instance
-/// `--new-window` relaunch, the macOS Dock item, and the frontend command.
+/// Open a fresh ALTAI IDE window.
+///
+/// The primary `main` window is the singleton Agent Workspace / Studio
+/// surface. Every explicit "New Window" action instead creates an independent
+/// IDE page, matching desktop-editor conventions without duplicating Studio.
+/// Shared by every entry point: the single-instance `--new-window` relaunch,
+/// the macOS Dock item, and the frontend command.
 pub fn spawn_new_window(app: &AppHandle) {
     // A unique label is mandatory (Tauri rejects duplicates). The `main-`
     // prefix matches the capability glob (`main-*`) so the new window inherits
     // the same plugin permissions as the primary one.
     let label = format!("main-{}", uuid::Uuid::new_v4().simple());
 
-    let builder = WebviewWindowBuilder::new(app, &label, WebviewUrl::App("index.html".into()))
-        .title("ALTAI")
-        .inner_size(800.0, 600.0)
-        .min_inner_size(420.0, 280.0)
-        .focused(true);
+    let builder = WebviewWindowBuilder::new(
+        app,
+        &label,
+        WebviewUrl::App("index.html?mode=studio".into()),
+    )
+    .title("ALTAI IDE")
+    .inner_size(1280.0, 800.0)
+    .min_inner_size(900.0, 600.0)
+    .focused(true);
 
-    // Mirror the chrome the app expects (see the settings window in lib.rs):
-    // the overlay titlebar on macOS, our own titlebar (decorations off) on
-    // Windows/Linux where `USE_CUSTOM_WINDOW_CONTROLS` is true.
-    // traffic_light_position centers the native lights in the h-10 header
-    // alongside the size-7 chrome buttons (matches tauri.conf.json).
+    // Mirror the IDE chrome in `show_or_create_studio_window`: the overlay
+    // titlebar on macOS, our own titlebar (decorations off) on Windows/Linux.
+    // The native traffic lights and the IDE's 40px header share a centerline.
     // with_webview_configuration opts out of Apple Intelligence Writing Tools.
     #[cfg(target_os = "macos")]
     let builder = builder
         .title_bar_style(tauri::TitleBarStyle::Overlay)
         .hidden_title(true)
-        .traffic_light_position(tauri::LogicalPosition::new(16.0, 14.0))
+        .traffic_light_position(tauri::LogicalPosition::new(16.0, 22.0))
         .with_webview_configuration(super::macos_webview::config_without_writing_tools());
 
     #[cfg(any(target_os = "linux", target_os = "windows"))]
@@ -103,7 +107,7 @@ pub fn set_recent_folders(
     }
 }
 
-/// Open a fresh ALTAI window (welcome screen). Callable from the frontend too.
+/// Open a fresh IDE window. Callable from the frontend too.
 #[tauri::command]
 pub fn open_new_window(app: AppHandle) {
     spawn_new_window(&app);
