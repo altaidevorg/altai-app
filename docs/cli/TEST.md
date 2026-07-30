@@ -216,7 +216,17 @@
 - Legacy `ToolCallStarted` / `ToolCallFinished` ignored (no duplicate rows).
 - Telemetry before run identity is known is dropped.
 - Unit tests cover ordered kinds, tool error field, redaction, and pre-start
-  ignore. Outbound assistant / subagent / execution journal parity remains open.
+  ignore.
 - `altai-cli smoke` CI job now runs on ubuntu-22.04, windows-latest, and
   macos-14 (release binary + version/doctor/completion/open/run/journal
   contract). Full release archives/installers remain open.
+
+## M6 partial — outbound + execution/subagent journal — 2026-07-30
+
+- `JournalSink` also mirrors `BusMessage::Outbound` as Desktop
+  `agent_message` / `clarification` (key-presence clarification detection,
+  string-only choices, validated `edit_diff`).
+- Adds `execution_run_finished`, `execution_job_finished`, `subagent_spawned`,
+  and `subagent_finished` telemetry kinds.
+- Unit tests: 12 `journal_sink` cases including pre-start ignore and malformed
+  edit_diff omission.
