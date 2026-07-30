@@ -62,6 +62,7 @@ import {
 } from "@/modules/explorer";
 import {
   Header,
+  WorkbenchNavigation,
   type SearchInlineHandle,
   type SearchTarget,
 } from "@/modules/header";
@@ -2388,16 +2389,6 @@ export default function App() {
                     aria-hidden={appMode !== "studio"}
                   >
                     <Header
-                      tabs={mainTabs}
-                      activeId={activeId}
-                      onSelect={setActiveId}
-                      onNew={openNewTab}
-                      onNewPrivate={openNewPrivateTab}
-                      onNewPreview={() => openPreviewTab("")}
-                      onNewEditor={() => setNewEditorOpen(true)}
-                      onNewGitGraph={openGitGraphFromContext}
-                      onClose={handleClose}
-                      onPin={pinTab}
                       onToggleSidebar={toggleSidebar}
                       sidebarActive={!sidebarCollapsed}
                       onOpenShortcuts={() => setShortcutsOpen(true)}
@@ -2406,8 +2397,6 @@ export default function App() {
                       onToggleAgentSidebar={togglePanelAndFocus}
                       agentSidebarActive={miniOpen}
                       agentSidebarAvailable={true}
-                      searchTarget={searchTarget}
-                      searchRef={searchInlineRef}
                     />
                     <div className="min-h-0 flex-1">
                       <ResizablePanelGroup
@@ -2508,10 +2497,25 @@ export default function App() {
                 title="Resize workspace sidebar (use arrow keys for precise control)"
               />
               <ResizablePanel id="workspace" defaultSize="78%" minSize="30%">
-                <ResizablePanelGroup
-                  orientation="vertical"
-                  className="h-full min-h-0 overflow-hidden"
-                >
+                <div className="flex h-full min-h-0 flex-col overflow-hidden">
+                  <WorkbenchNavigation
+                    tabs={mainTabs}
+                    activeId={activeId}
+                    onSelect={setActiveId}
+                    onNew={openNewTab}
+                    onNewPrivate={openNewPrivateTab}
+                    onNewPreview={() => openPreviewTab("")}
+                    onNewEditor={() => setNewEditorOpen(true)}
+                    onNewGitGraph={openGitGraphFromContext}
+                    onClose={handleClose}
+                    onPin={pinTab}
+                    searchTarget={searchTarget}
+                    searchRef={searchInlineRef}
+                  />
+                  <ResizablePanelGroup
+                    orientation="vertical"
+                    className="min-h-0 flex-1 overflow-hidden"
+                  >
                   <ResizablePanel id="workspace-main" minSize="20%">
                     <div className="relative h-full min-h-0 overflow-hidden">
                       {workspaceSurface}
@@ -2552,7 +2556,8 @@ export default function App() {
                   >
                     {terminalDrawer}
                   </ResizablePanel>
-                </ResizablePanelGroup>
+                  </ResizablePanelGroup>
+                </div>
               </ResizablePanel>
                       </ResizablePanelGroup>
                     </div>
