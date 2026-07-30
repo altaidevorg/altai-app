@@ -6,6 +6,7 @@
 mod app;
 pub(crate) mod approval;
 mod attachments;
+mod brand;
 mod execution_browser;
 mod history_cells;
 mod markdown;
@@ -25,6 +26,7 @@ pub use approval::{approval_hotkey_reply, EditDiffPayload, APPROVAL_CHOICES};
 pub use attachments::{
     load_host_file_attachments, load_sandbox_file_attachment, parse_terminal_attachments,
 };
+pub(crate) use brand::{is_pristine_session, welcome_paragraph, COMPACT_MARK};
 pub use theme::{
     current_appearance, init, init_appearance, init_from_env, init_from_host,
     resolve_host_appearance, uses_ansi_color, HostThemeMode, Theme, ThemeAppearance,

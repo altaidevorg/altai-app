@@ -122,6 +122,10 @@ pub fn current_appearance() -> ThemeAppearance {
 /// Truecolor roles derived from ALTAI App `globals.css` OKLCH tokens.
 #[derive(Debug, Clone, Copy)]
 struct Palette {
+    canvas: Color,
+    panel: Color,
+    raised: Color,
+    overlay: Color,
     text: Color,
     muted: Color,
     active: Color,
@@ -130,9 +134,14 @@ struct Palette {
     info: Color,
     error: Color,
     focus: Color,
+    border: Color,
 }
 
 const DARK: Palette = Palette {
+    canvas: Color::Rgb(7, 7, 8),
+    panel: Color::Rgb(12, 13, 14),
+    raised: Color::Rgb(18, 19, 20),
+    overlay: Color::Rgb(22, 23, 25),
     text: Color::Rgb(240, 242, 244),
     muted: Color::Rgb(137, 140, 146),
     active: Color::Rgb(181, 234, 38),
@@ -141,9 +150,14 @@ const DARK: Palette = Palette {
     info: Color::Rgb(75, 174, 237),
     error: Color::Rgb(248, 75, 75),
     focus: Color::Rgb(93, 114, 149),
+    border: Color::Rgb(55, 56, 60),
 };
 
 const LIGHT: Palette = Palette {
+    canvas: Color::Rgb(251, 252, 252),
+    panel: Color::Rgb(255, 255, 255),
+    raised: Color::Rgb(244, 245, 247),
+    overlay: Color::Rgb(255, 255, 255),
     text: Color::Rgb(19, 22, 28),
     muted: Color::Rgb(81, 85, 92),
     active: Color::Rgb(154, 211, 53),
@@ -152,6 +166,7 @@ const LIGHT: Palette = Palette {
     info: Color::Rgb(0, 106, 175),
     error: Color::Rgb(212, 9, 36),
     focus: Color::Rgb(79, 100, 134),
+    border: Color::Rgb(220, 222, 225),
 };
 
 fn palette() -> Option<&'static Palette> {
@@ -185,6 +200,58 @@ fn fg_mod(c: Color, m: Modifier) -> Style {
 pub struct Theme;
 
 impl Theme {
+    /// Full-screen terminal canvas. The no-color mode leaves the terminal's
+    /// native background untouched.
+    pub fn canvas() -> Style {
+        match palette() {
+            Some(p) => Style::default().fg(p.text).bg(p.canvas),
+            None => Style::default(),
+        }
+    }
+
+    /// Primary conversation and list surface.
+    pub fn panel() -> Style {
+        match palette() {
+            Some(p) => Style::default().fg(p.text).bg(p.panel),
+            None => Style::default(),
+        }
+    }
+
+    /// Slightly elevated surface used by the header, status strips and composer.
+    pub fn raised() -> Style {
+        match palette() {
+            Some(p) => Style::default().fg(p.text).bg(p.raised),
+            None => Style::default(),
+        }
+    }
+
+    /// Blocking picker / approval surface.
+    pub fn overlay() -> Style {
+        match palette() {
+            Some(p) => Style::default().fg(p.text).bg(p.overlay),
+            None => Style::default(),
+        }
+    }
+
+    /// Neutral structural rule.
+    pub fn border() -> Style {
+        match palette() {
+            Some(p) => fg(p.border),
+            None => Style::default().add_modifier(Modifier::DIM),
+        }
+    }
+
+    /// Keyboard-selected row. Reversed text remains meaningful without color.
+    pub fn selected() -> Style {
+        match palette() {
+            Some(p) => Style::default()
+                .fg(p.active)
+                .bg(p.raised)
+                .add_modifier(Modifier::BOLD),
+            None => Style::default().add_modifier(Modifier::BOLD | Modifier::REVERSED),
+        }
+    }
+
     pub fn text() -> Style {
         match palette() {
             Some(p) => fg(p.text),

@@ -85,7 +85,7 @@ pub fn executions_list_paragraph(app: &App, area: Rect) -> (Paragraph<'static>, 
             let mark = if sel { "› " } else { "  " };
             let body = execution_run_list_line(item, inner_w.saturating_sub(4));
             let style = if sel {
-                Theme::tool_call()
+                Theme::selected()
             } else {
                 Theme::text()
             };
@@ -97,8 +97,9 @@ pub fn executions_list_paragraph(app: &App, area: Rect) -> (Paragraph<'static>, 
     }
     let block = Block::default()
         .borders(Borders::ALL)
-        .title(Span::styled(" runs (this thread) ", Theme::tool_done()))
-        .border_style(Theme::dim());
+        .title(Span::styled(" RUNS ", Theme::tool_done()))
+        .border_style(Theme::border())
+        .style(Theme::raised());
     (Paragraph::new(Text::from(slice)).block(block), max_scroll)
 }
 
@@ -129,8 +130,9 @@ pub fn executions_code_paragraph(
     let slice: Vec<Line<'static>> = lines.into_iter().skip(st).take(visible.max(1)).collect();
     let block = Block::default()
         .borders(Borders::ALL)
-        .title(Span::styled(" source ", Theme::dim()))
-        .border_style(Theme::dim());
+        .title(Span::styled(" SOURCE ", Theme::dim()))
+        .border_style(Theme::border())
+        .style(Theme::panel());
     (Paragraph::new(Text::from(slice)).block(block), max_scroll)
 }
 
@@ -148,7 +150,8 @@ pub fn executions_output_paragraph(
     let slice: Vec<Line<'static>> = lines.into_iter().skip(st).take(visible.max(1)).collect();
     let block = Block::default()
         .borders(Borders::ALL)
-        .title(Span::styled(" output ", Theme::dim()))
-        .border_style(Theme::dim());
+        .title(Span::styled(" OUTPUT ", Theme::dim()))
+        .border_style(Theme::border())
+        .style(Theme::panel());
     (Paragraph::new(Text::from(slice)).block(block), max_scroll)
 }

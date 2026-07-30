@@ -55,7 +55,7 @@ pub fn conversations_list_paragraph(app: &App, area: Rect) -> (Paragraph<'static
                 )
             );
             let style = if sel {
-                Theme::tool_call()
+                Theme::selected()
             } else {
                 Theme::text()
             };
@@ -67,11 +67,9 @@ pub fn conversations_list_paragraph(app: &App, area: Rect) -> (Paragraph<'static
     }
     let block = Block::default()
         .borders(Borders::ALL)
-        .title(Span::styled(
-            " past sessions (terminal) ",
-            Theme::tool_done(),
-        ))
-        .border_style(Theme::dim());
+        .title(Span::styled(" SESSIONS ", Theme::tool_done()))
+        .border_style(Theme::border())
+        .style(Theme::raised());
     (Paragraph::new(Text::from(slice)).block(block), max_scroll)
 }
 

@@ -12,6 +12,7 @@ pub fn transcript_paragraph(
     transcript_area: Rect,
     scroll_from_bottom: u16,
     selection: Option<&TranscriptSelection>,
+    focused: bool,
 ) -> (Paragraph<'static>, u16, usize) {
     let inner_w = transcript_area.width.saturating_sub(2) as usize;
     let lines = flatten_cells_to_lines(cells, inner_w.max(8));
@@ -31,10 +32,21 @@ pub fn transcript_paragraph(
         slice
     };
 
+    let title_style = if focused {
+        Theme::active()
+    } else {
+        Theme::dim()
+    };
+    let border_style = if focused {
+        Theme::active()
+    } else {
+        Theme::border()
+    };
     let block = Block::default()
         .borders(Borders::ALL)
-        .title(Span::styled(" transcript ", Theme::dim()))
-        .border_style(Theme::dim());
+        .title(Span::styled(" CHAT ", title_style))
+        .border_style(border_style)
+        .style(Theme::panel());
     (
         Paragraph::new(Text::from(slice)).block(block),
         max_scroll,

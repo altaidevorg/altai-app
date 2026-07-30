@@ -61,7 +61,8 @@ pub fn tool_history_paragraph(
     let slice: Vec<Line<'static>> = lines.into_iter().skip(start).take(take).collect();
     let block = Block::default()
         .borders(Borders::ALL)
-        .title(Span::styled(" tool activity ", Theme::tool_call()))
-        .border_style(Theme::dim());
+        .title(Span::styled(" TOOLS ", Theme::tool_call()))
+        .border_style(Theme::border())
+        .style(Theme::raised());
     (Paragraph::new(Text::from(slice)).block(block), max_scroll)
 }
