@@ -256,6 +256,10 @@ fn emit_command(app: &AppHandle, id: &str, path: Option<String>) {
     }
 }
 
+fn is_ide_window_label(label: &str) -> bool {
+    label == "studio" || label.starts_with("main-")
+}
+
 pub fn handle_event(app: &AppHandle, event: MenuEvent) {
     let id = event.id().as_ref();
     match id {
@@ -268,10 +272,9 @@ pub fn handle_event(app: &AppHandle, event: MenuEvent) {
         "app.settings" => {
             // Studio settings are a native app-level window. IDE settings
             // remain the existing in-IDE tab and still flow through React.
-            let ide_is_focused = app
-                .get_webview_window("studio")
-                .and_then(|window| window.is_focused().ok())
-                .unwrap_or(false);
+            let ide_is_focused = app.webview_windows().iter().any(|(label, window)| {
+                is_ide_window_label(label) && window.is_focused().unwrap_or(false)
+            });
             if ide_is_focused {
                 emit_command(app, id, None);
             } else if let Err(error) = crate::show_or_create_settings_window(
@@ -308,5 +311,18 @@ pub fn handle_event(app: &AppHandle, event: MenuEvent) {
             }
         }
         _ => emit_command(app, id, None),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_ide_window_label;
+
+    #[test]
+    fn classifies_singleton_and_fresh_ide_windows() {
+        assert!(is_ide_window_label("studio"));
+        assert!(is_ide_window_label("main-0198f3f7"));
+        assert!(!is_ide_window_label("main"));
+        assert!(!is_ide_window_label("settings"));
     }
 }
