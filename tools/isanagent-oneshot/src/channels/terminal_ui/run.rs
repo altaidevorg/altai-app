@@ -115,6 +115,59 @@ pub(crate) fn resolve_initial_active_provider_key(
     None
 }
 
+/// Parse `/key` arguments without ever treating an unknown explicit provider as
+/// part of the secret. A whitespace-free argument is the shorthand secret for
+/// the active (or sole) provider; two tokens always mean
+/// `<provider_config_key> <secret>`.
+pub(crate) fn resolve_key_command_args<'a>(
+    arg: &'a str,
+    providers: &std::collections::HashMap<String, crate::config::ProviderConfig>,
+    active_provider_key: Option<&str>,
+) -> Result<(String, &'a str), String> {
+    let arg = arg.trim();
+    if arg.is_empty() {
+        return Err("Usage: /key <api_key>  (or /key <provider_config_key> <api_key>)".to_string());
+    }
+
+    let mut parts = arg.splitn(2, char::is_whitespace);
+    let first = parts.next().unwrap_or("").trim();
+    let rest = parts.next().unwrap_or("").trim();
+    if !rest.is_empty() {
+        if providers.contains_key(first) {
+            return Ok((first.to_string(), rest));
+        }
+        let mut available: Vec<&str> = providers.keys().map(String::as_str).collect();
+        available.sort_unstable();
+        return Err(format!(
+            "Unknown provider '{first}'. Available: {}.",
+            available.join(", ")
+        ));
+    }
+
+    let target = active_provider_key
+        .filter(|key| providers.contains_key(*key))
+        .map(str::to_string)
+        .or_else(|| {
+            if providers.len() == 1 {
+                providers.keys().next().cloned()
+            } else {
+                None
+            }
+        })
+        .ok_or_else(|| {
+            let mut available: Vec<&str> = providers.keys().map(String::as_str).collect();
+            available.sort_unstable();
+            format!(
+                "Multiple providers configured; specify which one: \
+                 /key <provider_config_key> <api_key>. Available: {}. \
+                 Or run /model first, then /key.",
+                available.join(", ")
+            )
+        })?;
+
+    Ok((target, arg))
+}
+
 /// Lightweight placeholder check for interactively entered API keys. Mirrors
 /// `config::api_key_looks_like_placeholder` (kept private there) without depending on config
 /// internals: rejects empty values, angle-bracket templates (`<changethis>`), and common
@@ -3213,30 +3266,12 @@ pub(crate) fn run_ratatui_main(config: RatatuiMainConfig) -> io::Result<()> {
                                     });
                                     continue;
                                 }
-                                // Optional leading token names a provider config key explicitly;
-                                // otherwise the whole arg is the secret and we fall back to the
-                                // currently active provider (or the sole configured one).
-                                let mut parts = arg.splitn(2, char::is_whitespace);
-                                let first = parts.next().unwrap_or("").trim();
-                                let rest = parts.next().unwrap_or("").trim();
-                                let (config_key_arg, secret): (Option<&str>, &str) =
-                                    if !rest.is_empty() && providers.contains_key(first) {
-                                        (Some(first), rest)
-                                    } else {
-                                        (None, arg)
-                                    };
-                                let resolved_config_key = config_key_arg
-                                    .map(|s| s.to_string())
-                                    .or_else(|| active_provider_key.clone())
-                                    .or_else(|| {
-                                        if providers.len() == 1 {
-                                            providers.keys().next().cloned()
-                                        } else {
-                                            None
-                                        }
-                                    });
-                                match resolved_config_key {
-                                    Some(config_key) => {
+                                match resolve_key_command_args(
+                                    arg,
+                                    &providers,
+                                    active_provider_key.as_deref(),
+                                ) {
+                                    Ok((config_key, secret)) => {
                                         try_set_api_key(
                                             &mut app,
                                             &bus_tx,
@@ -3247,18 +3282,8 @@ pub(crate) fn run_ratatui_main(config: RatatuiMainConfig) -> io::Result<()> {
                                             &mut active_provider_key,
                                         );
                                     }
-                                    None => {
-                                        let mut available: Vec<&str> =
-                                            providers.keys().map(|s| s.as_str()).collect();
-                                        available.sort_unstable();
-                                        app.cells.push(Cell::Error {
-                                            message: format!(
-                                                "Multiple providers configured; specify which one: \
-                                                 /key <provider_config_key> <api_key>. Available: {}. \
-                                                 Or run /model first, then /key.",
-                                                available.join(", ")
-                                            ),
-                                        });
+                                    Err(message) => {
+                                        app.cells.push(Cell::Error { message });
                                     }
                                 }
                                 continue;
@@ -4092,7 +4117,7 @@ mod execution_strip_tests {
 mod api_key_persist_tests {
     use super::{
         key_looks_like_placeholder, mask_api_key_suffix, persist_provider_api_key,
-        resolve_initial_active_provider_key,
+        resolve_initial_active_provider_key, resolve_key_command_args,
     };
     use std::collections::HashMap;
 
@@ -4274,6 +4299,44 @@ mod api_key_persist_tests {
         assert_eq!(
             resolve_initial_active_provider_key(tmp.path(), &providers),
             None
+        );
+    }
+
+    #[test]
+    fn key_args_reject_unknown_explicit_provider() {
+        let mut providers = HashMap::new();
+        providers.insert(
+            "anthropic".to_string(),
+            crate::config::ProviderConfig::default(),
+        );
+        let err = resolve_key_command_args(
+            "openai sk-should-not-be-saved",
+            &providers,
+            Some("anthropic"),
+        )
+        .unwrap_err();
+        assert!(err.contains("Unknown provider 'openai'"), "{err}");
+    }
+
+    #[test]
+    fn key_args_resolve_explicit_and_active_provider_forms() {
+        let mut providers = HashMap::new();
+        providers.insert(
+            "anthropic".to_string(),
+            crate::config::ProviderConfig::default(),
+        );
+        providers.insert(
+            "openai".to_string(),
+            crate::config::ProviderConfig::default(),
+        );
+
+        assert_eq!(
+            resolve_key_command_args("openai sk-explicit", &providers, Some("anthropic")),
+            Ok(("openai".to_string(), "sk-explicit"))
+        );
+        assert_eq!(
+            resolve_key_command_args("sk-active", &providers, Some("anthropic")),
+            Ok(("anthropic".to_string(), "sk-active"))
         );
     }
 }
