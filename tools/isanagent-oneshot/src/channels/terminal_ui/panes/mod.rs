@@ -1,11 +1,13 @@
 //! Submodules for Ratatui focus panes (conversations, executions, etc.).
 
+mod activity;
 mod cell_render;
 mod conversations;
 mod executions;
 mod tool_history;
 mod transcript;
 
+pub use activity::activity_overview_paragraph;
 pub use cell_render::wrap_text;
 pub use conversations::{conversations_ensure_list_shows_selection, conversations_list_paragraph};
 pub use executions::{
