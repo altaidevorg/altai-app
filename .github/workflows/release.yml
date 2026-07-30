@@ -233,10 +233,15 @@ jobs:
       - name: Smoke packaged binary
         shell: bash
         run: |
+          set -euo pipefail
           stage="$(mktemp -d)"
           archive="$(ls dist/cli/altai-cli_${{ steps.tag.outputs.name }}_${{ matrix.target }}.* | grep -v sha256 | head -1)"
           if [[ "$archive" == *.zip ]]; then
-            unzip -q "$archive" -d "$stage"
+            py=python3
+            if ! command -v "$py" >/dev/null 2>&1; then
+              py=python
+            fi
+            "$py" -m zipfile -e "$archive" "$stage"
             BIN="$stage/altai-cli.exe"
           else
             tar -xzf "$archive" -C "$stage"
@@ -245,7 +250,40 @@ jobs:
           "$BIN" version --verbose
           "$BIN" doctor --json >/dev/null
 
-      - name: Upload CLI archive to GitHub Release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: altai-cli-release-${{ matrix.target }}
+          path: dist/cli/*
+          if-no-files-found: error
+
+  cli-publish:
+    name: Publish CLI archives
+    needs: cli
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Resolve release tag
+        id: tag
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            NAME="${{ inputs.tag }}"
+          else
+            NAME="${GITHUB_REF##refs/tags/}"
+          fi
+          echo "name=$NAME" >> "$GITHUB_OUTPUT"
+          if [[ "$NAME" == *-* ]]; then
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: altai-cli-release-*
+          path: dist/cli
+          merge-multiple: true
+
+      - name: Upload CLI archives to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.tag.outputs.name }}

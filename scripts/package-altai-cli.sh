@@ -83,8 +83,21 @@ if [[ "$target" == *windows* || "$published_name" == *.exe ]]; then
   if command -v zip >/dev/null 2>&1; then
     (cd "$stage" && zip -q "$archive" "$published_name" README.txt)
   else
-    powershell.exe -NoProfile -Command \
-      "Compress-Archive -Path '$stage/$published_name','$stage/README.txt' -DestinationPath '$archive' -Force"
+    # Prefer Python zipfile: always present on GitHub runners and accepts
+    # Unix-style paths from Git Bash / MSYS without cygpath conversion.
+    py=python3
+    if ! command -v "$py" >/dev/null 2>&1; then
+      py=python
+    fi
+    "$py" - "$stage" "$published_name" "$archive" <<'PY'
+import sys, zipfile
+from pathlib import Path
+stage, name, archive = Path(sys.argv[1]), sys.argv[2], Path(sys.argv[3])
+with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+    zf.write(stage / name, arcname=name)
+    zf.write(stage / "README.txt", arcname="README.txt")
+print(f"wrote {archive}")
+PY
   fi
 else
   archive="${out_dir}/${stem}.tar.gz"
