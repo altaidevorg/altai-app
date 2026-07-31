@@ -251,3 +251,14 @@
 - Background / notification bus traffic is **not** journaled — matches Desktop
   (`is_system_event` UI-only), not a CLI gap.
 - Unit tests: 14 `journal_sink` cases including foreign-run warning ignore.
+
+## ACP agent mode — 2026-07-30
+
+- Bumped IsanAgent lock to `7018685` (ACP agent support from
+  [`isanagent#102`](https://github.com/altaidevorg/isanagent/pull/102)).
+- `host_adapter::acp_host_config` sets `HostConfig.acp_mode = true`.
+- New `altai acp` command starts IsanAgent as an ACP JSON-RPC server on
+  stdio (for Zed and other ACP clients). Distinct from `altai serve --stdio`
+  (ALTAI agent-host protocol).
+- Clap dry-run preview includes `kind: "acp"` and `host.acp_mode`.
+- Unit tests: host adapter ACP flag + clap contract parse.

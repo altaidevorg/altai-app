@@ -14,7 +14,7 @@ mod serve;
     name = "altai-cli",
     version,
     about = "ALTAI terminal product",
-    long_about = "The ALTAI terminal product. Use `altai agent` for the interactive TUI and `altai run` for one-shot headless sessions."
+    long_about = "The ALTAI terminal product. Use `altai agent` for the interactive TUI, `altai run` for one-shot headless sessions, and `altai acp` for Agent Client Protocol (ACP) over stdio."
 )]
 struct Cli {
     #[command(subcommand)]
@@ -27,6 +27,8 @@ enum Commands {
     Agent(AgentArgs),
     /// Run one prompt without starting an interactive terminal session.
     Run(RunArgs),
+    /// Speak the Agent Client Protocol (ACP) over stdio for editors such as Zed.
+    Acp(AcpArgs),
     /// Start the machine-facing ALTAI agent-host stdio protocol.
     Serve(ServeArgs),
     /// Print release and dependency information.
@@ -237,6 +239,17 @@ struct AgentArgs {
 }
 
 #[derive(Debug, Args)]
+struct AcpArgs {
+    /// Workspace path. Defaults to the current directory.
+    path: Option<PathBuf>,
+    /// Describe the resolved ACP host without starting it.
+    #[arg(long)]
+    dry_run: bool,
+    #[command(flatten)]
+    options: AgentOptions,
+}
+
+#[derive(Debug, Args)]
 struct RunArgs {
     /// Workspace path. Defaults to the current directory.
     path: Option<PathBuf>,
@@ -382,6 +395,7 @@ fn run() -> Result<(), CliError> {
         }
         Some(Commands::Agent(args)) => agent(args),
         Some(Commands::Run(args)) => run_prompt(args),
+        Some(Commands::Acp(args)) => acp(args),
         Some(Commands::Serve(args)) => serve_command(args),
         Some(Commands::Version { verbose }) => print_version(verbose),
         Some(Commands::Completion { shell }) => {
@@ -694,6 +708,58 @@ fn agent(args: AgentArgs) -> Result<(), CliError> {
             "sandbox": host.sandbox,
         },
         "tui": !args.no_tui,
+        "model": args.options.model,
+        "fallback_model": args.options.fallback_model,
+        "permission": args.options.permission.as_ref().map(PermissionMode::as_str),
+        "theme": args.options.theme.as_str(),
+        "effective_theme": appearance.as_str(),
+        "resume": args.options.resume,
+        "files": args.options.files,
+        "compaction": resolved_compaction_preview(&args.options),
+    });
+    print_preview(value)
+}
+
+fn acp(args: AcpArgs) -> Result<(), CliError> {
+    let workspace =
+        resolve_command_workspace(args.options.workspace.as_deref(), args.path.as_deref())?;
+    let appearance = resolve_cli_theme(args.options.theme);
+    let mut host = host_adapter::acp_host_config(&workspace);
+    host.model = args.options.model.clone();
+    host.fallback_model = args.options.fallback_model.clone();
+    host.permission = args.options.permission.as_ref().map(host_permission_mode);
+    host.no_color = appearance == altai_core::EffectiveTerminalAppearance::NoColor;
+    host.theme = host_theme_mode(appearance);
+    host.resume = args.options.resume.clone();
+    host.files = args.options.files.clone();
+    apply_compaction_overrides(&mut host, &args.options);
+
+    if !args.dry_run {
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .map_err(|error| {
+                CliError::Message(format!("could not start the host runtime: {error}"))
+            })?;
+        return runtime
+            .block_on(isanagent::host::start_host(host))
+            .map_err(|error| {
+                CliError::Message(format!("IsanAgent ACP host exited with an error: {error}"))
+            });
+    }
+
+    let value = serde_json::json!({
+        "kind": "acp",
+        "protocol": "agent-client-protocol",
+        "transport": "stdio",
+        "workspace": workspace.root,
+        "isanagent_state": workspace.isanagent_state,
+        "host": {
+            "state": host.workspace,
+            "config": host.config,
+            "sandbox": host.sandbox,
+            "acp_mode": host.acp_mode,
+        },
         "model": args.options.model,
         "fallback_model": args.options.fallback_model,
         "permission": args.options.permission.as_ref().map(PermissionMode::as_str),
@@ -1218,6 +1284,31 @@ mod tests {
         assert_eq!(
             host_theme_mode(altai_core::EffectiveTerminalAppearance::Dark),
             isanagent::host::HostThemeMode::Dark
+        );
+    }
+
+    #[test]
+    fn acp_contract_parses_and_defaults_to_protocol_mode() {
+        let cli = Cli::try_parse_from([
+            "altai-cli",
+            "acp",
+            ".",
+            "--model",
+            "anthropic/claude-sonnet-4-6",
+            "--permission",
+            "plan",
+            "--dry-run",
+        ])
+        .expect("acp contract should parse");
+
+        let Some(Commands::Acp(args)) = cli.command else {
+            panic!("acp command should parse");
+        };
+        assert!(args.dry_run);
+        assert_eq!(args.options.permission, Some(PermissionMode::Plan));
+        assert_eq!(
+            args.options.model.as_deref(),
+            Some("anthropic/claude-sonnet-4-6")
         );
     }
 
