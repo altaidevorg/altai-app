@@ -94,6 +94,15 @@ pub struct RunJournalSummary {
     pub terminal_payload: Option<Value>,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct ChatJournalSummary {
+    pub chat_id: String,
+    pub latest_run_id: String,
+    pub last_seq: u64,
+    pub terminal_seq: Option<u64>,
+    pub updated_at_ms: u64,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AppendStatus {
     Appended,
@@ -447,6 +456,59 @@ impl EventJournal {
         stored.map(decode_run_summary).transpose()
     }
 
+    /// Lists one latest run per chat, newest first. Session titles remain a UI
+    /// concern until the shared session metadata schema lands.
+    pub fn list_chat_summaries(&self, limit: usize) -> JournalResult<Vec<ChatJournalSummary>> {
+        if limit == 0 || limit > MAX_FETCH_LIMIT {
+            return Err(JournalError::InvalidField("limit"));
+        }
+        let connection = self
+            .connection
+            .lock()
+            .map_err(|_| JournalError::LockPoisoned)?;
+        let mut statement = connection.prepare(
+            "SELECT runs.chat_id, runs.run_id, runs.last_seq, runs.terminal_seq,
+                    events.recorded_at_ms
+             FROM agent_event_journal_runs AS runs
+             JOIN agent_event_journal_events AS events
+               ON events.run_id = runs.run_id AND events.seq = runs.last_seq
+             ORDER BY events.recorded_at_ms DESC, runs.run_id DESC",
+        )?;
+        let rows = statement.query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, i64>(2)?,
+                row.get::<_, Option<i64>>(3)?,
+                row.get::<_, i64>(4)?,
+            ))
+        })?;
+        let mut seen = std::collections::HashSet::new();
+        let mut summaries = Vec::new();
+        for row in rows {
+            let (chat_id, latest_run_id, last_seq, terminal_seq, updated_at_ms) = row?;
+            if !seen.insert(chat_id.clone()) {
+                continue;
+            }
+            summaries.push(ChatJournalSummary {
+                chat_id,
+                latest_run_id,
+                last_seq: u64::try_from(last_seq)
+                    .map_err(|_| JournalError::NumericOverflow("last_seq"))?,
+                terminal_seq: terminal_seq
+                    .map(u64::try_from)
+                    .transpose()
+                    .map_err(|_| JournalError::NumericOverflow("terminal_seq"))?,
+                updated_at_ms: u64::try_from(updated_at_ms)
+                    .map_err(|_| JournalError::NumericOverflow("recorded_at_ms"))?,
+            });
+            if summaries.len() >= limit {
+                break;
+            }
+        }
+        Ok(summaries)
+    }
+
     /// Snapshot unfinished runs from a previous host process. Callers may
     /// classify each one only by appending its next terminal sequence.
     pub fn incomplete_run_summaries(&self) -> JournalResult<Vec<RunJournalSummary>> {
@@ -765,6 +827,36 @@ mod tests {
                 terminal_kind: None,
                 terminal_payload: None,
             })
+        );
+    }
+
+    #[test]
+    fn chat_summaries_return_only_the_latest_run_per_chat() {
+        let journal = EventJournal::open_in_memory().expect("journal");
+        for (run_id, chat_id, recorded_at_ms) in [
+            ("run-1", "chat-1", 10),
+            ("run-2", "chat-1", 30),
+            ("run-3", "chat-2", 20),
+        ] {
+            journal
+                .append(&JournalEvent {
+                    version: 1,
+                    run_id: run_id.to_string(),
+                    seq: 1,
+                    chat_id: chat_id.to_string(),
+                    recorded_at_ms,
+                    kind: "run_started".to_string(),
+                    payload: serde_json::json!({ "type": "run_started", "run_id": run_id }),
+                })
+                .expect("append");
+        }
+        let summaries = journal.list_chat_summaries(10).expect("session summaries");
+        assert_eq!(
+            summaries
+                .iter()
+                .map(|summary| (summary.chat_id.as_str(), summary.latest_run_id.as_str()))
+                .collect::<Vec<_>>(),
+            vec![("chat-1", "run-2"), ("chat-2", "run-3")]
         );
     }
 
