@@ -16,7 +16,7 @@ Open source · Local first · macOS, Windows, Linux
 
 **Optional release message**
 
-ALTAI v0.6.4 is available now.
+ALTAI v0.6.5 is available now.
 
 ---
 

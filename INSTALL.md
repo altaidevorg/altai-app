@@ -91,7 +91,7 @@ Each archive ships `altai-cli` (or `altai-cli.exe`) plus a `.sha256` sidecar on 
 
 ```bash
 # Example: Linux / macOS
-tar -xzf altai-cli_v0.6.4_aarch64-apple-darwin.tar.gz
+tar -xzf altai-cli_v0.6.5_aarch64-apple-darwin.tar.gz
 sudo mv altai-cli /usr/local/bin/
 altai-cli doctor
 altai-cli version --verbose
@@ -102,7 +102,7 @@ sudo ln -s /usr/local/bin/altai-cli /usr/local/bin/altai
 
 ```powershell
 # Example: Windows (PowerShell)
-Expand-Archive .\altai-cli_v0.6.4_x86_64-pc-windows-msvc.zip -DestinationPath .
+Expand-Archive .\altai-cli_v0.6.5_x86_64-pc-windows-msvc.zip -DestinationPath .
 Move-Item .\altai-cli.exe $env:LOCALAPPDATA\Microsoft\WindowsApps\
 altai-cli doctor
 ```

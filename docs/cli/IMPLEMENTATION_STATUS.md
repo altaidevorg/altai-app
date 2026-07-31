@@ -1,7 +1,7 @@
 # ALTAI CLI Implementation Status
 
 **Date:** 2026-07-30
-**Desktop base:** v0.6.4
+**Desktop base:** v0.6.5
 **IsanAgent dependency:** git `altaidevorg/isanagent` `main`
 (oneshot: [`isanagent#101`](https://github.com/altaidevorg/isanagent/pull/101); ACP agent: [`isanagent#102`](https://github.com/altaidevorg/isanagent/pull/102) / `7018685`)
 

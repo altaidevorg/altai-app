@@ -8,7 +8,7 @@ Snapshot date: 2026-07-29
 
 - Repository: [altaidevorg/altai-app](https://github.com/altaidevorg/altai-app)
 - Revision: `0df46ee5b3335bd850f00ff59801b8e2bc089a91`
-- Release metadata: `0.6.4`
+- Release metadata: `0.6.5`
 - Local worktree contained pre-existing, uncommitted UI changes during the
   audit. The content pack did not modify those files.
 
