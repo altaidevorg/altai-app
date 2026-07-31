@@ -234,8 +234,21 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          stage="$(mktemp -d)"
-          archive="$(ls dist/cli/altai-cli_${{ steps.tag.outputs.name }}_${{ matrix.target }}.* | grep -v sha256 | head -1)"
+          stage="$(mktemp -d "${TMPDIR:-/tmp}/cli-smoke.XXXXXX")"
+          trap 'rm -rf "$stage"' EXIT
+          shopt -s nullglob
+          archives=(dist/cli/altai-cli_${{ steps.tag.outputs.name }}_${{ matrix.target }}.*)
+          archive=""
+          for candidate in "${archives[@]}"; do
+            if [[ "$candidate" != *.sha256 ]]; then
+              archive="$candidate"
+              break
+            fi
+          done
+          if [[ -z "$archive" ]]; then
+            echo "no CLI archive found in dist/cli/" >&2
+            exit 1
+          fi
           if [[ "$archive" == *.zip ]]; then
             py=python3
             if ! command -v "$py" >/dev/null 2>&1; then
