@@ -116,6 +116,10 @@ fn event_type(value: &Value) -> Option<&str> {
     value.pointer("/params/event/type").and_then(Value::as_str)
 }
 
+fn replay_event_type(value: &Value) -> Option<&str> {
+    value.pointer("/event/type").and_then(Value::as_str)
+}
+
 #[test]
 fn compiled_stdio_handles_split_and_multiple_frames_with_ordered_terminal_stream() {
     let workspace = tempfile::tempdir().expect("workspace");
@@ -126,26 +130,33 @@ fn compiled_stdio_handles_split_and_multiple_frames_with_ordered_terminal_stream
     process.write(&init[9..]); // completes header and body across writes
     assert_eq!(process.next()["id"], 1);
 
-    let unsupported = encode_frame(
+    let models_request = encode_frame(
         &serde_json::to_vec(&json!({"jsonrpc":"2.0","id":"u","method":"models/list"})).unwrap(),
     );
     let run = encode_frame(&serde_json::to_vec(&start(json!(2))).unwrap());
-    let mut combined = unsupported;
+    let mut combined = models_request;
     combined.extend(run); // two full frames in one stdin write
     process.write(&combined);
 
     let mut response_ids = Vec::new();
+    let mut models_response = None;
     let mut events = Vec::new();
     while events.last().and_then(event_type) != Some("run_terminated") {
         let frame = process.next();
         if let Some(id) = frame.get("id") {
             response_ids.push(id.clone());
+            if id.as_str() == Some("u") {
+                models_response = frame.pointer("/result/models").cloned();
+            }
         }
         if event_type(&frame).is_some() {
             events.push(frame);
         }
     }
     assert!(response_ids.contains(&json!("u")));
+    assert!(models_response
+        .and_then(|value| value.as_array().cloned())
+        .is_some_and(|models| !models.is_empty()));
     assert!(response_ids.contains(&json!(2)));
     let kinds: Vec<_> = events.iter().filter_map(event_type).collect();
     assert_eq!(kinds.first(), Some(&"run_started"));
@@ -228,5 +239,93 @@ fn cancel_emits_one_terminal_event_and_no_later_run_events() {
     process.frame(json!({"jsonrpc":"2.0","id":4,"method":"shutdown"}));
     assert_eq!(process.next()["id"], 4);
     assert_eq!(terminal_count, 1);
+    let _stderr = process.shutdown();
+}
+
+#[test]
+fn completed_run_is_replayable_from_the_shared_journal() {
+    let workspace = tempfile::tempdir().expect("workspace");
+    let mut process = ServeProcess::spawn(workspace.path(), false);
+    process.frame(initialize(json!(1)));
+    let initialized = process.next();
+    assert!(initialized["result"]["capabilities"]
+        .as_array()
+        .expect("capabilities")
+        .contains(&json!("run/replay")));
+    assert!(initialized["result"]["capabilities"]
+        .as_array()
+        .expect("capabilities")
+        .contains(&json!("sessions/list")));
+    process.frame(start(json!(2)));
+
+    let mut run_id = None;
+    let mut terminal_seq = 0;
+    while terminal_seq == 0 {
+        let frame = process.next();
+        if event_type(&frame) == Some("run_started") {
+            run_id = frame
+                .pointer("/params/run_id")
+                .and_then(Value::as_str)
+                .map(str::to_string);
+        }
+        if event_type(&frame) == Some("run_terminated") {
+            terminal_seq = frame
+                .pointer("/params/seq")
+                .and_then(Value::as_u64)
+                .expect("terminal sequence");
+        }
+    }
+    let run_id = run_id.expect("run id");
+    process.frame(json!({
+        "jsonrpc": "2.0",
+        "id": 3,
+        "method": "run/replay",
+        "params": {
+            "chat_id": "chat-test",
+            "run_id": run_id,
+            "after_seq": 0,
+            "limit": 500
+        }
+    }));
+    let replay = process.next();
+    assert_eq!(replay["id"], 3);
+    assert_eq!(replay["result"]["terminal_seq"], terminal_seq);
+    let kinds: Vec<_> = replay["result"]["events"]
+        .as_array()
+        .expect("replay events")
+        .iter()
+        .filter_map(replay_event_type)
+        .collect();
+    assert_eq!(kinds.first(), Some(&"run_started"));
+    assert_eq!(kinds.last(), Some(&"run_terminated"));
+
+    process.frame(json!({
+        "jsonrpc": "2.0",
+        "id": 4,
+        "method": "sessions/list",
+        "params": { "limit": 10 }
+    }));
+    let sessions = process.next();
+    assert_eq!(sessions["id"], 4);
+    assert_eq!(sessions["result"]["sessions"][0]["chat_id"], "chat-test");
+    assert_eq!(sessions["result"]["sessions"][0]["latest_run_id"], run_id);
+    assert_eq!(
+        sessions["result"]["sessions"][0]["terminal_seq"],
+        terminal_seq
+    );
+
+    process.frame(json!({
+        "jsonrpc": "2.0",
+        "id": 5,
+        "method": "sessions/get",
+        "params": { "chat_id": "chat-test" }
+    }));
+    let session = process.next();
+    assert_eq!(session["id"], 5);
+    assert_eq!(session["result"]["latest_run_id"], run_id);
+    assert_eq!(session["result"]["terminal_seq"], terminal_seq);
+
+    process.frame(json!({"jsonrpc":"2.0","id":6,"method":"shutdown"}));
+    assert_eq!(process.next()["id"], 6);
     let _stderr = process.shutdown();
 }

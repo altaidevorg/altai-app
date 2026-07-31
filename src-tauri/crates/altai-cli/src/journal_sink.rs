@@ -22,6 +22,7 @@ pub struct JournalSink {
     run_id: Option<String>,
     next_seq: u64,
     terminated: bool,
+    last_event: Option<JournalEvent>,
 }
 
 impl JournalSink {
@@ -43,6 +44,7 @@ impl JournalSink {
                 run_id: None,
                 next_seq: 1,
                 terminated: false,
+                last_event: None,
             }),
             Err(error) => {
                 eprintln!("altai-cli: could not open event journal: {error}");
@@ -54,6 +56,7 @@ impl JournalSink {
     /// Records `run_started` once, then mirrors selected run-scoped telemetry
     /// and outbound assistant / clarification messages.
     pub fn observe_bus_message(&mut self, message: &BusMessage) {
+        self.last_event = None;
         if self.terminated {
             return;
         }
@@ -126,9 +129,7 @@ impl JournalSink {
 
     fn matches_run(&self, chat_id: &str, run_id: &str) -> bool {
         match (&self.run_id, &self.chat_id) {
-            (Some(active_run), Some(active_chat)) => {
-                active_run == run_id && active_chat == chat_id
-            }
+            (Some(active_run), Some(active_chat)) => active_run == run_id && active_chat == chat_id,
             _ => false,
         }
     }
@@ -172,6 +173,18 @@ impl JournalSink {
         }
 
         let (kind, detail) = describe_oneshot_outcome(&result.outcome);
+        self.finalize_outcome(&kind, detail);
+    }
+
+    /// Commits a host-selected terminal outcome when the oneshot result is not
+    /// available (for example an explicit stdio cancellation).
+    pub fn finalize_outcome(&mut self, kind: &str, detail: Option<String>) {
+        if self.terminated {
+            return;
+        }
+        let Some(run_id) = self.run_id.clone() else {
+            return;
+        };
         let mut outcome = json!({ "kind": kind });
         if let Some(detail) = detail {
             outcome["detail"] = json!(detail);
@@ -181,6 +194,13 @@ impl JournalSink {
             json!({ "type": "run_terminated", "run_id": run_id, "outcome": outcome }),
             true,
         );
+    }
+
+    /// Returns the event appended by the most recent observe/finalize call.
+    /// The stdio adapter publishes this exact envelope so live and replay
+    /// always share one sequence and payload vocabulary.
+    pub fn take_last_event(&mut self) -> Option<JournalEvent> {
+        self.last_event.take()
     }
 
     fn append(&mut self, kind: &str, payload: Value, terminal: bool) {
@@ -196,6 +216,7 @@ impl JournalSink {
         };
         match outcome {
             Ok(AppendStatus::Appended) => {
+                self.last_event = Some(event);
                 self.next_seq += 1;
                 if terminal {
                     self.terminated = true;
@@ -316,9 +337,7 @@ fn map_telemetry_payload(telemetry: &TelemetryEvent) -> Option<(&'static str, Va
             is_error,
             ..
         } => {
-            let id = tool_call_id
-                .clone()
-                .unwrap_or_else(|| tool_name.clone());
+            let id = tool_call_id.clone().unwrap_or_else(|| tool_name.clone());
             let mut payload = json!({
                 "type": "tool_call_end",
                 "id": id,
@@ -978,7 +997,10 @@ mod tests {
             events.iter().map(|e| e.kind.as_str()).collect::<Vec<_>>(),
             ["run_started", "run_warning", "run_warning_cleared"]
         );
-        assert_eq!(events[1].payload["warning"]["reason"]["kind"], "no_progress");
+        assert_eq!(
+            events[1].payload["warning"]["reason"]["kind"],
+            "no_progress"
+        );
         assert_eq!(events[1].payload["warning"]["reason"]["turns"], 6);
     }
 }

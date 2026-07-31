@@ -213,8 +213,7 @@ impl JsonlEmitter {
                     == Some(true)
                     || outbound
                         .metadata
-                        .get(isanagent::bus::METADATA_CLARIFICATION_TICKET_ID)
-                        .is_some();
+                        .contains_key(isanagent::bus::METADATA_CLARIFICATION_TICKET_ID);
                 if clarification {
                     if let Some(edit) = outbound.metadata.get("edit_diff") {
                         self.emit(

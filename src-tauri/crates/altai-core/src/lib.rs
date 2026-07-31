@@ -18,7 +18,8 @@ pub use config::{
 };
 pub use event::{EventEnvelope, EVENT_SCHEMA_VERSION};
 pub use journal::{
-    AppendStatus, EventJournal, JournalError, JournalEvent, JournalResult, RunJournalSummary,
+    AppendStatus, ChatJournalSummary, EventJournal, JournalError, JournalEvent, JournalResult,
+    RunJournalSummary,
 };
 pub use palette::{
     load_terminal_palette, resolve_terminal_appearance, resolve_terminal_appearance_from_env,

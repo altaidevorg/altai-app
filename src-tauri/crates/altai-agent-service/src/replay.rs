@@ -219,7 +219,7 @@ mod tests {
         let identity = SessionIdentity::parse("chat-1").unwrap();
         assert_eq!(identity.legacy_tauri_thread_id(), "tauri:chat-1:");
         assert!(identity.matches_legacy_tauri_thread_id("tauri:chat-1:"));
-        assert!(!identity.matches_legacy_tauri_thread_id("vscode:chat-1:"));
+        assert!(!identity.matches_legacy_tauri_thread_id("external:chat-1:"));
         assert_eq!(
             SessionIdentity::from_legacy_tauri_thread_id("tauri:chat-1:").unwrap(),
             identity
