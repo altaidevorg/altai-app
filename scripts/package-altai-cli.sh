@@ -5,7 +5,7 @@
 #   scripts/package-altai-cli.sh \
 #     --binary src-tauri/target/release/altai-cli \
 #     --target aarch64-apple-darwin \
-#     --version v0.6.4 \
+#     --version v0.6.5 \
 #     --out-dir dist/cli
 #
 # Produces:
