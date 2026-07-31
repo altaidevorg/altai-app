@@ -514,7 +514,6 @@ Required routes:
 /
 /product
 /desktop
-/vscode
 /cli
 /project-management
 /ml-engineering
@@ -806,32 +805,7 @@ Use current supported platforms only:
 Do not hard-code release asset filenames unless they are resolved from current
 release data.
 
-### 10.4 VS Code Extension — `/vscode`
-
-#### Purpose
-
-Explain how ALTAI fits into an existing VS Code workflow.
-
-#### Content
-
-- Extension hero.
-- Existing-editor value proposition.
-- Workspace context.
-- Plan and edit workflow.
-- Diff review.
-- Terminal/tool actions.
-- Relationship to Desktop and CLI.
-- Installation or waitlist/pending state.
-- Link to extension source if verified.
-
-If a verified extension destination is missing:
-
-- Do not render a dead "Install" link.
-- Use a neutral availability label.
-- Optionally provide GitHub or Download as the next valid action.
-- Keep the link destination configurable.
-
-### 10.5 CLI — `/cli`
+### 10.4 CLI — `/cli`
 
 #### Purpose
 
@@ -864,7 +838,7 @@ altai --refactor
 Verify these before publishing. Do not imply a standalone package distribution
 if the CLI currently ships only with Desktop.
 
-### 10.6 Project Management — `/project-management`
+### 10.5 Project Management — `/project-management`
 
 #### Purpose
 
@@ -909,7 +883,7 @@ Issue or local task
 Use a substantial product-board or DAG visual rather than a grid of twelve small
 icons.
 
-### 10.7 ML Engineering — `/ml-engineering`
+### 10.6 ML Engineering — `/ml-engineering`
 
 #### Purpose
 
@@ -963,7 +937,7 @@ Show technical examples such as:
 
 Do not fabricate benchmark improvements or model-quality numbers.
 
-### 10.8 Local-first & Security — `/local-first`
+### 10.7 Local-first & Security — `/local-first`
 
 #### Purpose
 
@@ -989,7 +963,7 @@ Provide a serious trust and architecture page.
 
 Avoid generic compliance claims.
 
-### 10.9 Download — `/download`
+### 10.8 Download — `/download`
 
 #### Purpose
 
@@ -1038,7 +1012,7 @@ pnpm tauri:dev
 
 Verify current prerequisites and commands before publishing.
 
-### 10.10 Open Source — `/open-source`
+### 10.9 Open Source — `/open-source`
 
 #### Purpose
 
@@ -1061,7 +1035,7 @@ Turn open source into a trust and participation story.
 Do not display live GitHub star counts unless the implementation can load them
 reliably with a static fallback.
 
-### 10.11 Docs — `/docs`
+### 10.10 Docs — `/docs`
 
 If a documentation site exists, route or link to it correctly.
 
@@ -1082,7 +1056,7 @@ verified categories:
 
 Do not write fictional detailed documentation solely to fill the page.
 
-### 10.12 Changelog — `/changelog`
+### 10.11 Changelog — `/changelog`
 
 Use actual GitHub releases or repository changelog content.
 
@@ -1093,7 +1067,7 @@ If automated release data is used:
 - Do not expose API failures as a broken page.
 - Do not create release notes that are not present upstream.
 
-### 10.13 Blog — `/blog`
+### 10.12 Blog — `/blog`
 
 Create the blog index and content model only if needed.
 
@@ -1102,7 +1076,7 @@ leadership filler.
 
 An honest "Articles are coming" state is acceptable.
 
-### 10.14 About — `/about`
+### 10.13 About — `/about`
 
 Focus on:
 
@@ -1114,7 +1088,7 @@ Focus on:
 
 Do not invent team biographies.
 
-### 10.15 Privacy — `/privacy`
+### 10.14 Privacy — `/privacy`
 
 Use verified product behavior and actual legal copy if available.
 
@@ -1169,16 +1143,6 @@ export const siteConfig = {
       label: "Issues",
       href: "https://github.com/altaidevorg/altai-app/issues",
       status: "verified",
-    },
-    vscodeMarketplace: {
-      label: "VS Code Marketplace",
-      href: null,
-      status: "pending",
-    },
-    vscodeRepository: {
-      label: "VS Code Extension source",
-      href: null,
-      status: "pending",
     },
     cliPackage: {
       label: "CLI package",
