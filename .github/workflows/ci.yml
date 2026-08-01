@@ -48,6 +48,13 @@ jobs:
       - name: Sync latest İsanAgent main
         run: cargo update --manifest-path src-tauri/Cargo.toml -p isanagent
 
+      # Tauri validates platform externalBin paths during cargo check. Stage the
+      # real CLI sidecar first so Linux and Windows compile checks exercise the
+      # same packaging layout used by their installers.
+      - name: Stage installer sidecar for compile checks
+        if: runner.os != 'macOS'
+        run: node scripts/stage-altai-cli.mjs
+
       - run: cargo check --manifest-path src-tauri/Cargo.toml
 
       - name: Lifecycle hook smoke tests
