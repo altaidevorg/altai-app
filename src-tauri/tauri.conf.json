@@ -1,12 +1,13 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "ALTAI",
+  "mainBinaryName": "altai-desktop",
   "version": "0.6.5",
   "identifier": "dev.altai.app",
   "build": {
     "beforeDevCommand": "pnpm isanagent:sync && pnpm dev",
     "devUrl": "http://127.0.0.1:1420",
-    "beforeBuildCommand": "pnpm isanagent:sync && pnpm build",
+    "beforeBuildCommand": "pnpm isanagent:sync && pnpm cli:stage && pnpm build",
     "frontendDist": "../dist"
   },
   "app": {

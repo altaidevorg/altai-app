@@ -11,6 +11,7 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "isanagent:sync": "cargo update --manifest-path src-tauri/Cargo.toml -p isanagent",
+    "cli:stage": "node scripts/stage-altai-cli.mjs",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build",

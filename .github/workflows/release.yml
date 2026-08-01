@@ -7,15 +7,15 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Release tag (e.g. v0.1.0). Created if missing."
+        description: "Release tag (e.g. v0.6.6). Created if missing."
         required: true
-        default: "v0.1.0"
+        default: "v0.6.6"
 
 permissions:
   contents: write
 
 jobs:
-  release:
+  build:
     name: ${{ matrix.label }}
     runs-on: ${{ matrix.os }}
     strategy:
@@ -25,19 +25,23 @@ jobs:
           - os: macos-14
             label: macOS (Apple Silicon)
             target: aarch64-apple-darwin
-            args: --target aarch64-apple-darwin
+            bundles: app
+            arch: aarch64
           - os: macos-14
             label: macOS (Intel)
             target: x86_64-apple-darwin
-            args: --target x86_64-apple-darwin
+            bundles: app
+            arch: x64
           - os: ubuntu-22.04
             label: Linux (x86_64)
             target: x86_64-unknown-linux-gnu
-            args: ""
+            bundles: deb,rpm
+            arch: x64
           - os: windows-latest
             label: Windows (x86_64)
             target: x86_64-pc-windows-msvc
-            args: ""
+            bundles: nsis
+            arch: x64
 
     steps:
       - uses: actions/checkout@v6
@@ -47,28 +51,16 @@ jobs:
         shell: bash
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            NAME="${{ inputs.tag }}"
+            name="${{ inputs.tag }}"
           else
-            NAME="${GITHUB_REF##refs/tags/}"
+            name="${GITHUB_REF##refs/tags/}"
           fi
-          echo "name=$NAME" >> "$GITHUB_OUTPUT"
-          # Treat any tag with a SemVer pre-release identifier (anything
-          # after a `-`: `-beta.1`, `-rc.2`, `-alpha`, `-canary`) as a
-          # GitHub pre-release so it doesn't claim the "Latest" slot away
-          # from the current stable.
-          if [[ "$NAME" == *-* ]]; then
-            echo "prerelease=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "prerelease=false" >> "$GITHUB_OUTPUT"
-          fi
+          echo "name=$name" >> "$GITHUB_OUTPUT"
 
       - name: Install Linux build dependencies
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          # Tauri 2 needs webkit2gtk-4.1 + the ayatana appindicator. The old
-          # libappindicator3-dev conflicts with libayatana-appindicator3-dev
-          # on 22.04 (mutual `Conflicts:` declaration), so keep only ayatana.
           sudo apt-get install -y \
             libwebkit2gtk-4.1-dev \
             librsvg2-dev \
@@ -81,7 +73,8 @@ jobs:
             libayatana-appindicator3-dev \
             libgtk-3-dev \
             libsoup-3.0-dev \
-            libjavascriptcoregtk-4.1-dev
+            libjavascriptcoregtk-4.1-dev \
+            rpm
 
       - uses: pnpm/action-setup@v6
         with:
@@ -100,178 +93,118 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri -> target
-          key: ${{ matrix.target }}
+          key: unified-release-${{ matrix.target }}
 
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
 
-      # Resolve the branch dependency at release time as well. This makes the
-      # release contract explicit instead of relying only on Tauri's
-      # beforeBuildCommand hook.
-      - name: Sync latest İsanAgent main
+      - name: Sync latest IsanAgent main
         run: cargo update --manifest-path src-tauri/Cargo.toml -p isanagent
 
-      - name: Resolve Tauri build args
-        id: build_args
-        shell: bash
-        run: |
-          # WiX MSI rejects pre-release identifiers that aren't numeric-only
-          # ("-beta.1", "-rc.2" etc. blow up with "must be numeric-only and
-          # cannot be greater than 65535 for msi target"). On prerelease
-          # tags we drop the MSI bundle for Windows and ship the NSIS .exe
-          # only; stable tags still produce both .exe and .msi.
-          #
-          # NOTE: the Windows bundle target is `nsis` ONLY — `app` is a
-          # macOS-only target and `--bundles app,nsis` errors on Windows with
-          # "invalid value 'app' for '--bundles'", which silently broke every
-          # prerelease Windows build (v0.5.8-beta.*, v0.5.903-beta.1).
-          if [ "${{ runner.os }}" = "Windows" ] && [ "${{ steps.tag.outputs.prerelease }}" = "true" ]; then
-            echo 'args=--bundles nsis' >> "$GITHUB_OUTPUT"
-          else
-            echo 'args=${{ matrix.args }}' >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Build & bundle (Tauri)
-        uses: tauri-apps/tauri-action@v0
+      - name: Build CLI and desktop bundle
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # No Apple signing identity, no Windows EV cert, no Tauri updater
-          # signing — we intentionally do NOT set the related env vars at all.
-          # tauri-action treats unset as "skip", but setting them to "" makes
-          # newer versions try to base64-decode an empty string and fail.
-          # macOS bundles get ad-hoc signed via `signingIdentity: "-"` in
-          # tauri.conf.json; Windows installers ship unsigned. Users follow
-          # the bypass steps in INSTALL.md on first launch.
-        with:
-          tagName: ${{ steps.tag.outputs.name }}
-          releaseName: "ALTAI ${{ steps.tag.outputs.name }}"
-          releaseBody: |
-            ## ALTAI ${{ steps.tag.outputs.name }}
+          TAURI_ENV_TARGET_TRIPLE: ${{ matrix.target }}
+        run: pnpm tauri build --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
 
-            See [INSTALL.md](https://github.com/altaidevorg/altai-app/blob/main/INSTALL.md) for one-time install instructions per platform — the binaries are unsigned, so macOS Gatekeeper and Windows SmartScreen will warn the first time.
-
-            **Desktop**
-            - **macOS:** `xattr -dr com.apple.quarantine /Applications/ALTAI.app`
-            - **Windows:** Click "More info" → "Run anyway" on the SmartScreen prompt.
-            - **Linux:** Install the `.deb` or run the `.AppImage` directly.
-
-            **CLI**
-            - Download `altai-cli_<tag>_<target>.tar.gz` / `.zip` from this release.
-            - Put `altai-cli` on your `PATH`, then run `altai-cli doctor`.
-          releaseDraft: false
-          prerelease: ${{ steps.tag.outputs.prerelease == 'true' }}
-          includeUpdaterJson: false
-          args: ${{ steps.build_args.outputs.args }}
-
-  cli:
-    name: CLI ${{ matrix.label }}
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: macos-14
-            label: (Apple Silicon)
-            target: aarch64-apple-darwin
-            binary: altai-cli
-          - os: macos-14
-            label: (Intel)
-            target: x86_64-apple-darwin
-            binary: altai-cli
-          - os: ubuntu-22.04
-            label: (Linux x86_64)
-            target: x86_64-unknown-linux-gnu
-            binary: altai-cli
-          - os: windows-latest
-            label: (Windows x86_64)
-            target: x86_64-pc-windows-msvc
-            binary: altai-cli.exe
-
-    steps:
-      - uses: actions/checkout@v6
-
-      - name: Resolve release tag
-        id: tag
+      - name: Smoke CLI command contract
         shell: bash
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            NAME="${{ inputs.tag }}"
-          else
-            NAME="${GITHUB_REF##refs/tags/}"
+          binary="src-tauri/target/${{ matrix.target }}/release/altai-cli"
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            binary="${binary}.exe"
           fi
-          echo "name=$NAME" >> "$GITHUB_OUTPUT"
-          if [[ "$NAME" == *-* ]]; then
-            echo "prerelease=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "prerelease=false" >> "$GITHUB_OUTPUT"
-          fi
+          "$binary" --version
+          "$binary" version --verbose
+          "$binary" doctor --json >/dev/null
+          "$binary" --help >/dev/null
+          "$binary" . --dry-run >/dev/null
+          "$binary" . -p "smoke" --dry-run >/dev/null
+          "$binary" open . --dry-run >/dev/null
 
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.target }}
-
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: src-tauri -> target
-          key: cli-release-${{ matrix.target }}
-
-      - name: Sync latest İsanAgent main
-        run: cargo update --manifest-path src-tauri/Cargo.toml -p isanagent
-
-      - name: Build altai-cli
-        run: cargo build --manifest-path src-tauri/Cargo.toml -p altai-cli --release --target ${{ matrix.target }}
-
-      - name: Package archive
+      - name: Package macOS PKG
+        if: runner.os == 'macOS'
         shell: bash
         run: |
-          ./scripts/package-altai-cli.sh \
-            --binary "src-tauri/target/${{ matrix.target }}/release/${{ matrix.binary }}" \
-            --target "${{ matrix.target }}" \
+          ./scripts/package-macos-unified.sh \
+            --app "src-tauri/target/${{ matrix.target }}/release/bundle/macos/ALTAI.app" \
+            --cli "src-tauri/target/${{ matrix.target }}/release/altai-cli" \
             --version "${{ steps.tag.outputs.name }}" \
-            --out-dir dist/cli
+            --arch "${{ matrix.arch }}" \
+            --out-dir dist/release
 
-      - name: Smoke packaged binary
+      - name: Verify macOS PKG payload
+        if: runner.os == 'macOS'
         shell: bash
         run: |
-          set -euo pipefail
-          stage="$(mktemp -d "${TMPDIR:-/tmp}/cli-smoke.XXXXXX")"
-          trap 'rm -rf "$stage"' EXIT
-          shopt -s nullglob
-          archives=(dist/cli/altai-cli_${{ steps.tag.outputs.name }}_${{ matrix.target }}.*)
-          archive=""
-          for candidate in "${archives[@]}"; do
-            if [[ "$candidate" != *.sha256 ]]; then
-              archive="$candidate"
-              break
-            fi
-          done
-          if [[ -z "$archive" ]]; then
-            echo "no CLI archive found in dist/cli/" >&2
-            exit 1
-          fi
-          if [[ "$archive" == *.zip ]]; then
-            py=python3
-            if ! command -v "$py" >/dev/null 2>&1; then
-              py=python
-            fi
-            "$py" -m zipfile -e "$archive" "$stage"
-            BIN="$stage/altai-cli.exe"
-          else
-            tar -xzf "$archive" -C "$stage"
-            BIN="$stage/altai-cli"
-          fi
-          "$BIN" version --verbose
-          "$BIN" doctor --json >/dev/null
+          pkg="$(find dist/release -maxdepth 1 -name '*.pkg' -print -quit)"
+          expanded="$RUNNER_TEMP/altai-pkg-expanded"
+          pkgutil --expand-full "$pkg" "$expanded"
+          desktop="$(find "$expanded" -path '*/Payload/Applications/ALTAI.app/Contents/MacOS/altai-desktop' -print -quit)"
+          cli="$(find "$expanded" -path '*/Payload/Applications/ALTAI.app/Contents/Resources/bin/altai-cli' -print -quit)"
+          link="$(find "$expanded" -path '*/Payload/usr/local/bin/altai-cli' -print -quit)"
+          test -x "$desktop"
+          test -x "$cli"
+          test -L "$link"
+          "$cli" version --verbose
+          "$cli" open . --dry-run >/dev/null
+
+      - name: Collect Linux packages
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          mkdir -p dist/release
+          cp src-tauri/target/${{ matrix.target }}/release/bundle/deb/*.deb dist/release/
+          cp src-tauri/target/${{ matrix.target }}/release/bundle/rpm/*.rpm dist/release/
+
+      - name: Verify Linux package payloads
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          deb="$(find dist/release -maxdepth 1 -name '*.deb' -print -quit)"
+          rpm="$(find dist/release -maxdepth 1 -name '*.rpm' -print -quit)"
+          root="$RUNNER_TEMP/altai-deb-root"
+          dpkg-deb -x "$deb" "$root"
+          test -x "$root/usr/bin/altai-desktop"
+          test -x "$root/usr/bin/altai-cli"
+          "$root/usr/bin/altai-cli" version --verbose
+          "$root/usr/bin/altai-cli" open . --dry-run >/dev/null
+          rpm -qlp "$rpm" | grep -q '/usr/bin/altai-desktop'
+          rpm -qlp "$rpm" | grep -q '/usr/bin/altai-cli'
+
+      - name: Collect Windows installer
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          mkdir -p dist/release
+          cp src-tauri/target/${{ matrix.target }}/release/bundle/nsis/*-setup.exe dist/release/
+
+      - name: Verify Windows installer and PATH lifecycle
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          installer="$(find dist/release -maxdepth 1 -name '*-setup.exe' -print -quit)"
+          install_dir="$RUNNER_TEMP/altai-install"
+          install_dir_win="$(cygpath -w "$install_dir")"
+          "$installer" /S "/D=$install_dir_win"
+          test -f "$install_dir/altai-desktop.exe"
+          test -f "$install_dir/altai-cli.exe"
+          "$install_dir/altai-cli.exe" version --verbose
+          "$install_dir/altai-cli.exe" open . --dry-run >/dev/null
+          powershell -NoProfile -Command \
+            '$target=[IO.Path]::GetFullPath($env:RUNNER_TEMP + "\altai-install").TrimEnd("\"); $parts=[Environment]::GetEnvironmentVariable("Path","User") -split ";"; if (-not ($parts | Where-Object { [StringComparer]::OrdinalIgnoreCase.Equals($_.TrimEnd("\"),$target) })) { exit 1 }'
+          "$install_dir/uninstall.exe" /S
+          powershell -NoProfile -Command \
+            '$target=[IO.Path]::GetFullPath($env:RUNNER_TEMP + "\altai-install").TrimEnd("\"); $parts=[Environment]::GetEnvironmentVariable("Path","User") -split ";"; if ($parts | Where-Object { [StringComparer]::OrdinalIgnoreCase.Equals($_.TrimEnd("\"),$target) }) { exit 1 }'
 
       - uses: actions/upload-artifact@v4
         with:
-          name: altai-cli-release-${{ matrix.target }}
-          path: dist/cli/*
+          name: altai-unified-${{ matrix.target }}
+          path: dist/release/*
           if-no-files-found: error
 
-  cli-publish:
-    name: Publish CLI archives
-    needs: cli
+  publish:
+    name: Publish unified installers
+    needs: build
     runs-on: ubuntu-22.04
     steps:
       - name: Resolve release tag
@@ -279,12 +212,12 @@ jobs:
         shell: bash
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            NAME="${{ inputs.tag }}"
+            name="${{ inputs.tag }}"
           else
-            NAME="${GITHUB_REF##refs/tags/}"
+            name="${GITHUB_REF##refs/tags/}"
           fi
-          echo "name=$NAME" >> "$GITHUB_OUTPUT"
-          if [[ "$NAME" == *-* ]]; then
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+          if [[ "$name" == *-* ]]; then
             echo "prerelease=true" >> "$GITHUB_OUTPUT"
           else
             echo "prerelease=false" >> "$GITHUB_OUTPUT"
@@ -292,18 +225,33 @@ jobs:
 
       - uses: actions/download-artifact@v4
         with:
-          pattern: altai-cli-release-*
-          path: dist/cli
+          pattern: altai-unified-*
+          path: dist/release
           merge-multiple: true
 
-      - name: Upload CLI archives to GitHub Release
+      - name: Generate checksums
+        shell: bash
+        run: |
+          cd dist/release
+          sha256sum -- * > SHA256SUMS
+
+      - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.tag.outputs.name }}
           name: ALTAI ${{ steps.tag.outputs.name }}
           prerelease: ${{ steps.tag.outputs.prerelease == 'true' }}
-          files: |
-            dist/cli/*
+          body: |
+            ## ALTAI ${{ steps.tag.outputs.name }}
+
+            Each installer includes both ALTAI Desktop and `altai-cli`.
+
+            - **macOS:** install the `.pkg`; it installs `ALTAI.app` and makes `altai-cli` available in new terminal sessions.
+            - **Windows:** run the `-setup.exe`; it installs both executables and adds ALTAI to your user PATH. Open a new terminal after installation.
+            - **Linux:** install the `.deb` or `.rpm`; both commands are installed under `/usr/bin`.
+
+            The packages are currently unsigned. See [INSTALL.md](https://github.com/altaidevorg/altai-app/blob/main/INSTALL.md) for platform security prompts and verification steps.
+          files: dist/release/*
           fail_on_unmatched_files: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

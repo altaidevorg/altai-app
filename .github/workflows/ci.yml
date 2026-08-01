@@ -142,11 +142,12 @@ jobs:
           "$BIN" doctor --json >/tmp/altai-doctor.json
           "$BIN" completion bash >/tmp/altai.bash
           "$BIN" open . --dry-run >/tmp/altai-open.json
-          "$BIN" run . --prompt "smoke" --dry-run >/tmp/altai-run.json
+          "$BIN" . --dry-run >/tmp/altai-agent.json
+          "$BIN" . --prompt "smoke" --dry-run >/tmp/altai-run.json
           "$BIN" journal summary --json >/tmp/altai-journal.json || true
           python3 - <<'PY'
           import json
-          for path in ("/tmp/altai-doctor.json", "/tmp/altai-open.json", "/tmp/altai-run.json"):
+          for path in ("/tmp/altai-doctor.json", "/tmp/altai-open.json", "/tmp/altai-agent.json", "/tmp/altai-run.json"):
               with open(path) as f:
                   json.load(f)
           print("cli smoke ok")
@@ -161,28 +162,23 @@ jobs:
           "$BIN" doctor --json >"$RUNNER_TEMP/altai-doctor.json"
           "$BIN" completion powershell >"$RUNNER_TEMP/altai.ps1"
           "$BIN" open . --dry-run >"$RUNNER_TEMP/altai-open.json"
-          "$BIN" run . --prompt "smoke" --dry-run >"$RUNNER_TEMP/altai-run.json"
+          "$BIN" . --dry-run >"$RUNNER_TEMP/altai-agent.json"
+          "$BIN" . --prompt "smoke" --dry-run >"$RUNNER_TEMP/altai-run.json"
           "$BIN" journal summary --json >"$RUNNER_TEMP/altai-journal.json" || true
           python - <<PY
           import json, os
           root = os.environ["RUNNER_TEMP"]
-          for name in ("altai-doctor.json", "altai-open.json", "altai-run.json"):
+          for name in ("altai-doctor.json", "altai-open.json", "altai-agent.json", "altai-run.json"):
               with open(os.path.join(root, name), encoding="utf-8-sig") as f:
                   json.load(f)
           print("cli smoke ok")
           PY
 
-      - name: Package release-style archive
+      - name: Stage installer sidecar
         shell: bash
         run: |
-          ./scripts/package-altai-cli.sh \
+          node scripts/stage-altai-cli.mjs \
+            --skip-build \
             --binary "src-tauri/target/${{ matrix.rust_target }}/release/${{ matrix.binary }}" \
-            --target "${{ matrix.rust_target }}" \
-            --version "ci-${{ github.sha }}" \
-            --out-dir dist/cli
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: altai-cli-${{ matrix.label }}
-          path: dist/cli/*
-          if-no-files-found: error
+            --target "${{ matrix.rust_target }}"
+          test -f "src-tauri/binaries/altai-cli-${{ matrix.rust_target }}${{ runner.os == 'Windows' && '.exe' || '' }}"

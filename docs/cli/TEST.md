@@ -1,5 +1,17 @@
 # ALTAI CLI Test Plan
 
+## Unified CLI/desktop contract — 2026-08-01
+
+- Bare `altai-cli [PATH]` starts the interactive host; `altai-cli -p/--prompt`
+  selects the one-shot host without a subcommand.
+- `agent` and `run` remain hidden parser aliases for one transition release.
+- `cargo test --manifest-path src-tauri/Cargo.toml -p altai-cli --bin altai-cli`
+  passes 47 tests, including root parsing, invalid option combinations, and
+  Windows/Linux/macOS desktop routing layouts.
+- Release CI builds a single Desktop + CLI payload per platform and inspects
+  macOS PKG, Windows NSIS, and Linux DEB/RPM contents before publishing.
+- Portable CLI tar/zip archives are no longer part of the release contract.
+
 **Status:** Initial plan — results are appended as phases complete.
 
 ## Planned test inventory
@@ -66,7 +78,7 @@
   model/permission override mapping are covered by isolated host tests. ALTAI
   pins that commit and maps project root to the host sandbox while keeping
   state under `.isanagent`.
-- `altai-cli agent` now starts the reusable IsanAgent host for the supported
+- Bare `altai-cli` now starts the reusable IsanAgent host for the supported
   TUI path. `--model` is applied as a provider/model runtime override and
   `--permission` maps to the host shell/edit policy (`ask`, `auto-edit`,
   `plan`, or `bypass`); the remaining adapter flags continue to fail explicitly
@@ -80,7 +92,7 @@
   later merged upstream via
   [`altaidevorg/isanagent#101`](https://github.com/altaidevorg/isanagent/pull/101);
   see `docs/cli/isanagent-oneshot-api.md`.
-- `altai run` now performs a real one-shot host session (pretty / json / jsonl,
+- `altai-cli -p` now performs a real one-shot host session (pretty / json / jsonl,
   Ctrl-C → exit 7, timeout → exit 8, non-TTY approval/clarification → exit 4).
 - Non-interactive runs default to `--permission plan` when no permission flag is
   set.
@@ -93,7 +105,7 @@
 
 - Wired ALTAI terminal palette roles (truecolor RGB derived from
   `src/styles/globals.css`) through IsanAgent `Theme` + `HostConfig.theme`.
-- `altai agent --theme auto|dark|light|no-color` is unblocked; `NO_COLOR` and
+- `altai-cli --theme auto|dark|light|no-color` is unblocked; `NO_COLOR` and
   `ALTAI_TUI_THEME` resolve via `altai_core::resolve_terminal_appearance*`.
 - Dense status header shows `ALTAI · workspace · model · permission · session`.
 - Responsive layout: narrow (&lt;80), medium (80–119), wide (120+) with transcript
@@ -126,7 +138,7 @@
   IsanAgent `HostConfig.compact_*` / `AgentLogicParams`.
 - Line mode supports `/context`, `/compact [focus]`, and `@path` attachments
   (text / image / PDF) with fuzzy basename resolve under the sandbox.
-- `altai run --file` and oneshot loads real file content via
+- `altai-cli -p --file` and oneshot loads real file content via
   `load_host_file_attachments` (not path-only notes). Line mode merges `--file`
   attachments into the first user message; TUI still seeds `@path` into the
   composer (parsed on send).
@@ -155,7 +167,7 @@
   (`src-tauri/Cargo.toml`), which it previously only referenced transitively
   as a workspace member.
 - New `altai-cli::journal_sink::JournalSink` opens the same
-  `agent_event_journal_db()` during `altai run` and appends a minimal subset
+  `agent_event_journal_db()` during `altai-cli -p` and appends a minimal subset
   mirroring desktop's journal `kind` conventions: `run_started` on the first
   `RunLifecycle::Started` bus message, then a single `run_terminated` once the
   oneshot host returns — synthesizing the run/chat identity from the final
@@ -178,7 +190,7 @@
   altai::agent::runtime` (34 tests, including
   `run_event_tests::restart_classifies_incomplete_runs_once_without_resuming_work`)
   both passed against the re-exported journal module.
-- Manual smoke: `altai-cli run . --prompt "..." --permission plan --output
+- Manual smoke: `altai-cli . --prompt "..." --permission plan --output
   jsonl` against a scratch workspace with no provider configured (so the run
   fails with `ProviderRetriesExhausted`) still committed `run_started` +
   `run_terminated` (`outcome.kind = "failed"`) to
@@ -231,16 +243,11 @@
 - Unit tests: 12 `journal_sink` cases including pre-start ignore and malformed
   edit_diff omission.
 
-## M6 — CLI release archives — 2026-07-30
+## Superseded M6 — CLI release archives — 2026-07-30
 
-- Added `scripts/package-altai-cli.sh` (tar.gz / zip + `.sha256`).
-- CI `altai-cli smoke` packs a release-style archive per target and uploads it
-  as a workflow artifact (`altai-cli-linux-x64` / `win32-x64` / `darwin-arm64`).
-- Release workflow gains a `cli` matrix job that builds
-  `aarch64-apple-darwin`, `x86_64-apple-darwin`, `x86_64-unknown-linux-gnu`,
-  and `x86_64-pc-windows-msvc`, smokes the packed binary, and attaches
-  archives to the GitHub Release via `softprops/action-gh-release`.
-- `INSTALL.md` documents CLI archive names and PATH install steps.
+- This milestone originally introduced portable tar/zip CLI artifacts. It was
+  replaced on 2026-08-01 by the unified installer contract documented above;
+  the archive script, CI artifacts, and release job were removed.
 
 ## M6 — run_warning journal parity — 2026-07-30
 

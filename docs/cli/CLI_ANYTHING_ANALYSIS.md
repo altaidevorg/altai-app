@@ -18,7 +18,7 @@ agent-facing skill documentation.
 
 | ALTAI desktop capability | Terminal product surface | Backend owner |
 |---|---|---|
-| AI chat and streaming | `altai agent`, `altai run` | IsanAgent + ALTAI agent runtime |
+| AI chat and streaming | `altai-cli`, `altai-cli -p` | IsanAgent + ALTAI agent runtime |
 | Session history and replay | `altai chat`, TUI session browser | workspace memory + event journal |
 | Model, fallback, and permission selection | `altai models`, `altai auth`, TUI selectors | shared config and secret store |
 | Tool calls, approvals, and edit diffs | TUI tool rail and approval overlay | agent runtime event sink |
@@ -60,4 +60,3 @@ agent-facing skill documentation.
 - ALTAI runtime events are Tauri-bound.
 - The model catalog and desktop preferences are TypeScript/Tauri-bound.
 - ALTAI visual tokens do not yet have a Ratatui palette implementation.
-

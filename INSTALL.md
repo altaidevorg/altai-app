@@ -6,116 +6,61 @@ Releases live on the [GitHub Releases page](https://github.com/altaidevorg/altai
 
 ---
 
-## macOS
+## macOS (Desktop + CLI)
 
-Pick the build matching your Mac:
+Pick the installer matching your Mac:
 
-- **Apple Silicon (M1/M2/M3/M4):** `ALTAI_<version>_aarch64.dmg`
-- **Intel:** `ALTAI_<version>_x64.dmg`
+- **Apple Silicon (M1/M2/M3/M4):** `ALTAI_<version>_aarch64.pkg`
+- **Intel:** `ALTAI_<version>_x64.pkg`
 
-Then:
-
-1. Open the `.dmg` and drag `ALTAI.app` into `/Applications`.
-2. Open Terminal and run **once**:
-
-   ```bash
-   xattr -dr com.apple.quarantine /Applications/ALTAI.app
-   ```
-
-3. Launch ALTAI normally — Gatekeeper will no longer block it.
-
-> Without step 2, macOS will show "ALTAI is damaged and can't be opened" or "Apple could not verify ALTAI is free of malware." That's Gatekeeper rejecting the unsigned binary, not actual damage. The `xattr` command removes the quarantine flag that Safari/Finder attaches to downloaded files.
-
-If you skipped step 2 and already got the prompt, you can also recover via System Settings → Privacy & Security → scroll to the bottom → "Open Anyway."
-
----
-
-## Windows
-
-Download `ALTAI_<version>_x64_en-US.msi` (preferred) or `ALTAI_<version>_x64-setup.exe`.
-
-1. Double-click the installer.
-2. Windows SmartScreen will show: *"Windows protected your PC."*
-3. Click **More info** → **Run anyway**.
-4. Complete the install wizard.
-
-> SmartScreen warns because the binary isn't signed with an EV code-signing certificate. The warning disappears once Microsoft sees enough downloads of the same hash — but for v0.1.0, expect the prompt.
-
----
-
-## Linux
-
-Pick whichever package fits your distro:
-
-- **Debian / Ubuntu / Mint:** `altai_<version>_amd64.deb`
-
-  ```bash
-  sudo apt install ./altai_0.1.0_amd64.deb
-  ```
-
-- **Fedora / RHEL / openSUSE:** `altai-<version>-1.x86_64.rpm`
-
-  ```bash
-  sudo dnf install ./altai-0.1.0-1.x86_64.rpm
-  ```
-
-- **Any distro (portable):** `altai_<version>_amd64.AppImage`
-
-  ```bash
-  chmod +x altai_0.1.0_amd64.AppImage
-  ./altai_0.1.0_amd64.AppImage
-  ```
-
-> **AppImage runtime dependency:** newer Ubuntu releases (24.04+) may need `libfuse2`:
->
-> ```bash
-> sudo apt install libfuse2
-> ```
-
-Linux binaries are not subject to Gatekeeper / SmartScreen — no bypass step is needed.
-
----
-
-## CLI (`altai-cli`)
-
-Each `v*` GitHub Release also publishes portable CLI archives:
-
-| Platform | Archive |
-|---|---|
-| macOS Apple Silicon | `altai-cli_<tag>_aarch64-apple-darwin.tar.gz` |
-| macOS Intel | `altai-cli_<tag>_x86_64-apple-darwin.tar.gz` |
-| Linux x86_64 | `altai-cli_<tag>_x86_64-unknown-linux-gnu.tar.gz` |
-| Windows x86_64 | `altai-cli_<tag>_x86_64-pc-windows-msvc.zip` |
-
-Each archive ships `altai-cli` (or `altai-cli.exe`) plus a `.sha256` sidecar on the release.
+Open the `.pkg` and complete the installer. It installs `ALTAI.app` into `/Applications` and links `altai-cli` into `/usr/local/bin`. Because releases are unsigned, macOS may require approval under System Settings → Privacy & Security. If the application is quarantined, run:
 
 ```bash
-# Example: Linux / macOS
-tar -xzf altai-cli_v0.6.5_aarch64-apple-darwin.tar.gz
-sudo mv altai-cli /usr/local/bin/
-altai-cli doctor
-altai-cli version --verbose
-
-# Optional shorter command name
-sudo ln -s /usr/local/bin/altai-cli /usr/local/bin/altai
+xattr -dr com.apple.quarantine /Applications/ALTAI.app
 ```
 
-```powershell
-# Example: Windows (PowerShell)
-Expand-Archive .\altai-cli_v0.6.5_x86_64-pc-windows-msvc.zip -DestinationPath .
-Move-Item .\altai-cli.exe $env:LOCALAPPDATA\Microsoft\WindowsApps\
-altai-cli doctor
+Open a new Terminal window and verify `altai-cli doctor` and `altai-cli open`.
+
+---
+
+## Windows (Desktop + CLI)
+
+Download `ALTAI_<version>_x64-setup.exe`.
+
+1. Double-click the installer.
+2. On the SmartScreen warning, click **More info** → **Run anyway**.
+3. Complete the wizard and open a new terminal so the updated user `PATH` is loaded.
+4. Run `altai-cli doctor` and `altai-cli open`.
+
+---
+
+## Linux (Desktop + CLI)
+
+- **Debian / Ubuntu / Mint:** `sudo apt install ./altai_<version>_amd64.deb`
+- **Fedora / RHEL / openSUSE:** `sudo dnf install ./altai-<version>-1.x86_64.rpm`
+
+Both packages install `altai-desktop` and `altai-cli` under `/usr/bin`. Verify with `altai-cli doctor` and launch the GUI with `altai-cli open`.
+
+---
+
+## CLI usage
+
+The platform installer always includes the CLI; there is no separate CLI archive.
+
+```bash
+altai-cli                           # interactive TUI in the current directory
+altai-cli ./workspace               # interactive TUI for a workspace
+altai-cli -p "Review this change"   # non-interactive one-shot
+altai-cli open .                    # open the current directory in Desktop
 ```
 
-Build the CLI from source without the desktop shell:
+The hidden `agent` and `run` compatibility aliases remain available for one transition release. New scripts should use the forms above.
+
+To build only the CLI from source:
 
 ```bash
 cargo build --manifest-path src-tauri/Cargo.toml -p altai-cli --release
-./scripts/package-altai-cli.sh \
-  --binary src-tauri/target/release/altai-cli \
-  --target "$(rustc -vV | sed -n 's/^host: //p')" \
-  --version local \
-  --out-dir dist/cli
+src-tauri/target/release/altai-cli --version
 ```
 
 ---
@@ -136,8 +81,8 @@ Launch ALTAI. You should see:
 |---|---|---|
 | macOS: "ALTAI.app is damaged" | Quarantine flag from Safari | Run the `xattr -dr` command in the macOS section. |
 | macOS: "App can't be opened because Apple cannot check it" | Gatekeeper, unsigned binary | Right-click the app → Open → confirm in the dialog, OR run the `xattr` command. |
-| Windows: "Windows protected your PC" | SmartScreen, unsigned MSI | Click *More info* → *Run anyway*. |
-| Linux: AppImage won't launch | Missing `libfuse2` | `sudo apt install libfuse2` (Ubuntu 24.04+). |
+| Windows: "Windows protected your PC" | SmartScreen, unsigned NSIS installer | Click *More info* → *Run anyway*. |
+| `altai-cli` is not found after install | Current shell has the old PATH | Close the terminal and open a new one. |
 | Linux: `.deb` reports missing libraries | Missing GTK / WebKit deps | `sudo apt install libwebkit2gtk-4.1-0 libayatana-appindicator3-1`. |
 | ALTAI starts but the AI panel says "no API key" | Models not configured | Settings → Models, paste a provider API key (stored in your OS keychain). |
 
@@ -208,7 +153,7 @@ The first `pnpm install` is also when Tauri pulls down Rust crates — expect a 
 pnpm tauri:dev
 ```
 
-Opens an ALTAI window directly. Edits to `src/` hot-reload, edits to `src-tauri/` rebuild Rust and relaunch the app. No DMG / MSI / AppImage produced — this is the inner-loop dev experience.
+Opens an ALTAI window directly. Edits to `src/` hot-reload, edits to `src-tauri/` rebuild Rust and relaunch the app. No installer is produced — this is the inner-loop dev experience.
 
 **Production bundle (what you'd actually install):**
 
@@ -220,11 +165,11 @@ Compiles in release mode and assembles the platform-native installer(s). Takes 5
 
 | Platform | Bundle path (relative to repo root) |
 |----------|-------------------------------------|
-| macOS    | `src-tauri/target/release/bundle/macos/ALTAI.app` and `bundle/dmg/ALTAI_<version>_<arch>.dmg` |
-| Windows  | `src-tauri/target/release/bundle/msi/ALTAI_<version>_x64_en-US.msi` and `bundle/nsis/ALTAI_<version>_x64-setup.exe` |
-| Linux    | `src-tauri/target/release/bundle/deb/*.deb`, `bundle/rpm/*.rpm`, and `bundle/appimage/*.AppImage` |
+| macOS    | `src-tauri/target/release/bundle/macos/ALTAI.app`; release CI wraps it with `scripts/package-macos-unified.sh` |
+| Windows  | `src-tauri/target/release/bundle/nsis/ALTAI_<version>_x64-setup.exe` |
+| Linux    | `src-tauri/target/release/bundle/deb/*.deb` and `bundle/rpm/*.rpm` |
 
-Drop the `.app` into `/Applications`, install the `.msi` / `.deb` / `.rpm`, or just run the AppImage — same UX as the official downloads, **minus the security warnings**.
+Each production package includes both the `altai-desktop` GUI binary and `altai-cli` console binary.
 
 ### Sanity checks before opening a PR
 
@@ -247,13 +192,12 @@ CI runs all four on every push. Type-check failures are the most common cause of
 | `error: could not compile 'tauri-build'` after pulling main | Rust toolchain drift | `rustup update stable && cargo clean --manifest-path src-tauri/Cargo.toml` |
 | `pnpm install` hangs on `postinstall` | Corporate proxy blocking `cargo fetch` | Set `CARGO_HTTP_PROXY` and `HTTPS_PROXY` env vars before installing |
 | `pnpm tauri:dev` shows a blank white window | Vite dev server didn't start | Check terminal output — usually a port conflict. Free port 1420 or set `VITE_PORT` in `.env.local` |
-| Build succeeds but DMG step fails on macOS | `create-dmg` permission prompt | Re-run with the terminal in the foreground; macOS needs you to approve the AppleScript that drives `create-dmg` |
-| AppImage from your build won't launch on another distro | glibc / openssl version skew | Build inside an Ubuntu 22.04 container for the broadest compatibility, or distribute the `.deb` / `.rpm` instead |
+| macOS PKG assembly fails | Xcode command-line packaging tools are missing | Run `xcode-select --install` and retry `scripts/package-macos-unified.sh` |
 
 ### Why this avoids the unsigned-binary warnings
 
 - **macOS:** Tauri ad-hoc-signs your build with the local identity. The binary never receives the `com.apple.quarantine` extended attribute (that flag is only attached by Safari, Mail, AirDrop, and similar download surfaces). Gatekeeper sees a locally-produced binary and lets it run.
-- **Windows:** A `.msi` you produced yourself doesn't carry the Mark-of-the-Web Alternate Data Stream that SmartScreen checks. The reputation lookup is skipped and the installer runs without the "Windows protected your PC" dialog.
+- **Windows:** A locally-produced NSIS installer doesn't carry the Mark-of-the-Web Alternate Data Stream that SmartScreen checks. The reputation lookup is skipped and the installer runs without the "Windows protected your PC" dialog.
 - **Linux:** No Gatekeeper-equivalent; source builds and binary downloads are treated identically.
 
 If you later move the artifact to another machine (USB / network share / Slack), reapply the same security-bypass steps from the macOS and Windows sections above — the moment a file crosses a download boundary, the OS re-applies its mark.
