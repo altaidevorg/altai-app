@@ -48,12 +48,22 @@ jobs:
       - name: Sync latest İsanAgent main
         run: cargo update --manifest-path src-tauri/Cargo.toml -p isanagent
 
-      # Tauri validates platform externalBin paths during cargo check. Stage the
-      # real CLI sidecar first so Linux and Windows compile checks exercise the
-      # same packaging layout used by their installers.
-      - name: Stage installer sidecar for compile checks
+      # Tauri validates platform externalBin paths during cargo check. The
+      # cli-smoke job builds and validates the real sidecar on every platform;
+      # this lightweight placeholder keeps the compile matrix focused on Rust.
+      - name: Create sidecar placeholder for compile checks
         if: runner.os != 'macOS'
-        run: node scripts/stage-altai-cli.mjs
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            target=x86_64-pc-windows-msvc
+            suffix=.exe
+          else
+            target=x86_64-unknown-linux-gnu
+            suffix=''
+          fi
+          mkdir -p src-tauri/binaries
+          : > "src-tauri/binaries/altai-cli-${target}${suffix}"
 
       - run: cargo check --manifest-path src-tauri/Cargo.toml
 
