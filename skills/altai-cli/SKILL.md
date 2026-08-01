@@ -11,14 +11,11 @@ The CLI is under active development. Its production contract is defined in
 ## Intended command families
 
 ```text
-altai agent [PATH]
-altai run [PATH] --prompt TEXT --output jsonl
-altai chat ...
-altai jobs ...
-altai inbox ...
-altai skills ...
-altai mcp ...
-altai orchestration ...
+altai-cli [PATH]
+altai-cli [PATH] --prompt TEXT --output jsonl
+altai-cli acp [PATH]
+altai-cli open [PATH]
+altai-cli journal ...
 ```
 
 ## Agent usage rules
@@ -29,5 +26,4 @@ altai orchestration ...
 - Never pass API keys as command-line arguments.
 - Treat approval-required and non-TTY outcomes as actionable failures, not as
   implicit permission to bypass safeguards.
-- Use `altai open` only when a visual-only desktop surface is needed.
-
+- Use `altai-cli open` only when a visual-only desktop surface is needed.

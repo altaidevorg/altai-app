@@ -18,7 +18,7 @@ pub fn host_config_for_workspace(workspace: &WorkspacePaths) -> isanagent::host:
     }
 }
 
-/// Build a one-shot host configuration for `altai run`.
+/// Build a one-shot host configuration for `altai-cli --prompt`.
 pub fn oneshot_host_config(
     workspace: &WorkspacePaths,
     prompt: String,

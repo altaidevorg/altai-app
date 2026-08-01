@@ -1,4 +1,4 @@
-//! Output contracts for `altai run`.
+//! Output contracts for `altai-cli --prompt`.
 
 use altai_core::EventEnvelope;
 use isanagent::bus::{BusMessage, RunLifecycleEvent, RunOutcome, TelemetryEvent};
@@ -364,8 +364,8 @@ fn run_outcome_label(outcome: &RunOutcome) -> String {
 pub fn render_pretty(result: &FinalRunResult, out: &mut dyn Write) -> io::Result<()> {
     match (&result.final_text, &result.detail) {
         (Some(text), _) if !text.is_empty() => writeln!(out, "{text}"),
-        (_, Some(detail)) => writeln!(out, "altai run {}: {detail}", result.outcome),
-        _ => writeln!(out, "altai run {}", result.outcome),
+        (_, Some(detail)) => writeln!(out, "altai-cli -p {}: {detail}", result.outcome),
+        _ => writeln!(out, "altai-cli -p {}", result.outcome),
     }
 }
 

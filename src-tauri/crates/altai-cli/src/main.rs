@@ -14,18 +14,52 @@ mod serve;
     name = "altai-cli",
     version,
     about = "ALTAI terminal product",
-    long_about = "The ALTAI terminal product. Use `altai agent` for the interactive TUI, `altai run` for one-shot headless sessions, and `altai acp` for Agent Client Protocol (ACP) over stdio."
+    long_about = "The ALTAI terminal product. Run `altai-cli` for the interactive TUI, use `altai-cli -p <PROMPT>` for a one-shot headless session, and `altai-cli acp` for Agent Client Protocol (ACP) over stdio.",
+    args_conflicts_with_subcommands = true
 )]
 struct Cli {
+    #[command(flatten)]
+    default: DefaultArgs,
     #[command(subcommand)]
     command: Option<Commands>,
 }
 
+#[derive(Debug, Args)]
+struct DefaultArgs {
+    /// Workspace path. Defaults to the current directory.
+    path: Option<PathBuf>,
+    /// Run one prompt without starting an interactive terminal session. Use `-` to read stdin.
+    #[arg(short, long)]
+    prompt: Option<String>,
+    /// Use an accessible line-oriented REPL instead of the IsanAgent TUI.
+    #[arg(long)]
+    no_tui: bool,
+    /// Output contract for a one-shot prompt. Requires --prompt.
+    #[arg(long, value_enum)]
+    output: Option<OutputMode>,
+    /// Alias for `--output jsonl`. Requires --prompt.
+    #[arg(long, conflicts_with = "output")]
+    json: bool,
+    /// Complete one-shot timeout, for example `10m`. Requires --prompt.
+    #[arg(long)]
+    timeout: Option<String>,
+    /// Suppress non-error one-shot diagnostic output. Requires --prompt.
+    #[arg(long)]
+    quiet: bool,
+    /// Describe the resolved session without starting the host or desktop.
+    #[arg(long)]
+    dry_run: bool,
+    #[command(flatten)]
+    options: AgentOptions,
+}
+
 #[derive(Debug, Subcommand)]
 enum Commands {
-    /// Start the interactive ALTAI terminal experience.
+    /// Deprecated compatibility alias for the default interactive experience.
+    #[command(hide = true)]
     Agent(AgentArgs),
-    /// Run one prompt without starting an interactive terminal session.
+    /// Deprecated compatibility alias for --prompt.
+    #[command(hide = true)]
     Run(RunArgs),
     /// Speak the Agent Client Protocol (ACP) over stdio for editors such as Zed.
     Acp(AcpArgs),
@@ -386,13 +420,7 @@ fn main() -> ExitCode {
 fn run() -> Result<(), CliError> {
     let cli = Cli::parse();
     match cli.command {
-        None => {
-            Cli::command()
-                .print_help()
-                .map_err(|error| CliError::Message(error.to_string()))?;
-            println!();
-            Ok(())
-        }
+        None => default_command(cli.default),
         Some(Commands::Agent(args)) => agent(args),
         Some(Commands::Run(args)) => run_prompt(args),
         Some(Commands::Acp(args)) => acp(args),
@@ -410,6 +438,65 @@ fn run() -> Result<(), CliError> {
         Some(Commands::Open(args)) => open_desktop(args),
         Some(Commands::Journal { command }) => journal(command),
     }
+}
+
+fn default_command(args: DefaultArgs) -> Result<(), CliError> {
+    let DefaultArgs {
+        path,
+        prompt,
+        no_tui,
+        output,
+        json,
+        timeout,
+        quiet,
+        dry_run,
+        options,
+    } = args;
+
+    if let Some(prompt) = prompt {
+        if no_tui {
+            return Err(CliError::Message(
+                "--no-tui is only valid for an interactive session without --prompt".into(),
+            ));
+        }
+        return run_prompt(RunArgs {
+            path,
+            prompt,
+            output: output.unwrap_or(OutputMode::Pretty),
+            json,
+            timeout,
+            quiet,
+            dry_run,
+            options,
+        });
+    }
+
+    let mut one_shot_options = Vec::new();
+    if output.is_some() {
+        one_shot_options.push("--output");
+    }
+    if json {
+        one_shot_options.push("--json");
+    }
+    if timeout.is_some() {
+        one_shot_options.push("--timeout");
+    }
+    if quiet {
+        one_shot_options.push("--quiet");
+    }
+    if !one_shot_options.is_empty() {
+        return Err(CliError::Message(format!(
+            "{} require --prompt <TEXT>",
+            one_shot_options.join(", ")
+        )));
+    }
+
+    agent(AgentArgs {
+        path,
+        no_tui,
+        dry_run,
+        options,
+    })
 }
 
 fn serve_command(args: ServeArgs) -> Result<(), CliError> {
@@ -1183,7 +1270,12 @@ fn doctor(json: bool) -> Result<(), CliError> {
 fn open_desktop(args: OpenArgs) -> Result<(), CliError> {
     let current_exe =
         std::env::current_exe().map_err(|error| CliError::Message(error.to_string()))?;
-    let desktop = desktop_executable_path(&current_exe);
+    let candidates = desktop_executable_candidates(&current_exe);
+    let desktop = candidates
+        .iter()
+        .find(|candidate| candidate.exists())
+        .cloned()
+        .unwrap_or_else(|| candidates[0].clone());
     let mut desktop_args = Vec::new();
     if let Some(path) = args.path {
         desktop_args.push(path.to_string_lossy().to_string());
@@ -1192,6 +1284,7 @@ fn open_desktop(args: OpenArgs) -> Result<(), CliError> {
     if args.dry_run {
         let value = serde_json::json!({
             "desktop_executable": desktop,
+            "checked_paths": candidates,
             "args": desktop_args,
         });
         println!(
@@ -1203,10 +1296,7 @@ fn open_desktop(args: OpenArgs) -> Result<(), CliError> {
     }
 
     if !desktop.exists() {
-        return Err(CliError::Message(format!(
-            "ALTAI Desktop was not found at {}. Use --dry-run to inspect the expected route.",
-            desktop.display()
-        )));
+        return Err(CliError::Message(missing_desktop_message(&candidates)));
     }
 
     Command::new(&desktop)
@@ -1218,16 +1308,68 @@ fn open_desktop(args: OpenArgs) -> Result<(), CliError> {
     Ok(())
 }
 
-fn desktop_executable_path(cli_executable: &Path) -> PathBuf {
-    let file_name = if cfg!(windows) {
-        "altai-desktop.exe"
+#[derive(Clone, Copy)]
+enum DesktopPlatform {
+    Windows,
+    MacOs,
+    Linux,
+}
+
+fn desktop_executable_candidates(cli_executable: &Path) -> Vec<PathBuf> {
+    let platform = if cfg!(windows) {
+        DesktopPlatform::Windows
+    } else if cfg!(target_os = "macos") {
+        DesktopPlatform::MacOs
     } else {
-        "altai-desktop"
+        DesktopPlatform::Linux
     };
-    cli_executable
-        .parent()
-        .unwrap_or_else(|| Path::new("."))
-        .join(file_name)
+    desktop_executable_candidates_for(cli_executable, platform)
+}
+
+fn desktop_executable_candidates_for(
+    cli_executable: &Path,
+    platform: DesktopPlatform,
+) -> Vec<PathBuf> {
+    let parent = cli_executable.parent().unwrap_or_else(|| Path::new("."));
+    match platform {
+        DesktopPlatform::Windows => vec![parent.join("altai-desktop.exe")],
+        DesktopPlatform::Linux => vec![parent.join("altai-desktop")],
+        DesktopPlatform::MacOs => {
+            let mut candidates = Vec::new();
+            if let Some(app_bundle) = cli_executable
+                .ancestors()
+                .find(|path| path.extension().and_then(|value| value.to_str()) == Some("app"))
+            {
+                candidates.push(
+                    app_bundle
+                        .join("Contents")
+                        .join("MacOS")
+                        .join("altai-desktop"),
+                );
+            }
+            candidates.push(parent.join("altai-desktop"));
+            candidates.push(
+                Path::new("/Applications")
+                    .join("ALTAI.app")
+                    .join("Contents")
+                    .join("MacOS")
+                    .join("altai-desktop"),
+            );
+            candidates.dedup();
+            candidates
+        }
+    }
+}
+
+fn missing_desktop_message(candidates: &[PathBuf]) -> String {
+    let checked = candidates
+        .iter()
+        .map(|candidate| candidate.display().to_string())
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!(
+        "ALTAI Desktop was not found. Checked: {checked}. Reinstall ALTAI with the unified installer."
+    )
 }
 
 #[cfg(test)]
@@ -1235,16 +1377,116 @@ mod tests {
     use super::*;
 
     #[test]
-    fn desktop_router_uses_platform_binary_name() {
-        let path = desktop_executable_path(Path::new("/opt/altai/altai-cli"));
-        assert_eq!(
-            path.file_name().and_then(|value| value.to_str()),
-            Some(if cfg!(windows) {
-                "altai-desktop.exe"
-            } else {
-                "altai-desktop"
-            })
+    fn desktop_router_uses_sibling_binary_on_windows_and_linux() {
+        let windows = desktop_executable_candidates_for(
+            Path::new("/Program Files/ALTAI/altai-cli.exe"),
+            DesktopPlatform::Windows,
         );
+        let linux = desktop_executable_candidates_for(
+            Path::new("/usr/bin/altai-cli"),
+            DesktopPlatform::Linux,
+        );
+        assert_eq!(
+            windows[0].file_name().and_then(|value| value.to_str()),
+            Some("altai-desktop.exe")
+        );
+        assert_eq!(linux[0], PathBuf::from("/usr/bin/altai-desktop"));
+    }
+
+    #[test]
+    fn desktop_router_resolves_macos_bundle_with_spaces() {
+        let candidates = desktop_executable_candidates_for(
+            Path::new("/Applications/ALTAI Preview.app/Contents/Resources/bin/altai-cli"),
+            DesktopPlatform::MacOs,
+        );
+        assert_eq!(
+            candidates[0],
+            PathBuf::from("/Applications/ALTAI Preview.app/Contents/MacOS/altai-desktop")
+        );
+        assert!(candidates.contains(&PathBuf::from(
+            "/Applications/ALTAI.app/Contents/MacOS/altai-desktop"
+        )));
+    }
+
+    #[test]
+    fn missing_desktop_error_lists_checked_routes() {
+        let candidates = vec![
+            PathBuf::from("/missing/altai-desktop"),
+            PathBuf::from("/also missing/altai-desktop"),
+        ];
+        let message = missing_desktop_message(&candidates);
+        assert!(message.contains("/missing/altai-desktop"));
+        assert!(message.contains("/also missing/altai-desktop"));
+        assert!(message.contains("unified installer"));
+    }
+
+    #[test]
+    fn bare_contract_selects_interactive_agent() {
+        let cli = Cli::try_parse_from(["altai-cli", ".", "--dry-run"])
+            .expect("bare contract should parse");
+        assert!(cli.command.is_none());
+        assert_eq!(cli.default.path, Some(PathBuf::from(".")));
+        assert!(cli.default.prompt.is_none());
+        assert!(cli.default.dry_run);
+    }
+
+    #[test]
+    fn root_prompt_contract_selects_one_shot_options() {
+        let cli = Cli::try_parse_from([
+            "altai-cli",
+            ".",
+            "-p",
+            "review this",
+            "--output",
+            "jsonl",
+            "--permission",
+            "plan",
+            "--dry-run",
+        ])
+        .expect("root prompt contract should parse");
+        assert!(cli.command.is_none());
+        assert_eq!(cli.default.prompt.as_deref(), Some("review this"));
+        assert_eq!(cli.default.output, Some(OutputMode::Jsonl));
+        assert_eq!(cli.default.options.permission, Some(PermissionMode::Plan));
+    }
+
+    #[test]
+    fn one_shot_only_options_require_prompt() {
+        let cli = Cli::try_parse_from(["altai-cli", "--output", "json", "--dry-run"])
+            .expect("root options should parse before dispatch validation");
+        let error = default_command(cli.default).expect_err("prompt should be required");
+        assert!(error.to_string().contains("--output require --prompt"));
+    }
+
+    #[test]
+    fn no_tui_conflicts_with_root_prompt() {
+        let cli = Cli::try_parse_from(["altai-cli", "-p", "hello", "--no-tui", "--dry-run"])
+            .expect("root options should parse before dispatch validation");
+        let error = default_command(cli.default).expect_err("--no-tui should be rejected");
+        assert!(error.to_string().contains("--no-tui is only valid"));
+    }
+
+    #[test]
+    fn root_json_alias_conflicts_with_explicit_output() {
+        let error =
+            Cli::try_parse_from(["altai-cli", "-p", "hello", "--json", "--output", "jsonl"])
+                .expect_err("root JSON aliases should conflict");
+        assert_eq!(error.kind(), clap::error::ErrorKind::ArgumentConflict);
+    }
+
+    #[test]
+    fn legacy_agent_and_run_aliases_are_hidden_but_parse() {
+        let help = Cli::command().render_long_help().to_string();
+        assert!(!help.contains("\n  agent"));
+        assert!(!help.contains("\n  run"));
+
+        let agent = Cli::try_parse_from(["altai-cli", "agent", ".", "--dry-run"])
+            .expect("legacy agent alias should parse");
+        assert!(matches!(agent.command, Some(Commands::Agent(_))));
+
+        let run = Cli::try_parse_from(["altai-cli", "run", ".", "-p", "hello", "--dry-run"])
+            .expect("legacy run alias should parse");
+        assert!(matches!(run.command, Some(Commands::Run(_))));
     }
 
     #[test]

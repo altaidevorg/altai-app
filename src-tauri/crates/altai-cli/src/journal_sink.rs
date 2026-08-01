@@ -1,4 +1,4 @@
-//! Bridges `altai run` into the same durable SQLite event journal ALTAI
+//! Bridges `altai-cli --prompt` into the same durable SQLite event journal ALTAI
 //! Desktop uses, so restart-discovery and `altai journal` tooling see CLI
 //! runs regardless of which surface produced them.
 //!

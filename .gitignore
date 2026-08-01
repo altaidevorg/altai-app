@@ -16,6 +16,7 @@ dist-ssr
 # so users get reproducible builds — do NOT add it here.
 src-tauri/target
 target
+src-tauri/binaries/
 
 # Editor
 .vscode/*

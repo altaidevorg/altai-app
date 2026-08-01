@@ -285,7 +285,7 @@ fn register_linux() -> Result<(), Box<dyn Error>> {
         + ";";
 
     // The desktop-file id mirrors the one Tauri's bundler emits for the main
-    // binary (`altai`), so this overrides (rather than duplicates) the
+    // binary (`altai-desktop`), so this overrides (rather than duplicates) the
     // system entry while contributing the broader MimeType list.
     let content = format!(
         "[Desktop Entry]\n\
@@ -298,7 +298,7 @@ Exec=\"{exe}\" %U\n\
 Icon={icon}\n\
 Terminal=false\n\
 Categories=Development;IDE;Utility;\n\
-StartupWMClass=altai\n\
+StartupWMClass=altai-desktop\n\
 Actions=NewWindow;\n\
 MimeType={mime};\n\
 \n\
