@@ -201,9 +201,16 @@ name = "altai-agent-service"
 version = "0.6.6"
 dependencies = [
  "altai-core",
+ "async-trait",
+ "hex",
+ "isanagent",
+ "log",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
  "tempfile",
+ "tokio",
+ "uuid",
 ]
 
 [[package]]
