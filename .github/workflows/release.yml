@@ -183,18 +183,20 @@ jobs:
         shell: bash
         run: |
           installer="$(find dist/release -maxdepth 1 -name '*-setup.exe' -print -quit)"
-          install_dir="$RUNNER_TEMP/altai-install"
-          install_dir_win="$(cygpath -w "$install_dir")"
-          "$installer" /S "/D=$install_dir_win"
+          # Exercise the same current-user directory used by a real silent
+          # installation. Tauri's NSIS bootstrapper owns this path; overriding
+          # it with /D can bypass its install-mode initialization in CI.
+          install_dir="$LOCALAPPDATA/ALTAI"
+          "$installer" /S
           test -f "$install_dir/altai-desktop.exe"
           test -f "$install_dir/altai-cli.exe"
           "$install_dir/altai-cli.exe" version --verbose
           "$install_dir/altai-cli.exe" open . --dry-run >/dev/null
           powershell -NoProfile -Command \
-            '$target=[IO.Path]::GetFullPath($env:RUNNER_TEMP + "\altai-install").TrimEnd("\"); $parts=[Environment]::GetEnvironmentVariable("Path","User") -split ";"; if (-not ($parts | Where-Object { [StringComparer]::OrdinalIgnoreCase.Equals($_.TrimEnd("\"),$target) })) { exit 1 }'
+            '$target=[IO.Path]::GetFullPath($env:LOCALAPPDATA + "\ALTAI").TrimEnd("\"); $parts=[Environment]::GetEnvironmentVariable("Path","User") -split ";"; if (-not ($parts | Where-Object { [StringComparer]::OrdinalIgnoreCase.Equals($_.TrimEnd("\"),$target) })) { exit 1 }'
           "$install_dir/uninstall.exe" /S
           powershell -NoProfile -Command \
-            '$target=[IO.Path]::GetFullPath($env:RUNNER_TEMP + "\altai-install").TrimEnd("\"); $parts=[Environment]::GetEnvironmentVariable("Path","User") -split ";"; if ($parts | Where-Object { [StringComparer]::OrdinalIgnoreCase.Equals($_.TrimEnd("\"),$target) }) { exit 1 }'
+            '$target=[IO.Path]::GetFullPath($env:LOCALAPPDATA + "\ALTAI").TrimEnd("\"); $parts=[Environment]::GetEnvironmentVariable("Path","User") -split ";"; if ($parts | Where-Object { [StringComparer]::OrdinalIgnoreCase.Equals($_.TrimEnd("\"),$target) }) { exit 1 }'
 
       - uses: actions/upload-artifact@v4
         with:
