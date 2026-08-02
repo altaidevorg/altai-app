@@ -3,24 +3,25 @@ use isanagent::bus::{BusMessage, OutboundMessage, METADATA_RUN_ID};
 use isanagent::channels::Channel;
 use log::info;
 use std::any::Any;
-use tauri::AppHandle;
+use std::sync::Arc;
 use tokio::sync::mpsc::Sender;
 use tokio::sync::Mutex;
 
 use super::commands::DocumentArg;
 use super::event_journal::EventJournal;
 use altai_agent_service::{
-    admit_queued_user_message, admit_user_message, rollback_run_admission, SharedRunCoordinator,
+    admit_queued_user_message, admit_user_message, rollback_run_admission, AgentEventSink,
+    DocumentPart, HostControlPlane, SendAck, SharedRunCoordinator,
 };
 
-use super::runtime::{deliver_next_run_event, Event, SendAck};
+use super::runtime::{deliver_next_run_event, Event};
 
 /// A Tauri-native channel that bridges IsanAgent's bus system to the
-/// frontend via the Tauri event bus (`agent://event`).
+/// frontend via the host-neutral event sink (`agent://event` on Desktop).
 ///
 /// Replaces the old sidecar HTTP bridge — IsanAgent runs in-process.
 pub struct TauriChannel {
-    app: AppHandle,
+    event_sink: Arc<dyn AgentEventSink>,
     chat_id: String,
     owner_id: String,
     run_coordinator: SharedRunCoordinator,
@@ -30,14 +31,14 @@ pub struct TauriChannel {
 
 impl TauriChannel {
     pub fn new(
-        app: AppHandle,
+        event_sink: Arc<dyn AgentEventSink>,
         chat_id: String,
         owner_id: String,
         run_coordinator: SharedRunCoordinator,
         event_journal: std::sync::Arc<EventJournal>,
     ) -> Self {
         Self {
-            app,
+            event_sink,
             chat_id,
             owner_id,
             run_coordinator,
@@ -212,7 +213,7 @@ impl Channel for TauriChannel {
             role: "assistant".to_string(),
         };
         deliver_next_run_event(
-            &self.app,
+            self.event_sink.as_ref(),
             &self.event_journal,
             &self.run_coordinator,
             &chat_id,
@@ -223,6 +224,42 @@ impl Channel for TauriChannel {
 
     fn as_any(&self) -> &dyn Any {
         self
+    }
+}
+
+#[async_trait]
+impl HostControlPlane for TauriChannel {
+    async fn inject_user_message(
+        &self,
+        content: String,
+        image_urls: Vec<String>,
+        documents: Vec<DocumentPart>,
+        chat_id: String,
+        queue: bool,
+    ) -> Result<SendAck, String> {
+        let documents = documents
+            .into_iter()
+            .map(|document| DocumentArg {
+                data: document.data,
+                media_type: document.media_type,
+                name: document.name,
+            })
+            .collect();
+        TauriChannel::inject_user_message(self, content, image_urls, documents, chat_id, queue)
+            .await
+    }
+
+    async fn cancel_run(&self, chat_id: String, run_id: String) -> Result<(), String> {
+        TauriChannel::cancel_run(self, chat_id, run_id).await
+    }
+
+    async fn steer_run(
+        &self,
+        chat_id: String,
+        run_id: String,
+        content: String,
+    ) -> Result<(), String> {
+        TauriChannel::steer_run(self, chat_id, run_id, content).await
     }
 }
 

@@ -1,6 +1,4 @@
-use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex as StdMutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tauri::async_runtime;
@@ -9,10 +7,13 @@ use tokio::sync::mpsc;
 
 use altai_agent_service::{
     admit_run, admit_user_message, coordinator_guard, queue_run, rollback_run_admission,
-    AgentEventEnvelope, AgentEventSink, AgentInstanceRegistry, ReplayService, RunCoordinator,
-    RunTransitionError, SessionIdentity, SharedRunCoordinator,
-    WorkspaceServices as SharedWorkspaceServices,
+    permission_mode_to_edit_mode, permission_mode_to_shell_mode, AgentEventEnvelope,
+    AgentEventSink, AgentService, DocumentPart, ReplayService, RunCoordinator, SessionIdentity,
+    SharedRunCoordinator,
 };
+#[cfg(test)]
+use altai_agent_service::RunTransitionError;
+use super::desktop_host::{DesktopHost, DesktopWorkspaceServices};
 
 #[cfg(test)]
 use altai_agent_service::RunAdmission;
@@ -21,9 +22,8 @@ use isanagent::agent::{AgentLogic, AgentLogicParams};
 use isanagent::bus::BusMessage;
 use isanagent::channels::Channel;
 use isanagent::clarification::ClarificationHub;
-use isanagent::config::ShellPolicyMode;
 use isanagent::provider;
-use isanagent::scheduler::{CronActor, CronCommand, CronSchedulingMode, CronStore, ScheduleKind};
+use isanagent::scheduler::{CronCommand, CronStore, ScheduleKind};
 use isanagent::session::SessionManager;
 use isanagent::skills::SkillRegistry;
 use isanagent::tools::builtin::{
@@ -35,65 +35,20 @@ use isanagent::tools::ml_domain::{ArxivFetchTool, ArxivSearchTool, HfHubFileFetc
 use isanagent::tools::workflow::{AskUserTool, TodoWriteTool, ToolSearchTool};
 use isanagent::tools::ToolRegistry;
 use isanagent::workspace::{resolve_workspace_root, IsanagentWorkspace};
-use isanagent::{NodeHandle, Supervisor, SupervisorPolicy};
+use isanagent::NodeHandle;
 
 use super::commands::DocumentArg;
 use super::event_journal::{AppendStatus, EventJournal, JournalEvent};
 use super::tauri_channel::{
     map_lifecycle_to_event, map_telemetry_to_event, telemetry_chat_id, TauriChannel,
 };
-use super::tauri_sink::TauriEventSink;
 use crate::modules::mcp;
 
 pub use altai_agent_service::{
-    AgentReplayEventEnvelope, AgentRunReplayCursor, EditDiffPayload, Event,
+    AgentReplayEventEnvelope, AgentRunReplayCursor, CancelAck, CompactionArg, EditDiffPayload,
+    Event, ManualCompactionAck, SendAck, SteerAck,
 };
 
-/// Context-condensing (compaction) configuration received from the JS layer
-/// (camelCase IPC) and threaded into the isanagent `AgentLogicParams`. The
-/// `auto == false` case is encoded by forcing `threshold_tokens` to
-/// `usize::MAX`, which keeps manual `/compact` working while disabling the
-/// between-turns auto trigger.
-///
-/// Field names match the camelCase wire format (`#[serde(rename_all =
-/// "camelCase")]` → `thresholdTokens`, `tailTurns`).
-#[derive(Deserialize, Clone, Debug)]
-#[serde(rename_all = "camelCase")]
-pub struct CompactionArg {
-    pub auto: bool,
-    pub threshold_tokens: usize,
-    pub tail_turns: usize,
-}
-
-impl CompactionArg {
-    /// Resolve the user-facing compaction knobs into the three values
-    /// `AgentLogicParams` actually consumes. `short_term_threshold_turns`
-    /// is kept at the isanagent crate default (20) since the public API
-    /// doesn't expose a per-call override for it.
-    fn to_logic_params(&self) -> (usize, usize, usize) {
-        // (max_recent_summaries, short_term_threshold_turns, short_term_threshold_tokens)
-        let max_recent_summaries = self.tail_turns;
-        let short_term_threshold_turns = 20;
-        // Floor at 8k so a typo (e.g. 0) can't wedge the loop into compacting
-        // every turn; when auto is off, MAX effectively disables the trigger.
-        let short_term_threshold_tokens = if self.auto {
-            self.threshold_tokens.max(8_000)
-        } else {
-            usize::MAX
-        };
-        (
-            max_recent_summaries,
-            short_term_threshold_turns,
-            short_term_threshold_tokens,
-        )
-    }
-
-    /// Compact tuple used in the runtime fingerprint so a compaction-pref
-    /// change rebuilds the instance on next send.
-    fn fingerprint_tuple(&self) -> (bool, usize, usize) {
-        (self.auto, self.threshold_tokens, self.tail_turns)
-    }
-}
 #[derive(Debug)]
 enum RunEventDeliveryError {
     Serialization,
@@ -120,17 +75,17 @@ impl std::fmt::Display for RunEventDeliveryError {
 }
 
 fn emit_event(
-    app: &AppHandle,
+    sink: &dyn AgentEventSink,
     chat_id: &str,
     event: &Event,
     run: Option<(String, u64)>,
 ) -> Result<(), RunEventDeliveryError> {
     let payload = redacted_event_payload(event)?;
-    emit_payload(app, chat_id, &payload, run)
+    emit_payload(sink, chat_id, &payload, run)
 }
 
 fn emit_payload(
-    app: &AppHandle,
+    sink: &dyn AgentEventSink,
     chat_id: &str,
     payload: &serde_json::Value,
     run: Option<(String, u64)>,
@@ -139,8 +94,7 @@ fn emit_payload(
         Some((run_id, seq)) => AgentEventEnvelope::run(chat_id, run_id, seq, payload.clone()),
         None => AgentEventEnvelope::system(chat_id, payload.clone()),
     };
-    TauriEventSink::new(app.clone())
-        .try_send(envelope)
+    sink.try_send(envelope)
         .map_err(|error| RunEventDeliveryError::Renderer(error.to_string()))
 }
 
@@ -224,7 +178,7 @@ fn persist_run_payload(
 }
 
 pub(crate) fn deliver_next_run_event(
-    app: &AppHandle,
+    sink: &dyn AgentEventSink,
     journal: &EventJournal,
     coordinator: &SharedRunCoordinator,
     chat_id: &str,
@@ -232,7 +186,7 @@ pub(crate) fn deliver_next_run_event(
     event: &Event,
 ) -> Result<(), String> {
     let result = persist_and_deliver_to_renderer(
-        app,
+        sink,
         journal,
         coordinator,
         chat_id,
@@ -254,7 +208,7 @@ pub(crate) fn deliver_next_run_event(
 }
 
 fn persist_and_deliver_to_renderer(
-    app: &AppHandle,
+    sink: &dyn AgentEventSink,
     journal: &EventJournal,
     coordinator: &SharedRunCoordinator,
     chat_id: &str,
@@ -269,7 +223,7 @@ fn persist_and_deliver_to_renderer(
         owner_id,
         event,
         transition,
-        |run, payload| emit_payload(app, chat_id, payload, Some(run.clone())),
+        |run, payload| emit_payload(sink, chat_id, payload, Some(run.clone())),
     )
 }
 
@@ -338,204 +292,6 @@ fn parse_edit_diff(value: &serde_json::Value) -> Option<EditDiffPayload> {
     })
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-struct FallbackFingerprint {
-    provider_name: String,
-    model_name: String,
-    base_url: String,
-    secret_identity: String,
-}
-
-impl From<&isanagent::agent::FallbackProviderSpec> for FallbackFingerprint {
-    fn from(spec: &isanagent::agent::FallbackProviderSpec) -> Self {
-        Self {
-            provider_name: spec.provider_name.clone(),
-            model_name: spec.model_name.clone(),
-            base_url: spec.base_url.trim_end_matches('/').to_string(),
-            secret_identity: secret_identity(&spec.api_key),
-        }
-    }
-}
-
-fn secret_identity(secret: &str) -> String {
-    if secret.is_empty() {
-        return "none".to_string();
-    }
-    let digest = Sha256::digest(secret.as_bytes());
-    format!("sha256:{}", &hex::encode(digest)[..16])
-}
-
-/// Identifies a particular `(provider, model, secret identity, base_url, persona, fallback)`
-/// configuration of the running runtime. When `start_agent` is called
-/// with a different fingerprint we tear down the existing bus and
-/// agent node and re-init — without this guard the runtime locked in
-/// the first model the user picked and silently ignored every later
-/// switch, surfacing as cross-provider 4xx errors that pointed at the
-/// previous endpoint.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-struct RuntimeFingerprint {
-    provider_name: String,
-    model_name: String,
-    /// Non-reversible stable identity; raw provider credentials never enter Hash/Debug state.
-    secret_identity: String,
-    base_url: String,
-    fallback: Option<FallbackFingerprint>,
-    persona: String,
-    /// Resolved IsanAgent workspace root (`<selected-folder>/.isanagent`, or
-    /// the `~/.isanagent` default). Switching workspaces reinitializes the
-    /// runtime AND its memory so chats don't bleed across projects.
-    workspace_root: String,
-    /// Active permission mode ("ask" | "auto-edit" | "bypass"). The shell policy is baked into
-    /// `AgentLogic` at construction, so a different mode must select a different instance — hence
-    /// it is part of the fingerprint. Without this, flipping the UI permission toggle would route
-    /// to the already-built instance and silently keep the old shell gate.
-    permission_mode: String,
-    /// Compaction config tuple `(auto, threshold_tokens, tail_turns)`. Baked
-    /// into `AgentLogic` at construction (isanagent owns the live context),
-    /// so a Settings change must rebuild the instance. `None` keeps the
-    /// isanagent crate's built-in defaults (used by call sites that haven't
-    /// been threaded yet).
-    compaction: Option<(bool, usize, usize)>,
-    /// The raw workspace MCP configuration. MCP tools are discovered while an
-    /// instance is built, so this must participate in identity: saving a
-    /// server in Settings makes the next chat turn build an instance with the
-    /// new tools instead of silently reusing the old tool registry.
-    mcp_config: String,
-}
-
-/// Map the ALTAI UI permission mode to an IsanAgent shell-policy mode for interactive sessions.
-///
-/// This maps only the **shell / code-execution** dimension. File edits are
-/// gated separately via [`permission_mode_to_edit_mode`]; the two are
-/// independent because "auto-edit" should auto-apply file changes while still
-/// prompting for shell commands.
-/// - `ask`, `auto-edit`, and `plan` → `Ask`: code-exec / destructive-shell still
-///   require approval. `plan` keeps shell read-only-with-approval so the agent
-///   can run `git status` / `ls` while planning but cannot silently mutate.
-/// - `bypass` → `Allow`: no prompts (UI-gated behind an explicit Settings
-///   toggle + warning).
-/// - unknown / None → leaves the on-disk config default untouched (which defaults to `Ask`).
-///
-/// Fail-safe: any unrecognized value returns `None`, so it can never silently downgrade to
-/// `Allow`.
-fn permission_mode_to_shell_mode(mode: Option<&str>) -> Option<ShellPolicyMode> {
-    match mode.map(str::trim) {
-        Some("ask")
-        | Some("ask_before_edit")
-        | Some("ask-before-edit")
-        | Some("auto-edit")
-        | Some("auto_edit")
-        | Some("auto")
-        | Some("edit_automatically")
-        | Some("plan") => Some(ShellPolicyMode::Ask),
-        Some("bypass") | Some("bypass_permissions") => Some(ShellPolicyMode::Allow),
-        _ => None,
-    }
-}
-
-/// Map the UI permission mode to the **file-edit** policy mode.
-///
-/// This is independent from [`permission_mode_to_shell_mode`] because the two
-/// surfaces have different risk profiles:
-/// - `ask` → `Ask`: edits require an approval card with a diff preview.
-/// - `auto-edit` → `Allow`: edits apply silently. Shell still requires approval
-///   (see [`permission_mode_to_shell_mode`]) — "auto-edit" never auto-approves
-///   shell. This is the Cursor-style default for users who trust file changes
-///   but want to keep a human in the loop on commands.
-/// - `plan` → `Deny`: no mutations at all. The crate's gate surfaces the
-///   `plan mode active — finalize or apply the plan first` error to the model,
-///   which keeps it read-only.
-/// - `bypass` → `Allow`: no prompts (UI-gated behind an explicit Settings toggle).
-/// - unknown / None → returns `None` so the on-disk config default is preserved
-///   (which is `Ask`). Fail-safe: an unrecognized value can never silently
-///   downgrade to `Allow`.
-fn permission_mode_to_edit_mode(mode: Option<&str>) -> Option<ShellPolicyMode> {
-    match mode.map(str::trim) {
-        Some("ask") | Some("ask_before_edit") | Some("ask-before-edit") => {
-            Some(ShellPolicyMode::Ask)
-        }
-        Some("auto-edit") | Some("auto_edit") | Some("auto") | Some("edit_automatically") => {
-            Some(ShellPolicyMode::Allow)
-        }
-        Some("plan") => Some(ShellPolicyMode::Deny),
-        Some("bypass") | Some("bypass_permissions") => Some(ShellPolicyMode::Allow),
-        _ => None,
-    }
-}
-
-/// One running IsanAgent instance — its own channel + agent node + bus routers.
-struct Instance {
-    channel: Arc<TauriChannel>,
-    /// The instance-local bus. Workspace ingress routes only trusted synthetic
-    /// inbound work through this sender after a chat has been explicitly bound
-    /// by a successful user send.
-    bus_tx: mpsc::Sender<BusMessage>,
-    /// Fires the bus router's shutdown so its task exits and drops `agent_node`.
-    /// Needed because `agent_node` holds `bus_tx` clones (execution-job manager,
-    /// subagent harness), so `channel.stop()` alone can't make `bus_rx.recv()`
-    /// return `None` — the task would otherwise leak on teardown.
-    shutdown: tokio::sync::oneshot::Sender<()>,
-    /// Retained so workspace teardown can wait for the task to release its
-    /// agent node and `bus_tx` clones instead of merely fire-and-forget a
-    /// shutdown signal.
-    bus_router: async_runtime::JoinHandle<()>,
-    /// The outbound router owns the event receiver. It must finish after the
-    /// bus router drops the agent node and its outbound sender clones.
-    outbound_router: async_runtime::JoinHandle<()>,
-}
-
-const INSTANCE_TASK_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(2);
-
-async fn stop_instance(instance: Instance) {
-    let Instance {
-        channel,
-        shutdown,
-        mut bus_router,
-        mut outbound_router,
-        ..
-    } = instance;
-
-    // Workspace switching marks this owner as draining and refuses teardown
-    // while it owns a run, so no foreground task can be orphaned here.
-    let _ = shutdown.send(());
-
-    if tokio::time::timeout(INSTANCE_TASK_SHUTDOWN_TIMEOUT, &mut bus_router)
-        .await
-        .is_err()
-    {
-        bus_router.abort();
-        let _ = bus_router.await;
-    }
-    if tokio::time::timeout(INSTANCE_TASK_SHUTDOWN_TIMEOUT, &mut outbound_router)
-        .await
-        .is_err()
-    {
-        outbound_router.abort();
-        let _ = outbound_router.await;
-    }
-    let _ = channel.stop().await;
-}
-
-/// Services that must have exactly one owner for a workspace, independent of
-/// how many provider/persona instances happen to serve that workspace.
-///
-/// Cron, reflection, a retained logger bridge, and the synthetic ingress
-/// dispatcher join this record in the next A2 steps. Establishing the shared
-/// memory actor and clarification hub first prevents model switches from
-/// orphaning an in-flight `ask_user` wait.
-struct DesktopWorkspaceServices {
-    /// Durable paths/journal are opened and restart-classified by the shared,
-    /// host-neutral service boundary. Desktop retains only its Tauri-specific
-    /// actors and routes in this task.
-    _shared: Arc<SharedWorkspaceServices>,
-    memory_node: NodeHandle<isanagent::memory::MemoryMessage>,
-    event_journal: Arc<EventJournal>,
-    clarification_hub: Arc<ClarificationHub>,
-    logger: WorkspaceLogger,
-    dispatcher: Arc<WorkspaceDispatcher>,
-    cron: WorkspaceCron,
-}
-
 struct WorkspaceIngress {
     chat_id: String,
     inbound: isanagent::bus::InboundMessage,
@@ -545,7 +301,7 @@ struct WorkspaceIngress {
 /// A workspace-owned synthetic-inbound dispatcher. It never accepts a model
 /// selected destination: a chat must first be bound by `route_send`, and each
 /// route is replaced only after another successful send for that same chat.
-struct WorkspaceDispatcher {
+pub(crate) struct WorkspaceDispatcher {
     #[allow(dead_code)] // consumed by cron/background adapters added after I4/I5
     tx: mpsc::Sender<WorkspaceIngress>,
     routes: Arc<tokio::sync::Mutex<HashMap<String, WorkspaceRoute>>>,
@@ -560,7 +316,7 @@ struct WorkspaceRoute {
 }
 
 impl WorkspaceDispatcher {
-    fn new(run_coordinator: SharedRunCoordinator) -> Self {
+    pub(crate) fn new(run_coordinator: SharedRunCoordinator) -> Self {
         let routes = Arc::new(tokio::sync::Mutex::new(
             HashMap::<String, WorkspaceRoute>::new(),
         ));
@@ -630,7 +386,7 @@ impl WorkspaceDispatcher {
         Self { tx, routes, task }
     }
 
-    async fn bind(&self, chat_id: &str, bus_tx: mpsc::Sender<BusMessage>, owner_id: &str) {
+    pub(crate) async fn bind(&self, chat_id: &str, bus_tx: mpsc::Sender<BusMessage>, owner_id: &str) {
         self.routes.lock().await.insert(
             chat_id.to_string(),
             WorkspaceRoute {
@@ -641,7 +397,7 @@ impl WorkspaceDispatcher {
     }
 
     #[allow(dead_code)] // exercised in tests; production callers arrive with cron/resume adapters
-    async fn dispatch(
+    pub(crate) async fn dispatch(
         &self,
         chat_id: String,
         inbound: isanagent::bus::InboundMessage,
@@ -660,214 +416,35 @@ impl WorkspaceDispatcher {
     }
 }
 
-/// Retains both ends of IsanAgent's blocking logger channel. The prior
-/// embedded runtime kept only the sender, so every log event was immediately
-/// dropped because its receiver had been destroyed.
-struct WorkspaceLogger {
-    handle: isanagent::logging::LoggerHandle,
-    #[allow(dead_code)]
-    node: NodeHandle<BusMessage>,
-    #[allow(dead_code)]
-    forwarder: StdMutex<Option<std::thread::JoinHandle<()>>>,
-}
-
-/// One local IsanAgent cron actor per workspace. Its bus is deliberately not
-/// connected to an arbitrary model instance: a tiny bridge validates the
-/// persisted Tauri root identity then uses the workspace dispatcher.
-struct WorkspaceCron {
-    node: NodeHandle<String>,
-    #[allow(dead_code)]
-    forwarder: async_runtime::JoinHandle<()>,
-}
-
-/// Runtime state managed by Tauri. Instead of a single runtime, holds a
-/// registry of instances keyed by config (fingerprint) so different models /
-/// personas can run **concurrently** — dispatching a run on a new config spins
-/// up its own instance rather than tearing down the others.
+/// Thin Desktop facade over the shared AgentService lifecycle.
+///
+/// Long-lived IsanAgent instance ownership lives in `altai-agent-service`.
+/// Desktop retains HostAdapter seams (Tauri channel, MCP, workspace actors).
 pub struct AgentRuntime {
-    pub app: AppHandle,
-    /// One instance per distinct config. All emit to `agent://event` tagged by
-    /// chat_id, which the frontend routes on.
-    /// Host-neutral fingerprint/instance ownership. The concrete `Instance`
-    /// remains Desktop-owned because its channel emits through Tauri, while
-    /// selection, successful-send chat binding, and stale-instance removal are
-    /// shared service semantics usable by stdio hosts as well.
-    instance_registry: AgentInstanceRegistry<RuntimeFingerprint, Instance>,
-    /// One service record per workspace root. Provider/persona instances share
-    /// this record instead of reconstructing workspace-owned state.
-    workspace_services_by_root: tokio::sync::Mutex<HashMap<String, Arc<DesktopWorkspaceServices>>>,
-    /// Last successfully delivered model/persona runtime for each workspace
-    /// chat. This is only an ownership record today; A2's dispatcher will use
-    /// it to route synthetic work and ticket resumes to exactly one instance.
-    run_coordinator: SharedRunCoordinator,
+    pub service: AgentService<DesktopHost>,
 }
 
 pub fn init(app: AppHandle) -> Result<(), Box<dyn std::error::Error>> {
+    let run_coordinator = Arc::new(StdMutex::new(RunCoordinator::default()));
+    let host = Arc::new(DesktopHost::new(app.clone(), run_coordinator.clone()));
     app.manage(AgentRuntime {
-        app: app.clone(),
-        instance_registry: AgentInstanceRegistry::new(),
-        workspace_services_by_root: tokio::sync::Mutex::new(HashMap::new()),
-        run_coordinator: Arc::new(StdMutex::new(RunCoordinator::default())),
+        service: AgentService::with_coordinator(host, run_coordinator),
     });
 
     Ok(())
 }
 
-/// Build the config fingerprint + its resolved workspace root.
-#[allow(clippy::too_many_arguments)]
-fn make_fingerprint(
-    provider_name: &str,
-    api_key: &str,
-    model_name: &str,
-    persona_instructions: Option<&str>,
-    base_url_override: Option<&str>,
-    workspace_path: Option<&str>,
-    permission_mode: Option<&str>,
-    compaction: Option<&CompactionArg>,
-    fallback: Option<&isanagent::agent::FallbackProviderSpec>,
-) -> RuntimeFingerprint {
-    let workspace_root = workspace_path
-        .map(|p| format!("{}/.isanagent", p.trim_end_matches('/')))
-        .unwrap_or_default();
-    let mcp_config = {
-        let root = if workspace_root.is_empty() {
-            resolve_workspace_root(None)
-        } else {
-            std::path::PathBuf::from(&workspace_root)
-        };
-        std::fs::read_to_string(root.join("mcp.json")).unwrap_or_default()
-    };
-    RuntimeFingerprint {
-        provider_name: provider_name.to_string(),
-        model_name: model_name.to_string(),
-        secret_identity: secret_identity(api_key),
-        base_url: base_url_override.unwrap_or("").to_string(),
-        fallback: fallback.map(FallbackFingerprint::from),
-        persona: persona_instructions.unwrap_or("").to_string(),
-        workspace_root,
-        permission_mode: permission_mode.unwrap_or("").to_string(),
-        compaction: compaction.map(|c| c.fingerprint_tuple()),
-        mcp_config,
-    }
-}
-
 /// Get-or-create workspace-owned services (`""` = the default IsanAgent
-/// workspace). This is intentionally the only constructor for shared
-/// workspace state.
+/// workspace). Delegates to the Desktop HostAdapter.
 async fn ensure_workspace_services(
     runtime: &AgentRuntime,
     workspace_root: &str,
 ) -> Result<Arc<DesktopWorkspaceServices>, String> {
-    let mut guard = runtime.workspace_services_by_root.lock().await;
-    if let Some(existing) = guard.get(workspace_root) {
-        return Ok(existing.clone());
-    }
-    let ws_opt = if workspace_root.is_empty() {
-        None
-    } else {
-        Some(workspace_root)
-    };
-    let dir = resolve_workspace_root(ws_opt);
-    let shared = Arc::new(
-        SharedWorkspaceServices::open(&dir)
-            .map_err(|error| format!("Failed to initialize workspace services: {error}"))?,
-    );
-    let db_path = shared.memory_db_path();
-    let db_path_str = db_path
-        .to_str()
-        .ok_or("workspace DB path is not valid UTF-8")?;
-    let event_journal = shared.event_journal();
-    let memory_actor = isanagent::memory::SqliteMemoryActor::new(db_path_str)
-        .map_err(|e| format!("Failed to initialize SqliteMemoryActor: {}", e))?;
-    let node = NodeHandle::<isanagent::memory::MemoryMessage>::new(
-        memory_actor,
-        100,
-        1,
-        Duration::from_millis(5),
-    );
-    let (logger_handle, logger_rx) =
-        isanagent::logging::create_logger_channel(isanagent::logging::LOGGER_QUEUE_CAPACITY);
-    let logger_factory = {
-        let workspace_dir = dir.clone();
-        move || isanagent::logging::create_logging_actor_or_fallback(workspace_dir.clone())
-    };
-    let logger_node = NodeHandle::<BusMessage>::new(
-        Supervisor::new(SupervisorPolicy::Restart, logger_factory),
-        1_000,
-        1,
-        Duration::from_millis(10),
-    );
-    let logger_forward = logger_node.clone();
-    let runtime_handle = tokio::runtime::Handle::current();
-    let forwarder = std::thread::Builder::new()
-        .name("altai-isanagent-logger".to_string())
-        .spawn(move || {
-            while let Ok(message) = logger_rx.recv() {
-                if runtime_handle
-                    .block_on(logger_forward.send_packet(message))
-                    .is_err()
-                {
-                    break;
-                }
-            }
-        })
-        .map_err(|error| format!("Failed to start workspace logger forwarder: {error}"))?;
-
-    let dispatcher = Arc::new(WorkspaceDispatcher::new(runtime.run_coordinator.clone()));
-    let (cron_bus_tx, mut cron_bus_rx) = mpsc::channel::<BusMessage>(100);
-    let cron_logic = CronActor::new(
-        "AltaiWorkspaceCron",
-        db_path_str,
-        logger_handle.clone(),
-        CronSchedulingMode::Local,
-        cron_bus_tx,
-    )
-    .map_err(|error| format!("Failed to initialize workspace cron actor: {error}"))?;
-    let cron_node = NodeHandle::new(cron_logic, 100, 1, Duration::from_millis(50));
-    let dispatcher_for_cron = dispatcher.clone();
-    let cron_forwarder = async_runtime::spawn(async move {
-        while let Some(message) = cron_bus_rx.recv().await {
-            let BusMessage::Inbound(inbound) = message else {
-                continue;
-            };
-            let chat_id = inbound.chat_id.clone();
-            if inbound.channel != "tauri"
-                || inbound.thread_id.is_some()
-                || validate_tauri_chat_id(&chat_id).is_err()
-            {
-                log::warn!("Dropped cron delivery with an invalid ALTAI destination");
-                continue;
-            }
-            // A missing owner is expected after app restart. CronActor has
-            // already persisted its running job, and `route_send` performs a
-            // one-shot recovery when the user next reopens that conversation.
-            if let Err(error) = dispatcher_for_cron
-                .dispatch(chat_id, trusted_tauri_inbound(inbound))
-                .await
-            {
-                log::info!("Deferred cron delivery until its ALTAI chat is active: {error}");
-            }
-        }
-    });
-
-    let services = Arc::new(DesktopWorkspaceServices {
-        _shared: shared,
-        memory_node: node,
-        event_journal,
-        clarification_hub: ClarificationHub::shared(),
-        logger: WorkspaceLogger {
-            handle: logger_handle,
-            node: logger_node,
-            forwarder: StdMutex::new(Some(forwarder)),
-        },
-        dispatcher,
-        cron: WorkspaceCron {
-            node: cron_node,
-            forwarder: cron_forwarder,
-        },
-    });
-    guard.insert(workspace_root.to_string(), services.clone());
-    Ok(services)
+    runtime
+        .service
+        .host()
+        .workspace_services(workspace_root)
+        .await
 }
 
 /// Compatibility helper for history/inbox calls while they are migrated to
@@ -935,165 +512,6 @@ fn replay_events_from_journal(
         .map_err(|error| error.to_string())
 }
 
-/// Ensure an instance exists for this config and return its channel. The app
-/// runs one workspace at a time, so instances (and memory) of *other*
-/// workspaces are torn down here to bound growth.
-#[allow(clippy::too_many_arguments)]
-async fn ensure_instance(
-    runtime: &AgentRuntime,
-    provider_name: &str,
-    api_key: &str,
-    model_name: &str,
-    persona_instructions: Option<&str>,
-    base_url_override: Option<&str>,
-    workspace_path: Option<&str>,
-    permission_mode: Option<&str>,
-    compaction: Option<&CompactionArg>,
-    fallback: Option<&isanagent::agent::FallbackProviderSpec>,
-) -> Result<Arc<TauriChannel>, String> {
-    let fp = make_fingerprint(
-        provider_name,
-        api_key,
-        model_name,
-        persona_instructions,
-        base_url_override,
-        workspace_path,
-        permission_mode,
-        compaction,
-        fallback,
-    );
-    let workspace_root = fp.workspace_root.clone();
-
-    // Fine-grained locking: the `instances` lock is only ever held for cheap
-    // map ops, never across the heavy `build_instance().await` or any channel
-    // teardown — so a build/cancel on one config can't block sends/cancels on
-    // another (the whole point of concurrent instances). Note: within a single
-    // workspace, distinct configs accrete instances for the session (only
-    // other-workspace instances are torn down) — acceptable given typical
-    // config churn; revisit with idle-eviction if that proves heavy.
-
-    // Fast path: instance already built for this exact config.
-    if let Some(channel) = runtime
-        .instance_registry
-        .with_instance(&fp, |instance| instance.channel.clone())
-        .map_err(|error| error.to_string())?
-    {
-        return Ok(channel);
-    }
-
-    // Atomically prevent new admission to instances that are about to be
-    // removed. If one still owns a run, preserve it and reject the workspace
-    // switch instead of orphaning its terminal event and coordinator lease.
-    let stale_owner_ids: HashSet<String> = runtime
-        .instance_registry
-        .collect_matching(
-            |key, _| key.workspace_root != workspace_root,
-            |_, instance| instance.channel.owner_id().to_string(),
-        )
-        .map_err(|error| error.to_string())?
-        .into_iter()
-        .collect();
-    coordinator_guard(&runtime.run_coordinator)
-        .begin_draining(&stale_owner_ids)
-        .map_err(|_| "Stop active agent runs before switching workspaces".to_string())?;
-
-    // Tear down idle instances of other workspaces (the UI uses one at a time).
-    // Remove them under the lock, but defer the async teardown until the lock
-    // is released. Firing `shutdown` stops the bus-router task (so `agent_node`
-    // drops and the `bus_tx` cycle unwinds); `stop()` then closes the channel.
-    // We keep the fingerprint alongside each stale instance so the MCP status
-    // registry (keyed by workspace) can be cleared for exactly those roots.
-    let stale = runtime
-        .instance_registry
-        .take_matching(|key, _| key.workspace_root != workspace_root)
-        .map_err(|error| error.to_string())?;
-    // Clear MCP runtime status for the workspaces we're tearing down so a
-    // stale "connected" badge doesn't survive a workspace switch.
-    let stale_workspace_roots: Vec<String> = stale
-        .iter()
-        .map(|(fp, _)| fp.workspace_root.clone())
-        .collect();
-    for (_, inst) in stale {
-        stop_instance(inst).await;
-    }
-    coordinator_guard(&runtime.run_coordinator).end_draining(&stale_owner_ids);
-    // Drop workspace services only after their agent instances have released
-    // cloned memory/logger handles. This closes the logger receiver cleanly
-    // and lets its forwarding thread observe shutdown instead of detaching it
-    // while an old instance is still emitting.
-    runtime
-        .workspace_services_by_root
-        .lock()
-        .await
-        .retain(|k, _| k == &workspace_root);
-    runtime
-        .instance_registry
-        .retain_chat_owners_for_workspace(&workspace_root)
-        .map_err(|error| error.to_string())?;
-    if let Some(mcp_statuses) = runtime.app.try_state::<mcp::McpStatusRegistry>() {
-        for root in &stale_workspace_roots {
-            if !root.is_empty() {
-                mcp_statuses
-                    .clear_workspace(std::path::Path::new(root))
-                    .await;
-            }
-        }
-    }
-
-    // Build the (heavy) instance WITHOUT holding the instances lock.
-    let services = ensure_workspace_services(runtime, &workspace_root).await?;
-    let workspace_root_opt = if workspace_root.is_empty() {
-        None
-    } else {
-        Some(workspace_root.as_str())
-    };
-    let (channel, bus_tx, shutdown, bus_router, outbound_router) = build_instance(
-        runtime.app.clone(),
-        services.memory_node.clone(),
-        services.clarification_hub.clone(),
-        services.logger.handle.clone(),
-        services.cron.node.clone(),
-        services.event_journal.clone(),
-        runtime.run_coordinator.clone(),
-        provider_name,
-        api_key,
-        model_name,
-        persona_instructions,
-        base_url_override,
-        workspace_root_opt,
-        permission_mode,
-        compaction,
-        fallback,
-    )
-    .await?;
-
-    // Re-acquire to insert. If a concurrent call built the same config while we
-    // were building, keep theirs and tear down our now-duplicate instance.
-    let candidate = Instance {
-        channel: channel.clone(),
-        bus_tx,
-        shutdown,
-        bus_router,
-        outbound_router,
-    };
-    match runtime
-        .instance_registry
-        .insert_if_absent(fp.clone(), candidate)
-        .map_err(|error| error.to_string())?
-    {
-        Ok(()) => Ok(channel),
-        Err(loser) => {
-            let winner = runtime
-                .instance_registry
-                .with_instance(&fp, |instance| instance.channel.clone())
-                .map_err(|error| error.to_string())?
-                .ok_or_else(|| "The concurrent agent runtime is unavailable".to_string())?;
-            stop_instance(loser).await;
-            Ok(winner)
-        }
-    }
-}
-
 /// Route a user message to the instance for `config` (built or reused).
 #[allow(clippy::too_many_arguments)]
 pub async fn route_send(
@@ -1113,79 +531,36 @@ pub async fn route_send(
     chat_id: String,
     queue: bool,
 ) -> Result<SendAck, String> {
-    let fingerprint = make_fingerprint(
-        provider_name,
-        api_key,
-        model_name,
-        persona_instructions,
-        base_url_override,
-        workspace_path,
-        permission_mode,
-        compaction,
-        fallback.as_ref(),
-    );
-    let channel = ensure_instance(
-        runtime,
-        provider_name,
-        api_key,
-        model_name,
-        persona_instructions,
-        base_url_override,
-        workspace_path,
-        permission_mode,
-        compaction,
-        fallback.as_ref(),
-    )
-    .await?;
-
-    let acknowledgement = channel
-        .inject_user_message(message, images, documents, chat_id.clone(), queue)
-        .await?;
-    if !chat_id.trim().is_empty() {
-        let bus_tx = runtime
-            .instance_registry
-            .with_instance(&fingerprint, |instance| instance.bus_tx.clone())
-            .map_err(|error| error.to_string())?
-            .ok_or_else(|| "The owning agent runtime is no longer available".to_string())?;
-        let services = ensure_workspace_services(runtime, &fingerprint.workspace_root).await?;
-        services
-            .dispatcher
-            .bind(&chat_id, bus_tx, channel.owner_id())
-            .await;
-        let previous_owner = runtime
-            .instance_registry
-            .bind_chat(
-                fingerprint.workspace_root.clone(),
-                chat_id.clone(),
-                fingerprint,
-            )
-            .map_err(|error| error.to_string())?;
-        // A workspace service is recreated after an app/workspace restart, so
-        // the first explicit user send is the first moment we have a trusted
-        // provider configuration and a concrete runtime to own persisted cron
-        // work. Recover once here; changing models later in the same process
-        // must not duplicate an already-running background turn.
-        if previous_owner.is_none() {
-            if let Err(error) = recover_background_jobs_after_owner_bind(
-                &services.memory_node,
-                &services.dispatcher,
-                &chat_id,
-            )
-            .await
-            {
-                // The foreground message is already accepted. Recovery is a
-                // best-effort side effect and must not turn that accepted send
-                // into an IPC rejection that invites a duplicate retry.
-                log::warn!(
-                    "Could not recover persisted background work for chat {chat_id}: {error}"
-                );
-            }
-        }
-    }
-    Ok(acknowledgement)
+    let documents = documents
+        .into_iter()
+        .map(|document| DocumentPart {
+            data: document.data,
+            media_type: document.media_type,
+            name: document.name,
+        })
+        .collect();
+    runtime
+        .service
+        .route_send(
+            provider_name,
+            api_key,
+            model_name,
+            persona_instructions,
+            base_url_override,
+            workspace_path,
+            permission_mode,
+            compaction,
+            fallback,
+            message,
+            images,
+            documents,
+            chat_id,
+            queue,
+        )
+        .await
 }
 
-async fn recover_background_jobs_after_owner_bind(
+pub(crate) async fn recover_background_jobs_after_owner_bind(
     memory_node: &NodeHandle<isanagent::memory::MemoryMessage>,
     dispatcher: &WorkspaceDispatcher,
     chat_id: &str,
@@ -1272,7 +647,7 @@ pub async fn dispatch_synthetic_inbound(
 
 /// Trusted Rust-side producers, unlike renderer IPC, own run-id generation.
 /// Every synthetic Tauri turn receives a fresh ID before IsanAgent admission.
-fn trusted_tauri_inbound(
+pub(crate) fn trusted_tauri_inbound(
     mut inbound: isanagent::bus::InboundMessage,
 ) -> isanagent::bus::InboundMessage {
     debug_assert_eq!(inbound.channel, "tauri");
@@ -1308,56 +683,6 @@ fn is_clarification_reply(inbound: &isanagent::bus::InboundMessage) -> bool {
         .contains_key(isanagent::bus::METADATA_CLARIFICATION_TICKET_ID)
 }
 
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SendAck {
-    pub chat_id: String,
-    pub run_id: String,
-    pub queued: bool,
-}
-
-/// Cancel the single runtime instance holding this chat's coordinator lease.
-/// The owning bus router records the cancelling transition in the same FIFO
-/// order in which IsanAgent observes inbound/cancel messages.
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct CancelAck {
-    pub chat_id: String,
-    pub run_id: String,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SteerAck {
-    pub chat_id: String,
-    pub run_id: String,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ManualCompactionAck {
-    pub chat_id: String,
-}
-
-fn enqueue_manual_compaction(
-    bus_tx: &mpsc::Sender<BusMessage>,
-    chat_id: &str,
-    focus_instructions: Option<String>,
-) -> Result<(), String> {
-    let session_key = isanagent::bus::clarification_session_key("tauri", chat_id, None);
-    bus_tx
-        .try_send(BusMessage::TriggerCompaction {
-            session_key,
-            focus_instructions,
-            trigger: Some(isanagent::bus::CompactionTrigger::Manual),
-        })
-        .map_err(|error| format!("Could not enqueue manual compaction: {error}"))
-}
-
-/// Enqueue exactly one caller-driven compaction on the runtime that last owned
-/// this workspace chat. No inbound prompt or agent run is created. Admission
-/// and enqueue share the coordinator lock so a new foreground run cannot jump
-/// ahead of the compaction request.
 pub async fn route_manual_compaction(
     runtime: &AgentRuntime,
     workspace_path: &str,
@@ -1365,36 +690,10 @@ pub async fn route_manual_compaction(
     focus_instructions: Option<String>,
 ) -> Result<ManualCompactionAck, String> {
     let chat_id = validate_tauri_chat_id(&chat_id)?.to_owned();
-    let focus_instructions = focus_instructions
-        .map(|focus| focus.trim().to_string())
-        .filter(|focus| !focus.is_empty());
-    if focus_instructions
-        .as_ref()
-        .is_some_and(|focus| focus.len() > 4_000)
-    {
-        return Err("Compaction focus instructions are too long".to_string());
-    }
-    let workspace_root = format!("{}/.isanagent", workspace_path.trim_end_matches('/'));
-    let fingerprint = runtime
-        .instance_registry
-        .chat_owner(&workspace_root, &chat_id)
-        .map_err(|error| error.to_string())?
-        .ok_or_else(|| {
-            "This chat has no active runtime in the current app session; send a message first"
-                .to_string()
-        })?;
-    let bus_tx = runtime
-        .instance_registry
-        .with_instance(&fingerprint, |instance| instance.bus_tx.clone())
-        .map_err(|error| error.to_string())?
-        .ok_or_else(|| "The chat's agent runtime is unavailable".to_string())?;
-    let coordinator = coordinator_guard(&runtime.run_coordinator);
-    if coordinator.active_run(&chat_id).is_some() {
-        return Err("Wait for the active run to finish before compacting context".to_string());
-    }
-    enqueue_manual_compaction(&bus_tx, &chat_id, focus_instructions)?;
-    drop(coordinator);
-    Ok(ManualCompactionAck { chat_id })
+    runtime
+        .service
+        .route_manual_compaction(workspace_path, chat_id, focus_instructions)
+        .await
 }
 
 pub async fn route_cancel(
@@ -1402,22 +701,7 @@ pub async fn route_cancel(
     chat_id: String,
     run_id: String,
 ) -> Result<CancelAck, String> {
-    let (active_run_id, owner_id) = coordinator_guard(&runtime.run_coordinator)
-        .active_run(&chat_id)
-        .map(|(active_run_id, owner_id)| (active_run_id.to_string(), owner_id.to_string()))
-        .ok_or_else(|| "No active agent run exists for this chat".to_string())?;
-    if active_run_id != run_id {
-        return Err("The requested agent run is no longer active".to_string());
-    }
-    let channel = runtime
-        .instance_registry
-        .find_instance(|instance| {
-            (instance.channel.owner_id() == owner_id).then(|| instance.channel.clone())
-        })
-        .map_err(|error| error.to_string())?;
-    let channel = channel.ok_or_else(|| "The owning agent runtime is unavailable".to_string())?;
-    channel.cancel_run(chat_id.clone(), run_id.clone()).await?;
-    Ok(CancelAck { chat_id, run_id })
+    runtime.service.route_cancel(chat_id, run_id).await
 }
 
 /// Route new user direction to the runtime instance that owns one exact,
@@ -1430,39 +714,39 @@ pub async fn route_steer(
     run_id: String,
     content: String,
 ) -> Result<SteerAck, String> {
-    let content = content.trim().to_string();
-    if content.is_empty() {
-        return Err("Steering instructions cannot be empty".to_string());
-    }
-    let owner_id = {
-        let coordinator = coordinator_guard(&runtime.run_coordinator);
-        let (_, owner_id) = coordinator
-            .active_run(&chat_id)
-            .ok_or_else(|| "No active agent run exists for this chat".to_string())?;
-        coordinator
-            .accepts_steer(&chat_id, &run_id, owner_id)
-            .map_err(|error| match error {
-                RunTransitionError::RunMismatch => {
-                    "The requested agent run is no longer active".to_string()
-                }
-                RunTransitionError::InvalidPhase => {
-                    "The active agent run cannot be steered in its current state".to_string()
-                }
-                _ => "The active agent run is unavailable".to_string(),
-            })?;
-        owner_id.to_string()
-    };
-    let channel = runtime
-        .instance_registry
-        .find_instance(|instance| {
-            (instance.channel.owner_id() == owner_id).then(|| instance.channel.clone())
-        })
-        .map_err(|error| error.to_string())?;
-    let channel = channel.ok_or_else(|| "The owning agent runtime is unavailable".to_string())?;
-    channel
-        .steer_run(chat_id.clone(), run_id.clone(), content)
-        .await?;
-    Ok(SteerAck { chat_id, run_id })
+    runtime
+        .service
+        .route_steer(chat_id, run_id, content)
+        .await
+}
+
+/// Warm up (or ensure) the instance for a config. Kept for the `agent_start`
+/// command; dispatch now happens through `route_send`.
+#[allow(clippy::too_many_arguments)]
+pub async fn start_agent(
+    runtime: &AgentRuntime,
+    provider_name: &str,
+    api_key: &str,
+    model_name: &str,
+    persona_instructions: Option<&str>,
+    base_url_override: Option<&str>,
+    workspace_path: Option<&str>,
+    permission_mode: Option<&str>,
+    compaction: Option<&CompactionArg>,
+) -> Result<(), String> {
+    runtime
+        .service
+        .start_agent(
+            provider_name,
+            api_key,
+            model_name,
+            persona_instructions,
+            base_url_override,
+            workspace_path,
+            permission_mode,
+            compaction,
+        )
+        .await
 }
 
 /// One chat session as known to the backend memory DB (the source of truth for
@@ -2354,36 +1638,6 @@ pub async fn reply_to_clarification_ticket(
     dispatch_synthetic_inbound(runtime, workspace_path, chat_id, inbound).await
 }
 
-/// Warm up (or ensure) the instance for a config. Kept for the `agent_start`
-/// command; dispatch now happens through `route_send`.
-#[allow(clippy::too_many_arguments)]
-pub async fn start_agent(
-    runtime: &AgentRuntime,
-    provider_name: &str,
-    api_key: &str,
-    model_name: &str,
-    persona_instructions: Option<&str>,
-    base_url_override: Option<&str>,
-    workspace_path: Option<&str>,
-    permission_mode: Option<&str>,
-    compaction: Option<&CompactionArg>,
-) -> Result<(), String> {
-    ensure_instance(
-        runtime,
-        provider_name,
-        api_key,
-        model_name,
-        persona_instructions,
-        base_url_override,
-        workspace_path,
-        permission_mode,
-        compaction,
-        None,
-    )
-    .await
-    .map(|_| ())
-}
-
 /// Register the interaction and memory tools that already exist in IsanAgent
 /// but were previously absent from ALTAI's embedded runtime.
 ///
@@ -2420,8 +1674,9 @@ fn register_existing_claw_tools(
 /// mode, overrides the interactive shell-policy gate so the UI permission
 /// toggle actually governs code-exec / destructive-shell for this instance.
 #[allow(clippy::too_many_arguments)]
-async fn build_instance(
+pub(crate) async fn build_instance(
     app: AppHandle,
+    event_sink: Arc<dyn AgentEventSink>,
     memory_node: NodeHandle<isanagent::memory::MemoryMessage>,
     clarification_hub: Arc<ClarificationHub>,
     logger_handle: isanagent::logging::LoggerHandle,
@@ -2442,8 +1697,8 @@ async fn build_instance(
         Arc<TauriChannel>,
         mpsc::Sender<BusMessage>,
         tokio::sync::oneshot::Sender<()>,
-        async_runtime::JoinHandle<()>,
-        async_runtime::JoinHandle<()>,
+        tokio::task::JoinHandle<()>,
+        tokio::task::JoinHandle<()>,
     ),
     String,
 > {
@@ -2451,7 +1706,7 @@ async fn build_instance(
     // actual routing is by per-message chat_id.
     let owner_id = uuid::Uuid::new_v4().to_string();
     let channel = Arc::new(TauriChannel::new(
-        app.clone(),
+        event_sink.clone(),
         uuid::Uuid::new_v4().to_string(),
         owner_id.clone(),
         run_coordinator.clone(),
@@ -3046,7 +2301,7 @@ async fn build_instance(
     let (shutdown_tx, mut shutdown_rx) = tokio::sync::oneshot::channel::<()>();
     let coordinator_for_bus = run_coordinator.clone();
     let owner_for_bus = owner_id.clone();
-    let bus_router = async_runtime::spawn(async move {
+    let bus_router = tokio::spawn(async move {
         loop {
             let msg = tokio::select! {
                 m = bus_rx.recv() => m,
@@ -3142,11 +2397,11 @@ async fn build_instance(
     // `BusMessage::Telemetry(...)` the AgentLogic emitted was silently
     // dropped — the UI saw no tool calls or thinking between "Sending to
     // ALTAI…" and the final answer.
-    let app_for_outbound = app.clone();
+    let sink_for_outbound = event_sink.clone();
     let coordinator_for_outbound = run_coordinator.clone();
     let journal_for_outbound = event_journal.clone();
     let owner_for_outbound = owner_id.clone();
-    let outbound_router = async_runtime::spawn(async move {
+    let outbound_router = tokio::spawn(async move {
         while let Some(out_msg) = global_outbound_rx.recv().await {
             match out_msg {
                 BusMessage::Outbound(outbound) => {
@@ -3206,7 +2461,7 @@ async fn build_instance(
                                     );
                                 }
                             }
-                            emit_payload(&app_for_outbound, &chat_id, payload, Some(run.clone()))
+                            emit_payload(sink_for_outbound.as_ref(), &chat_id, payload, Some(run.clone()))
                         },
                     );
                     match transition {
@@ -3223,13 +2478,14 @@ async fn build_instance(
                     if let Some(event) = map_telemetry_to_event(telemetry) {
                         let chat_id = telemetry_chat_id(telemetry).unwrap_or("");
                         if is_system_event(&event) {
-                            if let Err(error) = emit_event(&app_for_outbound, chat_id, &event, None)
+                            if let Err(error) =
+                                emit_event(sink_for_outbound.as_ref(), chat_id, &event, None)
                             {
                                 log::warn!("Could not deliver system event: {error}");
                             }
                         } else {
                             if let Err(error) = deliver_next_run_event(
-                                &app_for_outbound,
+                                sink_for_outbound.as_ref(),
                                 &journal_for_outbound,
                                 &coordinator_for_outbound,
                                 chat_id,
@@ -3248,7 +2504,7 @@ async fn build_instance(
                     match lifecycle {
                         RunLifecycleEvent::Started { run_id, chat_id } => {
                             let transition = persist_and_deliver_to_renderer(
-                                &app_for_outbound,
+                                sink_for_outbound.as_ref(),
                                 &journal_for_outbound,
                                 &coordinator_for_outbound,
                                 &chat_id,
@@ -3267,7 +2523,7 @@ async fn build_instance(
                             run_id, chat_id, ..
                         } => {
                             let transition = persist_and_deliver_to_renderer(
-                                &app_for_outbound,
+                                sink_for_outbound.as_ref(),
                                 &journal_for_outbound,
                                 &coordinator_for_outbound,
                                 &chat_id,
@@ -3286,7 +2542,7 @@ async fn build_instance(
                             run_id, chat_id, ..
                         } => {
                             let transition = persist_and_deliver_to_renderer(
-                                &app_for_outbound,
+                                sink_for_outbound.as_ref(),
                                 &journal_for_outbound,
                                 &coordinator_for_outbound,
                                 &chat_id,
@@ -3305,7 +2561,7 @@ async fn build_instance(
                             run_id, chat_id, ..
                         } => {
                             let transition = persist_and_deliver_to_renderer(
-                                &app_for_outbound,
+                                sink_for_outbound.as_ref(),
                                 &journal_for_outbound,
                                 &coordinator_for_outbound,
                                 &chat_id,
@@ -3331,7 +2587,7 @@ async fn build_instance(
     // any ALTAI chat tab, so the frontend filters it out — it exists only as a
     // lifecycle signal, not a message to render in a user's chat.
     if let Err(error) = emit_event(
-        &app,
+        event_sink.as_ref(),
         channel.chat_id(),
         &Event::AgentMessage {
             content: "IsanAgent runtime initialized.".to_string(),
@@ -4008,111 +3264,6 @@ mod run_event_tests {
     }
 }
 
-#[cfg(test)]
-mod permission_mode_tests {
-    use super::*;
-
-    #[test]
-    fn only_bypass_allows_shell() {
-        // ask and auto-edit must still gate shell/code (UI contract: auto-edit auto-approves
-        // edits only). bypass is the sole mode that maps to Allow.
-        assert_eq!(
-            permission_mode_to_shell_mode(Some("ask")),
-            Some(ShellPolicyMode::Ask)
-        );
-        assert_eq!(
-            permission_mode_to_shell_mode(Some("auto-edit")),
-            Some(ShellPolicyMode::Ask)
-        );
-        assert_eq!(
-            permission_mode_to_shell_mode(Some("bypass")),
-            Some(ShellPolicyMode::Allow)
-        );
-        // Unknown / empty must not downgrade to Allow — leave the on-disk default.
-        assert_eq!(permission_mode_to_shell_mode(Some("nonsense")), None);
-        assert_eq!(permission_mode_to_shell_mode(None), None);
-    }
-}
-
-#[cfg(test)]
-mod compaction_tests {
-    use super::*;
-
-    #[test]
-    fn auto_on_passes_threshold_and_tail() {
-        let c = CompactionArg {
-            auto: true,
-            threshold_tokens: 50_000,
-            tail_turns: 7,
-        };
-        let (tail, turns, tokens) = c.to_logic_params();
-        assert_eq!(tail, 7);
-        assert_eq!(turns, 20); // crate default, not user-configurable
-        assert_eq!(tokens, 50_000);
-    }
-
-    #[test]
-    fn auto_on_floors_threshold_at_8k() {
-        // A typo of 0 (or below 8k) must not wedge the loop into compacting
-        // every turn.
-        let c = CompactionArg {
-            auto: true,
-            threshold_tokens: 0,
-            tail_turns: 5,
-        };
-        let (_, _, tokens) = c.to_logic_params();
-        assert_eq!(tokens, 8_000);
-    }
-
-    #[test]
-    fn auto_off_disables_via_max_threshold() {
-        // auto=false → MAX threshold so the between-turns trigger never fires.
-        // Manual /compact still works (it is a direct backend FIFO command).
-        let c = CompactionArg {
-            auto: false,
-            threshold_tokens: 50_000,
-            tail_turns: 5,
-        };
-        let (_, _, tokens) = c.to_logic_params();
-        assert_eq!(tokens, usize::MAX);
-    }
-
-    #[test]
-    fn fingerprint_tuple_round_trips_fields() {
-        let c = CompactionArg {
-            auto: false,
-            threshold_tokens: 12_345,
-            tail_turns: 9,
-        };
-        assert_eq!(c.fingerprint_tuple(), (false, 12_345, 9));
-    }
-
-    #[tokio::test]
-    async fn manual_compaction_enqueues_exactly_one_backend_command() {
-        let (tx, mut rx) = mpsc::channel(4);
-        enqueue_manual_compaction(&tx, "chat-1", Some("keep API decisions".to_string()))
-            .expect("enqueue");
-        match rx.recv().await.expect("command") {
-            BusMessage::TriggerCompaction {
-                session_key,
-                focus_instructions,
-                trigger,
-            } => {
-                assert_eq!(session_key, "tauri:chat-1:");
-                assert_eq!(focus_instructions.as_deref(), Some("keep API decisions"));
-                assert!(matches!(
-                    trigger,
-                    Some(isanagent::bus::CompactionTrigger::Manual)
-                ));
-            }
-            other => panic!("expected TriggerCompaction, got {other:?}"),
-        }
-        assert!(matches!(
-            rx.try_recv(),
-            Err(tokio::sync::mpsc::error::TryRecvError::Empty)
-        ));
-    }
-}
 
 #[cfg(test)]
 mod provider_fingerprint_tests {
@@ -4134,8 +3285,8 @@ mod provider_fingerprint_tests {
     fn fingerprint(
         primary_key: &str,
         fallback: Option<&isanagent::agent::FallbackProviderSpec>,
-    ) -> RuntimeFingerprint {
-        make_fingerprint(
+    ) -> altai_agent_service::RuntimeFingerprint {
+        altai_agent_service::RuntimeFingerprint::make(
             "primary",
             primary_key,
             "primary-model",
