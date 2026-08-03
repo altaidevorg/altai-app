@@ -36,6 +36,15 @@ export {
   type EditApprovalDiff,
 } from "./components/EditApprovalCard.js";
 
+export {
+  TodoChecklist,
+  parseTodoItems,
+  summarizeTodos,
+  type TodoChecklistProps,
+  type TodoItem,
+  type TodoItemStatus,
+} from "./components/TodoChecklist.js";
+
 /** Re-export contract types so consumers can depend primarily on agent-ui. */
 export type {
   Capabilities,

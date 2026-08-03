@@ -11,10 +11,7 @@ import {
 } from "@/components/ui/popover";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
-import {
-  parseTodoItems,
-  TodoChecklist,
-} from "@/components/ai-elements/todo-checklist";
+import { parseTodoItems, TodoChecklist } from "@altai/agent-ui";
 import type { Todo } from "../lib/todos";
 import { useTodosStore } from "../store/todoStore";
 

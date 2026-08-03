@@ -39,7 +39,7 @@ import {
   parseTodoItems,
   summarizeTodos,
   TodoChecklist,
-} from "./todo-checklist";
+} from "@altai/agent-ui";
 
 
 export type ToolPart = ToolUIPart | DynamicToolUIPart;
