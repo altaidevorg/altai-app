@@ -13,7 +13,7 @@ import { useEffect, useState } from "react";
 import { native, type CheckpointInfo } from "../lib/native";
 import { usePlanStore, type AppliedPlanEdit, type QueuedEdit } from "../store/planStore";
 import { useChatStore } from "../store/chatStore";
-import { AuxiliarySurface } from "./AuxiliarySurface";
+import { AuxiliarySurface } from "@altai/agent-ui";
 
 function basename(p: string): string {
   const i = Math.max(p.lastIndexOf("/"), p.lastIndexOf("\\"));

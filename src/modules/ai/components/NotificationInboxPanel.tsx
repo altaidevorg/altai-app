@@ -39,7 +39,7 @@ import {
   SurfaceSearch,
   SurfaceSectionHeader,
   SurfaceTabs,
-} from "./AuxiliarySurface";
+} from "@altai/agent-ui";
 
 type DismissTarget =
   | {

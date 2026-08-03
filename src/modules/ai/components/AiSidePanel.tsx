@@ -38,7 +38,7 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { type ReactElement, useEffect, useRef, useState } from "react";
 import { EditApprovalCard } from "./EditApprovalCard";
-import { SurfaceHeader, SurfaceSearch } from "./AuxiliarySurface";
+import { SurfaceHeader, SurfaceSearch } from "@altai/agent-ui";
 import {
   retryFailedRun,
   sendMessage,

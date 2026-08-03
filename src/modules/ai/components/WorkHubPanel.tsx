@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { AutomationsPanel } from "./AutomationsPanel";
-import { SurfaceTabs } from "./AuxiliarySurface";
+import { SurfaceTabs } from "@altai/agent-ui";
 import { TaskRunsPanel } from "./TaskRunsPanel";
 
 export type WorkHubView = "runs" | "scheduled";

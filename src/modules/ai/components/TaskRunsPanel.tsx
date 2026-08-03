@@ -56,7 +56,7 @@ import {
   SurfaceSearch,
   SurfaceSectionHeader,
   SurfaceTabs,
-} from "./AuxiliarySurface";
+} from "@altai/agent-ui";
 
 const TERMINAL: AssignmentStatus[] = ["done", "failed", "cancelled"];
 type TaskFilter = "all" | "active" | "attention" | "finished";

@@ -38,7 +38,7 @@ import {
   SurfaceSearch,
   SurfaceSectionHeader,
   SurfaceTabs,
-} from "./AuxiliarySurface";
+} from "@altai/agent-ui";
 
 type ScheduleMode = "at" | "every";
 type AutomationFilter = "all" | "once" | "repeat" | "issues";

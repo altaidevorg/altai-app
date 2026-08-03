@@ -987,8 +987,27 @@ mod tests {
         fs::write(&marker, "present").unwrap();
 
         let executor = HookExecutor::default();
-        let cmd = file_exists_command("marker.txt");
-        let output = executor.run(&spec(&cmd), &input(&tmp), &tmp).expect("run");
+        let cmd = {
+            #[cfg(windows)]
+            {
+                // A .cmd script is reliable under both pwsh -Command and cmd /C,
+                // and inherits the HookExecutor cwd (unlike nested quoting tricks).
+                fs::write(
+                    tmp.join("check-marker.cmd"),
+                    "@echo off\r\nif exist \"marker.txt\" (exit /b 0) else (exit /b 1)\r\n",
+                )
+                .unwrap();
+                "cmd.exe /d /c check-marker.cmd".to_string()
+            }
+            #[cfg(not(windows))]
+            {
+                file_exists_command("marker.txt")
+            }
+        };
+        let mut hook = spec(&cmd);
+        // Windows oneshot shells (pwsh) can be slower under CI load.
+        hook.timeout_secs = 30;
+        let output = executor.run(&hook, &input(&tmp), &tmp).expect("run");
         assert_eq!(output.decision, HookDecision::Allow);
     }
 
