@@ -669,6 +669,7 @@ const ReadGroup = memo(function ReadGroup({ parts }: { parts: AnyPart[] }) {
                 strokeWidth={1.75}
                 className="shrink-0 opacity-60"
               />
+              {/* Basename (primary) + full path (secondary); both open the file. */}
               <ChatPathLink
                 path={path}
                 onOpen={openWorkspaceFile}
@@ -680,7 +681,9 @@ const ReadGroup = memo(function ReadGroup({ parts }: { parts: AnyPart[] }) {
                 path={path}
                 onOpen={openWorkspaceFile}
                 className="truncate opacity-60 hover:opacity-100"
-              />
+              >
+                {path}
+              </ChatPathLink>
             </li>
           ))}
         </ul>
