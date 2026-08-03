@@ -181,6 +181,7 @@ jobs:
       - name: Verify Windows installer and PATH lifecycle
         if: runner.os == 'Windows'
         shell: bash
+        timeout-minutes: 5
         run: |
           installer="$(find dist/release -maxdepth 1 -name '*-setup.exe' -print -quit)"
           # Exercise the same current-user directory used by a real silent
@@ -193,10 +194,10 @@ jobs:
           "$install_dir/altai-cli.exe" version --verbose
           "$install_dir/altai-cli.exe" open . --dry-run >/dev/null
           powershell -NoProfile -Command \
-            '$target=[IO.Path]::GetFullPath($env:LOCALAPPDATA + "\ALTAI").TrimEnd("\"); $parts=[Environment]::GetEnvironmentVariable("Path","User") -split ";"; if (-not ($parts | Where-Object { [StringComparer]::OrdinalIgnoreCase.Equals($_.TrimEnd("\"),$target) })) { exit 1 }'
+            '$target=[IO.Path]::GetFullPath($env:LOCALAPPDATA + "\ALTAI").TrimEnd("\"); $deadline=[DateTime]::UtcNow.AddSeconds(30); do { $parts=[Environment]::GetEnvironmentVariable("Path","User") -split ";"; if ($parts | Where-Object { [StringComparer]::OrdinalIgnoreCase.Equals($_.TrimEnd("\"),$target) }) { exit 0 }; Start-Sleep -Seconds 1 } while ([DateTime]::UtcNow -lt $deadline); exit 1'
           "$install_dir/uninstall.exe" /S
           powershell -NoProfile -Command \
-            '$target=[IO.Path]::GetFullPath($env:LOCALAPPDATA + "\ALTAI").TrimEnd("\"); $parts=[Environment]::GetEnvironmentVariable("Path","User") -split ";"; if ($parts | Where-Object { [StringComparer]::OrdinalIgnoreCase.Equals($_.TrimEnd("\"),$target) }) { exit 1 }'
+            '$target=[IO.Path]::GetFullPath($env:LOCALAPPDATA + "\ALTAI").TrimEnd("\"); $deadline=[DateTime]::UtcNow.AddSeconds(30); do { $parts=[Environment]::GetEnvironmentVariable("Path","User") -split ";"; if (-not ($parts | Where-Object { [StringComparer]::OrdinalIgnoreCase.Equals($_.TrimEnd("\"),$target) })) { exit 0 }; Start-Sleep -Seconds 1 } while ([DateTime]::UtcNow -lt $deadline); exit 1'
 
       - uses: actions/upload-artifact@v4
         with:
