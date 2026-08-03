@@ -122,6 +122,11 @@ export {
   type ContextActionProps,
 } from "./components/ContextAction.js";
 
+export {
+  RunStateMetric,
+  type RunStateMetricProps,
+} from "./components/RunStateMetric.js";
+
 /** Re-export contract types so consumers can depend primarily on agent-ui. */
 export type {
   Capabilities,
