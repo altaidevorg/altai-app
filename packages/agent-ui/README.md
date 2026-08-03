@@ -17,6 +17,7 @@ Incremental extraction of the Desktop `AiSidePanel` tree:
 |---|---|
 | A4.1 | `HostPortsProvider` / capability hooks |
 | A4.2 | `AuxiliarySurface` chrome (`SurfaceHeader`, `SurfaceSearch`, …) |
+| A4.3 | `AiToolApproval` (host supplies assertive-announce pref) |
 
 Desktop must import shared components from this package; local duplicates are
 deleted as each slice lands.
