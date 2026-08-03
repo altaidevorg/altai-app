@@ -1,5 +1,6 @@
 import { WindowControls } from "@/components/WindowControls";
 import { IS_MAC, USE_CUSTOM_WINDOW_CONTROLS } from "@/lib/platform";
+import { hasTauriWindowMetadata } from "@/lib/tauriWindow";
 import type { SettingsTab } from "@/modules/settings/openSettingsWindow";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { useEffect, useState } from "react";
@@ -19,10 +20,18 @@ export function SettingsApp() {
   const [active, setActive] = useState<SettingsTab>(readInitialTab);
 
   useEffect(() => {
-    const unlistenPromise = getCurrentWebviewWindow().listen<string>(
-      "altai:settings-tab",
-      (e) => setActive(normalizeSettingsTab(e.payload, "app")),
-    );
+    if (!hasTauriWindowMetadata()) return;
+
+    let unlistenPromise: Promise<() => void>;
+    try {
+      unlistenPromise = getCurrentWebviewWindow().listen<string>(
+        "altai:settings-tab",
+        (e) => setActive(normalizeSettingsTab(e.payload, "app")),
+      );
+    } catch (error) {
+      console.warn("Could not access the settings window", error);
+      return;
+    }
     return () => {
       void unlistenPromise.then((un) => un());
     };

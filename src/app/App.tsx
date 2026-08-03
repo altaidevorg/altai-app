@@ -142,6 +142,7 @@ import {
   useWorkspaceEnvStore,
   type WorkspaceEnv,
 } from "@/modules/workspace";
+import { hasTauriWindowMetadata } from "@/lib/tauriWindow";
 import { invoke } from "@tauri-apps/api/core";
 import { homeDir } from "@tauri-apps/api/path";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
@@ -786,13 +787,24 @@ export default function App() {
       setTimeout(() => handleLaunch(l), 100);
     }
 
+    // Vite's development URL can also be opened in a regular browser. Tauri's
+    // API module is importable there, but window metadata is not injected, so
+    // getCurrentWebviewWindow() throws synchronously before a Promise exists.
+    if (!hasTauriWindowMetadata()) return;
+
     // Listen for subsequent launches (single-instance events)
-    const unlistenPromise = getCurrentWebviewWindow().listen<LaunchPayload>(
-      "altai:launch",
-      (event) => {
-        handleLaunch(event.payload);
-      },
-    );
+    let unlistenPromise: Promise<() => void>;
+    try {
+      unlistenPromise = getCurrentWebviewWindow().listen<LaunchPayload>(
+        "altai:launch",
+        (event) => {
+          handleLaunch(event.payload);
+        },
+      );
+    } catch (error) {
+      console.warn("Could not access the current Tauri window", error);
+      return;
+    }
     return () => {
       void unlistenPromise.then((un) => un());
     };
@@ -997,21 +1009,30 @@ export default function App() {
   }, [tabs]);
 
   useEffect(() => {
+    if (!hasTauriWindowMetadata()) return;
+
     type FileWrittenPayload = { path: string; source?: string };
-    const unlistenPromise = getCurrentWebviewWindow().listen<FileWrittenPayload>(
-      "fs:file-written",
-      (event) => {
-        if (event.payload.source === "editor") return;
-        const normalizedPath = event.payload.path.replace(/\\/g, "/");
-        const currentTabs = tabsRef.current;
-        for (const t of currentTabs) {
-          if (t.kind !== "editor") continue;
-          if (t.path.replace(/\\/g, "/") === normalizedPath) {
-            editorRefs.current.get(t.id)?.reload();
-          }
-        }
-      },
-    );
+    let unlistenPromise: Promise<() => void>;
+    try {
+      unlistenPromise =
+        getCurrentWebviewWindow().listen<FileWrittenPayload>(
+          "fs:file-written",
+          (event) => {
+            if (event.payload.source === "editor") return;
+            const normalizedPath = event.payload.path.replace(/\\/g, "/");
+            const currentTabs = tabsRef.current;
+            for (const t of currentTabs) {
+              if (t.kind !== "editor") continue;
+              if (t.path.replace(/\\/g, "/") === normalizedPath) {
+                editorRefs.current.get(t.id)?.reload();
+              }
+            }
+          },
+        );
+    } catch (error) {
+      console.warn("Could not subscribe to file updates", error);
+      return;
+    }
     return () => {
       void unlistenPromise.then((un) => un());
     };

@@ -1,3 +1,4 @@
+import { hasTauriWindowMetadata } from "@/lib/tauriWindow";
 import { cn } from "@/lib/utils";
 import { IS_MAC, USE_CUSTOM_WINDOW_CONTROLS } from "@/lib/platform";
 import { WindowControls } from "@/components/WindowControls";
@@ -887,6 +888,7 @@ function WorkspaceTopbar({
     !historyOpen && activeId ? <TodoSummaryChip sessionId={activeId} /> : null;
 
   const toggleWindowMaximize = () => {
+    if (!hasTauriWindowMetadata()) return;
     void getCurrentWindow().toggleMaximize().catch(() => undefined);
   };
 
