@@ -1,5 +1,5 @@
 import { ask, open } from "@tauri-apps/plugin-dialog";
-import { LazyStore } from "@tauri-apps/plugin-store";
+import { createAppStore } from "@/lib/appStore";
 import { create } from "zustand";
 import { native } from "../ai/lib/native";
 
@@ -16,7 +16,7 @@ const HYDRATION_TIMEOUT_MS = 3_000;
 // similar short list — enough to jump back to active projects, not a history.
 const RECENTS_CAP = 12;
 
-const store = new LazyStore(STORE_PATH, { defaults: {}, autoSave: 200 });
+const store = createAppStore(STORE_PATH, { defaults: {}, autoSave: 200 });
 
 function withHydrationDeadline<T>(operation: Promise<T>): Promise<T> {
   return new Promise((resolve, reject) => {

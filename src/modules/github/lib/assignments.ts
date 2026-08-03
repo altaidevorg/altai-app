@@ -1,4 +1,4 @@
-import { LazyStore } from "@tauri-apps/plugin-store";
+import { createAppStore } from "@/lib/appStore";
 import { z } from "zod";
 import { PERMISSION_MODES, type PermissionMode } from "@/modules/settings/store";
 
@@ -158,7 +158,7 @@ const assignmentSchema = z.object({
 
 const STORE_PATH = "altai-assignments.json";
 const KEY = "assignments";
-const store = new LazyStore(STORE_PATH, { defaults: {}, autoSave: 200 });
+const store = createAppStore(STORE_PATH, { defaults: {}, autoSave: 200 });
 
 export async function loadAssignments(): Promise<Assignment[]> {
   const list = await store.get<unknown>(KEY);

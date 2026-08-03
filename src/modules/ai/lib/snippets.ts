@@ -1,4 +1,4 @@
-import { LazyStore } from "@tauri-apps/plugin-store";
+import { createAppStore } from "@/lib/appStore";
 
 export type Snippet = {
   id: string;
@@ -12,7 +12,7 @@ export type Snippet = {
 const STORE_PATH = "altai-ai-snippets.json";
 const KEY_LIST = "snippets";
 
-const store = new LazyStore(STORE_PATH, { defaults: {}, autoSave: 200 });
+const store = createAppStore(STORE_PATH, { defaults: {}, autoSave: 200 });
 
 export async function loadSnippets(): Promise<Snippet[]> {
   return (await store.get<Snippet[]>(KEY_LIST)) ?? [];

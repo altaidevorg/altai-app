@@ -9,7 +9,7 @@ import {
   ACTIVE_ASSIGNMENT_STATES,
   useAssignmentsStore,
 } from "@/modules/github/store/assignmentsStore";
-import { LazyStore } from "@tauri-apps/plugin-store";
+import { createAppStore } from "@/lib/appStore";
 import { create } from "zustand";
 
 type EffectiveWorkflow = {
@@ -45,7 +45,7 @@ type State = {
   setError: (workspaceKey: string, error: string | null) => void;
 };
 
-const persistence = new LazyStore("altai-orchestration.json", {
+const persistence = createAppStore("altai-orchestration.json", {
   defaults: {},
   autoSave: 200,
 });

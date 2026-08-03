@@ -1,4 +1,4 @@
-import { emit, listen } from "@tauri-apps/api/event";
+import { emitAppEvent, listenAppEvent } from "@/lib/appEvent";
 import { create } from "zustand";
 import {
   loadSnippets,
@@ -26,7 +26,7 @@ export const useSnippetsStore = create<State>((set, get) => ({
     if (initialized) return;
     initialized = true;
     set({ snippets: await loadSnippets(), hydrated: true });
-    void listen(CHANGED_EVENT, async () => {
+    void listenAppEvent(CHANGED_EVENT, async () => {
       set({ snippets: await loadSnippets() });
     });
   },
@@ -36,12 +36,12 @@ export const useSnippetsStore = create<State>((set, get) => ({
     const next =
       idx === -1 ? [...list, snippet] : list.map((s) => (s.id === snippet.id ? snippet : s));
     set({ snippets: next });
-    void saveSnippets(next).then(() => emit(CHANGED_EVENT));
+    void saveSnippets(next).then(() => emitAppEvent(CHANGED_EVENT));
   },
   remove: (id) => {
     const next = get().snippets.filter((s) => s.id !== id);
     set({ snippets: next });
-    void saveSnippets(next).then(() => emit(CHANGED_EVENT));
+    void saveSnippets(next).then(() => emitAppEvent(CHANGED_EVENT));
   },
 }));
 

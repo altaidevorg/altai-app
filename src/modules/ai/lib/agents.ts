@@ -1,4 +1,4 @@
-import { LazyStore } from "@tauri-apps/plugin-store";
+import { createAppStore } from "@/lib/appStore";
 
 /** Agent IDs that route through the IsanAgent runtime instead of Vercel AI SDK. */
 export const ISANAGENT_AGENT_IDS = new Set([
@@ -190,7 +190,7 @@ const KEY_ACTIVE = "activeAgentId";
 const KEY_DISABLED = "disabledAgentIds";
 const KEY_OVERRIDES = "builtinAgentOverrides";
 
-const store = new LazyStore(STORE_PATH, { defaults: {}, autoSave: 200 });
+const store = createAppStore(STORE_PATH, { defaults: {}, autoSave: 200 });
 
 /** User-editable fields on a built-in agent. id, icon, and the builtIn flag stay locked. */
 export type AgentOverride = Partial<
