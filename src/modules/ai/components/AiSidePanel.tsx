@@ -41,6 +41,7 @@ import { type ReactElement, useEffect, useRef, useState } from "react";
 import {
   EditApprovalCard,
   InspectorMetric,
+  RunStateMetric,
   SurfaceHeader,
   SurfaceSearch,
 } from "@altai/agent-ui";
@@ -1274,10 +1275,10 @@ function ActivityInspector({
       <section className="rounded-md border border-border bg-muted/30 p-2.5">
         <div className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Run state</div>
         <div className="mt-2 grid grid-cols-2 gap-2 text-[11px]">
-          <Metric label="Approvals" value={String(meta.approvalsPending)} />
-          <Metric label="Subagents" value={String(meta.activeSubagents.length)} />
-          <Metric label="Input" value={meta.tokens.inputTokens.toLocaleString()} />
-          <Metric label="Output" value={meta.tokens.outputTokens.toLocaleString()} />
+          <RunStateMetric label="Approvals" value={String(meta.approvalsPending)} />
+          <RunStateMetric label="Subagents" value={String(meta.activeSubagents.length)} />
+          <RunStateMetric label="Input" value={meta.tokens.inputTokens.toLocaleString()} />
+          <RunStateMetric label="Output" value={meta.tokens.outputTokens.toLocaleString()} />
         </div>
       </section>
       {meta.error ? (
@@ -1330,15 +1331,6 @@ function ActivityInspector({
           </p>
         )}
       </section>
-    </div>
-  );
-}
-
-function Metric({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-md bg-foreground/[0.035] px-2 py-1.5">
-      <div className="text-[9.5px] text-muted-foreground">{label}</div>
-      <div className="mt-0.5 font-medium tabular-nums text-foreground">{value}</div>
     </div>
   );
 }
