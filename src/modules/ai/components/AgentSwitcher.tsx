@@ -29,7 +29,7 @@ import {
 import { HugeiconsIcon } from "@hugeicons/react";
 import { ISANAGENT_AGENT_IDS, type AgentIconId } from "../lib/agents";
 import { useAgentsStore } from "../store/agentsStore";
-import { ComposerConfigTrigger } from "./ComposerConfigTrigger";
+import { ComposerConfigTrigger } from "@altai/agent-ui";
 
 const ICONS: Record<AgentIconId, typeof CodeIcon> = {
   coder: CodeIcon,

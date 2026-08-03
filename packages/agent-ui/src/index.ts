@@ -63,6 +63,11 @@ export {
   type TodoSummaryChipProps,
 } from "./components/TodoSummaryChip.js";
 
+export {
+  ComposerConfigTrigger,
+  type ComposerConfigTriggerProps,
+} from "./components/ComposerConfigTrigger.js";
+
 /** Re-export contract types so consumers can depend primarily on agent-ui. */
 export type {
   Capabilities,

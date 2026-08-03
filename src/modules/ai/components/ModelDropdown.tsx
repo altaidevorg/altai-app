@@ -45,7 +45,7 @@ import {
 } from "../lib/modelRouting";
 import { useAgentsStore } from "../store/agentsStore";
 import { useChatStore } from "../store/chatStore";
-import { ComposerConfigTrigger } from "./ComposerConfigTrigger";
+import { ComposerConfigTrigger } from "@altai/agent-ui";
 
 const PROVIDER_ICON = {
   openai: ChatGptIcon,
