@@ -132,6 +132,11 @@ export {
   type ProviderPillProps,
 } from "./components/ProviderPill.js";
 
+export {
+  HistoryRow,
+  type HistoryRowProps,
+} from "./components/HistoryRow.js";
+
 /** Re-export contract types so consumers can depend primarily on agent-ui. */
 export type {
   Capabilities,

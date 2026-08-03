@@ -35,6 +35,7 @@ Incremental extraction of the Desktop `AiSidePanel` tree:
 | A4.18 | `ContextAction` (composer attach menu row) |
 | A4.19 | `RunStateMetric` (run state header metric tile) |
 | A4.20 | `ProviderPill` (model dropdown provider rail pill) |
+| A4.21 | `HistoryRow` (plan diff review restore row) |
 
 Desktop must import shared components from this package; local duplicates are
 deleted as each slice lands.
