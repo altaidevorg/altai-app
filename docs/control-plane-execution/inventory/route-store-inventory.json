@@ -1,0 +1,556 @@
+{
+  "task_id": "GLM-CAL-01",
+  "status": "complete",
+  "risk_tier": "A",
+  "parent_authority": "docs/PAPERCLIP_STYLE_CONTROL_PLANE_ENGINEERING_PLAN.md",
+  "sections_covered": ["9.8", "12.1", "12.2", "12.3", "12.4"],
+  "generated_at": "2026-08-03T16:08:00Z",
+  "entries": [
+    {
+      "component_name": "Project Management rail destination",
+      "file_path": "src/modules/sidebar/SidebarRail.tsx",
+      "line_range": "25-27",
+      "current_owner": "Sidebar rail config",
+      "target_owner": "Renamed to Operations",
+      "disposition": "rename+expand",
+      "deletion_gate": "CP-17B/CP-17C live"
+    },
+    {
+      "component_name": "ProjectManagementSidebar",
+      "file_path": "src/modules/sidebar/ProjectManagementSidebar.tsx",
+      "line_range": "78",
+      "current_owner": "Frontend sidebar component",
+      "target_owner": "Compact OperationsSummary lens",
+      "disposition": "replace",
+      "deletion_gate": "CP-17B live in Desktop"
+    },
+    {
+      "component_name": "ProjectManagementSidebar mount",
+      "file_path": "src/app/App.tsx",
+      "line_range": "2522",
+      "current_owner": "App renderer",
+      "target_owner": "App renderer",
+      "disposition": "replace",
+      "deletion_gate": "CP-17A live"
+    },
+    {
+      "component_name": "SidebarViewId type",
+      "file_path": "src/modules/sidebar/types.ts",
+      "line_range": "1",
+      "current_owner": "Sidebar module",
+      "target_owner": "Add operations ID",
+      "disposition": "expand",
+      "deletion_gate": "CP-17A"
+    },
+    {
+      "component_name": "CommandCenter",
+      "file_path": "src/modules/github/components/CommandCenter.tsx",
+      "line_range": "72",
+      "current_owner": "Frontend GitHub module; aggregates across todo, assignment, run, orchestration stores",
+      "target_owner": "Operations Overview using server projections",
+      "disposition": "replace",
+      "deletion_gate": "Metric/attention/delivery parity plus failure-state tests pass"
+    },
+    {
+      "component_name": "ProjectBoardPanel",
+      "file_path": "src/modules/github/components/ProjectBoardPanel.tsx",
+      "line_range": "16",
+      "current_owner": "Frontend GitHub module; local board aggregation",
+      "target_owner": "WorkCollection route/stack",
+      "disposition": "replace+rename",
+      "deletion_gate": "Imported todos/assignments reachable by WorkItem ID"
+    },
+    {
+      "component_name": "ProjectBoardStack",
+      "file_path": "src/modules/github/components/ProjectBoardStack.tsx",
+      "line_range": "10",
+      "current_owner": "Frontend GitHub module",
+      "target_owner": "WorkCollection stack",
+      "disposition": "replace+rename",
+      "deletion_gate": "CP-17C live"
+    },
+    {
+      "component_name": "NewWorkComposer",
+      "file_path": "src/modules/github/components/NewWorkComposer.tsx",
+      "line_range": "27",
+      "current_owner": "Frontend; calls useAssignmentsStore.runTask",
+      "target_owner": "WorkItem create flow; Run now = create + assign + wake",
+      "disposition": "replace",
+      "deletion_gate": "Control-plane create/assign/wake commands live"
+    },
+    {
+      "component_name": "useTodosStore",
+      "file_path": "src/modules/ai/store/todoStore.ts",
+      "line_range": "28",
+      "current_owner": "Frontend Zustand store; persistence via LazyStore",
+      "target_owner": "Import eligible todos as WorkItems; IsanAgent todo data stays as RunPlanItems only",
+      "disposition": "migrate+remove",
+      "deletion_gate": "Migration import complete; RunPlan projection is separate"
+    },
+    {
+      "component_name": "WorkHubPanel",
+      "file_path": "src/modules/ai/components/WorkHubPanel.tsx",
+      "line_range": "13",
+      "current_owner": "AI sidebar overlay; hosts Work/Runs/Automations tabs",
+      "target_owner": "Operations Work/Runs/Routines routes + WorkItem shortcut",
+      "disposition": "remove",
+      "deletion_gate": "CP-17B/C/F live in Desktop and compact IDE routes"
+    },
+    {
+      "component_name": "TaskRunsPanel",
+      "file_path": "src/modules/ai/components/TaskRunsPanel.tsx",
+      "line_range": "112",
+      "current_owner": "AI sidebar; creates and manages task runs",
+      "target_owner": "Operations Runs view; task creation removed from this screen",
+      "disposition": "move+replace",
+      "deletion_gate": "Run projection/action parity tests pass"
+    },
+    {
+      "component_name": "AutomationsPanel",
+      "file_path": "src/modules/ai/components/AutomationsPanel.tsx",
+      "line_range": "99",
+      "current_owner": "AI sidebar; CRUD automations via Tauri commands",
+      "target_owner": "Operations Routines screen after cron import",
+      "disposition": "move+replace",
+      "deletion_gate": "All legacy cron definitions imported and scheduler cut over"
+    },
+    {
+      "component_name": "NotificationInboxPanel",
+      "file_path": "src/modules/ai/components/NotificationInboxPanel.tsx",
+      "line_range": "60",
+      "current_owner": "AI sidebar; standalone notification background-job Inbox overlay",
+      "target_owner": "Canonical Operations Inbox",
+      "disposition": "remove",
+      "deletion_gate": "Approvals, tickets, jobs, failures, and notifications map without loss"
+    },
+    {
+      "component_name": "AiSidePanel",
+      "file_path": "src/modules/ai/components/AiSidePanel.tsx",
+      "line_range": "127",
+      "current_owner": "AI sidebar; hosts WorkHubPanel, NotificationInboxPanel, RunInspector, inline TodoSummaryChip",
+      "target_owner": "Retain chat/history/composer + compact Run Inspector + WorkItem context chip",
+      "disposition": "narrow",
+      "deletion_gate": "CP-17B/C live"
+    },
+    {
+      "component_name": "RunInspector (AiSidePanel inline)",
+      "file_path": "src/modules/ai/components/AiSidePanel.tsx",
+      "line_range": "977",
+      "current_owner": "AI sidebar inline function",
+      "target_owner": "Shared canonical Run Detail/Inspector bound by run_id",
+      "disposition": "merge",
+      "deletion_gate": "All run actions bind to run_id with conformance tests"
+    },
+    {
+      "component_name": "AgentsInspector (AiSidePanel inline)",
+      "file_path": "src/modules/ai/components/AiSidePanel.tsx",
+      "line_range": "1542",
+      "current_owner": "AI sidebar inline function",
+      "target_owner": "SubagentRunsInspector; durable delegated work appears through linked child WorkItems",
+      "disposition": "rename+narrow",
+      "deletion_gate": "CP-06 live"
+    },
+    {
+      "component_name": "TodoSummaryChip",
+      "file_path": "src/modules/ai/components/TodoStrip.tsx",
+      "line_range": "14",
+      "current_owner": "AI topbar; uses useTodosStore",
+      "target_owner": "RunPlanSummaryChip; explicitly labels run-internal checklist",
+      "disposition": "rename+narrow",
+      "deletion_gate": "RunPlan projection separated from Work board"
+    },
+    {
+      "component_name": "AssignmentsRail",
+      "file_path": "src/modules/github/components/AssignmentsRail.tsx",
+      "line_range": "75",
+      "current_owner": "GitHub/project surface; reads useAssignmentsStore",
+      "target_owner": "My Work, Runs, and linked Work badges",
+      "disposition": "remove",
+      "deletion_gate": "No assignment mutation remains in GitHub components"
+    },
+    {
+      "component_name": "AssignAgentButton",
+      "file_path": "src/modules/github/components/AssignAgentButton.tsx",
+      "line_range": "43",
+      "current_owner": "GitHub surface; assigns agent to issue/PR directly",
+      "target_owner": "Create/link work; optional quick assignment invokes control-plane create/assign/wake",
+      "disposition": "replace action",
+      "deletion_gate": "Control-plane create/assign/wake commands live"
+    },
+    {
+      "component_name": "GitHubItemsPanel (GitHub Overview)",
+      "file_path": "src/modules/github/components/GitHubItemsPanel.tsx",
+      "line_range": "41",
+      "current_owner": "GitHub module; renders issue/PR lists with assignment badges",
+      "target_owner": "Render linked ExternalObjects and sync state; never own ALTAI Work status",
+      "disposition": "replace semantics",
+      "deletion_gate": "CP-14 live; ExternalObject projection available"
+    },
+    {
+      "component_name": "OrchestrationControlCenter",
+      "file_path": "src/modules/orchestration/OrchestrationControlCenter.tsx",
+      "line_range": "158",
+      "current_owner": "Frontend orchestration module",
+      "target_owner": "Operations header (pause/resume), Project policy (concurrency/retry), Routines (triggers)",
+      "disposition": "remove+redistribute",
+      "deletion_gate": "Control plane owns pause/claim/retry/schedule end to end"
+    },
+    {
+      "component_name": "OrchestrationBar",
+      "file_path": "src/modules/orchestration/OrchestrationBar.tsx",
+      "line_range": "56",
+      "current_owner": "Frontend orchestration module",
+      "target_owner": "Operations header",
+      "disposition": "remove+redistribute",
+      "deletion_gate": "Same as OrchestrationControlCenter gate"
+    },
+    {
+      "component_name": "OrchestrationController",
+      "file_path": "src/modules/orchestration/OrchestrationController.tsx",
+      "line_range": "169",
+      "current_owner": "Frontend renderer; claim, retry, reconcile, recovery loops",
+      "target_owner": "All claim, retry, reconciliation, and recovery in altai-control-plane",
+      "disposition": "remove",
+      "deletion_gate": "CP-07 live; control-plane scheduler is single writer"
+    },
+    {
+      "component_name": "useOrchestrationStore",
+      "file_path": "src/modules/orchestration/store.ts",
+      "line_range": "70",
+      "current_owner": "Frontend Zustand store",
+      "target_owner": "Coordinator health and project-operation projections",
+      "disposition": "remove",
+      "deletion_gate": "CP-17A live; projection replaces frontend store"
+    },
+    {
+      "component_name": "WorkflowEditor",
+      "file_path": "src/modules/orchestration/WorkflowEditor.tsx",
+      "line_range": "22",
+      "current_owner": "Frontend orchestration module",
+      "target_owner": "Versioned Project Policy editor; never directly starts a renderer scheduler",
+      "disposition": "replace",
+      "deletion_gate": "CP-04 live; Project policy CRUD available"
+    },
+    {
+      "component_name": "RunInspector (orchestration)",
+      "file_path": "src/modules/orchestration/RunInspector.tsx",
+      "line_range": "24",
+      "current_owner": "Orchestration module",
+      "target_owner": "Shared canonical Run Detail/Inspector",
+      "disposition": "merge",
+      "deletion_gate": "All run actions bind to run_id with conformance tests"
+    },
+    {
+      "component_name": "useInspectorStore",
+      "file_path": "src/modules/orchestration/inspectorStore.ts",
+      "line_range": "39",
+      "current_owner": "Frontend Zustand store",
+      "target_owner": "Run projection/event cache",
+      "disposition": "narrow",
+      "deletion_gate": "CP-17D live"
+    },
+    {
+      "component_name": "useAssignmentsStore",
+      "file_path": "src/modules/github/store/assignmentsStore.ts",
+      "line_range": "100",
+      "current_owner": "GitHub module; creates durable IDs, runs tasks, persists altai-assignments.json",
+      "target_owner": "Compatibility/cache only, then remove persistence",
+      "disposition": "remove",
+      "deletion_gate": "Import to WorkItem/Attempt mappings; callers switched"
+    },
+    {
+      "component_name": "useAutomationStore",
+      "file_path": "src/modules/ai/store/automationStore.ts",
+      "line_range": "45",
+      "current_owner": "AI module; CRUD automations via Tauri commands",
+      "target_owner": "Generic Routine projection cache; delete native cron CRUD calls",
+      "disposition": "remove",
+      "deletion_gate": "All legacy cron imported; scheduler cut over"
+    },
+    {
+      "component_name": "useNotificationStore",
+      "file_path": "src/modules/ai/store/notificationStore.ts",
+      "line_range": "186",
+      "current_owner": "AI module; domain ownership of notifications + attention",
+      "target_owner": "Inbox projection; keep only local read/display preferences",
+      "disposition": "remove",
+      "deletion_gate": "Approvals, tickets, jobs, failures map without loss"
+    },
+    {
+      "component_name": "useAgentRunsStore",
+      "file_path": "src/modules/ai/store/agentRunsStore.ts",
+      "line_range": "81",
+      "current_owner": "AI module; run state used as task-status source",
+      "target_owner": "Run-event projection cache only; Work status from control plane",
+      "disposition": "narrow",
+      "deletion_gate": "Control-plane Work projections live"
+    },
+    {
+      "component_name": "useGitHubStore",
+      "file_path": "src/modules/github/store/githubStore.ts",
+      "line_range": "32",
+      "current_owner": "GitHub module; work-lifecycle fields in cache",
+      "target_owner": "Integration cache only; no canonical Work lifecycle fields",
+      "disposition": "narrow",
+      "deletion_gate": "ExternalObject projection replaces work-lifecycle fields"
+    },
+    {
+      "component_name": "/tasks slash command",
+      "file_path": "src/modules/ai/lib/slashCommands.ts",
+      "line_range": "101",
+      "current_owner": "AI chat surface",
+      "target_owner": "/work deep-link to Operations Work route; keep alias for one stable release",
+      "disposition": "redirect+deprecate",
+      "deletion_gate": "Alias expiry after one stable release"
+    },
+    {
+      "component_name": "/inbox slash command",
+      "file_path": "src/modules/ai/lib/slashCommands.ts",
+      "line_range": "102",
+      "current_owner": "AI chat surface",
+      "target_owner": "/inbox deep-link to canonical Operations Inbox",
+      "disposition": "redirect",
+      "deletion_gate": "N/A (name preserved)"
+    },
+    {
+      "component_name": "/automations slash command",
+      "file_path": "src/modules/ai/lib/slashCommands.ts",
+      "line_range": "103",
+      "current_owner": "AI chat surface",
+      "target_owner": "/routines deep-link to Operations Routines; keep alias for one stable release",
+      "disposition": "redirect+deprecate",
+      "deletion_gate": "Alias expiry after one stable release"
+    },
+    {
+      "component_name": "work.taskRuns capability",
+      "file_path": "packages/host-contract/src/capabilities.ts",
+      "line_range": "58",
+      "current_owner": "Host-contract v1",
+      "target_owner": "Versioned control-plane work/* query/command capabilities",
+      "disposition": "replace",
+      "deletion_gate": "CP-15 live; all clients use CP-15 contracts"
+    },
+    {
+      "component_name": "work.automations capability",
+      "file_path": "packages/host-contract/src/capabilities.ts",
+      "line_range": "59",
+      "current_owner": "Host-contract v1",
+      "target_owner": "Versioned control-plane routines/* capabilities",
+      "disposition": "replace",
+      "deletion_gate": "CP-12 + CP-15 live"
+    },
+    {
+      "component_name": "inbox.notifications capability",
+      "file_path": "packages/host-contract/src/capabilities.ts",
+      "line_range": "60",
+      "current_owner": "Host-contract v1",
+      "target_owner": "Versioned control-plane activity/*/inbox/* capabilities",
+      "disposition": "replace",
+      "deletion_gate": "CP-15 live"
+    },
+    {
+      "component_name": "desktop.orchestration capability",
+      "file_path": "packages/host-contract/src/capabilities.ts",
+      "line_range": "68",
+      "current_owner": "Host-contract v1 (Desktop-only)",
+      "target_owner": "Remove as ownership capability",
+      "disposition": "remove",
+      "deletion_gate": "CP-15 live; all clients use CP-15 contracts"
+    },
+    {
+      "component_name": "WorkPort interface",
+      "file_path": "packages/host-contract/src/ports.ts",
+      "line_range": "98-117",
+      "current_owner": "Host-contract v1",
+      "target_owner": "Replace with control-plane query/command ports",
+      "disposition": "replace",
+      "deletion_gate": "CP-15 live"
+    },
+    {
+      "component_name": "InboxPort interface",
+      "file_path": "packages/host-contract/src/ports.ts",
+      "line_range": "119-124",
+      "current_owner": "Host-contract v1",
+      "target_owner": "Replace with control-plane Inbox port",
+      "disposition": "replace",
+      "deletion_gate": "CP-15 live"
+    },
+    {
+      "component_name": "TaskRunInfo type",
+      "file_path": "packages/host-contract/src/types.ts",
+      "line_range": "211-217",
+      "current_owner": "Host-contract v1",
+      "target_owner": "Replaced by canonical WorkItem/Attempt/Run types",
+      "disposition": "replace",
+      "deletion_gate": "CP-01 live"
+    },
+    {
+      "component_name": "AutomationInfo type",
+      "file_path": "packages/host-contract/src/types.ts",
+      "line_range": "219-224",
+      "current_owner": "Host-contract v1",
+      "target_owner": "Replaced by canonical Routine types",
+      "disposition": "replace",
+      "deletion_gate": "CP-01 live"
+    },
+    {
+      "component_name": "NotificationInfo type",
+      "file_path": "packages/host-contract/src/types.ts",
+      "line_range": "226-233",
+      "current_owner": "Host-contract v1",
+      "target_owner": "Replaced by canonical Inbox/Activity types",
+      "disposition": "replace",
+      "deletion_gate": "CP-01 live"
+    },
+    {
+      "component_name": "orchestration_* Tauri commands (v1)",
+      "file_path": "src-tauri/src/modules/orchestration.rs",
+      "line_range": "various",
+      "current_owner": "Desktop orchestration module",
+      "target_owner": "Control-plane coordinator",
+      "disposition": "remove",
+      "deletion_gate": "CP-04 through CP-17A live progressively"
+    },
+    {
+      "component_name": "orchestration_* Tauri commands (v2)",
+      "file_path": "src-tauri/src/modules/orchestration/commands.rs",
+      "line_range": "various",
+      "current_owner": "Desktop orchestration v2",
+      "target_owner": "Control-plane services",
+      "disposition": "remove",
+      "deletion_gate": "CP-04 through CP-17B live progressively"
+    },
+    {
+      "component_name": "agent_automation_* Tauri commands",
+      "file_path": "src-tauri/src/altai/agent/commands.rs",
+      "line_range": "various",
+      "current_owner": "Desktop agent runtime",
+      "target_owner": "Routine command port",
+      "disposition": "remove",
+      "deletion_gate": "CP-12 live; cron bridge replaces"
+    },
+    {
+      "component_name": "agent_notification_* Tauri commands",
+      "file_path": "src-tauri/src/altai/agent/commands.rs",
+      "line_range": "various",
+      "current_owner": "Desktop agent runtime",
+      "target_owner": "Inbox projection query/command",
+      "disposition": "remove",
+      "deletion_gate": "CP-17B live"
+    },
+    {
+      "component_name": "altai:agent-inbox-changed event (dispatch)",
+      "file_path": "src/modules/ai/lib/agentEventBridge.ts",
+      "line_range": "dispatch",
+      "current_owner": "AI event bridge",
+      "target_owner": "Coordinator event subscription",
+      "disposition": "remove",
+      "deletion_gate": "Canonical subscription/deep-link aliases expire"
+    },
+    {
+      "component_name": "altai:agent-inbox-changed event (listener)",
+      "file_path": "src/modules/ai/store/notificationStore.ts",
+      "line_range": "listener",
+      "current_owner": "Notification store",
+      "target_owner": "Coordinator event subscription",
+      "disposition": "remove",
+      "deletion_gate": "Same as above"
+    },
+    {
+      "component_name": "orchestration_tasks table",
+      "file_path": "src-tauri/src/modules/orchestration/ledger.rs",
+      "line_range": "MIGRATION_V1",
+      "current_owner": "Orchestration SQLite ledger",
+      "target_owner": "Control-plane work_items table",
+      "disposition": "migrate+remove",
+      "deletion_gate": "CP-03 live; data imported"
+    },
+    {
+      "component_name": "orchestration_attempts table",
+      "file_path": "src-tauri/src/modules/orchestration/ledger.rs",
+      "line_range": "MIGRATION_V1",
+      "current_owner": "Orchestration SQLite ledger",
+      "target_owner": "Control-plane attempts table",
+      "disposition": "migrate+remove",
+      "deletion_gate": "CP-07 live; data imported"
+    },
+    {
+      "component_name": "orchestration_events table",
+      "file_path": "src-tauri/src/modules/orchestration/ledger.rs",
+      "line_range": "MIGRATION_V1",
+      "current_owner": "Orchestration SQLite ledger",
+      "target_owner": "Control-plane control_events",
+      "disposition": "migrate+remove",
+      "deletion_gate": "CP-02 live"
+    },
+    {
+      "component_name": "orchestration_approvals table",
+      "file_path": "src-tauri/src/modules/orchestration/ledger.rs",
+      "line_range": "MIGRATION_V3",
+      "current_owner": "Orchestration SQLite ledger",
+      "target_owner": "Control-plane approvals",
+      "disposition": "migrate+remove",
+      "deletion_gate": "CP-10 live"
+    },
+    {
+      "component_name": "orchestration_artifacts table",
+      "file_path": "src-tauri/src/modules/orchestration/ledger.rs",
+      "line_range": "MIGRATION_V4",
+      "current_owner": "Orchestration SQLite ledger",
+      "target_owner": "Control-plane artifact/delivery store",
+      "disposition": "migrate+remove",
+      "deletion_gate": "CP-09 live"
+    },
+    {
+      "component_name": "orchestration_decisions table",
+      "file_path": "src-tauri/src/modules/orchestration/ledger.rs",
+      "line_range": "MIGRATION_V5",
+      "current_owner": "Orchestration SQLite ledger",
+      "target_owner": "Control-plane activity_events",
+      "disposition": "migrate+remove",
+      "deletion_gate": "CP-02 live"
+    }
+  ],
+  "gap_report": [
+    {
+      "item": "useInspectorStore",
+      "file_path": "src/modules/orchestration/inspectorStore.ts",
+      "line_range": "39",
+      "concern": "Frontend store for orchestration inspector; not mentioned in §9.8",
+      "recommendation": "Add to §12.2 narrowing list"
+    },
+    {
+      "item": "useChatStore session-as-task-identity pattern",
+      "file_path": "src/modules/ai/store/chatStore.ts",
+      "line_range": "414",
+      "concern": "Chat session ID used as task identity in assignment flows",
+      "recommendation": "§12.4 already calls this out; ensure architecture test covers it"
+    },
+    {
+      "item": "useAgentsStore",
+      "file_path": "src/modules/ai/store/agentsStore.ts",
+      "line_range": "—",
+      "concern": "Agent config in chat store; not explicitly in §9.8",
+      "recommendation": "Should be tracked under CP-05 migration"
+    },
+    {
+      "item": "agent_list_background_jobs Tauri command",
+      "file_path": "src-tauri/src/altai/agent/commands.rs",
+      "line_range": "—",
+      "concern": "Background job ownership in renderer",
+      "recommendation": "§12.4 covers conceptually; add explicit command reference"
+    },
+    {
+      "item": "agent_fetch_paper Tauri command",
+      "file_path": "src-tauri/src/altai/agent/commands.rs",
+      "line_range": "—",
+      "concern": "Paper import; may create work-like state",
+      "recommendation": "Verify if it needs migration tracking"
+    }
+  ],
+  "section_9_8_coverage": {
+    "total_rows": 27,
+    "found": 27,
+    "not_found": 0
+  }
+}
