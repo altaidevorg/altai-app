@@ -102,6 +102,11 @@ export {
   type FileSuggestionListProps,
 } from "./components/FileSuggestionList.js";
 
+export {
+  SelectionAskAi,
+  type SelectionAskAiProps,
+} from "./components/SelectionAskAi.js";
+
 /** Re-export contract types so consumers can depend primarily on agent-ui. */
 export type {
   Capabilities,

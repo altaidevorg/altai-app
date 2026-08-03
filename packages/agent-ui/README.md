@@ -29,6 +29,7 @@ Incremental extraction of the Desktop `AiSidePanel` tree:
 | A4.12 | `CommandSnippet` (host supplies slash-command meta) |
 | A4.13 | `ComposerSuggestionList` (host owns popover chrome) |
 | A4.14 | `FileSuggestionList` (host supplies icons + popover) |
+| A4.15 | `SelectionAskAi` (host supplies shortcut label) |
 
 Desktop must import shared components from this package; local duplicates are
 deleted as each slice lands.
