@@ -36,6 +36,7 @@ Incremental extraction of the Desktop `AiSidePanel` tree:
 | A4.19 | `RunStateMetric` (run state header metric tile) |
 | A4.20 | `ProviderPill` (model dropdown provider rail pill) |
 | A4.21 | `HistoryRow` (plan diff review restore row) |
+| A4.22 | `ModelSectionLabel` (model dropdown section heading) |
 
 Desktop must import shared components from this package; local duplicates are
 deleted as each slice lands.
