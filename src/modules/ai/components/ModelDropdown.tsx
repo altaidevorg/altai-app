@@ -45,7 +45,7 @@ import {
 } from "../lib/modelRouting";
 import { useAgentsStore } from "../store/agentsStore";
 import { useChatStore } from "../store/chatStore";
-import { ComposerConfigTrigger } from "@altai/agent-ui";
+import { ComposerConfigTrigger, ProviderPill } from "@altai/agent-ui";
 
 const PROVIDER_ICON = {
   openai: ChatGptIcon,
@@ -491,34 +491,6 @@ function ModelOption({
         </button>
       ) : null}
     </div>
-  );
-}
-
-function ProviderPill({
-  icon,
-  title,
-  active,
-  onClick,
-}: {
-  icon: typeof AiBookIcon;
-  title: string;
-  active: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      title={title}
-      onClick={onClick}
-      className={cn(
-        "relative mx-auto flex size-7 items-center justify-center rounded-md transition-colors",
-        active
-          ? "bg-foreground/[0.085] text-popover-foreground after:absolute after:top-1.5 after:right-0 after:bottom-1.5 after:w-[2px] after:rounded-full after:bg-primary after:content-['']"
-          : "text-muted-foreground hover:bg-foreground/[0.055]",
-      )}
-    >
-      <HugeiconsIcon icon={icon} size={14} strokeWidth={1.5} />
-    </button>
   );
 }
 
