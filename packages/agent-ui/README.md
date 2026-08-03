@@ -22,6 +22,7 @@ Incremental extraction of the Desktop `AiSidePanel` tree:
 | A4.5 | `TodoChecklist` / `parseTodoItems` |
 | A4.6 | `ChatPathLink` / `ChatExternalLink` (host supplies `onOpen`) |
 | A4.7 | `AgentStatusPill` (host supplies `meta` + `formatStepLabel`) |
+| A4.8 | `TodoSummaryChip` (host supplies `todos`) |
 
 Desktop must import shared components from this package; local duplicates are
 deleted as each slice lands.
