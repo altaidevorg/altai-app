@@ -68,6 +68,12 @@ export {
   type ComposerConfigTriggerProps,
 } from "./components/ComposerConfigTrigger.js";
 
+export {
+  ContextChips,
+  type ContextChip,
+  type ContextChipsProps,
+} from "./components/ContextChips.js";
+
 /** Re-export contract types so consumers can depend primarily on agent-ui. */
 export type {
   Capabilities,
