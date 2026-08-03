@@ -29,6 +29,12 @@ importers:
       '@ai-sdk/xai':
         specifier: ^3.0.83
         version: 3.0.91(zod@4.4.3)
+      '@altai/agent-ui':
+        specifier: workspace:*
+        version: link:packages/agent-ui
+      '@altai/host-contract':
+        specifier: workspace:*
+        version: link:packages/host-contract
       '@codemirror/autocomplete':
         specifier: ^6.20.1
         version: 6.20.2
@@ -273,6 +279,34 @@ importers:
       '@types/node':
         specifier: ^25.6.0
         version: 25.9.0
+      typescript:
+        specifier: ~5.8.3
+        version: 5.8.3
+      vitest:
+        specifier: ^2.1.9
+        version: 2.1.9(@types/node@25.9.0)(lightningcss@1.32.0)(msw@2.14.6(@types/node@25.9.0)(typescript@5.8.3))
+
+  packages/agent-ui:
+    dependencies:
+      '@altai/host-contract':
+        specifier: workspace:*
+        version: link:../host-contract
+    devDependencies:
+      '@types/node':
+        specifier: ^25.6.0
+        version: 25.9.0
+      '@types/react':
+        specifier: ^19.1.8
+        version: 19.2.14
+      '@types/react-dom':
+        specifier: ^19.1.6
+        version: 19.2.3(@types/react@19.2.14)
+      react:
+        specifier: ^19.1.0
+        version: 19.2.6
+      react-dom:
+        specifier: ^19.1.0
+        version: 19.2.6(react@19.2.6)
       typescript:
         specifier: ~5.8.3
         version: 5.8.3

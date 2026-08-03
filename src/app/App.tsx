@@ -25,6 +25,11 @@ import {
   SelectionAskAi,
   useChatStore,
 } from "@/modules/ai";
+import { createTauriHostPorts } from "@/modules/ai/host/createTauriHostPorts";
+import {
+  HostPortsProvider,
+  type Capabilities,
+} from "@altai/agent-ui";
 import {
   DEFAULT_AUTOCOMPLETE_MODEL,
   MODELS,
@@ -240,6 +245,35 @@ export default function App() {
   // globals.css apply reduce-motion, high-contrast, larger-text,
   // strong-focus, underline-links, and visible-skip-link rules app-wide.
   useApplyA11yClasses();
+
+  // Shared UI host ports (TASK-007 / A4). Chat stores still use native.ts
+  // directly; this provider is the injection seam for @altai/agent-ui.
+  const hostPorts = useMemo(() => createTauriHostPorts(), []);
+  const [hostCapabilities, setHostCapabilities] = useState<Capabilities | null>(
+    null,
+  );
+  useEffect(() => {
+    let cancelled = false;
+    void hostPorts.runtime
+      .initialize({
+        protocolMin: 1,
+        protocolMax: 1,
+        clientName: "altai-desktop",
+        clientVersion: "0.6.6",
+      })
+      .then((capabilities) => {
+        if (!cancelled) {
+          setHostCapabilities(capabilities);
+        }
+      })
+      .catch((error) => {
+        console.warn("host ports initialize failed", error);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [hostPorts]);
+
   // Studio terminals prefer an explicitly attached project. Agent-only chats
   // can remain project-free; the launch directory is merely the IDE fallback.
   const initialTabCwd =
@@ -2739,5 +2773,9 @@ export default function App() {
     </ThemeProvider>
   );
 
-  return <AiComposerProvider>{shell}</AiComposerProvider>;
+  return (
+    <HostPortsProvider ports={hostPorts} capabilities={hostCapabilities}>
+      <AiComposerProvider>{shell}</AiComposerProvider>
+    </HostPortsProvider>
+  );
 }
