@@ -21,10 +21,8 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import {
   ArrowRight01Icon,
   Cancel01Icon,
-  CodeIcon,
   File01Icon,
   GlobalSearchIcon,
-  HashtagIcon,
   Refresh01Icon,
   SparklesIcon,
   TerminalIcon,
@@ -45,7 +43,12 @@ import type {
   UIMessagePart,
 } from "ai";
 import { memo, useCallback, useMemo } from "react";
-import { AiToolApproval, ChatPathLink } from "@altai/agent-ui";
+import {
+  AiToolApproval,
+  ChatPathLink,
+  ContextChips,
+  type ContextChip,
+} from "@altai/agent-ui";
 import { AgentStatusPill } from "./AgentStatusPill";
 import { openWorkspaceFile } from "../lib/openChatHref";
 import {
@@ -83,14 +86,6 @@ function CommandSnippet({ name }: { name: string }) {
 }
 
 type AnyToolPart = ToolUIPart | DynamicToolUIPart;
-
-type ContextChip =
-  | { kind: "selection"; source: "terminal" | "editor"; lines: number }
-  | { kind: "file"; name: string; lines: number }
-  | { kind: "terminal"; name: string; lines: number }
-  | { kind: "diff"; name: string; lines: number }
-  | { kind: "folder"; name: string; lines: number }
-  | { kind: "snippet"; name: string };
 
 const SELECTION_RE =
   /<selection\s+source="(terminal|editor)">\n?([\s\S]*?)\n?<\/selection>/g;
@@ -150,62 +145,6 @@ function stripUserContextBlocks(text: string): {
   return { text: out.trim(), chips };
 }
 
-const ContextChips = memo(function ContextChips({
-  chips,
-}: {
-  chips: ContextChip[];
-}) {
-  return (
-    <div className="mb-1 flex flex-wrap gap-1">
-      {chips.map((c, i) => (
-        <span
-          key={i}
-          className="inline-flex items-center gap-1 rounded-md border border-border/50 bg-card/60 px-1.5 py-0.5 text-[10.5px] text-muted-foreground"
-        >
-          {chipIcon(c)}
-          <span className="font-medium text-foreground">{chipLabel(c)}</span>
-          {"lines" in c && c.lines > 0 ? (
-            <span className="opacity-70">· {c.lines}L</span>
-          ) : null}
-        </span>
-      ))}
-    </div>
-  );
-});
-
-function chipIcon(c: ContextChip) {
-  if (c.kind === "selection") {
-    return (
-      <HugeiconsIcon
-        icon={c.source === "editor" ? CodeIcon : TerminalIcon}
-        size={10}
-        strokeWidth={1.75}
-      />
-    );
-  }
-  if (c.kind === "file") {
-    return <HugeiconsIcon icon={File01Icon} size={10} strokeWidth={1.75} />;
-  }
-  if (c.kind === "terminal") {
-    return <HugeiconsIcon icon={TerminalIcon} size={10} strokeWidth={1.75} />;
-  }
-  if (c.kind === "diff") {
-    return <HugeiconsIcon icon={CodeIcon} size={10} strokeWidth={1.75} />;
-  }
-  if (c.kind === "folder") {
-    return <HugeiconsIcon icon={File01Icon} size={10} strokeWidth={1.75} />;
-  }
-  return <HugeiconsIcon icon={HashtagIcon} size={10} strokeWidth={1.75} />;
-}
-
-function chipLabel(c: ContextChip): string {
-  if (c.kind === "selection") {
-    return c.source === "editor" ? "Editor selection" : "Terminal selection";
-  }
-  if (c.kind === "file") return c.name;
-  if (c.kind === "terminal" || c.kind === "diff" || c.kind === "folder") return c.name;
-  return `#${c.name}`;
-}
 type AnyPart = UIMessagePart<Record<string, never>, Record<string, never>>;
 
 type ApprovalArg = {
