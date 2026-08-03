@@ -29,6 +29,13 @@ export {
   type ToolApprovalPart,
 } from "./components/AiToolApproval.js";
 
+export {
+  EditApprovalCard,
+  parseDiffLines,
+  type EditApprovalCardProps,
+  type EditApprovalDiff,
+} from "./components/EditApprovalCard.js";
+
 /** Re-export contract types so consumers can depend primarily on agent-ui. */
 export type {
   Capabilities,
