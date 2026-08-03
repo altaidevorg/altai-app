@@ -27,6 +27,7 @@ Incremental extraction of the Desktop `AiSidePanel` tree:
 | A4.10 | `ContextChips` (typed context chip row for chat) |
 | A4.11 | `PermissionModeSwitcher` (host supplies mode + callbacks) |
 | A4.12 | `CommandSnippet` (host supplies slash-command meta) |
+| A4.13 | `ComposerSuggestionList` (host owns popover chrome) |
 
 Desktop must import shared components from this package; local duplicates are
 deleted as each slice lands.

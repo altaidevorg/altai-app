@@ -8,10 +8,23 @@ export type LaunchPayload = {
 
 let pending: LaunchPayload[] = [];
 
+const LAUNCH_READ_TIMEOUT_MS = 3_000;
+
+function readPendingLaunches(): Promise<LaunchPayload[]> {
+  return new Promise((resolve) => {
+    const timer = window.setTimeout(() => {
+      console.warn("initial launch payload read timed out; continuing startup");
+      resolve([]);
+    }, LAUNCH_READ_TIMEOUT_MS);
+
+    void invoke<LaunchPayload[]>("get_pending_launches")
+      .then(resolve, () => resolve([]))
+      .finally(() => window.clearTimeout(timer));
+  });
+}
+
 export async function initPendingLaunches(): Promise<void> {
-  const launches = await invoke<LaunchPayload[]>("get_pending_launches").catch(
-    () => [],
-  );
+  const launches = await readPendingLaunches();
   pending = launches.map((l) => ({
     ...l,
     paths: l.paths.map((p) => p.replace(/\\/g, "/")),

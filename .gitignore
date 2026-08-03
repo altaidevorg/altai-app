@@ -36,3 +36,6 @@ src-tauri/binaries/
 
 # macOS Finder metadata
 .DS_Store
+
+# Agent runtime generated state
+.system_generated/

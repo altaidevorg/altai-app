@@ -11,9 +11,27 @@ use std::sync::Mutex;
 use tauri::{Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_window_state::StateFlags;
 
+#[cfg(any(target_os = "windows", test))]
+fn windows_webview_args_for(disable_gpu: bool) -> String {
+    let mut args = "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection".to_string();
+
+    // WebView2 uses the GPU by default and Microsoft recommends keeping it
+    // enabled for normal application sessions. 0.6.8 forced software rendering
+    // for every Windows user while investigating a driver-specific white-screen
+    // report; on other machines that can leave the compositor black and makes
+    // every ALTAI surface fail together. Keep software rendering as an explicit
+    // troubleshooting escape hatch instead of a global application invariant.
+    if disable_gpu {
+        args.push_str(" --disable-gpu");
+    }
+
+    args
+}
+
 #[cfg(target_os = "windows")]
-pub(crate) const WINDOWS_WEBVIEW_ARGS: &str =
-    "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --disable-gpu --force-renderer-accessibility";
+pub(crate) fn windows_webview_args() -> String {
+    windows_webview_args_for(env_flag("ALTAI_DISABLE_GPU"))
+}
 
 const WINDOW_BACKGROUND: tauri::webview::Color = tauri::webview::Color(10, 10, 10, 255);
 
@@ -31,6 +49,17 @@ fn restored_window_state_flags() -> StateFlags {
     let flags = flags & !StateFlags::FULLSCREEN;
 
     flags
+}
+
+fn env_flag(name: &str) -> bool {
+    matches!(
+        std::env::var(name)
+            .ok()
+            .as_deref()
+            .map(str::to_ascii_lowercase)
+            .as_deref(),
+        Some("1") | Some("true") | Some("yes") | Some("on")
+    )
 }
 
 /// Brings a window forward and explicitly transfers input focus into its webview.
@@ -73,14 +102,7 @@ fn get_pending_launches(state: State<'_, PendingLaunch>) -> Vec<LaunchPayload> {
 /// Vite's `import.meta.env` can't see.
 #[tauri::command]
 fn env_get_flag(name: String) -> bool {
-    matches!(
-        std::env::var(&name)
-            .ok()
-            .as_deref()
-            .map(str::to_ascii_lowercase)
-            .as_deref(),
-        Some("1") | Some("true") | Some("yes") | Some("on")
-    )
+    env_flag(&name)
 }
 
 /// Open a filesystem item with a user-selected application. This deliberately
@@ -244,7 +266,7 @@ pub(crate) fn show_or_create_settings_window(
     let builder = builder
         .decorations(true)
         .transparent(false)
-        .additional_browser_args(WINDOWS_WEBVIEW_ARGS);
+        .additional_browser_args(&windows_webview_args());
 
     let window = builder.build().map_err(|e| e.to_string())?;
     // Some Linux window managers ignore the builder-time decorations flag.
@@ -305,7 +327,7 @@ pub(crate) fn show_or_create_studio_window(app: &tauri::AppHandle) -> Result<(),
     let builder = builder
         .decorations(true)
         .transparent(false)
-        .additional_browser_args(WINDOWS_WEBVIEW_ARGS);
+        .additional_browser_args(&windows_webview_args());
 
     let window = builder.build().map_err(|e| e.to_string())?;
 
@@ -328,20 +350,12 @@ fn open_studio_window(app: tauri::AppHandle) -> Result<(), String> {
 }
 
 /// Renderer-to-native startup checkpoint used by logs and the Windows release
-/// smoke test. The return value asks the frontend to paint a deterministic
-/// color probe only when CI explicitly opts in via `ALTAI_GUI_SMOKE=1`.
+/// smoke test. The frontend invokes this from a React effect, after the real
+/// application shell commits; no synthetic overlay is painted over the UI.
 #[tauri::command]
 fn renderer_ready(window: tauri::WebviewWindow) -> bool {
     log::info!("renderer ready: {}", window.label());
-    let smoke = cfg!(target_os = "windows")
-        && matches!(
-            std::env::var("ALTAI_GUI_SMOKE")
-                .ok()
-                .as_deref()
-                .map(str::to_ascii_lowercase)
-                .as_deref(),
-            Some("1") | Some("true") | Some("yes") | Some("on")
-        );
+    let smoke = cfg!(target_os = "windows") && env_flag("ALTAI_GUI_SMOKE");
     if smoke {
         let _ = window.set_title("ALTAI [renderer-ready]");
     }
@@ -362,6 +376,14 @@ pub fn run() {
     let _ = modules::os_integration::register_context_menus();
 
     tauri::Builder::default()
+        .on_page_load(|webview, payload| {
+            log::info!(
+                "page load {:?}: {} ({})",
+                payload.event(),
+                webview.label(),
+                payload.url()
+            );
+        })
         .plugin(tauri_plugin_single_instance::init(|app, args, cwd| {
             // A `--new-window` relaunch (from the Dock/Jump List/.desktop action
             // or `altai --new-window`) opens a fresh window instead of focusing
@@ -424,6 +446,8 @@ pub fn run() {
         .manage(orchestration::hooks::HookRegistry::new())
         .on_menu_event(app_menu::handle_event)
         .setup(|app| {
+            #[cfg(target_os = "windows")]
+            log::info!("Windows WebView2 args: {}", windows_webview_args());
             altai::agent::runtime::init(app.handle().clone())?;
             // We use workspaceFallbackPath in frontend which depends on this
             workspace::grant_startup_asset_scope(app.handle());
@@ -453,13 +477,14 @@ pub fn run() {
             // Keep the Windows HWND opaque and natively decorated. If the
             // renderer or GPU process fails during startup, the user must still
             // be able to move, minimize, restore, and close the application.
-            // Software rendering avoids the WebView2 all-white compositor
-            // failure observed on affected Windows GPU/driver combinations.
+            // Users with a confirmed GPU-driver issue can opt into software
+            // rendering with ALTAI_DISABLE_GPU=1; it is unsafe as a universal
+            // default because WebView2 can fail to composite on other systems.
             #[cfg(target_os = "windows")]
             let builder = builder
                 .decorations(true)
                 .transparent(false)
-                .additional_browser_args(WINDOWS_WEBVIEW_ARGS);
+                .additional_browser_args(&windows_webview_args());
 
             let window = builder.build()?;
             #[cfg(target_os = "windows")]
@@ -684,6 +709,19 @@ mod tests {
         assert!(flags.contains(StateFlags::SIZE));
         assert!(flags.contains(StateFlags::POSITION));
         assert!(flags.contains(StateFlags::MAXIMIZED));
+    }
+
+    #[test]
+    fn windows_webview_keeps_hardware_rendering_by_default() {
+        let args = windows_webview_args_for(false);
+
+        assert!(!args.contains("--disable-gpu"));
+        assert!(!args.contains("--force-renderer-accessibility"));
+    }
+
+    #[test]
+    fn windows_webview_software_rendering_is_opt_in() {
+        assert!(windows_webview_args_for(true).contains("--disable-gpu"));
     }
 
     #[test]

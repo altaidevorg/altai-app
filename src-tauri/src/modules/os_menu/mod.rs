@@ -75,7 +75,7 @@ pub fn spawn_new_window(app: &AppHandle) {
     let builder = builder
         .decorations(true)
         .transparent(false)
-        .additional_browser_args(crate::WINDOWS_WEBVIEW_ARGS);
+        .additional_browser_args(&crate::windows_webview_args());
 
     match builder.build() {
         Ok(_window) => {

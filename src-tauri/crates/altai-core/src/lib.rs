@@ -5,6 +5,9 @@ pub mod compaction;
 pub mod config;
 pub mod event;
 pub mod journal;
+pub mod legacy_mapping;
+#[cfg(test)]
+mod legacy_mapping_tests;
 pub mod palette;
 pub mod policy;
 pub mod workspace;

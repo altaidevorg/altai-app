@@ -1,5 +1,8 @@
 import { PopoverContent } from "@/components/ui/popover";
-import { cn } from "@/lib/utils";
+import {
+  ComposerSuggestionList,
+  type ComposerSuggestionItem,
+} from "@altai/agent-ui";
 import { HugeiconsIcon } from "@hugeicons/react";
 import type { SlashCommandMeta } from "../lib/slashCommands";
 import type { Snippet } from "../lib/snippets";
@@ -16,6 +19,10 @@ type Props = {
   commandPrefix?: "#" | "/";
 };
 
+/**
+ * Desktop adapter: Popover chrome + Desktop snippet/command types around the
+ * shared suggestion list.
+ */
 export function SnippetPickerContent({
   items,
   activeIndex,
@@ -23,9 +30,36 @@ export function SnippetPickerContent({
   onHover,
   commandPrefix = "#",
 }: Props) {
-  const commands = items.filter((it) => it.kind === "command");
-  const snippets = items.filter((it) => it.kind === "snippet");
-  let cursor = -1;
+  const sharedItems: ComposerSuggestionItem[] = items.map((it) => {
+    if (it.kind === "command") {
+      const c = it.command;
+      return {
+        kind: "command" as const,
+        name: c.name,
+        label: c.label,
+        description: c.description,
+        category: c.category,
+        aliases: c.aliases,
+        source: c.source,
+        icon: (
+          <HugeiconsIcon
+            icon={c.icon}
+            size={13}
+            strokeWidth={1.75}
+            className="text-muted-foreground"
+          />
+        ),
+      };
+    }
+    const s = it.snippet;
+    return {
+      kind: "snippet" as const,
+      id: s.id,
+      handle: s.handle,
+      name: s.name,
+      description: s.description,
+    };
+  });
 
   return (
     <PopoverContent
@@ -35,119 +69,27 @@ export function SnippetPickerContent({
       onOpenAutoFocus={(e) => e.preventDefault()}
       onCloseAutoFocus={(e) => e.preventDefault()}
       onMouseDown={(e) => e.preventDefault()}
-      className="w-72 overflow-hidden rounded-lg border border-border/80 bg-popover p-0 text-popover-foreground shadow-xl"
+      className="w-auto border-0 bg-transparent p-0 shadow-none"
     >
-      {items.length === 0 ? (
-        <div className="px-3 py-2.5 text-[11px] text-muted-foreground">
-          {commandPrefix === "/"
-            ? "No slash commands match."
-            : "No matches. Add snippets in Settings → Agents."}
-        </div>
-      ) : (
-        <div className="max-h-64 overflow-y-auto py-1">
-          {commands.length > 0 && (
-            <>
-              <SectionHeader label={commandPrefix === "/" ? "Slash commands" : "Commands"} />
-              <ul>
-                {commands.map((it) => {
-                  cursor += 1;
-                  const i = cursor;
-                  if (it.kind !== "command") return null;
-                  const c = it.command;
-                  return (
-                    <li key={`cmd-${c.name}`}>
-                      <button
-                        type="button"
-                        onMouseEnter={() => onHover(i)}
-                        onClick={() => onPick(it)}
-                        className={cn(
-                          "mx-1 my-0.5 flex w-[calc(100%-0.5rem)] items-center gap-2 rounded-md px-2 py-1.5 text-left text-[12px] text-popover-foreground",
-                          i === activeIndex
-                            ? "bg-foreground/[0.065]"
-                            : "hover:bg-foreground/[0.055]",
-                        )}
-                      >
-                        <HugeiconsIcon
-                          icon={c.icon}
-                          size={13}
-                          strokeWidth={1.75}
-                          className="text-muted-foreground"
-                        />
-                        <span className="flex min-w-0 flex-1 flex-col">
-                          <span className="flex items-center gap-1.5">
-                            <span className="font-mono text-muted-foreground">
-                              {commandPrefix}{c.name}
-                            </span>
-                            <span className="font-medium">{c.label}</span>
-                            <span className="rounded bg-foreground/[0.06] px-1 py-px text-[8.5px] font-medium uppercase tracking-wide text-muted-foreground">
-                              {c.category}
-                            </span>
-                          </span>
-                          <span className="line-clamp-1 text-[10.5px] text-muted-foreground">
-                            {c.description}
-                            {c.aliases?.length
-                              ? ` · aliases: ${c.aliases.map((alias) => `/${alias}`).join(", ")}`
-                              : ""}
-                            {c.source === "workspace" ? " · workspace workflow" : ""}
-                          </span>
-                        </span>
-                      </button>
-                    </li>
-                  );
-                })}
-              </ul>
-            </>
-          )}
-          {snippets.length > 0 && (
-            <>
-              <SectionHeader label="Snippets" />
-              <ul>
-                {snippets.map((it) => {
-                  cursor += 1;
-                  const i = cursor;
-                  if (it.kind !== "snippet") return null;
-                  const s = it.snippet;
-                  return (
-                    <li key={`sn-${s.id}`}>
-                      <button
-                        type="button"
-                        onMouseEnter={() => onHover(i)}
-                        onClick={() => onPick(it)}
-                        className={cn(
-                          "mx-1 my-0.5 flex w-[calc(100%-0.5rem)] flex-col items-start gap-0.5 rounded-md px-2 py-1.5 text-left text-[12px] text-popover-foreground",
-                          i === activeIndex
-                            ? "bg-foreground/[0.065]"
-                            : "hover:bg-foreground/[0.055]",
-                        )}
-                      >
-                        <span className="flex w-full items-center gap-1.5">
-                          <span className="font-mono text-muted-foreground">
-                            #{s.handle}
-                          </span>
-                          <span className="font-medium">{s.name}</span>
-                        </span>
-                        {s.description ? (
-                          <span className="line-clamp-1 text-[10.5px] text-muted-foreground">
-                            {s.description}
-                          </span>
-                        ) : null}
-                      </button>
-                    </li>
-                  );
-                })}
-              </ul>
-            </>
-          )}
-        </div>
-      )}
+      <ComposerSuggestionList
+        items={sharedItems}
+        activeIndex={activeIndex}
+        commandPrefix={commandPrefix}
+        onHover={onHover}
+        onPick={(shared) => {
+          const original =
+            shared.kind === "command"
+              ? items.find(
+                  (it) =>
+                    it.kind === "command" && it.command.name === shared.name,
+                )
+              : items.find(
+                  (it) =>
+                    it.kind === "snippet" && it.snippet.id === shared.id,
+                );
+          if (original) onPick(original);
+        }}
+      />
     </PopoverContent>
-  );
-}
-
-function SectionHeader({ label }: { label: string }) {
-  return (
-    <div className="px-2 pt-1.5 pb-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground/70">
-      {label}
-    </div>
   );
 }

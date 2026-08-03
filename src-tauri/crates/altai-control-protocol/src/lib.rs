@@ -1,0 +1,20 @@
+//! Shared domain contracts for the ALTAI control plane.
+//!
+//! This crate defines the stable, product-neutral types that cross the
+//! control-plane / execution-plane boundary (ADR 0003). It knows nothing
+//! about SQLite, Tauri, network transport, or UI. Every canonical ID is a
+//! distinct typed struct; no identity is ever a bare string.
+//!
+//! See: docs/PAPERCLIP_STYLE_CONTROL_PLANE_ENGINEERING_PLAN.md §3.3, §4, §5.
+
+pub mod actor;
+pub mod error;
+pub mod event;
+pub mod id;
+pub mod revision;
+
+pub use actor::{Actor, ActorKind};
+pub use error::{ControlError, ControlErrorCode};
+pub use event::{ActivityEvent, ControlEvent, EventKind};
+pub use id::*;
+pub use revision::Revision;

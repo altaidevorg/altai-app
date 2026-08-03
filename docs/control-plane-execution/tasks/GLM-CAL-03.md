@@ -94,7 +94,13 @@ From parent plan Sections 4.1 and 5.1:
 | `queued` | `todo` | `queued` |
 | `running` | `in_progress` | `running` |
 | `succeeded` | `done` | `terminal` |
-| `failed` | `needs_attention` | `failed` |
+| `failed` | `in_progress` | `failed` |
+
+> **Amendment (2026-08-03):** the original table mapped `failed` to work_status
+> `needs_attention`, which is not a canonical WorkStatus under Section 5.1 (it is
+> an ExecutionPhase under Section 5.2). Corrected to `in_progress` + `failed`:
+> the work was started but is not complete; attention is derived from the
+> execution phase via the Inbox projection.
 | `cancelled` | `cancelled` | `terminal` |
 
 ## Expected diff shape

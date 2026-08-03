@@ -1,0 +1,19 @@
+{
+  "event_id": "evt_01H8XGJKBNJ5WQ3ZQVJ8P2RK7N",
+  "kind": "created",
+  "actor": {
+    "kind": "system",
+    "component": "migration"
+  },
+  "timestamp": "2026-08-03T19:00:00Z",
+  "organization_id": {
+    "type": "organization_id",
+    "value": "org_01923abc-def0-7abc-8def-0123456789ab"
+  },
+  "project_id": null,
+  "work_item_id": null,
+  "attempt_id": null,
+  "summary": "imported legacy data",
+  "correlation_id": null,
+  "causation_id": null
+}

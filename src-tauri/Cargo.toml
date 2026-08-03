@@ -13,6 +13,7 @@ members = [
 	"crates/altai-agent-service",
 	"crates/altai-collaboration",
 	"crates/altai-protocol",
+	"crates/altai-control-protocol",
 	"crates/altai-cli",
 ]
 resolver = "2"
