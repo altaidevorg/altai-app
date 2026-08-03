@@ -83,6 +83,12 @@ export {
   type PermissionModeSwitcherProps,
 } from "./components/PermissionModeSwitcher.js";
 
+export {
+  CommandSnippet,
+  type CommandSnippetMeta,
+  type CommandSnippetProps,
+} from "./components/CommandSnippet.js";
+
 /** Re-export contract types so consumers can depend primarily on agent-ui. */
 export type {
   Capabilities,

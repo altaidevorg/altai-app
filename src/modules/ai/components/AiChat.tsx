@@ -46,6 +46,7 @@ import { memo, useCallback, useMemo } from "react";
 import {
   AiToolApproval,
   ChatPathLink,
+  CommandSnippet,
   ContextChips,
   type ContextChip,
 } from "@altai/agent-ui";
@@ -58,30 +59,28 @@ import {
   MessageResponse,
 } from "@/components/ai-elements/message";
 
-function CommandSnippet({ name }: { name: string }) {
+function ResolvedCommandSnippet({ name }: { name: string }) {
   const meta = resolveSlashCommand(name);
-  if (!meta) {
-    return (
-      <div className="inline-flex items-center gap-1.5 rounded-md border border-border/50 bg-muted/40 px-2 py-1 font-mono text-[11px]">
-        /{name}
-      </div>
-    );
-  }
   return (
-    <div className="inline-flex max-w-full items-center gap-2 rounded-md border border-border/50 bg-muted/40 px-2 py-1">
-      <HugeiconsIcon
-        icon={meta.icon}
-        size={12}
-        strokeWidth={1.75}
-        className="shrink-0 text-foreground"
-      />
-      <span className="font-mono text-[11px] text-foreground">
-        {meta.invocation}
-      </span>
-      <span className="truncate text-[11px] text-muted-foreground">
-        {meta.label}
-      </span>
-    </div>
+    <CommandSnippet
+      name={name}
+      meta={
+        meta
+          ? {
+              invocation: meta.invocation,
+              label: meta.label,
+              icon: (
+                <HugeiconsIcon
+                  icon={meta.icon}
+                  size={12}
+                  strokeWidth={1.75}
+                  className="shrink-0 text-foreground"
+                />
+              ),
+            }
+          : null
+      }
+    />
   );
 }
 
@@ -331,7 +330,7 @@ const RenderedMessage = memo(function RenderedMessage({
     return (
       <Message from="user" className="altai-ai-message">
         <MessageContent>
-          {commandName ? <CommandSnippet name={commandName} /> : null}
+          {commandName ? <ResolvedCommandSnippet name={commandName} /> : null}
           {stripped.chips.length > 0 ? (
             <ContextChips chips={stripped.chips} />
           ) : null}
