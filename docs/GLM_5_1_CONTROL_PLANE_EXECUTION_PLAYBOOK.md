@@ -33,16 +33,13 @@ it does not let the model reinterpret the architecture or substitute Paperclip c
 
 ## 2. What the model can and cannot solve
 
-Official Z.AI documentation describes GLM 5.1 as a text model with a 200K context window,
-function calling, structured output, and long-horizon coding support. Those capabilities are
-sufficient for this repository when a host supplies filesystem, shell, git, and test tools.
-They do not give the model repository knowledge automatically.
-
-Sources:
-
-- <https://docs.z.ai/guides/llm/glm-5.1>
-- <https://docs.z.ai/devpack/tool/others>
-- <https://docs.z.ai/devpack/quick-start>
+The GLM 5.1 model documentation and Coding Plan documentation describe a large-context text
+model with function calling, structured output, and long-horizon coding support. Those
+capabilities are sufficient for this repository when a host supplies filesystem, shell, git,
+and test tools. They do not give the model repository knowledge automatically. Consult the
+current GLM 5.1 model guide, tool-integration guide, and Coding Plan quick-start in the
+official Z.AI documentation before configuring a host; external documentation URLs are
+intentionally omitted to comply with this repository's approved-link policy.
 
 Operational assumptions:
 

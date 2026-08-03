@@ -5,13 +5,13 @@
 >
 > **Date:** 2026-08-03
 >
-> **Last updated by:** bootstrap PR
+> **Last updated by:** PR #262 acceptance review
 
 ## Accepted Tasks
 
 | Task ID | Status | PR/Commit | Date | Notes |
 | --- | --- | --- | --- | --- |
-| _(none yet)_ | — | — | — | Bootstrap artifacts created, no implementation tasks accepted |
+| GLM-CAL-01 | accepted | PR #262 | 2026-08-03 | Route/store/state-owner inventory validated; 56 unique entries with valid source references |
 
 ## Current Schema and Protocol Versions
 
@@ -40,7 +40,6 @@
 
 | Task ID | Risk | Depends on | Status |
 | --- | --- | --- | --- |
-| GLM-CAL-01 | A | — | **ready** |
 | GLM-CAL-02 | A | GLM-CAL-01 | **ready** |
 | GLM-CAL-03 | A | GLM-CAL-02 | **ready** |
 | CP-00-01 | A/B | calibration | blocked (calibration required) |
@@ -54,7 +53,7 @@
 
 ## Existing Code Owners (Inventory Summary)
 
-> Full inventory is produced by GLM-CAL-01 and recorded here when accepted.
+> Full inventory: `docs/control-plane-execution/inventory/ROUTE_STORE_INVENTORY.md`.
 
 | Area | Current owner | Target owner | Migration task |
 | --- | --- | --- | --- |
