@@ -316,7 +316,12 @@ pub(crate) fn build_oneshot_command(
         if is_cmd {
             cmd.arg("/C").arg(command);
         } else {
-            cmd.arg("-NoProfile").arg("-Command").arg(command);
+            // -NonInteractive prevents pwsh from waiting on stdin after -Command
+            // when CI redirects pipes (seen as intermittent Timeout on Windows).
+            cmd.arg("-NoProfile")
+                .arg("-NonInteractive")
+                .arg("-Command")
+                .arg(command);
         }
         Ok(cmd)
     }
