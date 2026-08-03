@@ -73,8 +73,9 @@ impl StdioHost {
         if let Some(existing) = guard.get(workspace_root) {
             return Ok(existing.clone());
         }
+        let fallback = self.workspace.root.to_string_lossy();
         let ws_opt = if workspace_root.is_empty() {
-            None
+            Some(fallback.as_ref())
         } else {
             Some(workspace_root)
         };
@@ -114,11 +115,14 @@ impl StdioHost {
             .name("altai-stdio-logger".to_string())
             .spawn(move || {
                 while let Ok(message) = logger_rx.recv() {
-                    if runtime_handle
-                        .block_on(logger_forward.send_packet(message))
-                        .is_err()
-                    {
-                        break;
+                    // Exit when the runtime can no longer dispatch — otherwise
+                    // this thread would spin forever after serve shutdown.
+                    let send = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        runtime_handle.block_on(logger_forward.send_packet(message))
+                    }));
+                    match send {
+                        Ok(Ok(())) => {}
+                        Ok(Err(_)) | Err(_) => break,
                     }
                 }
             })
@@ -156,7 +160,6 @@ impl StdioHost {
             },
         });
         guard.insert(workspace_root.to_string(), services.clone());
-        let _ = &self.workspace;
         Ok(services)
     }
 }
@@ -223,7 +226,10 @@ fn dirs_checkpoint_root() -> Option<PathBuf> {
         .or_else(|| std::env::var_os("USERPROFILE"))
         .map(PathBuf::from)?;
     let root = home.join(".altai").join("checkpoints");
-    let _ = std::fs::create_dir_all(&root);
+    if let Err(error) = std::fs::create_dir_all(&root) {
+        log::warn!("checkpoint: failed to create checkpoint directory: {error}");
+        return None;
+    }
     Some(root)
 }
 

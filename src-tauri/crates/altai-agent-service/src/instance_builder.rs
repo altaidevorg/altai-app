@@ -96,7 +96,9 @@ where
     let workspace_dir = resolve_workspace_root(workspace_root);
     if !workspace_dir.exists() {
         // Auto-create minimal workspace
-        let _ = std::fs::create_dir_all(workspace_dir.join(".system_generated"));
+        std::fs::create_dir_all(workspace_dir.join(".system_generated")).map_err(|error| {
+            format!("Failed to create workspace directory {}: {error}", workspace_dir.display())
+        })?;
     }
 
     let workspace = IsanagentWorkspace::new(workspace_root, None)

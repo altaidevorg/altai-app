@@ -640,6 +640,18 @@ async fn handle_run_start(
     let api_key = std::env::var("ALTAI_API_KEY")
         .or_else(|_| std::env::var("OPENAI_API_KEY"))
         .unwrap_or_default();
+    // Scripted CI/test runs intentionally omit provider credentials.
+    let scripted = cfg!(debug_assertions)
+        && std::env::var_os("ALTAI_CLI_TEST_SCRIPTED_RESPONSE").is_some();
+    if api_key.trim().is_empty() && !scripted {
+        return respond(
+            writer,
+            id,
+            None,
+            Some(error_value(-32603, "api_key_not_configured")),
+        )
+        .await;
+    }
     let workspace_path = workspace.root.to_str().map(str::to_string);
     let base_url = configuration.base_url.map(|value| value.value);
     let permission = permission.to_string();
