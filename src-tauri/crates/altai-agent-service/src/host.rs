@@ -109,3 +109,28 @@ pub trait HostAdapter: Send + Sync + 'static {
         Ok(())
     }
 }
+
+use crate::acks::{DocumentPart, SendAck};
+
+/// Control-plane methods every host channel must expose.
+#[async_trait::async_trait]
+pub trait HostControlPlane: Send + Sync {
+    async fn inject_user_message(
+        &self,
+        content: String,
+        image_urls: Vec<String>,
+        documents: Vec<DocumentPart>,
+        chat_id: String,
+        queue: bool,
+    ) -> Result<SendAck, String>;
+
+    async fn cancel_run(&self, chat_id: String, run_id: String) -> Result<(), String>;
+
+    async fn steer_run(
+        &self,
+        chat_id: String,
+        run_id: String,
+        content: String,
+    ) -> Result<(), String>;
+}
+

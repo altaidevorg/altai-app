@@ -1,0 +1,14 @@
+{
+  "name": "run/replay accepts cursor after_seq and limit",
+  "message": {
+    "jsonrpc": "2.0",
+    "id": "run-replay-1",
+    "method": "run/replay",
+    "params": {
+      "chat_id": "chat-fixture-1",
+      "run_id": "run-fixture-1",
+      "after_seq": 0,
+      "limit": 500
+    }
+  }
+}

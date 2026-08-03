@@ -1,34 +1,37 @@
+use std::io;
+use std::sync::{Arc, Mutex};
+
+use altai_agent_service::{
+    coordinator_guard, AgentService, RunCoordinator, SharedRunCoordinator,
+};
 use altai_core::EventJournal;
 use altai_core::WorkspacePaths;
 use altai_protocol::{
-    encode_frame, validate_message, FrameDecoder, FrameLimits, ProtocolMessage, PROTOCOL_VERSION,
+    validate_message, FrameDecoder, FrameLimits, ProtocolMessage, PROTOCOL_VERSION,
 };
-use isanagent::bus::{BusMessage, RunLifecycleEvent, TelemetryEvent};
 use serde_json::{json, Value};
-use std::sync::Arc;
-use std::time::Duration;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::sync::Mutex;
+use tokio::io::AsyncReadExt;
 
-type Writer = Arc<Mutex<tokio::io::Stdout>>;
+use crate::stdio_host::StdioHost;
+use crate::stdio_sink::{write_framed, SharedStdout, StdioEventSink};
 
-#[derive(Default)]
-struct ActiveRun {
-    chat_id: String,
-    run_id: Option<String>,
-    seq: u64,
-    terminal: bool,
-    abort: Option<tokio::task::AbortHandle>,
-    journal: Option<crate::journal_sink::JournalSink>,
-}
+type Writer = SharedStdout;
 
 pub async fn run(workspace: WorkspacePaths) -> Result<(), String> {
-    let writer = Arc::new(Mutex::new(tokio::io::stdout()));
-    let active = Arc::new(Mutex::new(None::<ActiveRun>));
+    let writer: Writer = Arc::new(Mutex::new(io::stdout()));
+    let event_sink = Arc::new(StdioEventSink::new(writer.clone()));
+    let run_coordinator: SharedRunCoordinator =
+        Arc::new(std::sync::Mutex::new(RunCoordinator::default()));
+    let host = Arc::new(StdioHost::new(
+        workspace.clone(),
+        event_sink.clone() as Arc<dyn altai_agent_service::AgentEventSink>,
+        run_coordinator.clone(),
+    ));
+    let service = Arc::new(AgentService::with_coordinator(host, run_coordinator.clone()));
+
     let mut stdin = tokio::io::stdin();
     let mut decoder = FrameDecoder::new(FrameLimits::default());
     let mut initialized = false;
-    let terminal_pause = test_terminal_pause();
     let mut buffer = [0_u8; 4096];
     loop {
         let count = stdin.read(&mut buffer).await.map_err(|e| e.to_string())?;
@@ -39,7 +42,7 @@ pub async fn run(workspace: WorkspacePaths) -> Result<(), String> {
             Ok(frames) => frames,
             Err(error) => {
                 eprintln!("altai-cli serve: malformed frame: {error}");
-                cancel_active(&active, &writer).await;
+                cancel_all_active(&service).await;
                 return Ok(());
             }
         };
@@ -48,7 +51,7 @@ pub async fn run(workspace: WorkspacePaths) -> Result<(), String> {
                 Ok(value) => value,
                 Err(error) => {
                     eprintln!("altai-cli serve: malformed JSON: {error}");
-                    cancel_active(&active, &writer).await;
+                    cancel_all_active(&service).await;
                     return Ok(());
                 }
             };
@@ -73,20 +76,53 @@ pub async fn run(workspace: WorkspacePaths) -> Result<(), String> {
             match method.as_str() {
                 "initialize" => {
                     initialized = true;
-                    respond(&writer, id, Some(json!({"protocol_min":PROTOCOL_VERSION,"protocol_max":PROTOCOL_VERSION,"capabilities":["initialize","workspace/status","config/get","models/list","agents/list","sessions/list","sessions/get","sessions/create","run/start","run/cancel","run/replay","checkpoints/list","checkpoints/restore","shutdown"]})), None).await?;
+                    respond(
+                        &writer,
+                        id,
+                        Some(json!({
+                            "protocol_min": PROTOCOL_VERSION,
+                            "protocol_max": PROTOCOL_VERSION,
+                            "capabilities": [
+                                "initialize",
+                                "workspace/status",
+                                "config/get",
+                                "models/list",
+                                "agents/list",
+                                "sessions/list",
+                                "sessions/get",
+                                "sessions/create",
+                                "run/start",
+                                "run/cancel",
+                                "run/steer",
+                                "run/replay",
+                                "context/compact",
+                                "checkpoints/list",
+                                "checkpoints/restore",
+                                "shutdown"
+                            ]
+                        })),
+                        None,
+                    )
+                    .await?;
                 }
                 "workspace/status" if initialized => {
                     let journal_path = workspace.agent_event_journal_db();
+                    let active_run = coordinator_guard(&run_coordinator)
+                        .active_runs()
+                        .into_iter()
+                        .next()
+                        .map(|(chat_id, run_id, _)| json!({"chat_id": chat_id, "run_id": run_id}));
                     respond(
                         &writer,
                         id,
                         Some(json!({
                             "root": workspace.root.display().to_string(),
                             "journal": journal_path.display().to_string(),
-                            "active_run": active.lock().await.as_ref().and_then(|run| run.run_id.clone()),
+                            "active_run": active_run.as_ref().and_then(|v| v.get("run_id").cloned()),
                         })),
                         None,
-                    ).await?;
+                    )
+                    .await?;
                 }
                 "sessions/create" if initialized => {
                     let params = params
@@ -148,7 +184,8 @@ pub async fn run(workspace: WorkspacePaths) -> Result<(), String> {
                                     })
                                 })
                                 .collect::<Vec<_>>();
-                            respond(&writer, id, Some(json!({"sessions": sessions})), None).await?;
+                            respond(&writer, id, Some(json!({"sessions": sessions})), None)
+                                .await?;
                         }
                         Err(error) => {
                             eprintln!("altai-cli serve: could not list sessions: {error}");
@@ -204,7 +241,7 @@ pub async fn run(workspace: WorkspacePaths) -> Result<(), String> {
                                 })),
                                 None,
                             )
-                            .await?
+                            .await?;
                         }
                         Ok(None) => {
                             respond(
@@ -213,7 +250,7 @@ pub async fn run(workspace: WorkspacePaths) -> Result<(), String> {
                                 None,
                                 Some(error_value(-32002, "session_not_found")),
                             )
-                            .await?
+                            .await?;
                         }
                         Err(error) => {
                             eprintln!("altai-cli serve: could not inspect session: {error}");
@@ -231,43 +268,19 @@ pub async fn run(workspace: WorkspacePaths) -> Result<(), String> {
                     respond(
                         &writer,
                         id,
-                        Some(json!({
-                            "agents": [{
-                                "id": "altai",
-                                "label": "ALTAI",
-                                "description": "Workspace coding agent"
-                            }]
-                        })),
+                        Some(json!({"agents":[{"id":"altai","label":"ALTAI"}]})),
                         None,
                     )
                     .await?;
                 }
                 "models/list" if initialized => match load_run_configuration(&workspace) {
                     Ok(configuration) => {
-                        let mut models = vec![json!({
-                        "id": "auto",
-                        "label": "Auto model",
-                        "description": "Use the workspace provider configuration"
-                        })];
-                        if let Some(model) = configuration.model.as_ref() {
-                            if model.value != "auto" {
-                                models.push(json!({
-                                    "id": model.value.clone(),
-                                    "label": model.value.clone(),
-                                    "description": format!("Resolved from {}", model.source.label())
-                                }));
-                            }
+                        let mut models = vec![json!({"id":"auto","label":"Auto"})];
+                        if let Some(model) = configuration.model {
+                            models.push(json!({"id": model.value, "label": model.value}));
                         }
-                        if let Some(model) = configuration.fallback_model.as_ref() {
-                            if !models.iter().any(|item| {
-                                item.get("id").and_then(Value::as_str) == Some(model.value.as_str())
-                            }) {
-                                models.push(json!({
-                                    "id": model.value.clone(),
-                                    "label": model.value.clone(),
-                                    "description": format!("Fallback from {}", model.source.label())
-                                }));
-                            }
+                        if let Some(model) = configuration.fallback_model {
+                            models.push(json!({"id": model.value, "label": model.value}));
                         }
                         respond(&writer, id, Some(json!({"models": models})), None).await?;
                     }
@@ -285,21 +298,22 @@ pub async fn run(workspace: WorkspacePaths) -> Result<(), String> {
                 "config/get" if initialized => match load_run_configuration(&workspace) {
                     Ok(configuration) => {
                         respond(
-                                &writer,
-                                id,
-                                Some(json!({
-                                    "agent": "altai",
-                                    "model": configuration.model.map(|value| value.value).unwrap_or_else(|| "auto".to_string()),
-                                    "permission": "plan",
-                                    "permissions": [{
-                                        "id": "plan",
-                                        "label": "Plan",
-                                        "description": "Read-only mode supported by the current stdio host"
-                                    }]
-                                })),
-                                None,
-                            )
-                            .await?;
+                            &writer,
+                            id,
+                            Some(json!({
+                                "agent": "altai",
+                                "model": configuration.model.map(|value| value.value).unwrap_or_else(|| "auto".to_string()),
+                                "permission": "plan",
+                                "permissions": [
+                                    {"id":"ask","label":"Ask","description":"Approve shell and edits"},
+                                    {"id":"auto-edit","label":"Auto-edit","description":"Auto-apply edits; ask for shell"},
+                                    {"id":"plan","label":"Plan","description":"Read-only planning mode"},
+                                    {"id":"bypass","label":"Bypass","description":"No prompts (explicit opt-in)"}
+                                ]
+                            })),
+                            None,
+                        )
+                        .await?;
                     }
                     Err(error) => {
                         eprintln!("altai-cli serve: could not load run configuration: {error}");
@@ -313,22 +327,95 @@ pub async fn run(workspace: WorkspacePaths) -> Result<(), String> {
                     }
                 },
                 "run/start" if initialized => {
-                    let Some(params) = params.and_then(|value| value.as_object().cloned()) else {
-                        respond(
-                            &writer,
-                            id,
-                            None,
-                            Some(error_value(-32602, "invalid_params")),
-                        )
-                        .await?;
-                        continue;
-                    };
-                    let Some(chat_id) = params
+                    handle_run_start(&service, &workspace, &writer, id, params).await?;
+                }
+                "run/steer" if initialized => {
+                    let params = params
+                        .and_then(|value| value.as_object().cloned())
+                        .unwrap_or_default();
+                    let chat_id = params
                         .get("chat_id")
                         .and_then(Value::as_str)
-                        .filter(|v| !v.trim().is_empty())
+                        .unwrap_or("")
+                        .to_string();
+                    let run_id = params
+                        .get("run_id")
+                        .and_then(Value::as_str)
+                        .unwrap_or("")
+                        .to_string();
+                    let content = params
+                        .get("content")
+                        .and_then(Value::as_str)
+                        .unwrap_or("")
+                        .to_string();
+                    match service.route_steer(chat_id, run_id, content).await {
+                        Ok(_) => {
+                            respond(&writer, id, Some(json!({"accepted": true})), None).await?;
+                        }
+                        Err(error) => {
+                            respond(
+                                &writer,
+                                id,
+                                None,
+                                Some(error_value(-32002, &error)),
+                            )
+                            .await?;
+                        }
+                    }
+                }
+                "run/cancel" if initialized => {
+                    let params = params
+                        .and_then(|value| value.as_object().cloned())
+                        .unwrap_or_default();
+                    let run_id = params
+                        .get("run_id")
+                        .and_then(Value::as_str)
+                        .unwrap_or("")
+                        .to_string();
+                    let chat_id = params
+                        .get("chat_id")
+                        .and_then(Value::as_str)
                         .map(str::to_string)
-                    else {
+                        .or_else(|| coordinator_guard(&run_coordinator).chat_for_run(&run_id))
+                        .or_else(|| event_sink.chat_for_run(&run_id));
+                    let Some(chat_id) = chat_id.filter(|value| !value.trim().is_empty()) else {
+                        respond(&writer, id, None, Some(error_value(-32002, "stale_run_id")))
+                            .await?;
+                        continue;
+                    };
+                    // Claim the wire terminal before asking the service to
+                    // cancel, so a racing completed lifecycle can be rewritten
+                    // during the test pause window (see StdioEventSink).
+                    let terminal_still_open = event_sink.claim_cancel(&run_id);
+                    match service.route_cancel(chat_id, run_id).await {
+                        Ok(_) => {
+                            respond(&writer, id, Some(json!({"accepted": true})), None).await?;
+                        }
+                        Err(_) if terminal_still_open => {
+                            // Lease already released by a completed lifecycle
+                            // that is still paused in the sink; the paused
+                            // frame will be rewritten to cancelled.
+                            respond(&writer, id, Some(json!({"accepted": true})), None).await?;
+                        }
+                        Err(_) => {
+                            respond(&writer, id, None, Some(error_value(-32002, "stale_run_id")))
+                                .await?;
+                        }
+                    }
+                }
+                "run/replay" if initialized => {
+                    handle_run_replay(&workspace, &writer, id, params).await?;
+                }
+                "context/compact" if initialized => {
+                    let params = params
+                        .and_then(|value| value.as_object().cloned())
+                        .unwrap_or_default();
+                    let chat_id = params
+                        .get("chat_id")
+                        .and_then(Value::as_str)
+                        .unwrap_or("")
+                        .to_string();
+                    if chat_id.trim().is_empty() {
                         respond(
                             &writer,
                             id,
@@ -337,252 +424,29 @@ pub async fn run(workspace: WorkspacePaths) -> Result<(), String> {
                         )
                         .await?;
                         continue;
-                    };
-                    let Some(prompt) = params
-                        .get("prompt")
-                        .and_then(Value::as_str)
-                        .filter(|v| !v.trim().is_empty())
-                        .map(str::to_string)
-                    else {
-                        respond(
-                            &writer,
-                            id,
-                            None,
-                            Some(error_value(-32602, "prompt_required")),
-                        )
-                        .await?;
-                        continue;
-                    };
-                    let agent = params
-                        .get("agent")
-                        .and_then(Value::as_str)
-                        .unwrap_or("altai");
-                    if agent != "altai" {
-                        respond(
-                            &writer,
-                            id,
-                            None,
-                            Some(error_value(-32602, "unsupported_agent")),
-                        )
-                        .await?;
-                        continue;
                     }
-                    let model = params
-                        .get("model")
+                    let focus = params
+                        .get("focus")
                         .and_then(Value::as_str)
-                        .filter(|value| *value != "auto");
-                    if model.is_some_and(|value| value.trim().is_empty() || value.len() > 512) {
-                        respond(
-                            &writer,
-                            id,
-                            None,
-                            Some(error_value(-32602, "invalid_model")),
-                        )
-                        .await?;
-                        continue;
-                    }
-                    let permission = params
-                        .get("permission")
-                        .and_then(Value::as_str)
-                        .unwrap_or("plan");
-                    if permission != "plan" {
-                        respond(
-                            &writer,
-                            id,
-                            None,
-                            Some(error_value(-32004, "permission_mode_unavailable")),
-                        )
-                        .await?;
-                        continue;
-                    }
-                    if active.lock().await.is_some() {
-                        respond(
-                            &writer,
-                            id,
-                            None,
-                            Some(error_value(-32004, "run_already_active")),
-                        )
-                        .await?;
-                        continue;
-                    }
-                    let (observe_tx, mut observe_rx) = tokio::sync::mpsc::unbounded_channel();
-                    let mut host = super::host_adapter::oneshot_host_config(
-                        &workspace,
-                        prompt,
-                        Some(observe_tx),
-                    );
-                    host.model = model.map(str::to_string);
-                    host.permission = Some(isanagent::host::HostPermissionMode::Plan);
-                    host.resume = Some(chat_id.clone());
-                    #[cfg(debug_assertions)]
+                        .map(str::to_string);
+                    let workspace_path = workspace.root.to_string_lossy().to_string();
+                    match service
+                        .route_manual_compaction(&workspace_path, chat_id, focus)
+                        .await
                     {
-                        if let Ok(response) = std::env::var("ALTAI_CLI_TEST_SCRIPTED_RESPONSE") {
-                            host.scripted_responses = Some(vec![response]);
-                        }
-                    }
-                    active.lock().await.replace(ActiveRun {
-                        chat_id,
-                        journal: crate::journal_sink::JournalSink::open(&workspace),
-                        ..Default::default()
-                    });
-                    let observer_active = active.clone();
-                    let observer_writer = writer.clone();
-                    tokio::spawn(async move {
-                        while let Some(message) = observe_rx.recv().await {
-                            observe(message, &observer_active, &observer_writer, terminal_pause)
-                                .await;
-                        }
-                    });
-                    let task_active = active.clone();
-                    let task_writer = writer.clone();
-                    let task = tokio::spawn(async move {
-                        let result = isanagent::host::run_oneshot(host).await;
-                        // The bus normally owns the terminal event. Give its
-                        // observer a chance to drain first, then provide an
-                        // idempotent fallback so a host bug cannot strand an
-                        // active run forever.
-                        tokio::time::sleep(Duration::from_millis(50)).await;
-                        if let Some(run) = task_active.lock().await.as_mut() {
-                            if let (Some(journal), Ok(outcome)) =
-                                (run.journal.as_mut(), result.as_ref())
-                            {
-                                journal.finalize(outcome);
-                            }
-                        }
-                        terminal(
-                            &task_active,
-                            &task_writer,
-                            if result.is_ok() {
-                                "completed"
-                            } else {
-                                "failed"
-                            },
-                        )
-                        .await;
-                    });
-                    if let Some(run) = active.lock().await.as_mut() {
-                        run.abort = Some(task.abort_handle());
-                    }
-                    respond(&writer, id, Some(json!({"accepted":true})), None).await?;
-                }
-                "run/replay" if initialized => {
-                    let params = params
-                        .and_then(|value| value.as_object().cloned())
-                        .unwrap_or_default();
-                    let chat_id = params.get("chat_id").and_then(Value::as_str).unwrap_or("");
-                    let run_id = params.get("run_id").and_then(Value::as_str).unwrap_or("");
-                    let after_seq = params.get("after_seq").and_then(Value::as_u64).unwrap_or(0);
-                    let limit = params.get("limit").and_then(Value::as_u64).unwrap_or(500);
-                    if chat_id.trim().is_empty()
-                        || run_id.trim().is_empty()
-                        || !(1..=1_000).contains(&limit)
-                    {
-                        respond(
-                            &writer,
-                            id,
-                            None,
-                            Some(error_value(-32602, "invalid_replay_params")),
-                        )
-                        .await?;
-                        continue;
-                    }
-                    let journal = match EventJournal::open(workspace.agent_event_journal_db()) {
-                        Ok(journal) => journal,
-                        Err(error) => {
-                            eprintln!("altai-cli serve: could not open replay journal: {error}");
-                            respond(
-                                &writer,
-                                id,
-                                None,
-                                Some(error_value(-32603, "journal_unavailable")),
-                            )
-                            .await?;
-                            continue;
-                        }
-                    };
-                    let summary = match journal.run_summary(run_id) {
-                        Ok(Some(summary)) if summary.chat_id == chat_id => summary,
                         Ok(_) => {
-                            respond(
-                                &writer,
-                                id,
-                                None,
-                                Some(error_value(-32002, "run_not_found")),
-                            )
-                            .await?;
-                            continue;
+                            respond(&writer, id, Some(json!({"accepted": true})), None).await?;
                         }
                         Err(error) => {
-                            eprintln!("altai-cli serve: could not inspect replay run: {error}");
                             respond(
                                 &writer,
                                 id,
                                 None,
-                                Some(error_value(-32603, "journal_unavailable")),
+                                Some(error_value(-32002, &error)),
                             )
                             .await?;
-                            continue;
-                        }
-                    };
-                    let records = match journal.fetch_after(run_id, after_seq, limit as usize) {
-                        Ok(records) => records,
-                        Err(error) => {
-                            eprintln!("altai-cli serve: could not fetch replay events: {error}");
-                            respond(
-                                &writer,
-                                id,
-                                None,
-                                Some(error_value(-32603, "journal_unavailable")),
-                            )
-                            .await?;
-                            continue;
-                        }
-                    };
-                    let events = records
-                        .into_iter()
-                        .map(|record| {
-                            json!({
-                                "chat_id": record.chat_id,
-                                "run_id": record.run_id,
-                                "seq": record.seq,
-                                "event": record.payload,
-                            })
-                        })
-                        .collect::<Vec<_>>();
-                    respond(
-                        &writer,
-                        id,
-                        Some(json!({
-                            "events": events,
-                            "last_seq": summary.last_seq,
-                            "terminal_seq": summary.terminal_seq,
-                        })),
-                        None,
-                    )
-                    .await?;
-                }
-                "run/cancel" if initialized => {
-                    let params = params
-                        .and_then(|value| value.as_object().cloned())
-                        .unwrap_or_default();
-                    let run_id = params.get("run_id").and_then(Value::as_str).unwrap_or("");
-                    let mut guard = active.lock().await;
-                    let valid = guard
-                        .as_ref()
-                        .is_some_and(|run| run.run_id.as_deref() == Some(run_id) && !run.terminal);
-                    if !valid {
-                        respond(&writer, id, None, Some(error_value(-32002, "stale_run_id")))
-                            .await?;
-                        continue;
-                    }
-                    if let Some(run) = guard.as_mut() {
-                        if let Some(abort) = run.abort.take() {
-                            abort.abort();
                         }
                     }
-                    drop(guard);
-                    terminal(&active, &writer, "cancelled").await;
-                    respond(&writer, id, Some(json!({"accepted":true})), None).await?;
                 }
                 "checkpoints/list" if initialized => {
                     let checkpoints = isanagent::checkpoint::store()
@@ -657,7 +521,7 @@ pub async fn run(workspace: WorkspacePaths) -> Result<(), String> {
                     }
                 }
                 "shutdown" => {
-                    cancel_active(&active, &writer).await;
+                    cancel_all_active(&service).await;
                     respond(&writer, id, Some(json!({"accepted":true})), None).await?;
                     return Ok(());
                 }
@@ -673,221 +537,278 @@ pub async fn run(workspace: WorkspacePaths) -> Result<(), String> {
             }
         }
     }
-    cancel_active(&active, &writer).await;
+    cancel_all_active(&service).await;
     Ok(())
 }
 
-async fn observe(
-    message: BusMessage,
-    active: &Arc<Mutex<Option<ActiveRun>>>,
+async fn handle_run_start(
+    service: &Arc<AgentService<StdioHost>>,
+    workspace: &WorkspacePaths,
     writer: &Writer,
-    terminal_pause: Option<Duration>,
-) {
-    let (journal_event, has_journal) = {
-        let mut guard = active.lock().await;
-        match guard.as_mut().and_then(|run| run.journal.as_mut()) {
-            Some(journal) => {
-                journal.observe_bus_message(&message);
-                (journal.take_last_event(), true)
-            }
-            None => (None, false),
-        }
+    id: Value,
+    params: Option<Value>,
+) -> Result<(), String> {
+    let Some(params) = params.and_then(|value| value.as_object().cloned()) else {
+        return respond(
+            writer,
+            id,
+            None,
+            Some(error_value(-32602, "invalid_params")),
+        )
+        .await;
     };
-    if let Some(event) = journal_event {
-        emit_journal_event(active, writer, event).await;
+    let Some(chat_id) = params
+        .get("chat_id")
+        .and_then(Value::as_str)
+        .filter(|v| !v.trim().is_empty())
+        .map(str::to_string)
+    else {
+        return respond(
+            writer,
+            id,
+            None,
+            Some(error_value(-32602, "chat_id_required")),
+        )
+        .await;
+    };
+    let Some(prompt) = params
+        .get("prompt")
+        .and_then(Value::as_str)
+        .filter(|v| !v.trim().is_empty())
+        .map(str::to_string)
+    else {
+        return respond(
+            writer,
+            id,
+            None,
+            Some(error_value(-32602, "prompt_required")),
+        )
+        .await;
+    };
+    let agent = params
+        .get("agent")
+        .and_then(Value::as_str)
+        .unwrap_or("altai");
+    if agent != "altai" {
+        return respond(
+            writer,
+            id,
+            None,
+            Some(error_value(-32602, "unsupported_agent")),
+        )
+        .await;
     }
-
-    // Journaling is best-effort. Retain the small legacy live-event surface
-    // when SQLite could not be opened so a run is still usable, even though
-    // replay is unavailable for that run.
-    if !has_journal {
-        match &message {
-            BusMessage::RunLifecycle(RunLifecycleEvent::Started { run_id, chat_id }) => {
-                if let Some(run) = active.lock().await.as_mut() {
-                    run.chat_id = chat_id.clone();
-                    run.run_id = Some(run_id.clone());
-                }
-                emit(
-                    active,
-                    writer,
-                    json!({ "type": "run_started", "run_id": run_id }),
-                )
-                .await;
-            }
-            BusMessage::Outbound(outbound) => {
-                let in_scope = active
-                    .lock()
-                    .await
-                    .as_ref()
-                    .is_some_and(|run| run.chat_id == outbound.chat_id);
-                if in_scope {
-                    emit(
-                        active,
-                        writer,
-                        json!({
-                            "type": "agent_message",
-                            "content": outbound.content,
-                            "role": "assistant",
-                        }),
-                    )
-                    .await;
-                }
-            }
-            BusMessage::Telemetry(TelemetryEvent::AgentThought {
-                chat_id, thought, ..
-            }) => {
-                let in_scope = active
-                    .lock()
-                    .await
-                    .as_ref()
-                    .is_some_and(|run| run.chat_id == *chat_id);
-                if in_scope {
-                    emit(
-                        active,
-                        writer,
-                        json!({ "type": "thinking", "content": thought }),
-                    )
-                    .await;
-                }
-            }
-            BusMessage::Telemetry(TelemetryEvent::ToolCallStarted {
-                chat_id,
-                tool_name,
-                args,
-                tool_call_id,
-                ..
-            }) => {
-                let in_scope = active
-                    .lock()
-                    .await
-                    .as_ref()
-                    .is_some_and(|run| run.chat_id == *chat_id);
-                if in_scope {
-                    let input =
-                        serde_json::from_str(args).unwrap_or_else(|_| Value::String(args.clone()));
-                    emit(
-                        active,
-                        writer,
-                        json!({
-                            "type": "tool_call_start",
-                            "id": tool_call_id.clone().unwrap_or_else(|| tool_name.clone()),
-                            "name": tool_name,
-                            "input": input,
-                        }),
-                    )
-                    .await;
-                }
-            }
-            _ => {}
-        }
+    let model = params
+        .get("model")
+        .and_then(Value::as_str)
+        .filter(|value| *value != "auto");
+    if model.is_some_and(|value| value.trim().is_empty() || value.len() > 512) {
+        return respond(
+            writer,
+            id,
+            None,
+            Some(error_value(-32602, "invalid_model")),
+        )
+        .await;
     }
-
-    if matches!(
-        message,
-        BusMessage::RunLifecycle(RunLifecycleEvent::Terminated { .. })
+    let permission = params
+        .get("permission")
+        .and_then(Value::as_str)
+        .unwrap_or("plan");
+    if !matches!(
+        permission,
+        "ask" | "auto-edit" | "auto_edit" | "plan" | "bypass"
     ) {
-        if let Some(pause) = terminal_pause {
-            tokio::time::sleep(pause).await;
-        }
-        terminal(active, writer, "completed").await;
+        return respond(
+            writer,
+            id,
+            None,
+            Some(error_value(-32602, "invalid_permission")),
+        )
+        .await;
     }
-}
 
-async fn emit_journal_event(
-    active: &Arc<Mutex<Option<ActiveRun>>>,
-    writer: &Writer,
-    event: altai_core::JournalEvent,
-) {
+    let configuration = load_run_configuration(workspace).unwrap_or_default();
+    let provider_name = configuration
+        .provider
+        .map(|value| value.value)
+        .unwrap_or_else(|| "openai".to_string());
+    let model_name = model
+        .map(str::to_string)
+        .or_else(|| configuration.model.map(|value| value.value))
+        .unwrap_or_else(|| "gpt-4o-mini".to_string());
+    let api_key = std::env::var("ALTAI_API_KEY")
+        .or_else(|_| std::env::var("OPENAI_API_KEY"))
+        .unwrap_or_default();
+    // Scripted CI/test runs intentionally omit provider credentials.
+    let scripted = cfg!(debug_assertions)
+        && std::env::var_os("ALTAI_CLI_TEST_SCRIPTED_RESPONSE").is_some();
+    if api_key.trim().is_empty() && !scripted {
+        return respond(
+            writer,
+            id,
+            None,
+            Some(error_value(-32603, "api_key_not_configured")),
+        )
+        .await;
+    }
+    let workspace_path = workspace.root.to_str().map(str::to_string);
+    let base_url = configuration.base_url.map(|value| value.value);
+    let permission = permission.to_string();
+    let queue = params
+        .get("queue")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+
+    // Admission returns once the user message is on the bus; the agent loop
+    // continues in the background and emits framed `run/event` notifications.
+    match service
+        .route_send(
+            &provider_name,
+            &api_key,
+            &model_name,
+            None,
+            base_url.as_deref(),
+            workspace_path.as_deref(),
+            Some(&permission),
+            None,
+            None,
+            prompt,
+            Vec::new(),
+            Vec::new(),
+            chat_id,
+            queue,
+        )
+        .await
     {
-        let mut guard = active.lock().await;
-        let Some(run) = guard.as_mut() else { return };
-        if event.kind == "run_started" {
-            run.chat_id = event.chat_id.clone();
-            run.run_id = Some(event.run_id.clone());
-        } else if run.chat_id != event.chat_id
-            || run.run_id.as_deref() != Some(event.run_id.as_str())
-        {
-            return;
+        Ok(ack) => {
+            respond(
+                writer,
+                id,
+                Some(json!({
+                    "accepted": true,
+                    "run_id": ack.run_id,
+                    "queued": ack.queued,
+                })),
+                None,
+            )
+            .await
         }
-        run.seq = event.seq;
+        Err(error) => {
+            eprintln!("altai-cli serve: run/start failed: {error}");
+            respond(
+                writer,
+                id,
+                None,
+                Some(error_value(-32603, "run_start_failed")),
+            )
+            .await
+        }
     }
-    let value = json!({
-        "jsonrpc": "2.0",
-        "method": "run/event",
-        "params": {
-            "chat_id": event.chat_id,
-            "run_id": event.run_id,
-            "seq": event.seq,
-            "event": event.payload,
-        }
-    });
-    let _ = write(writer, value).await;
 }
 
-/// Atomically claims terminal ownership and releases the run resources before
-/// writing. Observers arriving after this point find no active run, so no
-/// event can follow the terminal frame (or produce a second terminal frame).
-async fn terminal(active: &Arc<Mutex<Option<ActiveRun>>>, writer: &Writer, outcome: &str) {
-    let value = {
-        let mut guard = active.lock().await;
-        let Some(mut run) = guard.take() else { return };
-        if run.terminal {
-            return;
+async fn handle_run_replay(
+    workspace: &WorkspacePaths,
+    writer: &Writer,
+    id: Value,
+    params: Option<Value>,
+) -> Result<(), String> {
+    let params = params
+        .and_then(|value| value.as_object().cloned())
+        .unwrap_or_default();
+    let chat_id = params.get("chat_id").and_then(Value::as_str).unwrap_or("");
+    let run_id = params.get("run_id").and_then(Value::as_str).unwrap_or("");
+    let after_seq = params.get("after_seq").and_then(Value::as_u64).unwrap_or(0);
+    let limit = params.get("limit").and_then(Value::as_u64).unwrap_or(500);
+    if chat_id.trim().is_empty() || run_id.trim().is_empty() || !(1..=1_000).contains(&limit) {
+        return respond(
+            writer,
+            id,
+            None,
+            Some(error_value(-32602, "invalid_replay_params")),
+        )
+        .await;
+    }
+    let journal = match EventJournal::open(workspace.agent_event_journal_db()) {
+        Ok(journal) => journal,
+        Err(error) => {
+            eprintln!("altai-cli serve: could not open replay journal: {error}");
+            return respond(
+                writer,
+                id,
+                None,
+                Some(error_value(-32603, "journal_unavailable")),
+            )
+            .await;
         }
-        run.terminal = true;
-        let journal_event = if let Some(journal) = run.journal.as_mut() {
-            journal.finalize_outcome(outcome, None);
-            journal.take_last_event()
-        } else {
-            None
-        };
-        if let Some(event) = journal_event {
+    };
+    let summary = match journal.run_summary(run_id) {
+        Ok(Some(summary)) if summary.chat_id == chat_id => summary,
+        Ok(_) => {
+            return respond(writer, id, None, Some(error_value(-32002, "run_not_found"))).await;
+        }
+        Err(error) => {
+            eprintln!("altai-cli serve: could not inspect replay run: {error}");
+            return respond(
+                writer,
+                id,
+                None,
+                Some(error_value(-32603, "journal_unavailable")),
+            )
+            .await;
+        }
+    };
+    let records = match journal.fetch_after(run_id, after_seq, limit as usize) {
+        Ok(records) => records,
+        Err(error) => {
+            eprintln!("altai-cli serve: could not fetch replay events: {error}");
+            return respond(
+                writer,
+                id,
+                None,
+                Some(error_value(-32603, "journal_unavailable")),
+            )
+            .await;
+        }
+    };
+    let events = records
+        .into_iter()
+        .map(|record| {
             json!({
-                "jsonrpc": "2.0",
-                "method": "run/event",
-                "params": {
-                    "chat_id": event.chat_id,
-                    "run_id": event.run_id,
-                    "seq": event.seq,
-                    "event": event.payload,
-                }
+                "chat_id": record.chat_id,
+                "run_id": record.run_id,
+                "seq": record.seq,
+                "event": record.payload,
             })
-        } else {
-            let Some(run_id) = run.run_id.filter(|id| !id.trim().is_empty()) else {
-                // There is no valid run identity to put in a protocol event. The
-                // `take` above is still deliberate: terminal resource cleanup
-                // must not depend on receiving a lifecycle Started event.
-                return;
-            };
-            run.seq += 1;
-            json!({"jsonrpc":"2.0","method":"run/event","params":{"chat_id":run.chat_id,"run_id":run_id,"seq":run.seq,"event":{"type":"run_terminated","outcome":{"kind":outcome}}}})
-        }
-    };
-    let _ = write(writer, value).await;
+        })
+        .collect::<Vec<_>>();
+    respond(
+        writer,
+        id,
+        Some(json!({
+            "events": events,
+            "last_seq": summary.last_seq,
+            "terminal_seq": summary.terminal_seq,
+        })),
+        None,
+    )
+    .await
 }
 
-async fn cancel_active(active: &Arc<Mutex<Option<ActiveRun>>>, writer: &Writer) {
-    if let Some(run) = active.lock().await.as_mut() {
-        if let Some(abort) = run.abort.take() {
-            abort.abort();
-        }
-    }
-    terminal(active, writer, "cancelled").await;
-}
-async fn emit(active: &Arc<Mutex<Option<ActiveRun>>>, writer: &Writer, event: Value) {
-    let mut guard = active.lock().await;
-    let Some(run) = guard.as_mut() else { return };
-    if run.terminal {
-        return;
-    }
-    let Some(run_id) = run.run_id.clone() else {
-        return;
+async fn cancel_all_active(service: &AgentService<StdioHost>) {
+    let actives: Vec<(String, String)> = {
+        let coordinator = coordinator_guard(service.run_coordinator());
+        coordinator
+            .active_runs()
+            .into_iter()
+            .map(|(chat_id, run_id, _owner)| (chat_id, run_id))
+            .collect()
     };
-    run.seq += 1;
-    let value = json!({"jsonrpc":"2.0","method":"run/event","params":{"chat_id":run.chat_id,"run_id":run_id,"seq":run.seq,"event":event}});
-    drop(guard);
-    let _ = write(writer, value).await;
+    for (chat_id, run_id) in actives {
+        let _ = service.route_cancel(chat_id, run_id).await;
+    }
 }
+
 async fn respond(
     writer: &Writer,
     id: Value,
@@ -901,15 +822,9 @@ async fn respond(
     if let Some(error) = error {
         value["error"] = error;
     }
-    write(writer, value).await
+    write_framed(writer, &value)
 }
-async fn write(writer: &Writer, value: Value) -> Result<(), String> {
-    let body = serde_json::to_vec(&value).map_err(|e| e.to_string())?;
-    let frame = encode_frame(&body);
-    let mut stdout = writer.lock().await;
-    stdout.write_all(&frame).await.map_err(|e| e.to_string())?;
-    stdout.flush().await.map_err(|e| e.to_string())
-}
+
 fn error_value(code: i32, message: &str) -> Value {
     json!({"code":code,"message":message})
 }
@@ -921,20 +836,4 @@ fn load_run_configuration(
         &workspace.root.join(".altai/config.toml"),
         &workspace.isanagent_state.join("config.toml"),
     )
-}
-
-/// This hook is intentionally only present in non-release builds. It gives
-/// the compiled integration binary a deterministic cancellation window after
-/// the real scripted host has emitted its lifecycle events.
-#[cfg(debug_assertions)]
-fn test_terminal_pause() -> Option<Duration> {
-    std::env::var("ALTAI_CLI_TEST_PAUSE_TERMINAL_MS")
-        .ok()
-        .and_then(|value| value.parse::<u64>().ok())
-        .map(Duration::from_millis)
-}
-
-#[cfg(not(debug_assertions))]
-fn test_terminal_pause() -> Option<Duration> {
-    None
 }

@@ -1,0 +1,12 @@
+{
+  "name": "run/cancel accepts run identity",
+  "message": {
+    "jsonrpc": "2.0",
+    "id": "run-cancel-1",
+    "method": "run/cancel",
+    "params": {
+      "chat_id": "chat-fixture-1",
+      "run_id": "run-fixture-1"
+    }
+  }
+}

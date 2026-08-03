@@ -1,0 +1,16 @@
+{
+  "name": "run/start accepts prompt permission and optional queue",
+  "message": {
+    "jsonrpc": "2.0",
+    "id": "run-start-1",
+    "method": "run/start",
+    "params": {
+      "chat_id": "chat-fixture-1",
+      "prompt": "say hello",
+      "agent": "altai",
+      "model": "auto",
+      "permission": "ask",
+      "queue": false
+    }
+  }
+}

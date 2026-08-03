@@ -42,14 +42,15 @@ describe("capability catalog", () => {
       hostName: "vscode",
       hostVersion: "0.1.0",
       overrides: {
-        "runtime.startRun": "available",
-        "sessions.list": "available",
+        "runtime.steerRun": "deferred",
+        "settings.get": "available",
       },
     });
 
     expect(isCapabilityEnabled(caps, "runtime.startRun")).toBe(true);
     expect(isCapabilityEnabled(caps, "sessions.list")).toBe(true);
     expect(isCapabilityEnabled(caps, "runtime.steerRun")).toBe(false);
+    expect(isCapabilityEnabled(caps, "settings.get")).toBe(true);
   });
 });
 

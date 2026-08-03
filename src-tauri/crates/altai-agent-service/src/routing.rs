@@ -232,6 +232,27 @@ impl RunCoordinator {
             .map(|run| (run.run_id.as_str(), run.owner_id.as_str()))
     }
 
+    /// Snapshot of every active lease as `(chat_id, run_id, owner_id)`.
+    pub fn active_runs(&self) -> Vec<(String, String, String)> {
+        self.active
+            .iter()
+            .map(|(chat_id, run)| {
+                (
+                    chat_id.clone(),
+                    run.run_id.clone(),
+                    run.owner_id.clone(),
+                )
+            })
+            .collect()
+    }
+
+    /// Resolve the chat that currently owns `run_id`, if any.
+    pub fn chat_for_run(&self, run_id: &str) -> Option<String> {
+        self.active.iter().find_map(|(chat_id, run)| {
+            (run.run_id == run_id).then(|| chat_id.clone())
+        })
+    }
+
     pub fn accepts_steer(
         &self,
         chat_id: &str,
