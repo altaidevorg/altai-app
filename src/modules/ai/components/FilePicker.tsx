@@ -1,8 +1,7 @@
 import { PopoverContent } from "@/components/ui/popover";
 import { Spinner } from "@/components/ui/spinner";
-import { cn } from "@/lib/utils";
 import { fileIconUrl } from "@/modules/explorer/lib/iconResolver";
-import { useEffect, useRef } from "react";
+import { FileSuggestionList } from "@altai/agent-ui";
 
 type Props = {
   files: readonly string[];
@@ -14,6 +13,10 @@ type Props = {
   onHover: (index: number) => void;
 };
 
+/**
+ * Desktop adapter: Popover chrome + explorer icon theme around the shared
+ * file suggestion list.
+ */
 export function FilePickerContent({
   files,
   activeIndex,
@@ -23,15 +26,6 @@ export function FilePickerContent({
   onPick,
   onHover,
 }: Props) {
-  const itemRefs = useRef<Array<HTMLButtonElement | null>>([]);
-  const listRef = useRef<HTMLDivElement | null>(null);
-
-  useEffect(() => {
-    const el = itemRefs.current[activeIndex];
-    if (!el) return;
-    el.scrollIntoView({ block: "nearest" });
-  }, [activeIndex]);
-
   return (
     <PopoverContent
       side="top"
@@ -40,71 +34,19 @@ export function FilePickerContent({
       onOpenAutoFocus={(e) => e.preventDefault()}
       onCloseAutoFocus={(e) => e.preventDefault()}
       onMouseDown={(e) => e.preventDefault()}
-      className="w-80 overflow-hidden rounded-lg border border-border/80 bg-popover p-0 text-popover-foreground shadow-xl"
+      className="w-auto border-0 bg-transparent p-0 shadow-none"
     >
-      <div className="border-b border-border/60 px-2.5 py-1.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground/70">
-        Workspace files
-      </div>
-      {!hasWorkspace ? (
-        <div className="px-3 py-3 text-[11px] text-muted-foreground">
-          No workspace open
-        </div>
-      ) : indexing && files.length === 0 ? (
-        <div className="flex items-center gap-2 px-3 py-3 text-[11px] text-muted-foreground">
-          <Spinner className="size-3" />
-          <span>Indexing workspace…</span>
-        </div>
-      ) : files.length === 0 ? (
-        <div className="px-3 py-3 text-[11px] text-muted-foreground">
-          No matching files
-        </div>
-      ) : (
-        <>
-          <div ref={listRef} className="max-h-64 overflow-y-auto py-1">
-            {files.map((path, idx) => {
-              const slash = path.lastIndexOf("/");
-              const name = slash === -1 ? path : path.slice(slash + 1);
-              const dir = slash === -1 ? "" : path.slice(0, slash);
-              return (
-                <button
-                  key={path}
-                  ref={(el) => {
-                    itemRefs.current[idx] = el;
-                  }}
-                  type="button"
-                  onClick={() => onPick(path)}
-                  onMouseEnter={() => onHover(idx)}
-                  className={cn(
-                    "mx-1 my-0.5 flex w-[calc(100%-0.5rem)] items-center gap-2 rounded-md px-2 py-1.5 text-left text-[12px] text-popover-foreground",
-                    idx === activeIndex
-                      ? "bg-foreground/[0.065]"
-                      : "hover:bg-foreground/[0.055]",
-                  )}
-                >
-                  <img
-                    src={fileIconUrl(name)}
-                    alt=""
-                    className="size-4 shrink-0"
-                  />
-                  <span className="flex min-w-0 flex-1 items-baseline gap-1.5">
-                    <span className="truncate font-medium">{name}</span>
-                    {dir && (
-                      <span className="truncate text-[10.5px] text-muted-foreground">
-                        {dir}
-                      </span>
-                    )}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-          {truncated && (
-            <div className="border-t border-border/60 px-2.5 py-1.5 text-[10px] text-muted-foreground">
-              Workspace is large - refine your query to narrow results.
-            </div>
-          )}
-        </>
-      )}
+      <FileSuggestionList
+        files={files}
+        activeIndex={activeIndex}
+        indexing={indexing}
+        truncated={truncated}
+        hasWorkspace={hasWorkspace}
+        onPick={onPick}
+        onHover={onHover}
+        iconUrlForFile={fileIconUrl}
+        indexingIndicator={<Spinner className="size-3" />}
+      />
     </PopoverContent>
   );
 }

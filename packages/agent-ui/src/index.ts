@@ -97,6 +97,11 @@ export {
   type ComposerSuggestionSnippet,
 } from "./components/ComposerSuggestionList.js";
 
+export {
+  FileSuggestionList,
+  type FileSuggestionListProps,
+} from "./components/FileSuggestionList.js";
+
 /** Re-export contract types so consumers can depend primarily on agent-ui. */
 export type {
   Capabilities,
