@@ -13,7 +13,7 @@ import { useEffect, useState } from "react";
 import { native, type CheckpointInfo } from "../lib/native";
 import { usePlanStore, type AppliedPlanEdit, type QueuedEdit } from "../store/planStore";
 import { useChatStore } from "../store/chatStore";
-import { AuxiliarySurface } from "@altai/agent-ui";
+import { AuxiliarySurface, HistoryRow } from "@altai/agent-ui";
 
 function basename(p: string): string {
   const i = Math.max(p.lastIndexOf("/"), p.lastIndexOf("\\"));
@@ -390,31 +390,6 @@ function ReviewHistory({
         ))}
       </div>
     </section>
-  );
-}
-
-function HistoryRow({
-  path,
-  detail,
-  restoring,
-  onRestore,
-}: {
-  path: string;
-  detail: string;
-  restoring: boolean;
-  onRestore: () => void;
-}) {
-  return (
-    <div className="flex items-center gap-2 rounded-md border border-border bg-muted/30 px-2.5 py-2">
-      <HugeiconsIcon icon={FileEditIcon} size={12} strokeWidth={1.75} className="shrink-0 text-muted-foreground" />
-      <div className="min-w-0 flex-1">
-        <div className="truncate text-[11px] font-medium text-foreground" title={path}>{basename(path)}</div>
-        <div className="truncate text-[9.5px] text-muted-foreground" title={detail}>{detail}</div>
-      </div>
-      <Button type="button" size="sm" variant="ghost" className="h-6 px-1.5 text-[10px]" disabled={restoring} onClick={onRestore}>
-        {restoring ? "Restoring…" : "Restore"}
-      </Button>
-    </div>
   );
 }
 
