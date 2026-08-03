@@ -23,6 +23,12 @@ export {
   SurfaceTabs,
 } from "./components/AuxiliarySurface.js";
 
+export {
+  AiToolApproval,
+  type AiToolApprovalProps,
+  type ToolApprovalPart,
+} from "./components/AiToolApproval.js";
+
 /** Re-export contract types so consumers can depend primarily on agent-ui. */
 export type {
   Capabilities,

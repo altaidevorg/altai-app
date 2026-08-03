@@ -45,7 +45,7 @@ import type {
   UIMessagePart,
 } from "ai";
 import { memo, useCallback, useMemo } from "react";
-import { AiToolApproval } from "./AiToolApproval";
+import { AiToolApproval } from "@altai/agent-ui";
 import { AgentStatusPill } from "./AgentStatusPill";
 import { ChatPathLink } from "./ChatPathLink";
 import {
@@ -980,6 +980,9 @@ const RenderedTool = memo(function RenderedTool({
   part: AnyToolPart;
   onApproval: (id: string, approved: boolean) => void;
 }) {
+  const assertiveAnnounce = usePreferencesStore(
+    (s) => s.approvalAnnounceAssertive,
+  );
   const toolName =
     part.type === "dynamic-tool"
       ? part.toolName
@@ -988,8 +991,13 @@ const RenderedTool = memo(function RenderedTool({
   if (part.state === "approval-requested") {
     return (
       <AiToolApproval
-        part={part as Extract<ToolUIPart, { state: "approval-requested" }>}
+        part={{
+          state: "approval-requested",
+          approval: { id: part.approval.id },
+          input: part.input,
+        }}
         toolName={toolName}
+        assertiveAnnounce={assertiveAnnounce}
         onRespond={(approved) => onApproval(part.approval.id, approved)}
       />
     );

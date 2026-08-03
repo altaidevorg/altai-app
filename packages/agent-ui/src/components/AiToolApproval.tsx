@@ -1,5 +1,3 @@
-import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
 import {
   Cancel01Icon,
   Edit02Icon,
@@ -11,14 +9,28 @@ import {
   ToolsIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import type { ToolUIPart } from "ai";
 import { memo, useId } from "react";
-import { usePreferencesStore } from "@/modules/settings/preferences";
+import { cn } from "../lib/cn.js";
 
-type Props = {
-  part: Extract<ToolUIPart, { state: "approval-requested" }>;
+/**
+ * Minimal approval-request shape shared across hosts.
+ * Compatible with AI SDK `ToolUIPart` approval-requested parts.
+ */
+export type ToolApprovalPart = {
+  state: "approval-requested";
+  approval: { id: string };
+  input?: unknown;
+};
+
+export type AiToolApprovalProps = {
+  part: ToolApprovalPart;
   toolName: string;
   onRespond: (approved: boolean) => void;
+  /**
+   * When true (default), the live region uses role="alert" so screen readers
+   * interrupt streaming output. Hosts map this from accessibility prefs.
+   */
+  assertiveAnnounce?: boolean;
 };
 
 const TOOL_META: Record<string, { label: string; icon: typeof FilePlusIcon }> =
@@ -31,17 +43,23 @@ const TOOL_META: Record<string, { label: string; icon: typeof FilePlusIcon }> =
     bash_background: { label: "Spawn background process", icon: TerminalIcon },
   };
 
-function AiToolApprovalImpl({ part, toolName, onRespond }: Props) {
+const BTN =
+  "inline-flex h-7 items-center justify-center gap-1.5 rounded-md px-3 text-[11px] font-medium transition-colors outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/30";
+
+function AiToolApprovalImpl({
+  part,
+  toolName,
+  onRespond,
+  assertiveAnnounce = true,
+}: AiToolApprovalProps) {
   const meta = TOOL_META[toolName];
   const label = meta?.label ?? toolName;
   const Icon = meta?.icon ?? ToolsIcon;
-  const input = part.input as Record<string, unknown>;
+  const input =
+    part.input && typeof part.input === "object"
+      ? (part.input as Record<string, unknown>)
+      : {};
   const titleId = useId();
-  // Accessibility pref — when true (default) interrupt the screen reader so
-  // a blind user doesn't sit through streaming output unaware the agent is
-  // blocked on approval. Off → demote to role="status" (polite — announced
-  // when the SR reaches a sentence boundary).
-  const assertive = usePreferencesStore((s) => s.approvalAnnounceAssertive);
 
   return (
     <div
@@ -49,9 +67,10 @@ function AiToolApprovalImpl({ part, toolName, onRespond }: Props) {
       aria-labelledby={titleId}
       className="altai-ai-approval min-w-0 max-w-full overflow-hidden rounded-md border border-border bg-card shadow-sm"
     >
-      {/* Off-screen live region. role="alert" → assertive (interrupts);
-          role="status" → polite. Controlled by the accessibility pref. */}
-      <div role={assertive ? "alert" : "status"} className="sr-only">
+      <div
+        role={assertiveAnnounce ? "alert" : "status"}
+        className="sr-only"
+      >
         {label} requires approval
       </div>
       <div className="flex items-center gap-2 border-b border-border-subtle px-3 py-2">
@@ -79,37 +98,36 @@ function AiToolApprovalImpl({ part, toolName, onRespond }: Props) {
       </div>
 
       <div className="flex items-center justify-end gap-1.5 border-t border-border/60 px-3 py-2">
-        <Button
-          size="sm"
-          variant="ghost"
+        <button
+          type="button"
           onClick={() => onRespond(false)}
-          className="h-7 gap-1.5 text-[11px]"
+          className={cn(BTN, "hover:bg-muted hover:text-foreground")}
         >
           <HugeiconsIcon icon={Cancel01Icon} size={12} strokeWidth={2} />
           Deny
-        </Button>
-        <Button
-          size="sm"
-          variant="default"
+        </button>
+        <button
+          type="button"
           onClick={() => onRespond(true)}
-          className="h-7 gap-1.5 text-[11px]"
+          className={cn(
+            BTN,
+            "bg-primary text-primary-foreground hover:bg-primary/85",
+          )}
         >
           <HugeiconsIcon icon={Tick02Icon} size={12} strokeWidth={2} />
           Approve
-        </Button>
+        </button>
       </div>
     </div>
   );
 }
 
 export const AiToolApproval = memo(AiToolApprovalImpl, (a, b) => {
-  // The approval card never changes content for a given approvalId — once
-  // the model has emitted the approval-requested part with its input, we
-  // don't want to re-render on every downstream token.
   return (
     a.toolName === b.toolName &&
     a.part.approval.id === b.part.approval.id &&
-    a.onRespond === b.onRespond
+    a.onRespond === b.onRespond &&
+    a.assertiveAnnounce === b.assertiveAnnounce
   );
 });
 
@@ -124,25 +142,17 @@ function PreviewBlock({
     const cwd = typeof input.cwd === "string" ? input.cwd : null;
     return (
       <div className="space-y-1.5">
-        {cwd && (
+        {cwd ? (
           <div className="break-all font-mono text-[10.5px] text-muted-foreground [overflow-wrap:anywhere]">
             {cwd}
           </div>
-        )}
-        <pre
-          className={cn(
-            "max-h-40 max-w-full overflow-x-auto whitespace-pre-wrap break-words rounded-md bg-muted/60 p-2 font-mono text-[11px] leading-relaxed [overflow-wrap:anywhere]",
-          )}
-        >
+        ) : null}
+        <pre className="max-h-40 max-w-full overflow-x-auto whitespace-pre-wrap break-words rounded-md bg-muted/60 p-2 font-mono text-[11px] leading-relaxed [overflow-wrap:anywhere]">
           {String(input.command ?? "")}
         </pre>
       </div>
     );
   }
-  // For file mutations we deliberately do NOT preview content here —
-  // streamed write/edit content thrashes the UI and the AI diff tab is the
-  // authoritative place to review the change. Show just the path + a
-  // one-line size hint so the user knows what's being touched.
   if (toolName === "write_file") {
     const content = typeof input.content === "string" ? input.content : "";
     const lines = content ? content.split("\n").length : 0;
