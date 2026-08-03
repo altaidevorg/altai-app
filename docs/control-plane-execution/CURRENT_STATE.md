@@ -5,13 +5,18 @@
 >
 > **Date:** 2026-08-03
 >
-> **Last updated by:** PR #262 acceptance review
+> **Last updated by:** CP-01-01 acceptance (working tree, uncommitted)
 
 ## Accepted Tasks
 
 | Task ID | Status | PR/Commit | Date | Notes |
 | --- | --- | --- | --- | --- |
 | GLM-CAL-01 | accepted | PR #262 | 2026-08-03 | Route/store/state-owner inventory validated; 56 unique entries with valid source references |
+| GLM-CAL-02 | accepted | working tree (uncommitted) | 2026-08-03 | Shared `work_item_id` fixture round-trips byte-identically in Rust (4/4 tests) and TypeScript (8/8 tests); typed-error rejection proven on both sides |
+| GLM-CAL-03 | accepted | working tree (uncommitted) | 2026-08-03 | Pure legacy→canonical mapping on both sides (Rust 9/9, TS 9/9 tests); amended `failed` mapping per DEC-008; calibration lane complete |
+| CP-00-01 | accepted | working tree (uncommitted) | 2026-08-03 | ADR 0001/0002 amended for control-plane scope; ADR 0003 created codifying control-plane/execution-plane split; Agent Operations plan ownership sections marked superseded; DEC-009 recorded |
+| CP-00-02 | accepted | working tree (uncommitted) | 2026-08-03 | Architecture boundary tests: Rust 6/6 (altai-agent-service must not import control-plane crates; workspace member verification; self-tests); TS 14/14 (glob matching, import detection, scanFiles with simulated violations); cargo check + tsc --noEmit pass |
+| CP-01-01 | accepted | working tree (uncommitted) | 2026-08-03 | Core domain contracts: `altai-control-protocol` Rust crate (16 typed IDs, Revision, Actor, ControlError, ActivityEvent/ControlEvent) + `@altai/control-contract` TS package; Rust 28/28 (23 lib + 5 fixture round-trips), TS 21/21; golden fixtures byte-identical both sides; boundary tests updated for new workspace member |
 
 ## Current Schema and Protocol Versions
 
@@ -19,7 +24,7 @@
 | --- | --- | --- |
 | Agent host protocol (`shared/agent-protocol/v1/`) | v1 | accepted (ADR 0002) |
 | Host contract (`packages/host-contract/`) | v1 | accepted |
-| Control-plane protocol (`shared/control-protocol/v1/`) | — | not yet created (CP-01) |
+| Control-plane protocol (`shared/control-protocol/v1/`) | v1 (partial) | core ID/revision/actor/error/event contracts created (CP-01-01); domain aggregates (WorkItem, Attempt, Routine, etc.) pending CP-01-02+ |
 | Control-plane DB schema | — | not yet created (CP-02) |
 
 ## Active Feature Flags
@@ -40,10 +45,8 @@
 
 | Task ID | Risk | Depends on | Status |
 | --- | --- | --- | --- |
-| GLM-CAL-02 | A | GLM-CAL-01 | **ready** |
-| GLM-CAL-03 | A | GLM-CAL-02 | **ready** |
-| CP-00-01 | A/B | calibration | blocked (calibration required) |
-| CP-00-02 | B | CP-00-01 | blocked |
+| CP-01-02 | A | CP-01-01 | **ready** (core contracts in place; next: domain aggregate types — WorkItem, Attempt, Routine, etc.) |
+| CP-02 | A | CP-01 | **ready** once CP-01-02+ domain aggregates land |
 
 ## Known Failing Tests / Blockers
 

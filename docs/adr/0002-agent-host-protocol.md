@@ -2,7 +2,7 @@
 
 Date: 2026-07-30
 
-Status: Accepted for protocol v1
+Status: Accepted, amended for control-plane scope (2026-08-03)
 
 ## Context
 
@@ -58,6 +58,35 @@ TVS-05, the spike may advertise a deliberately small subset.
 Cancellation is an explicit `run/cancel` request scoped by `chat_id` and
 `run_id`, not child-process termination. Reconnect recovery uses the journal
 and `run/replay` after the client detects a sequence gap.
+
+## Amendment 2026-08-03: Control-plane domains
+
+The protocol decided above covers run control. Its scope is broadened: the
+same versioned JSON-RPC protocol will also carry the control-plane domains.
+Module CP-15 of `docs/PAPERCLIP_STYLE_CONTROL_PLANE_ENGINEERING_PLAN.md` will
+add these method groups in addition to the run-control methods listed above:
+
+```text
+organizations/*   goals/*       projects/*    agents/*
+work/*            attempts/*    routines/*    approvals/*
+budgets/*         activity/*    integrations/*  plugins/*
+```
+
+This amendment broadens scope only; every existing decision is preserved:
+
+- The framing, version negotiation, typed-error, redaction, and capability
+  rules decided above apply unchanged to the control-plane method groups.
+  New groups are introduced through the same `initialize` version/capability
+  negotiation; an unsupported required version still fails with a typed
+  upgrade error.
+- The run-control methods and `run/event` notification vocabulary of
+  protocol v1 remain valid and are not renamed or removed.
+- The protocol still transports neither provider keys nor implicit
+  filesystem authority. Control-plane requests carry explicit identities
+  (parent plan §3.3) and are authorized by the service, never by the client.
+- Authoritative control-plane state transitions are performed only by the
+  control-plane owner (parent plan §3.1). The protocol is how clients
+  request those transitions, not a second owner.
 
 ## VS Code boundary
 

@@ -2,7 +2,7 @@
 
 Date: 2026-07-30
 
-Status: Accepted for the VS Code implementation sequence
+Status: Accepted, amended for control-plane scope (2026-08-03)
 
 ## Context
 
@@ -59,6 +59,35 @@ the journal is authoritative for replay.
   out of scope for v1.
 - Existing Desktop storage identities such as `tauri:<chat_id>:` stay readable
   through an alias/migration boundary; no client gets a separate database.
+
+## Amendment 2026-08-03: Control-plane scope
+
+The statement above that "work that must outlive VS Code requires a separately
+designed daemon and is out of scope for v1" is amended. That separately
+designed daemon now exists as an approved direction: the user-scoped
+`altai-control-plane` daemon (module CP-16 in
+`docs/PAPERCLIP_STYLE_CONTROL_PLANE_ENGINEERING_PLAN.md`). Durable work —
+organizations, goals, projects, work items, attempts, routines, approvals,
+budgets, and audit — is owned by that daemon and outlives any renderer,
+including the VS Code extension host and the Desktop webview.
+
+This amendment expands lifecycle and ownership scope only:
+
+- `altai-agent-service` remains the sole owner of the long-lived IsanAgent
+  lifecycle and the durable workspace services, exactly as decided above. The
+  control plane requests execution through it; it does not replace it.
+- The control-plane daemon is the single authoritative owner of work
+  lifecycle mutations (parent plan §3.1). `altai-agent-service` and all
+  renderers may request transitions; they may not perform authoritative
+  transitions independently.
+- The per-workspace VS Code host process rules in `Lifecycle and ownership`
+  still apply to run execution. What changes is that renderer shutdown no
+  longer bounds the lifetime of durable work, scheduled routines, or recovery
+  state, because those live in the control-plane daemon.
+- The Security boundary section is unchanged. Rust — not the webview or
+  TypeScript — continues to own providers, filesystem, shell, MCP,
+  checkpoints, credentials, and durable state. The control-plane daemon
+  inherits this boundary; no secret or provider access moves into any client.
 
 ## Security boundary
 

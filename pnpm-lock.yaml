@@ -326,6 +326,18 @@ importers:
         specifier: ^2.1.9
         version: 2.1.9(@types/node@25.9.0)(lightningcss@1.32.0)(msw@2.14.6(@types/node@25.9.0)(typescript@5.8.3))
 
+  packages/control-contract:
+    devDependencies:
+      '@types/node':
+        specifier: ^25.6.0
+        version: 25.9.0
+      typescript:
+        specifier: ~5.8.3
+        version: 5.8.3
+      vitest:
+        specifier: ^2.1.9
+        version: 2.1.9(@types/node@25.9.0)(lightningcss@1.32.0)(msw@2.14.6(@types/node@25.9.0)(typescript@5.8.3))
+
   packages/host-contract:
     devDependencies:
       '@types/node':

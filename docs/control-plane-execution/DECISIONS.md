@@ -15,14 +15,16 @@
 | DEC-005 | 2026-08-03 | Control-plane daemon uses user-scoped domain socket (Unix) / named pipe (Windows). No network listener by default. | CP-16 | accepted (parent plan §6.1) |
 | DEC-006 | 2026-08-03 | Two persistence planes: user-scoped control DB + existing workspace/run journals. Run journals are not consolidated in the first migration. | CP-02 | accepted (parent plan §6.2) |
 | DEC-007 | 2026-08-03 | AgentProfile is reusable config; AgentInstance is a durable worker identity. One profile can back many instances. An active attempt keeps its immutable profile revision. | CP-05 | accepted (parent plan §4.3) |
+| DEC-008 | 2026-08-03 | Legacy `failed` assignment status maps to work_status `in_progress` + execution_phase `failed` (not `needs_attention`, which is a phase, not a Section 5.1 status). Attention derives from the phase via the Inbox projection. | GLM-CAL-03, CP-20 | accepted (user decision, GLM-CAL-03 packet amendment) |
+| DEC-009 | 2026-08-03 | Control-plane/execution-plane ownership split codified in ADR 0003: one user-scoped `altai-control-plane` daemon owns all authoritative lifecycle mutations; IsanAgent remains the execution runtime and owns no project-management state. | CP-00, all CP modules | accepted (ADR 0003, parent plan §3.1–3.2) |
 
 ## Superseded / Conflicting Documents
 
 | Document | Conflict | Resolution | Effective |
 | --- | --- | --- | --- |
-| `docs/AGENT_OPERATIONS_IMPLEMENTATION_PLAN.md` ownership sections | If they conflict with the parent plan's ownership model | Parent plan wins; conflicting sections must be amended by CP-00-01 | On CP-00-01 acceptance |
-| ADR 0001 `Lifecycle and ownership` | States "Work that must outlive VS Code requires a separately designed daemon and is out of scope for v1" | Control-plane daemon makes durable work outlive any renderer. ADR must be amended by CP-00-01. | On CP-00-01 acceptance |
-| ADR 0002 `Decision` | Protocol covers run control only | Protocol will carry control-plane domains in addition to run control. ADR must be amended by CP-00-01. | On CP-00-01 acceptance |
+| `docs/AGENT_OPERATIONS_IMPLEMENTATION_PLAN.md` ownership sections (§2.2, §4.1) | Owner placed in a Tauri-resident orchestration service, conflicting with the parent plan's single control-plane owner | Parent plan wins; §2.2 and §4.1 marked superseded inline by CP-00-01 (2026-08-03) | Effective 2026-08-03 (CP-00-01) |
+| ADR 0001 `Lifecycle and ownership` | States "Work that must outlive VS Code requires a separately designed daemon and is out of scope for v1" | Control-plane daemon makes durable work outlive any renderer. Amended by CP-00-01: see ADR 0001 `Amendment 2026-08-03: Control-plane scope`. | Effective 2026-08-03 (CP-00-01) |
+| ADR 0002 `Decision` | Protocol covers run control only | Protocol will carry control-plane domains in addition to run control. Amended by CP-00-01: see ADR 0002 `Amendment 2026-08-03: Control-plane domains`. | Effective 2026-08-03 (CP-00-01) |
 
 ## Pending Decisions (require task packet + reviewer acceptance)
 

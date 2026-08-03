@@ -59,6 +59,11 @@ the merged revision, then add the ALTAI adapter and UI.
 
 ### 2.2 One authoritative coordinator
 
+> **Superseded:** see PAPERCLIP_STYLE_CONTROL_PLANE_ENGINEERING_PLAN.md §3.1
+> and §6.1. The exclusive powers listed below remain correct, but the single
+> authoritative owner is the user-scoped `altai-control-plane` daemon, not a
+> Tauri-resident orchestration service. See also ADR 0003.
+
 The Rust orchestration service is the only component allowed to:
 
 - determine task eligibility;
@@ -169,6 +174,11 @@ Do not replace the current orchestration flow in one release.
 ```
 
 ### 4.1 Core Rust boundaries
+
+> **Superseded:** see PAPERCLIP_STYLE_CONTROL_PLANE_ENGINEERING_PLAN.md §6 and
+> §7. Orchestration ownership moves out of `src-tauri/src/modules/` into the
+> user-scoped `altai-control-plane` daemon and its CP module map; the module
+> tree below is retained only as migration source material. See also ADR 0003.
 
 Create these backend modules under `src-tauri/src/modules/orchestration/`:
 
