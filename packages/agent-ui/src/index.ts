@@ -58,6 +58,11 @@ export {
   type AgentStatusPillProps,
 } from "./components/AgentStatusPill.js";
 
+export {
+  TodoSummaryChip,
+  type TodoSummaryChipProps,
+} from "./components/TodoSummaryChip.js";
+
 /** Re-export contract types so consumers can depend primarily on agent-ui. */
 export type {
   Capabilities,
