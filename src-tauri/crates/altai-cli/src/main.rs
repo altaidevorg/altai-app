@@ -8,6 +8,8 @@ mod host_adapter;
 mod journal_sink;
 mod run_output;
 mod serve;
+mod stdio_host;
+mod stdio_sink;
 
 #[derive(Debug, Parser)]
 #[command(

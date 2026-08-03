@@ -1,0 +1,11 @@
+{
+  "name": "sessions/list accepts limit",
+  "message": {
+    "jsonrpc": "2.0",
+    "id": "sess-list-1",
+    "method": "sessions/list",
+    "params": {
+      "limit": 50
+    }
+  }
+}

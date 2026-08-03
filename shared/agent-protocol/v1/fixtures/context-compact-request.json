@@ -1,0 +1,12 @@
+{
+  "name": "context/compact accepts chat_id and optional focus",
+  "message": {
+    "jsonrpc": "2.0",
+    "id": "compact-1",
+    "method": "context/compact",
+    "params": {
+      "chat_id": "chat-fixture-1",
+      "focus": "keep the latest plan"
+    }
+  }
+}

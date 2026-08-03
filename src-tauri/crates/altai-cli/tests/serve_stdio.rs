@@ -329,3 +329,107 @@ fn completed_run_is_replayable_from_the_shared_journal() {
     assert_eq!(process.next()["id"], 6);
     let _stderr = process.shutdown();
 }
+
+
+#[test]
+fn second_chat_can_start_while_first_is_active() {
+    let workspace = tempfile::tempdir().expect("workspace");
+    let mut process = ServeProcess::spawn(workspace.path(), true);
+    process.frame(initialize(json!(1)));
+    assert_eq!(process.next()["id"], 1);
+
+    process.frame(json!({
+        "jsonrpc":"2.0",
+        "id":2,
+        "method":"run/start",
+        "params":{"chat_id":"chat-a","prompt":"first"}
+    }));
+    let mut first_started = false;
+    while !first_started {
+        let frame = process.next();
+        if frame["id"] == 2 {
+            assert!(frame.get("result").is_some(), "first start should be accepted: {frame}");
+            continue;
+        }
+        if event_type(&frame) == Some("run_started") {
+            assert_eq!(frame["params"]["chat_id"], "chat-a");
+            first_started = true;
+        }
+    }
+
+    process.frame(json!({
+        "jsonrpc":"2.0",
+        "id":3,
+        "method":"run/start",
+        "params":{"chat_id":"chat-b","prompt":"second"}
+    }));
+    let mut second_started = false;
+    while !second_started {
+        let frame = process.next();
+        if frame["id"] == 3 {
+            assert!(
+                frame.get("result").is_some(),
+                "second chat must not hit process-wide single-active gate: {frame}"
+            );
+            continue;
+        }
+        if event_type(&frame) == Some("run_started") && frame["params"]["chat_id"] == "chat-b" {
+            second_started = true;
+        }
+    }
+
+    process.frame(json!({"jsonrpc":"2.0","id":4,"method":"shutdown"}));
+    // Shutdown cancels active leases first, so terminal run/event frames may
+    // arrive before the shutdown acknowledgement.
+    let shutdown = loop {
+        let frame = process.next();
+        if frame["id"] == 4 {
+            break frame;
+        }
+    };
+    assert!(shutdown.get("result").is_some(), "shutdown ack: {shutdown}");
+    let _stderr = process.shutdown();
+}
+
+#[test]
+fn run_start_accepts_ask_permission_mode() {
+    let workspace = tempfile::tempdir().expect("workspace");
+    let mut process = ServeProcess::spawn(workspace.path(), false);
+    process.frame(initialize(json!(1)));
+    assert_eq!(process.next()["id"], 1);
+
+    process.frame(json!({
+        "jsonrpc":"2.0",
+        "id":2,
+        "method":"run/start",
+        "params":{
+            "chat_id":"chat-ask",
+            "prompt":"say hello",
+            "permission":"ask"
+        }
+    }));
+
+    let mut saw_ack = false;
+    let mut saw_terminal = false;
+    while !saw_ack || !saw_terminal {
+        let frame = process.next();
+        if frame["id"] == 2 {
+            assert!(
+                frame.get("result").is_some(),
+                "ask permission must be accepted: {frame}"
+            );
+            assert_ne!(
+                frame.pointer("/error/message").and_then(Value::as_str),
+                Some("permission_mode_unavailable")
+            );
+            saw_ack = true;
+        }
+        if event_type(&frame) == Some("run_terminated") {
+            saw_terminal = true;
+        }
+    }
+
+    process.frame(json!({"jsonrpc":"2.0","id":3,"method":"shutdown"}));
+    assert_eq!(process.next()["id"], 3);
+    let _stderr = process.shutdown();
+}

@@ -1,0 +1,11 @@
+{
+  "name": "sessions/create accepts chat_id",
+  "message": {
+    "jsonrpc": "2.0",
+    "id": "sess-create-1",
+    "method": "sessions/create",
+    "params": {
+      "chat_id": "chat-fixture-1"
+    }
+  }
+}

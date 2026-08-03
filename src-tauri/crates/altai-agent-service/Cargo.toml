@@ -19,6 +19,8 @@ log = "0.4"
 sha2 = "0.10"
 tokio = { version = "1", features = ["macros", "rt", "sync", "time"] }
 uuid = { version = "1", features = ["v4"] }
+# Needed by ServiceChannel / instance builder tool registration.
+# (isanagent already pulls these transitively; keep explicit for clarity.)
 
 [dev-dependencies]
 tempfile = "3"

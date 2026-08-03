@@ -217,11 +217,14 @@ dependencies = [
 name = "altai-cli"
 version = "0.6.6"
 dependencies = [
+ "altai-agent-service",
  "altai-core",
  "altai-protocol",
+ "async-trait",
  "clap",
  "clap_complete",
  "isanagent",
+ "log",
  "serde",
  "serde_json",
  "tempfile",

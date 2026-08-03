@@ -8,7 +8,7 @@ use tokio::sync::mpsc;
 
 use crate::acks::{CancelAck, DocumentPart, ManualCompactionAck, SendAck, SteerAck};
 use crate::compaction::CompactionArg;
-use crate::host::{BuildInstanceRequest, HostAdapter};
+use crate::host::{BuildInstanceRequest, HostAdapter, HostControlPlane};
 use crate::instance::{stop_instance, Instance, RuntimeFingerprint};
 use crate::routing::{coordinator_guard, RunCoordinator, SharedRunCoordinator};
 use crate::AgentInstanceRegistry;
@@ -382,27 +382,6 @@ impl<H: HostAdapter> AgentService<H> {
     }
 }
 
-/// Control-plane methods every host channel must expose.
-#[async_trait::async_trait]
-pub trait HostControlPlane: Send + Sync {
-    async fn inject_user_message(
-        &self,
-        content: String,
-        image_urls: Vec<String>,
-        documents: Vec<DocumentPart>,
-        chat_id: String,
-        queue: bool,
-    ) -> Result<SendAck, String>;
-
-    async fn cancel_run(&self, chat_id: String, run_id: String) -> Result<(), String>;
-
-    async fn steer_run(
-        &self,
-        chat_id: String,
-        run_id: String,
-        content: String,
-    ) -> Result<(), String>;
-}
 
 fn enqueue_manual_compaction(
     bus_tx: &mpsc::Sender<BusMessage>,

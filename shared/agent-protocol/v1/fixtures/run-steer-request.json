@@ -1,0 +1,13 @@
+{
+  "name": "run/steer accepts content for an active run",
+  "message": {
+    "jsonrpc": "2.0",
+    "id": "run-steer-1",
+    "method": "run/steer",
+    "params": {
+      "chat_id": "chat-fixture-1",
+      "run_id": "run-fixture-1",
+      "content": "focus on the failing test"
+    }
+  }
+}
