@@ -52,6 +52,12 @@ export {
   type ChatExternalLinkProps,
 } from "./components/ChatPathLink.js";
 
+export {
+  AgentStatusPill,
+  type AgentStatusMeta,
+  type AgentStatusPillProps,
+} from "./components/AgentStatusPill.js";
+
 /** Re-export contract types so consumers can depend primarily on agent-ui. */
 export type {
   Capabilities,
