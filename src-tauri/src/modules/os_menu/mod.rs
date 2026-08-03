@@ -58,7 +58,7 @@ pub fn spawn_new_window(app: &AppHandle) {
     .focused(true);
 
     // Mirror the IDE chrome in `show_or_create_studio_window`: the overlay
-    // titlebar on macOS, our own titlebar (decorations off) on Windows/Linux.
+    // titlebar on macOS, app-owned chrome on Linux, and native chrome on Windows.
     // The native traffic lights and the IDE's 40px header share a centerline.
     // with_webview_configuration opts out of Apple Intelligence Writing Tools.
     #[cfg(target_os = "macos")]
@@ -71,14 +71,18 @@ pub fn spawn_new_window(app: &AppHandle) {
     #[cfg(target_os = "linux")]
     let builder = builder.decorations(false).transparent(true);
     #[cfg(target_os = "windows")]
-    let builder = builder.decorations(false).transparent(false);
+    let builder = builder
+        .decorations(true)
+        .transparent(false)
+        .additional_browser_args(crate::WINDOWS_WEBVIEW_ARGS);
 
     match builder.build() {
         Ok(_window) => {
-            // Some window managers ignore the builder-time decorations flag
-            // (same quirk the settings window works around) — re-assert it.
-            #[cfg(any(target_os = "linux", target_os = "windows"))]
+            // Some Linux window managers ignore the builder-time flag.
+            #[cfg(target_os = "linux")]
             let _ = _window.set_decorations(false);
+            #[cfg(target_os = "windows")]
+            let _ = _window.set_decorations(true);
         }
         Err(e) => log::error!("os_menu: failed to open new window: {e}"),
     }

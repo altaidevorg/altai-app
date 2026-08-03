@@ -9,13 +9,11 @@ import ReactDOM from "react-dom/client";
 import { Component, type ErrorInfo, type ReactNode } from "react";
 import App from "./app/App";
 import { initPendingLaunches } from "./lib/launchDir";
-import { IS_WINDOWS, USE_CUSTOM_WINDOW_CONTROLS } from "./lib/platform";
+import { USE_CUSTOM_WINDOW_CONTROLS } from "./lib/platform";
 import { WorkspaceGate } from "./modules/workspace/WorkspaceGate";
 
 if (USE_CUSTOM_WINDOW_CONTROLS) {
-  document.documentElement.dataset.chrome = IS_WINDOWS
-    ? "windows-frameless"
-    : "borderless";
+  document.documentElement.dataset.chrome = "borderless";
 }
 
 // The WebView's stock context menu exposes browser actions such as Reload and
