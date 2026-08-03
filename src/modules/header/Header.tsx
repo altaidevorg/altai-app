@@ -1,5 +1,6 @@
 import { ToolbarIconButton } from "@/components/altai";
 import { WindowControls } from "@/components/WindowControls";
+import { hasTauriWindowMetadata } from "@/lib/tauriWindow";
 import { cn } from "@/lib/utils";
 import { IS_MAC, KEY_SEP, USE_CUSTOM_WINDOW_CONTROLS } from "@/lib/platform";
 import { usePreferencesStore } from "@/modules/settings/preferences";
@@ -184,6 +185,7 @@ export function Header({
   const toggleWindowMaximize = () => {
     // Tauri's drag-region attribute handles dragging, but it does not restore
     // the native titlebar's familiar double-click maximize behavior.
+    if (!hasTauriWindowMetadata()) return;
     void getCurrentWindow().toggleMaximize().catch(() => undefined);
   };
 

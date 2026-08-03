@@ -1,4 +1,5 @@
 import { USE_CUSTOM_WINDOW_CONTROLS } from "@/lib/platform";
+import { hasTauriWindowMetadata } from "@/lib/tauriWindow";
 import { cn } from "@/lib/utils";
 import {
   Cancel01Icon,
@@ -13,40 +14,65 @@ import { useEffect, useState } from "react";
 type Props = {
   /** Render only the close button (used by the settings window). */
   closeOnly?: boolean;
+  /** Close an in-browser surface instead of the native window. */
+  onClose?: () => void;
 };
 
-export function WindowControls({ closeOnly = false }: Props) {
+export function WindowControls({ closeOnly = false, onClose }: Props) {
   const [maximized, setMaximized] = useState(false);
 
   useEffect(() => {
-    if (!USE_CUSTOM_WINDOW_CONTROLS || closeOnly) return;
-    const w = getCurrentWindow();
+    if (
+      !USE_CUSTOM_WINDOW_CONTROLS ||
+      closeOnly ||
+      !hasTauriWindowMetadata()
+    )
+      return;
+
     let unlisten: (() => void) | undefined;
-    void w.isMaximized().then(setMaximized);
-    void w
-      .onResized(() => {
-        void w.isMaximized().then(setMaximized);
-      })
-      .then((un) => {
-        unlisten = un;
-      });
+    try {
+      const w = getCurrentWindow();
+      void w.isMaximized().then(setMaximized).catch(() => undefined);
+      void w
+        .onResized(() => {
+          void w.isMaximized().then(setMaximized).catch(() => undefined);
+        })
+        .then((un) => {
+          unlisten = un;
+        })
+        .catch(() => undefined);
+    } catch {
+      return;
+    }
     return () => unlisten?.();
   }, [closeOnly]);
 
-  if (!USE_CUSTOM_WINDOW_CONTROLS) return null;
+  if (!USE_CUSTOM_WINDOW_CONTROLS && !closeOnly) return null;
 
-  const w = getCurrentWindow();
+  const runWindowAction = (
+    action: (window: ReturnType<typeof getCurrentWindow>) => Promise<unknown>,
+  ) => {
+    if (!hasTauriWindowMetadata()) return;
+    try {
+      void action(getCurrentWindow()).catch(() => undefined);
+    } catch {
+      // The native window may disappear between render and click.
+    }
+  };
 
   return (
     <div className="flex h-full shrink-0 items-center gap-0.5 pr-1">
       {!closeOnly && (
         <>
-          <CtlButton ariaLabel="Minimize" onClick={() => void w.minimize()}>
+          <CtlButton
+            ariaLabel="Minimize"
+            onClick={() => runWindowAction((w) => w.minimize())}
+          >
             <HugeiconsIcon icon={MinusSignIcon} size={12} strokeWidth={2} />
           </CtlButton>
           <CtlButton
             ariaLabel={maximized ? "Restore" : "Maximize"}
-            onClick={() => void w.toggleMaximize()}
+            onClick={() => runWindowAction((w) => w.toggleMaximize())}
           >
             <HugeiconsIcon
               icon={maximized ? Copy01Icon : SquareIcon}
@@ -56,7 +82,17 @@ export function WindowControls({ closeOnly = false }: Props) {
           </CtlButton>
         </>
       )}
-      <CtlButton ariaLabel="Close" onClick={() => void w.close()} danger>
+      <CtlButton
+        ariaLabel="Close"
+        onClick={() => {
+          if (onClose) {
+            onClose();
+            return;
+          }
+          runWindowAction((w) => w.close());
+        }}
+        danger
+      >
         <HugeiconsIcon icon={Cancel01Icon} size={14} strokeWidth={2} />
       </CtlButton>
     </div>

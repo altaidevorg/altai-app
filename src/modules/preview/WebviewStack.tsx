@@ -1,3 +1,4 @@
+import { hasTauriWindowMetadata } from "@/lib/tauriWindow";
 import type { Tab, WebviewTab } from "@/modules/tabs";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -45,7 +46,7 @@ function WebviewSlot({ label, url, visible }: SlotProps) {
 
   useEffect(() => {
     const el = ref.current;
-    if (!el) return;
+    if (!el || !hasTauriWindowMetadata()) return;
 
     const compute = () => {
       const rect = el.getBoundingClientRect();

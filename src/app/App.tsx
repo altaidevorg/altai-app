@@ -72,6 +72,7 @@ import {
 } from "@/modules/header";
 import { MarkdownStack } from "@/modules/markdown";
 import { NotebookStack } from "@/modules/notebook";
+import { SettingsApp } from "@/settings/SettingsApp";
 import { SettingsStack } from "@/settings/SettingsStack";
 import {
   initAgentEventBridge,
@@ -84,6 +85,7 @@ import {
 } from "@/modules/preview";
 import {
   openSettingsWindow,
+  registerOpenSettings,
   type SettingsTab as SettingsSection,
 } from "@/modules/settings/openSettingsWindow";
 import {
@@ -142,6 +144,7 @@ import {
   useWorkspaceEnvStore,
   type WorkspaceEnv,
 } from "@/modules/workspace";
+import { hasTauriWindowMetadata } from "@/lib/tauriWindow";
 import { invoke } from "@tauri-apps/api/core";
 import { homeDir } from "@tauri-apps/api/path";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
@@ -650,11 +653,19 @@ export default function App() {
 
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [newEditorOpen, setNewEditorOpen] = useState(false);
-  const isStudioWindow = initialAppMode() === "studio";
+  const [initialMode] = useState<AppMode>(() => initialAppMode());
+  const [isNativeWindow] = useState(() => hasTauriWindowMetadata());
+  const isStudioWindow = isNativeWindow && initialMode === "studio";
   // Agent Workspace and IDE are separate native pages. This mode is fixed for
-  // the lifetime of each window; navigation only focuses the other window.
-  const appMode: AppMode = isStudioWindow ? "studio" : "agent";
-  const studioHasOpened = isStudioWindow;
+  // the lifetime of each window; navigation only focuses the other window. A
+  // regular browser has no native windows, so it swaps the two surfaces here.
+  const [browserAppMode, setBrowserAppMode] = useState<AppMode>(initialMode);
+  const appMode: AppMode = isNativeWindow ? initialMode : browserAppMode;
+  const [studioHasOpened, setStudioHasOpened] = useState(
+    initialMode === "studio",
+  );
+  const [browserSettingsTab, setBrowserSettingsTab] =
+    useState<SettingsSection | null>(null);
   const miniOpen = useChatStore((s) => s.mini.open);
   const openMini = useChatStore((s) => s.openMini);
   const closeMini = useChatStore((s) => s.closeMini);
@@ -666,29 +677,67 @@ export default function App() {
   const setLive = useChatStore((s) => s.setLive);
   const respondToApproval = useChatStore((s) => s.respondToApproval);
   const setSessionWorkspace = useChatStore((s) => s.setSessionWorkspace);
+  const showBrowserSurface = useCallback((mode: AppMode) => {
+    setBrowserAppMode(mode);
+    const url = new URL(window.location.href);
+    if (mode === "studio") url.searchParams.set("mode", "studio");
+    else url.searchParams.delete("mode");
+    window.history.replaceState(
+      window.history.state,
+      "",
+      `${url.pathname}${url.search}${url.hash}`,
+    );
+  }, []);
+
   const openStudio = useCallback(() => {
-    if (isStudioWindow) return;
+    if (appMode === "studio") return;
+    if (!isNativeWindow) {
+      setStudioHasOpened(true);
+      showBrowserSurface("studio");
+      return;
+    }
     void invoke("open_studio_window").catch((error) => {
       console.warn("Could not open ALTAI IDE", error);
     });
-  }, [isStudioWindow]);
+  }, [appMode, isNativeWindow, showBrowserSurface]);
 
   const returnToAgentWorkspace = useCallback(() => {
+    if (!isNativeWindow) {
+      showBrowserSurface("agent");
+      return;
+    }
     void invoke("focus_agent_window").catch((error) => {
       console.warn("Could not focus the Agent Workspace window", error);
     });
+  }, [isNativeWindow, showBrowserSurface]);
+
+  const openBrowserSettings = useCallback((tab?: SettingsSection) => {
+    setBrowserSettingsTab(tab ?? "general");
   }, []);
 
+  useEffect(() => {
+    if (isNativeWindow) return;
+    return registerOpenSettings(openBrowserSettings);
+  }, [isNativeWindow, openBrowserSettings]);
+
   const openSettingsFromAgentWorkspace = useCallback(() => {
-    void openSettingsWindow();
-  }, []);
-  const openSettingsForCurrentSurface = useCallback(() => {
-    if (isStudioWindow) {
-      openSettingsTab();
+    if (!isNativeWindow) {
+      openBrowserSettings();
       return;
     }
     void openSettingsWindow();
-  }, [isStudioWindow, openSettingsTab]);
+  }, [isNativeWindow, openBrowserSettings]);
+  const openSettingsForCurrentSurface = useCallback(() => {
+    if (appMode === "studio") {
+      openSettingsTab();
+      return;
+    }
+    if (!isNativeWindow) {
+      openBrowserSettings();
+      return;
+    }
+    void openSettingsWindow();
+  }, [appMode, isNativeWindow, openBrowserSettings, openSettingsTab]);
   const lmstudioModelId = usePreferencesStore((s) => s.lmstudioModelId);
   const lmstudioBaseURL = usePreferencesStore((s) => s.lmstudioBaseURL);
   const mlxModelId = usePreferencesStore((s) => s.mlxModelId);
@@ -786,13 +835,24 @@ export default function App() {
       setTimeout(() => handleLaunch(l), 100);
     }
 
+    // Vite's development URL can also be opened in a regular browser. Tauri's
+    // API module is importable there, but window metadata is not injected, so
+    // getCurrentWebviewWindow() throws synchronously before a Promise exists.
+    if (!hasTauriWindowMetadata()) return;
+
     // Listen for subsequent launches (single-instance events)
-    const unlistenPromise = getCurrentWebviewWindow().listen<LaunchPayload>(
-      "altai:launch",
-      (event) => {
-        handleLaunch(event.payload);
-      },
-    );
+    let unlistenPromise: Promise<() => void>;
+    try {
+      unlistenPromise = getCurrentWebviewWindow().listen<LaunchPayload>(
+        "altai:launch",
+        (event) => {
+          handleLaunch(event.payload);
+        },
+      );
+    } catch (error) {
+      console.warn("Could not access the current Tauri window", error);
+      return;
+    }
     return () => {
       void unlistenPromise.then((un) => un());
     };
@@ -997,21 +1057,30 @@ export default function App() {
   }, [tabs]);
 
   useEffect(() => {
+    if (!hasTauriWindowMetadata()) return;
+
     type FileWrittenPayload = { path: string; source?: string };
-    const unlistenPromise = getCurrentWebviewWindow().listen<FileWrittenPayload>(
-      "fs:file-written",
-      (event) => {
-        if (event.payload.source === "editor") return;
-        const normalizedPath = event.payload.path.replace(/\\/g, "/");
-        const currentTabs = tabsRef.current;
-        for (const t of currentTabs) {
-          if (t.kind !== "editor") continue;
-          if (t.path.replace(/\\/g, "/") === normalizedPath) {
-            editorRefs.current.get(t.id)?.reload();
-          }
-        }
-      },
-    );
+    let unlistenPromise: Promise<() => void>;
+    try {
+      unlistenPromise =
+        getCurrentWebviewWindow().listen<FileWrittenPayload>(
+          "fs:file-written",
+          (event) => {
+            if (event.payload.source === "editor") return;
+            const normalizedPath = event.payload.path.replace(/\\/g, "/");
+            const currentTabs = tabsRef.current;
+            for (const t of currentTabs) {
+              if (t.kind !== "editor") continue;
+              if (t.path.replace(/\\/g, "/") === normalizedPath) {
+                editorRefs.current.get(t.id)?.reload();
+              }
+            }
+          },
+        );
+    } catch (error) {
+      console.warn("Could not subscribe to file updates", error);
+      return;
+    }
     return () => {
       void unlistenPromise.then((un) => un());
     };
@@ -2673,6 +2742,15 @@ export default function App() {
               </ResizablePanel>
             </ResizablePanelGroup>
           </main>
+
+          {!isNativeWindow && browserSettingsTab ? (
+            <div className="fixed inset-0 z-50">
+              <SettingsApp
+                initialTab={browserSettingsTab}
+                onClose={() => setBrowserSettingsTab(null)}
+              />
+            </div>
+          ) : null}
 
           {hasComposer ? (
             <AgentRunBridge
