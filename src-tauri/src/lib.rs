@@ -15,6 +15,24 @@ use tauri_plugin_window_state::StateFlags;
 pub(crate) const WINDOWS_WEBVIEW_ARGS: &str =
     "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --disable-gpu --force-renderer-accessibility";
 
+const WINDOW_BACKGROUND: tauri::webview::Color = tauri::webview::Color(10, 10, 10, 255);
+
+fn restored_window_state_flags() -> StateFlags {
+    // Window chrome is an application/platform invariant, not user state. In
+    // 0.6.7 Windows stored `decorated: false`; restoring that snapshot happens
+    // in the plugin's `on_window_ready` hook, after our builder and setup code,
+    // and therefore removed the native recovery controls again in 0.6.8/0.6.9.
+    let flags = StateFlags::all() & !StateFlags::VISIBLE & !StateFlags::DECORATIONS;
+
+    // A white WebView2 restored directly into fullscreen has no native close
+    // affordance. Keep fullscreen opt-in per session on Windows so every cold
+    // start has a recoverable OS frame even if the renderer cannot paint.
+    #[cfg(target_os = "windows")]
+    let flags = flags & !StateFlags::FULLSCREEN;
+
+    flags
+}
+
 /// Brings a window forward and explicitly transfers input focus into its webview.
 ///
 /// On Windows, focusing only the outer HWND can leave WebView2 outside the
@@ -206,7 +224,8 @@ pub(crate) fn show_or_create_settings_window(
         .min_inner_size(760.0, 520.0)
         .resizable(true)
         .focused(true)
-        .visible(true);
+        .visible(true)
+        .background_color(WINDOW_BACKGROUND);
 
     // Settings header is h-11 (44px); inset lights to the vertical center.
     // Opt out of Apple Intelligence Writing Tools / Siri AI selection popover.
@@ -267,7 +286,8 @@ pub(crate) fn show_or_create_studio_window(app: &tauri::AppHandle) -> Result<(),
     .inner_size(1280.0, 800.0)
     .min_inner_size(900.0, 600.0)
     .focused(true)
-    .visible(true);
+    .visible(true)
+    .background_color(WINDOW_BACKGROUND);
 
     #[cfg(target_os = "macos")]
     let builder = builder
@@ -305,6 +325,27 @@ pub(crate) fn show_or_create_studio_window(app: &tauri::AppHandle) -> Result<(),
 #[tauri::command]
 fn open_studio_window(app: tauri::AppHandle) -> Result<(), String> {
     show_or_create_studio_window(&app)
+}
+
+/// Renderer-to-native startup checkpoint used by logs and the Windows release
+/// smoke test. The return value asks the frontend to paint a deterministic
+/// color probe only when CI explicitly opts in via `ALTAI_GUI_SMOKE=1`.
+#[tauri::command]
+fn renderer_ready(window: tauri::WebviewWindow) -> bool {
+    log::info!("renderer ready: {}", window.label());
+    let smoke = cfg!(target_os = "windows")
+        && matches!(
+            std::env::var("ALTAI_GUI_SMOKE")
+                .ok()
+                .as_deref()
+                .map(str::to_ascii_lowercase)
+                .as_deref(),
+            Some("1") | Some("true") | Some("yes") | Some("on")
+        );
+    if smoke {
+        let _ = window.set_title("ALTAI [renderer-ready]");
+    }
+    smoke
 }
 
 #[tauri::command]
@@ -347,7 +388,7 @@ pub fn run() {
         // in the accessibility tree at launch.
         .plugin(
             tauri_plugin_window_state::Builder::new()
-                .with_state_flags(StateFlags::all() & !StateFlags::VISIBLE)
+                .with_state_flags(restored_window_state_flags())
                 .build(),
         )
         .plugin(tauri_plugin_autostart::Builder::new().build())
@@ -423,8 +464,9 @@ pub fn run() {
             let window = builder.build()?;
             #[cfg(target_os = "windows")]
             {
-                // Re-apply after WebView2 creates the HWND so an old frameless
-                // window-state snapshot cannot remove the recovery controls.
+                // Defensive re-assertion after WebView2 creates the HWND. The
+                // window-state plugin is also forbidden from restoring chrome,
+                // so an older `decorated: false` snapshot cannot undo this.
                 let _ = window.set_decorations(true);
             }
             let _ = focus_webview_window(&window);
@@ -552,6 +594,7 @@ pub fn run() {
             workspace::workspace_current_dir,
             get_pending_launches,
             env_get_flag,
+            renderer_ready,
             open_with,
             open_settings_window,
             open_studio_window,
@@ -629,6 +672,19 @@ mod tests {
     use super::*;
     use std::fs;
     use tempfile::tempdir;
+
+    #[test]
+    fn persisted_window_state_never_owns_platform_chrome() {
+        let flags = restored_window_state_flags();
+
+        assert!(!flags.contains(StateFlags::VISIBLE));
+        assert!(!flags.contains(StateFlags::DECORATIONS));
+        #[cfg(target_os = "windows")]
+        assert!(!flags.contains(StateFlags::FULLSCREEN));
+        assert!(flags.contains(StateFlags::SIZE));
+        assert!(flags.contains(StateFlags::POSITION));
+        assert!(flags.contains(StateFlags::MAXIMIZED));
+    }
 
     #[test]
     fn test_collect_launch_payloads() {
