@@ -34,6 +34,7 @@ import {
 } from "../store/notificationStore";
 import {
   AuxiliarySurface,
+  FilteredEmptyInbox,
   InboxLoadFailed,
   SurfaceEmptyState,
   SurfaceIconAction,
@@ -331,7 +332,10 @@ export function NotificationInboxPanel({ onClose }: { onClose: () => void }) {
           ) : empty ? (
             <EmptyInbox />
           ) : !hasVisibleItems ? (
-            <FilteredEmptyInbox filter={filter} onShowAll={() => setFilter("all")} />
+            <FilteredEmptyInbox
+              label={filter === "attention" ? "Nothing needs your attention" : "No updates to show"}
+              onShowAll={() => setFilter("all")}
+            />
           ) : (
             <div className="space-y-4">
               {(filter === "all" || filter === "attention") &&
@@ -845,34 +849,6 @@ function EmptyInbox() {
       description="Questions, review-ready results, and durable agent updates will appear here."
       className="border-0 bg-transparent"
     />
-  );
-}
-
-function FilteredEmptyInbox({
-  filter,
-  onShowAll,
-}: {
-  filter: InboxFilter;
-  onShowAll: () => void;
-}) {
-  const label =
-    filter === "attention"
-      ? "Nothing needs your attention"
-      : "No updates to show";
-  return (
-    <div className="flex flex-col items-center justify-center px-4 py-12 text-center">
-      <span className="inline-flex size-9 items-center justify-center rounded-full bg-muted text-muted-foreground">
-        <HugeiconsIcon icon={Tick02Icon} size={17} strokeWidth={1.75} />
-      </span>
-      <h3 className="mt-3 text-[11.5px] font-medium text-foreground">{label}</h3>
-      <button
-        type="button"
-        onClick={onShowAll}
-        className="mt-2 rounded-md px-2 py-1 text-[10px] font-medium text-muted-foreground hover:bg-muted hover:text-foreground"
-      >
-        Show all inbox items
-      </button>
-    </div>
   );
 }
 
