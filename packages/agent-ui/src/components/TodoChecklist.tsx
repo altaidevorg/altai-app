@@ -1,13 +1,11 @@
-"use client";
-
-import { cn } from "@/lib/utils";
 import {
-  CheckmarkCircle01Icon,
   CancelCircleIcon,
+  CheckmarkCircle01Icon,
   Loading03Icon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import type { ComponentProps } from "react";
+import { cn } from "../lib/cn.js";
 
 export type TodoItemStatus = "pending" | "in_progress" | "completed";
 
@@ -26,9 +24,7 @@ export type TodoChecklistProps = ComponentProps<"ul"> & {
 
 /**
  * Shared todo checklist renderer. Used both by the inline `todo_write` tool
- * card (dense) and the standalone todo summary. Each row carries a status
- * glyph (spinner / check / dash), the title, and an optional progress bar is
- * the caller's concern.
+ * card (dense) and the standalone todo summary.
  */
 export function TodoChecklist({
   items,
@@ -117,8 +113,7 @@ function TodoChecklistRow({
 /**
  * Parse the agent's free-form `todo_write` input items into the strict
  * TodoItem shape. Field names vary by model — content/title/task/text are all
- * observed — so each item is read defensively. Mirrors the normalization in
- * `agentEventBridge.ts` so the inline card matches the persisted store.
+ * observed — so each item is read defensively.
  */
 export function parseTodoItems(input: unknown): TodoItem[] {
   if (!input || typeof input !== "object") return [];
