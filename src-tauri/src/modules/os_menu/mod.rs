@@ -68,14 +68,16 @@ pub fn spawn_new_window(app: &AppHandle) {
         .traffic_light_position(tauri::LogicalPosition::new(16.0, 22.0))
         .with_webview_configuration(super::macos_webview::config_without_writing_tools());
 
-    #[cfg(any(target_os = "linux", target_os = "windows"))]
+    #[cfg(target_os = "linux")]
     let builder = builder.decorations(false).transparent(true);
+    #[cfg(target_os = "windows")]
+    let builder = builder.decorations(false).transparent(false);
 
     match builder.build() {
         Ok(_window) => {
-            // Some GNOME/Mutter setups ignore the builder-time decorations flag
+            // Some window managers ignore the builder-time decorations flag
             // (same quirk the settings window works around) — re-assert it.
-            #[cfg(target_os = "linux")]
+            #[cfg(any(target_os = "linux", target_os = "windows"))]
             let _ = _window.set_decorations(false);
         }
         Err(e) => log::error!("os_menu: failed to open new window: {e}"),

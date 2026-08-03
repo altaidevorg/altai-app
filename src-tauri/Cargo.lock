@@ -136,7 +136,7 @@ checksum = "683d7910e743518b0e34f1186f92494becacb047c7b6bf616c96772180fef923"
 
 [[package]]
 name = "altai"
-version = "0.6.6"
+version = "0.6.7"
 dependencies = [
  "altai-agent-service",
  "altai-core",
@@ -198,7 +198,7 @@ dependencies = [
 
 [[package]]
 name = "altai-agent-service"
-version = "0.6.6"
+version = "0.6.7"
 dependencies = [
  "altai-core",
  "async-trait",
@@ -215,7 +215,7 @@ dependencies = [
 
 [[package]]
 name = "altai-cli"
-version = "0.6.6"
+version = "0.6.7"
 dependencies = [
  "altai-agent-service",
  "altai-core",
@@ -241,7 +241,7 @@ dependencies = [
 
 [[package]]
 name = "altai-core"
-version = "0.6.6"
+version = "0.6.7"
 dependencies = [
  "rusqlite",
  "serde",

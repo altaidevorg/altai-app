@@ -201,19 +201,22 @@ pub(crate) fn show_or_create_settings_window(
         .traffic_light_position(tauri::LogicalPosition::new(16.0, 16.0))
         .with_webview_configuration(modules::macos_webview::config_without_writing_tools());
 
-    // On Linux/Windows we render our own titlebar, so drop native chrome
-    // and make the window transparent.
-    #[cfg(any(target_os = "linux", target_os = "windows"))]
+    // On Linux/Windows we render our own titlebar, so drop native chrome.
+    // Keep Windows webviews opaque: transparent top-level WebView2 windows can
+    // render as an all-white surface on some GPU/driver combinations.
+    #[cfg(target_os = "linux")]
     let builder = builder.decorations(false).transparent(true);
+    #[cfg(target_os = "windows")]
+    let builder = builder.decorations(false).transparent(false);
 
     let window = builder.build().map_err(|e| e.to_string())?;
     let _ = window.show();
     let _ = window.unminimize();
     let _ = window.set_focus();
 
-    // Some Linux compositors (GNOME/Mutter with CSD-by-default) ignore the
-    // builder-time decorations flag — re-assert it after realize.
-    #[cfg(target_os = "linux")]
+    // Some window managers ignore the builder-time decorations flag —
+    // re-assert it after the native window has been realized.
+    #[cfg(any(target_os = "linux", target_os = "windows"))]
     {
         let _ = window.set_decorations(false);
     }
@@ -261,12 +264,14 @@ pub(crate) fn show_or_create_studio_window(app: &tauri::AppHandle) -> Result<(),
         .traffic_light_position(tauri::LogicalPosition::new(16.0, 22.0))
         .with_webview_configuration(modules::macos_webview::config_without_writing_tools());
 
-    #[cfg(any(target_os = "linux", target_os = "windows"))]
+    #[cfg(target_os = "linux")]
     let builder = builder.decorations(false).transparent(true);
+    #[cfg(target_os = "windows")]
+    let builder = builder.decorations(false).transparent(false);
 
     let window = builder.build().map_err(|e| e.to_string())?;
 
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "windows"))]
     {
         let _ = window.set_decorations(false);
     }
@@ -386,7 +391,28 @@ pub fn run() {
                 .with_webview_configuration(modules::macos_webview::config_without_writing_tools());
             #[cfg(not(target_os = "macos"))]
             let builder = WebviewWindowBuilder::from_config(app.handle(), &window_cfg)?;
-            builder.build()?;
+
+            // Windows uses the same app-owned titlebar layout as macOS, but
+            // with custom minimize/maximize/close controls. Enforce a
+            // borderless, opaque webview here because `titleBarStyle: Overlay`
+            // is macOS-only and otherwise leaves the native Windows titlebar
+            // above our own. Start maximized so the agent-first Studio opens as
+            // a workspace, not as the small 800x600 fallback window.
+            #[cfg(target_os = "windows")]
+            let builder = builder
+                .decorations(false)
+                .transparent(false)
+                .maximized(true);
+
+            let window = builder.build()?;
+            #[cfg(target_os = "windows")]
+            {
+                // Re-apply after WebView2 creates the HWND. This also wins over
+                // an old window-state snapshot from a decorated 0.6.6 window.
+                let _ = window.set_decorations(false);
+                let _ = window.maximize();
+            }
+            let _ = window;
 
             Ok(())
         })

@@ -1,5 +1,6 @@
 import { cn } from "@/lib/utils";
-import { IS_MAC } from "@/lib/platform";
+import { IS_MAC, IS_WINDOWS } from "@/lib/platform";
+import { WindowControls } from "@/components/WindowControls";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   ResizableHandle,
@@ -962,6 +963,12 @@ function WorkspaceTopbar({
             <HugeiconsIcon icon={CodeIcon} size={13} strokeWidth={1.8} />
             <span className="hidden @[34rem]:inline">Open IDE</span>
           </button>
+        ) : null}
+        {IS_WINDOWS ? (
+          <>
+            <span className="ml-1 h-5 w-px shrink-0 bg-border" />
+            <WindowControls />
+          </>
         ) : null}
       </div>
     </div>
