@@ -32,6 +32,7 @@ Incremental extraction of the Desktop `AiSidePanel` tree:
 | A4.15 | `SelectionAskAi` (host supplies shortcut label) |
 | A4.16 | `HoverActionButton` (chat message hover action) |
 | A4.17 | `InspectorMetric` (run inspector metric tile) |
+| A4.18 | `ContextAction` (composer attach menu row) |
 
 Desktop must import shared components from this package; local duplicates are
 deleted as each slice lands.

@@ -117,6 +117,11 @@ export {
   type InspectorMetricProps,
 } from "./components/InspectorMetric.js";
 
+export {
+  ContextAction,
+  type ContextActionProps,
+} from "./components/ContextAction.js";
+
 /** Re-export contract types so consumers can depend primarily on agent-ui. */
 export type {
   Capabilities,

@@ -18,6 +18,7 @@ import {
 import { HugeiconsIcon } from "@hugeicons/react";
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { ContextAction } from "@altai/agent-ui";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import {
   ACCEPTED_FILES,
@@ -861,27 +862,6 @@ function ChipsRow({
         ) : null}
       </AnimatePresence>
     </div>
-  );
-}
-
-function ContextAction({
-  icon,
-  label,
-  detail,
-  disabled,
-  onClick,
-}: {
-  icon: typeof CodeIcon;
-  label: string;
-  detail: string;
-  disabled: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button type="button" disabled={disabled} onClick={onClick} className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-popover-foreground disabled:opacity-40 hover:bg-foreground/[0.055]">
-      <HugeiconsIcon icon={icon} size={13} strokeWidth={1.75} className="shrink-0 text-muted-foreground" />
-      <span className="min-w-0"><span className="block text-[11px] font-medium">{label}</span><span className="block truncate text-[9.5px] text-muted-foreground">{detail}</span></span>
-    </button>
   );
 }
 
