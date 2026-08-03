@@ -850,11 +850,9 @@ mod tests {
 
     fn file_exists_command(path: &str) -> String {
         if cfg!(windows) {
-            // Prefer cmd.exe so the check is independent of whether the host
-            // oneshot shell is pwsh or cmd (both are used on Windows CI).
             format!(
-                "cmd.exe /d /c \"if exist \\\"{}\\\" (exit /b 0) else (exit /b 1)\"",
-                path.replace('"', "")
+                "if (Test-Path -LiteralPath '{}') {{ exit 0 }} else {{ exit 1 }}",
+                path.replace('\'', "''")
             )
         } else {
             format!("test -f '{}'", path.replace('\'', "'\\''"))
@@ -989,7 +987,23 @@ mod tests {
         fs::write(&marker, "present").unwrap();
 
         let executor = HookExecutor::default();
-        let cmd = file_exists_command("marker.txt");
+        let cmd = {
+            #[cfg(windows)]
+            {
+                // A .cmd script is reliable under both pwsh -Command and cmd /C,
+                // and inherits the HookExecutor cwd (unlike nested quoting tricks).
+                fs::write(
+                    tmp.join("check-marker.cmd"),
+                    "@echo off\r\nif exist \"marker.txt\" (exit /b 0) else (exit /b 1)\r\n",
+                )
+                .unwrap();
+                "cmd.exe /d /c check-marker.cmd".to_string()
+            }
+            #[cfg(not(windows))]
+            {
+                file_exists_command("marker.txt")
+            }
+        };
         let mut hook = spec(&cmd);
         // Windows oneshot shells (pwsh) can be slower under CI load.
         hook.timeout_secs = 30;
