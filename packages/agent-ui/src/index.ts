@@ -147,6 +147,11 @@ export {
   type InboxLoadFailedProps,
 } from "./components/InboxLoadFailed.js";
 
+export {
+  FilteredEmptyInbox,
+  type FilteredEmptyInboxProps,
+} from "./components/FilteredEmptyInbox.js";
+
 /** Re-export contract types so consumers can depend primarily on agent-ui. */
 export type {
   Capabilities,
