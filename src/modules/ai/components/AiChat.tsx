@@ -45,9 +45,9 @@ import type {
   UIMessagePart,
 } from "ai";
 import { memo, useCallback, useMemo } from "react";
-import { AiToolApproval } from "@altai/agent-ui";
+import { AiToolApproval, ChatPathLink } from "@altai/agent-ui";
 import { AgentStatusPill } from "./AgentStatusPill";
-import { ChatPathLink } from "./ChatPathLink";
+import { openWorkspaceFile } from "../lib/openChatHref";
 import {
   Message,
   MessageActions,
@@ -671,12 +671,14 @@ const ReadGroup = memo(function ReadGroup({ parts }: { parts: AnyPart[] }) {
               />
               <ChatPathLink
                 path={path}
+                onOpen={openWorkspaceFile}
                 className="truncate text-foreground hover:text-foreground"
               >
                 {basename(path)}
               </ChatPathLink>
               <ChatPathLink
                 path={path}
+                onOpen={openWorkspaceFile}
                 className="truncate opacity-60 hover:opacity-100"
               />
             </li>
