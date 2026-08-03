@@ -22,7 +22,6 @@ pub struct JournalSink {
     run_id: Option<String>,
     next_seq: u64,
     terminated: bool,
-    last_event: Option<JournalEvent>,
 }
 
 impl JournalSink {
@@ -44,7 +43,6 @@ impl JournalSink {
                 run_id: None,
                 next_seq: 1,
                 terminated: false,
-                last_event: None,
             }),
             Err(error) => {
                 eprintln!("altai-cli: could not open event journal: {error}");
@@ -56,7 +54,6 @@ impl JournalSink {
     /// Records `run_started` once, then mirrors selected run-scoped telemetry
     /// and outbound assistant / clarification messages.
     pub fn observe_bus_message(&mut self, message: &BusMessage) {
-        self.last_event = None;
         if self.terminated {
             return;
         }
@@ -196,13 +193,6 @@ impl JournalSink {
         );
     }
 
-    /// Returns the event appended by the most recent observe/finalize call.
-    /// The stdio adapter publishes this exact envelope so live and replay
-    /// always share one sequence and payload vocabulary.
-    pub fn take_last_event(&mut self) -> Option<JournalEvent> {
-        self.last_event.take()
-    }
-
     fn append(&mut self, kind: &str, payload: Value, terminal: bool) {
         let (Some(run_id), Some(chat_id)) = (self.run_id.clone(), self.chat_id.clone()) else {
             return;
@@ -216,7 +206,6 @@ impl JournalSink {
         };
         match outcome {
             Ok(AppendStatus::Appended) => {
-                self.last_event = Some(event);
                 self.next_seq += 1;
                 if terminal {
                     self.terminated = true;

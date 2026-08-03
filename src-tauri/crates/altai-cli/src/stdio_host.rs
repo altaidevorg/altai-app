@@ -198,13 +198,12 @@ impl HostAdapter for StdioHost {
         &self,
         request: BuildInstanceRequest<'_>,
     ) -> Result<BuiltInstance<Self::Channel>, String> {
-        let mut scripted = None;
         #[cfg(debug_assertions)]
-        {
-            if let Ok(response) = std::env::var("ALTAI_CLI_TEST_SCRIPTED_RESPONSE") {
-                scripted = Some(vec![response]);
-            }
-        }
+        let scripted = std::env::var("ALTAI_CLI_TEST_SCRIPTED_RESPONSE")
+            .ok()
+            .map(|response| vec![response]);
+        #[cfg(not(debug_assertions))]
+        let scripted = None;
         let checkpoint_root = dirs_checkpoint_root();
         build_shared_instance(
             self,
