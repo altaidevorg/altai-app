@@ -25,6 +25,7 @@ Incremental extraction of the Desktop `AiSidePanel` tree:
 | A4.8 | `TodoSummaryChip` (host supplies `todos`) |
 | A4.9 | `ComposerConfigTrigger` (agent/model picker chrome) |
 | A4.10 | `ContextChips` (typed context chip row for chat) |
+| A4.11 | `PermissionModeSwitcher` (host supplies mode + callbacks) |
 
 Desktop must import shared components from this package; local duplicates are
 deleted as each slice lands.
