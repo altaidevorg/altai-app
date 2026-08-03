@@ -12,10 +12,14 @@ export const IS_MAC = PLATFORM === "macos";
 export const IS_LINUX = PLATFORM === "linux";
 export const IS_WINDOWS = PLATFORM === "windows";
 
-/** Custom window controls (min/max/close) are rendered by us only on
- * non-macOS platforms — macOS keeps the native traffic lights via the
- * overlay title bar. */
-export const USE_CUSTOM_WINDOW_CONTROLS = !IS_MAC && PLATFORM !== "";
+export function usesCustomWindowControls(platformName: string): boolean {
+  return platformName === "linux";
+}
+
+/** Linux uses app-owned window chrome. macOS and Windows retain native window
+ * controls so the window remains movable, minimizable, and closable even when
+ * the renderer fails before React mounts. */
+export const USE_CUSTOM_WINDOW_CONTROLS = usesCustomWindowControls(PLATFORM);
 
 export const MOD_KEY = IS_MAC ? "⌘" : "Ctrl";
 /** KeyBinding property name for the platform's primary modifier. */

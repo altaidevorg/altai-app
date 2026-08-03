@@ -497,17 +497,15 @@
   50% { opacity: 0.58; transform: scale(0.8); }
 }
 
-/* Linux uses a transparent borderless surface so we paint its outer shape.
- * Windows stays opaque to avoid WebView2's transparent-window white-screen
- * failure mode, while still using the same app-owned titlebar and controls. */
+/* Linux uses a transparent borderless surface, so paint its outer shape.
+ * Windows deliberately keeps an opaque native frame: OS window controls must
+ * remain available even if WebView2 fails before the React shell mounts. */
 html[data-chrome="borderless"],
 html[data-chrome="borderless"] body {
   background: transparent !important;
 }
 html[data-chrome="borderless"] #root,
-html[data-chrome="borderless"] #settings-root,
-html[data-chrome="windows-frameless"] #root,
-html[data-chrome="windows-frameless"] #settings-root {
+html[data-chrome="borderless"] #settings-root {
   height: 100%;
   background: var(--background);
 }

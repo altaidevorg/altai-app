@@ -11,6 +11,10 @@ use std::sync::Mutex;
 use tauri::{Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_window_state::StateFlags;
 
+#[cfg(target_os = "windows")]
+pub(crate) const WINDOWS_WEBVIEW_ARGS: &str =
+    "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --disable-gpu";
+
 #[derive(Clone, Serialize, Deserialize, Debug)]
 struct LaunchPayload {
     #[serde(rename = "type")]
@@ -201,24 +205,29 @@ pub(crate) fn show_or_create_settings_window(
         .traffic_light_position(tauri::LogicalPosition::new(16.0, 16.0))
         .with_webview_configuration(modules::macos_webview::config_without_writing_tools());
 
-    // On Linux/Windows we render our own titlebar, so drop native chrome.
-    // Keep Windows webviews opaque: transparent top-level WebView2 windows can
-    // render as an all-white surface on some GPU/driver combinations.
+    // Linux renders app-owned chrome. Windows deliberately keeps its native
+    // frame so close/minimize remain available even if WebView2 fails to paint.
     #[cfg(target_os = "linux")]
     let builder = builder.decorations(false).transparent(true);
     #[cfg(target_os = "windows")]
-    let builder = builder.decorations(false).transparent(false);
+    let builder = builder
+        .decorations(true)
+        .transparent(false)
+        .additional_browser_args(WINDOWS_WEBVIEW_ARGS);
 
     let window = builder.build().map_err(|e| e.to_string())?;
     let _ = window.show();
     let _ = window.unminimize();
     let _ = window.set_focus();
 
-    // Some window managers ignore the builder-time decorations flag —
-    // re-assert it after the native window has been realized.
-    #[cfg(any(target_os = "linux", target_os = "windows"))]
+    // Some Linux window managers ignore the builder-time decorations flag.
+    #[cfg(target_os = "linux")]
     {
         let _ = window.set_decorations(false);
+    }
+    #[cfg(target_os = "windows")]
+    {
+        let _ = window.set_decorations(true);
     }
     let _ = window;
     Ok(())
@@ -267,13 +276,20 @@ pub(crate) fn show_or_create_studio_window(app: &tauri::AppHandle) -> Result<(),
     #[cfg(target_os = "linux")]
     let builder = builder.decorations(false).transparent(true);
     #[cfg(target_os = "windows")]
-    let builder = builder.decorations(false).transparent(false);
+    let builder = builder
+        .decorations(true)
+        .transparent(false)
+        .additional_browser_args(WINDOWS_WEBVIEW_ARGS);
 
     let window = builder.build().map_err(|e| e.to_string())?;
 
-    #[cfg(any(target_os = "linux", target_os = "windows"))]
+    #[cfg(target_os = "linux")]
     {
         let _ = window.set_decorations(false);
+    }
+    #[cfg(target_os = "windows")]
+    {
+        let _ = window.set_decorations(true);
     }
 
     let _ = window.show();
@@ -392,25 +408,23 @@ pub fn run() {
             #[cfg(not(target_os = "macos"))]
             let builder = WebviewWindowBuilder::from_config(app.handle(), &window_cfg)?;
 
-            // Windows uses the same app-owned titlebar layout as macOS, but
-            // with custom minimize/maximize/close controls. Enforce a
-            // borderless, opaque webview here because `titleBarStyle: Overlay`
-            // is macOS-only and otherwise leaves the native Windows titlebar
-            // above our own. Start maximized so the agent-first Studio opens as
-            // a workspace, not as the small 800x600 fallback window.
+            // Keep the Windows HWND opaque and natively decorated. If the
+            // renderer or GPU process fails during startup, the user must still
+            // be able to move, minimize, restore, and close the application.
+            // Software rendering avoids the WebView2 all-white compositor
+            // failure observed on affected Windows GPU/driver combinations.
             #[cfg(target_os = "windows")]
             let builder = builder
-                .decorations(false)
+                .decorations(true)
                 .transparent(false)
-                .maximized(true);
+                .additional_browser_args(WINDOWS_WEBVIEW_ARGS);
 
             let window = builder.build()?;
             #[cfg(target_os = "windows")]
             {
-                // Re-apply after WebView2 creates the HWND. This also wins over
-                // an old window-state snapshot from a decorated 0.6.6 window.
-                let _ = window.set_decorations(false);
-                let _ = window.maximize();
+                // Re-apply after WebView2 creates the HWND so an old frameless
+                // window-state snapshot cannot remove the recovery controls.
+                let _ = window.set_decorations(true);
             }
             let _ = window;
 
