@@ -127,6 +127,11 @@ export {
   type RunStateMetricProps,
 } from "./components/RunStateMetric.js";
 
+export {
+  ProviderPill,
+  type ProviderPillProps,
+} from "./components/ProviderPill.js";
+
 /** Re-export contract types so consumers can depend primarily on agent-ui. */
 export type {
   Capabilities,
