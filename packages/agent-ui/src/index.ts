@@ -107,6 +107,11 @@ export {
   type SelectionAskAiProps,
 } from "./components/SelectionAskAi.js";
 
+export {
+  HoverActionButton,
+  type HoverActionButtonProps,
+} from "./components/HoverActionButton.js";
+
 /** Re-export contract types so consumers can depend primarily on agent-ui. */
 export type {
   Capabilities,
