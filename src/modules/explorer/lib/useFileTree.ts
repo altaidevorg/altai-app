@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
+import { listenAppEvent } from "@/lib/appEvent";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { currentWorkspaceEnv } from "@/modules/workspace";
 import { usePreferencesStore } from "@/modules/settings/preferences";
@@ -134,7 +134,7 @@ export function useFileTree(rootPath: string | null, options?: Options) {
       console.error("fs_watch_start failed:", e);
     });
 
-    void listen<{ root: string }>("fs://changed", (event) => {
+    void listenAppEvent<{ root: string }>("fs://changed", (event) => {
       // Drop events for a stale root during a workspace switch.
       if (event.payload.root !== rootPath) return;
       const loadedPaths = Object.entries(nodesRef.current)

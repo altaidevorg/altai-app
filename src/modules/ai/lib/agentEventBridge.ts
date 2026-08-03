@@ -1,4 +1,4 @@
-import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { listenAppEvent, type UnlistenFn } from "@/lib/appEvent";
 import { plural } from "@/lib/utils";
 import { useChatStore } from "../store/chatStore";
 import { useAgentRunsStore } from "../store/agentRunsStore";
@@ -1067,7 +1067,7 @@ export async function replayRestoredAgentRuns(
 }
 
 export async function initAgentEventBridge(): Promise<UnlistenFn> {
-  return listen<unknown>("agent://event", (event) => {
+  return listenAppEvent<unknown>("agent://event", (event) => {
     ingestAgentEventEnvelope(event.payload, "live");
   });
 }

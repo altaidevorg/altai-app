@@ -1,4 +1,4 @@
-import { emit, listen } from "@tauri-apps/api/event";
+import { emitAppEvent, listenAppEvent } from "@/lib/appEvent";
 import { create } from "zustand";
 import {
   applyOverride,
@@ -53,7 +53,7 @@ type AgentsState = {
 let initialized = false;
 
 function broadcast(): void {
-  void emit(CHANGED_EVENT, { source: SELF_TOKEN });
+  void emitAppEvent(CHANGED_EVENT, { source: SELF_TOKEN });
 }
 
 function applyAll(
@@ -93,7 +93,7 @@ export const useAgentsStore = create<AgentsState>((set, get) => ({
     const { custom, activeId, disabledIds, overrides } = await loadAgents();
     set({ customAgents: custom, activeId, disabledIds, overrides, hydrated: true });
 
-    void listen<{ source?: string }>(CHANGED_EVENT, async (e) => {
+    void listenAppEvent<{ source?: string }>(CHANGED_EVENT, async (e) => {
       // Skip our own broadcasts — the local mutator already updated state
       // in-process. Only foreign-window writes need a disk reload.
       if (e.payload?.source === SELF_TOKEN) return;

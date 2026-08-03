@@ -7,9 +7,9 @@ import {
   type AutocompleteProviderId,
   type ModelId,
 } from "@/modules/ai/config";
+import { emitAppEvent, listenAppEvent, type UnlistenFn } from "@/lib/appEvent";
+import { createAppStore } from "@/lib/appStore";
 import type { KeyBinding, ShortcutId } from "@/modules/shortcuts/shortcuts";
-import { emit, listen, type UnlistenFn } from "@tauri-apps/api/event";
-import { LazyStore } from "@tauri-apps/plugin-store";
 
 export type ThemePref = "system" | "light" | "dark";
 
@@ -288,7 +288,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   compactionPruneRecencyTokens: 40_000,
 };
 
-const store = new LazyStore(STORE_PATH, { defaults: {}, autoSave: 200 });
+const store = createAppStore(STORE_PATH, { defaults: {}, autoSave: 200 });
 
 // LazyStore.onChange only fires within the writing process. The settings
 // page lives in a separate webview, so writes there never reach the main
@@ -299,7 +299,7 @@ const PREFS_CHANGED_EVENT = "altai://prefs-changed";
 async function writePref<T>(key: string, value: T): Promise<void> {
   await store.set(key, value);
   await store.save();
-  await emit(PREFS_CHANGED_EVENT, { key, value });
+  await emitAppEvent(PREFS_CHANGED_EVENT, { key, value });
 }
 
 /** Read an env-var boolean flag from the Rust process. Best-effort: returns
@@ -752,7 +752,7 @@ export async function resetAccessibility(): Promise<void> {
   await store.save();
   await Promise.all(
     updates.map(([key, value]) =>
-      emit(PREFS_CHANGED_EVENT, { key, value }),
+      emitAppEvent(PREFS_CHANGED_EVENT, { key, value }),
     ),
   );
 }
@@ -821,7 +821,7 @@ export async function onPreferencesChange(
     const mapped = map[key];
     if (mapped) cb(mapped, value);
   });
-  const unsubEvent = await listen<{ key: string; value: unknown }>(
+  const unsubEvent = await listenAppEvent<{ key: string; value: unknown }>(
     PREFS_CHANGED_EVENT,
     (e) => {
       const mapped = map[e.payload.key];
@@ -839,9 +839,9 @@ export async function onPreferencesChange(
 const KEYS_CHANGED_EVENT = "altai://ai-keys-changed";
 
 export async function emitKeysChanged(): Promise<void> {
-  await emit(KEYS_CHANGED_EVENT);
+  await emitAppEvent(KEYS_CHANGED_EVENT);
 }
 
 export function onKeysChanged(cb: () => void): Promise<UnlistenFn> {
-  return listen(KEYS_CHANGED_EVENT, () => cb());
+  return listenAppEvent(KEYS_CHANGED_EVENT, () => cb());
 }

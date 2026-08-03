@@ -6,7 +6,7 @@
  * are not yet mapped throw `HostPortUnsupportedError`.
  */
 
-import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { listenAppEvent, type UnlistenFn } from "@/lib/appEvent";
 import {
   createCapabilities,
   type AgentEvent,
@@ -194,7 +194,7 @@ export function createTauriHostPorts(
       subscribe(listener: (event: AgentEvent) => void): () => void {
         let active = true;
         let unlisten: UnlistenFn | undefined;
-        void listen<AgentEvent>("agent://event", (event) => {
+        void listenAppEvent<AgentEvent>("agent://event", (event) => {
           if (active) {
             listener(event.payload);
           }

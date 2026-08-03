@@ -1,4 +1,4 @@
-import { LazyStore } from "@tauri-apps/plugin-store";
+import { createAppStore } from "@/lib/appStore";
 
 export type TodoStatus = "pending" | "in_progress" | "completed";
 
@@ -14,7 +14,7 @@ export type Todo = {
 const STORE_PATH = "altai-ai-todos.json";
 const todosKey = (sessionId: string) => `todos:${sessionId}`;
 
-const store = new LazyStore(STORE_PATH, { defaults: {}, autoSave: 200 });
+const store = createAppStore(STORE_PATH, { defaults: {}, autoSave: 200 });
 
 export async function loadTodos(sessionId: string): Promise<Todo[]> {
   return (await store.get<Todo[]>(todosKey(sessionId))) ?? [];

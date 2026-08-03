@@ -38,7 +38,7 @@ import { parseChangedLines, setGitChanges } from "./lib/minimapMarkers";
 import { getKey } from "@/modules/ai/lib/keyring";
 import { onKeysChanged } from "@/modules/settings/store";
 import { native } from "@/modules/ai/lib/native";
-import { listen } from "@tauri-apps/api/event";
+import { listenAppEvent } from "@/lib/appEvent";
 
 // Below this editor width the minimap is suppressed: in narrow split panes it
 // dominates the view and becomes unreadable, so we hide it like VSCode does in
@@ -276,7 +276,7 @@ export const EditorPane = forwardRef<EditorPaneHandle, Props>(
         }
       };
       void refresh();
-      const unlistenPromise = listen<{ path?: string }>(
+      const unlistenPromise = listenAppEvent<{ path?: string }>(
         "fs:file-written",
         (event) => {
           if (event.payload?.path === path) void refresh();
