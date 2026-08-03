@@ -28,6 +28,7 @@ describe("ComposerSuggestionList", () => {
         label: "Initialize workspace",
         description: "Draft ALTAI.md",
         category: "workspace",
+        aliases: ["bootstrap"],
         icon: createElement("span", { "data-icon": "cmd" }, "*"),
       },
       {
@@ -50,8 +51,33 @@ describe("ComposerSuggestionList", () => {
     expect(html).toContain("Slash commands");
     expect(html).toContain("/init");
     expect(html).toContain("Initialize workspace");
+    expect(html).toContain("aliases: /bootstrap");
     expect(html).toContain("Snippets");
     expect(html).toContain("#review");
     expect(html).toContain("bg-foreground/[0.065]");
+  });
+
+  it("keeps slash aliases even when the picker prefix is #", () => {
+    const html = renderToStaticMarkup(
+      createElement(ComposerSuggestionList, {
+        items: [
+          {
+            kind: "command",
+            name: "retry",
+            label: "Retry",
+            description: "Rerun",
+            category: "session",
+            aliases: ["regenerate"],
+            icon: null,
+          },
+        ],
+        activeIndex: 0,
+        onPick: () => {},
+        onHover: () => {},
+        commandPrefix: "#",
+      }),
+    );
+    expect(html).toContain("#retry");
+    expect(html).toContain("aliases: /regenerate");
   });
 });

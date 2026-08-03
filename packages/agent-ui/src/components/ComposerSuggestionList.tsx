@@ -98,7 +98,9 @@ export function ComposerSuggestionList({
                           <span className="line-clamp-1 text-[10.5px] text-muted-foreground">
                             {c.description}
                             {c.aliases?.length
-                              ? ` · aliases: ${c.aliases.map((alias) => `/${alias}`).join(", ")}`
+                              ? // Slash-command aliases are always `/name`, even when the
+                                // picker was opened from a `#` trigger mixed list.
+                                ` · aliases: ${c.aliases.map((alias) => `/${alias}`).join(", ")}`
                               : ""}
                             {c.source === "workspace"
                               ? " · workspace workflow"

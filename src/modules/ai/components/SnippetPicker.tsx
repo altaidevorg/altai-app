@@ -57,7 +57,7 @@ export function SnippetPickerContent({
       id: s.id,
       handle: s.handle,
       name: s.name,
-      description: s.description || undefined,
+      description: s.description,
     };
   });
 
