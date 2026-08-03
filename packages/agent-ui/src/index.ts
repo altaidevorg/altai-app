@@ -137,6 +137,11 @@ export {
   type HistoryRowProps,
 } from "./components/HistoryRow.js";
 
+export {
+  ModelSectionLabel,
+  type ModelSectionLabelProps,
+} from "./components/ModelSectionLabel.js";
+
 /** Re-export contract types so consumers can depend primarily on agent-ui. */
 export type {
   Capabilities,

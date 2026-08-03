@@ -45,7 +45,7 @@ import {
 } from "../lib/modelRouting";
 import { useAgentsStore } from "../store/agentsStore";
 import { useChatStore } from "../store/chatStore";
-import { ComposerConfigTrigger, ProviderPill } from "@altai/agent-ui";
+import { ComposerConfigTrigger, ModelSectionLabel, ProviderPill } from "@altai/agent-ui";
 
 const PROVIDER_ICON = {
   openai: ChatGptIcon,
@@ -404,14 +404,6 @@ export function ModelDropdown({
         </div>
       </PopoverContent>
     </Popover>
-  );
-}
-
-function ModelSectionLabel({ children }: { children: string }) {
-  return (
-    <div className="px-3 pt-2 pb-1 text-[9px] font-medium tracking-[0.12em] text-muted-foreground/70">
-      {children}
-    </div>
   );
 }
 
