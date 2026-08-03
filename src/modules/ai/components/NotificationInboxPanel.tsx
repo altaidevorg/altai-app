@@ -34,6 +34,7 @@ import {
 } from "../store/notificationStore";
 import {
   AuxiliarySurface,
+  InboxLoadFailed,
   SurfaceEmptyState,
   SurfaceIconAction,
   SurfaceSearch,
@@ -844,26 +845,6 @@ function EmptyInbox() {
       description="Questions, review-ready results, and durable agent updates will appear here."
       className="border-0 bg-transparent"
     />
-  );
-}
-
-function InboxLoadFailed({ onRetry }: { onRetry: () => void }) {
-  return (
-    <div className="flex flex-col items-center justify-center px-4 py-12 text-center">
-      <span className="inline-flex size-9 items-center justify-center rounded-full bg-destructive/10 text-destructive">
-        <HugeiconsIcon icon={Alert02Icon} size={17} strokeWidth={1.75} />
-      </span>
-      <h3 className="mt-3 text-[11.5px] font-medium text-foreground">
-        Inbox could not be loaded
-      </h3>
-      <button
-        type="button"
-        onClick={onRetry}
-        className="mt-2 rounded-md px-2 py-1 text-[10px] font-medium text-muted-foreground hover:bg-muted hover:text-foreground"
-      >
-        Try again
-      </button>
-    </div>
   );
 }
 

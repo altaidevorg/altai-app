@@ -142,6 +142,11 @@ export {
   type ModelSectionLabelProps,
 } from "./components/ModelSectionLabel.js";
 
+export {
+  InboxLoadFailed,
+  type InboxLoadFailedProps,
+} from "./components/InboxLoadFailed.js";
+
 /** Re-export contract types so consumers can depend primarily on agent-ui. */
 export type {
   Capabilities,
