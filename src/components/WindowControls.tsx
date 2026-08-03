@@ -14,9 +14,11 @@ import { useEffect, useState } from "react";
 type Props = {
   /** Render only the close button (used by the settings window). */
   closeOnly?: boolean;
+  /** Close an in-browser surface instead of the native window. */
+  onClose?: () => void;
 };
 
-export function WindowControls({ closeOnly = false }: Props) {
+export function WindowControls({ closeOnly = false, onClose }: Props) {
   const [maximized, setMaximized] = useState(false);
 
   useEffect(() => {
@@ -82,7 +84,13 @@ export function WindowControls({ closeOnly = false }: Props) {
       )}
       <CtlButton
         ariaLabel="Close"
-        onClick={() => runWindowAction((w) => w.close())}
+        onClick={() => {
+          if (onClose) {
+            onClose();
+            return;
+          }
+          runWindowAction((w) => w.close());
+        }}
         danger
       >
         <HugeiconsIcon icon={Cancel01Icon} size={14} strokeWidth={2} />

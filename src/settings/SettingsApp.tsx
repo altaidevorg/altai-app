@@ -16,8 +16,28 @@ function readInitialTab(): SettingsTab {
   return normalizeSettingsTab(url.searchParams.get("tab") ?? undefined, "app");
 }
 
-export function SettingsApp() {
-  const [active, setActive] = useState<SettingsTab>(readInitialTab);
+type SettingsAppProps = {
+  initialTab?: SettingsTab;
+  onClose?: () => void;
+};
+
+export function SettingsApp({ initialTab, onClose }: SettingsAppProps = {}) {
+  const [active, setActive] = useState<SettingsTab>(() =>
+    normalizeSettingsTab(initialTab ?? readInitialTab(), "app"),
+  );
+
+  useEffect(() => {
+    if (initialTab) setActive(normalizeSettingsTab(initialTab, "app"));
+  }, [initialTab]);
+
+  useEffect(() => {
+    if (!onClose) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [onClose]);
 
   useEffect(() => {
     if (!hasTauriWindowMetadata()) return;
@@ -38,7 +58,12 @@ export function SettingsApp() {
   }, []);
 
   return (
-    <div className="flex h-screen flex-col overflow-hidden bg-background text-foreground select-none">
+    <div
+      className="flex h-screen flex-col overflow-hidden bg-background text-foreground select-none"
+      role={onClose ? "dialog" : undefined}
+      aria-modal={onClose ? true : undefined}
+      aria-label={onClose ? "ALTAI Studio Settings" : undefined}
+    >
       <header
         data-tauri-drag-region
         className={`flex h-11 shrink-0 items-center border-b border-border/60 bg-card/60 ${
@@ -46,7 +71,9 @@ export function SettingsApp() {
         }`}
       >
         <div className="flex-1" />
-        {!IS_MAC && <WindowControls closeOnly />}
+        {(onClose || !IS_MAC) && (
+          <WindowControls closeOnly onClose={onClose} />
+        )}
       </header>
       <div className="min-h-0 flex-1">
         <SettingsContent

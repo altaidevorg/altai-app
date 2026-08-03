@@ -72,6 +72,7 @@ import {
 } from "@/modules/header";
 import { MarkdownStack } from "@/modules/markdown";
 import { NotebookStack } from "@/modules/notebook";
+import { SettingsApp } from "@/settings/SettingsApp";
 import { SettingsStack } from "@/settings/SettingsStack";
 import {
   initAgentEventBridge,
@@ -663,6 +664,8 @@ export default function App() {
   const [studioHasOpened, setStudioHasOpened] = useState(
     initialMode === "studio",
   );
+  const [browserSettingsTab, setBrowserSettingsTab] =
+    useState<SettingsSection | null>(null);
   const miniOpen = useChatStore((s) => s.mini.open);
   const openMini = useChatStore((s) => s.openMini);
   const closeMini = useChatStore((s) => s.closeMini);
@@ -708,14 +711,9 @@ export default function App() {
     });
   }, [isNativeWindow, showBrowserSurface]);
 
-  const openBrowserSettings = useCallback(
-    (tab?: SettingsSection) => {
-      setStudioHasOpened(true);
-      showBrowserSurface("studio");
-      openSettingsTab(tab);
-    },
-    [openSettingsTab, showBrowserSurface],
-  );
+  const openBrowserSettings = useCallback((tab?: SettingsSection) => {
+    setBrowserSettingsTab(tab ?? "general");
+  }, []);
 
   useEffect(() => {
     if (isNativeWindow) return;
@@ -2744,6 +2742,15 @@ export default function App() {
               </ResizablePanel>
             </ResizablePanelGroup>
           </main>
+
+          {!isNativeWindow && browserSettingsTab ? (
+            <div className="fixed inset-0 z-50">
+              <SettingsApp
+                initialTab={browserSettingsTab}
+                onClose={() => setBrowserSettingsTab(null)}
+              />
+            </div>
+          ) : null}
 
           {hasComposer ? (
             <AgentRunBridge
