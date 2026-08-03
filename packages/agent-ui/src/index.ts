@@ -112,6 +112,11 @@ export {
   type HoverActionButtonProps,
 } from "./components/HoverActionButton.js";
 
+export {
+  InspectorMetric,
+  type InspectorMetricProps,
+} from "./components/InspectorMetric.js";
+
 /** Re-export contract types so consumers can depend primarily on agent-ui. */
 export type {
   Capabilities,

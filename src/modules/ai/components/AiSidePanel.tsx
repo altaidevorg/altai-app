@@ -38,7 +38,12 @@ import {
 import { HugeiconsIcon } from "@hugeicons/react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { type ReactElement, useEffect, useRef, useState } from "react";
-import { EditApprovalCard, SurfaceHeader, SurfaceSearch } from "@altai/agent-ui";
+import {
+  EditApprovalCard,
+  InspectorMetric,
+  SurfaceHeader,
+  SurfaceSearch,
+} from "@altai/agent-ui";
 import {
   retryFailedRun,
   sendMessage,
@@ -1185,19 +1190,6 @@ function RunInspector({ className, onClose }: { className?: string; onClose?: ()
         </InspectorSection>
       </div>
     </aside>
-  );
-}
-
-function InspectorMetric({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="bg-card px-2.5 py-2">
-      <div className="text-[8.5px] font-medium uppercase tracking-wide text-muted-foreground/65">
-        {label}
-      </div>
-      <div className="mt-0.5 text-[11px] font-semibold tabular-nums text-foreground">
-        {value}
-      </div>
-    </div>
   );
 }
 
