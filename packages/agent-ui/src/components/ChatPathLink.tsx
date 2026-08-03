@@ -1,17 +1,19 @@
-import { cn } from "@/lib/utils";
-import { openChatHref, openWorkspaceFile } from "@/modules/ai/lib/openChatHref";
 import type { MouseEvent, ReactNode } from "react";
+import { cn } from "../lib/cn.js";
 
-type ChatPathLinkProps = {
+export type ChatPathLinkProps = {
   path: string;
+  /** Host opens the path in its editor (Desktop: openWorkspaceFile). */
+  onOpen: (path: string) => void;
   className?: string;
   title?: string;
   children?: ReactNode;
 };
 
-/** Clickable workspace path that opens the file in the editor. */
+/** Clickable workspace path that opens the file in the host editor. */
 export function ChatPathLink({
   path,
+  onOpen,
   className,
   title,
   children,
@@ -29,7 +31,7 @@ export function ChatPathLink({
       onClick={(e) => {
         e.preventDefault();
         e.stopPropagation();
-        openWorkspaceFile(path);
+        onOpen(path);
       }}
     >
       {children ?? path}
@@ -37,15 +39,18 @@ export function ChatPathLink({
   );
 }
 
-type ChatExternalLinkProps = {
+export type ChatExternalLinkProps = {
   href: string;
+  /** Host opens the URL (Desktop: openChatHref / Tauri opener). */
+  onOpen: (href: string) => void;
   className?: string;
   children?: ReactNode;
 };
 
-/** External URL that opens via Tauri opener (not window.open). */
+/** External URL that opens via the host opener (not window.open). */
 export function ChatExternalLink({
   href,
+  onOpen,
   className,
   children,
 }: ChatExternalLinkProps) {
@@ -61,7 +66,7 @@ export function ChatExternalLink({
       onClick={(e: MouseEvent<HTMLAnchorElement>) => {
         e.preventDefault();
         e.stopPropagation();
-        void openChatHref(href);
+        onOpen(href);
       }}
     >
       {children ?? href}

@@ -45,6 +45,13 @@ export {
   type TodoItemStatus,
 } from "./components/TodoChecklist.js";
 
+export {
+  ChatPathLink,
+  ChatExternalLink,
+  type ChatPathLinkProps,
+  type ChatExternalLinkProps,
+} from "./components/ChatPathLink.js";
+
 /** Re-export contract types so consumers can depend primarily on agent-ui. */
 export type {
   Capabilities,
