@@ -11,11 +11,24 @@ import { native } from "../ai/lib/native";
 const STORE_PATH = "altai-workspace.json";
 const KEY_FOLDER = "folder";
 const KEY_RECENTS = "recents";
+const HYDRATION_TIMEOUT_MS = 3_000;
 // How many recent workspaces the welcome screen remembers. Cursor shows a
 // similar short list — enough to jump back to active projects, not a history.
 const RECENTS_CAP = 12;
 
 const store = new LazyStore(STORE_PATH, { defaults: {}, autoSave: 200 });
+
+function withHydrationDeadline<T>(operation: Promise<T>): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = window.setTimeout(() => {
+      reject(new Error("workspace store hydration timed out"));
+    }, HYDRATION_TIMEOUT_MS);
+
+    void operation
+      .then(resolve, reject)
+      .finally(() => window.clearTimeout(timer));
+  });
+}
 
 function prependRecent(recents: string[], path: string): string[] {
   return [path, ...recents.filter((p) => p !== path)].slice(0, RECENTS_CAP);
@@ -96,13 +109,18 @@ export const useWorkspaceFolderStore = create<State>((set, get) => ({
     if (get().hydrated) return;
     let recentList: string[] = [];
     try {
-      const recents = (await store.get<string[]>(KEY_RECENTS)) ?? [];
-      recentList = Array.isArray(recents) ? recents : [];
-      // Agent Workspace starts project-free. Workspace targets are restored
-      // from each conversation's metadata, never inherited globally from the
-      // last IDE session.
-      await store.delete(KEY_FOLDER);
-      await store.save();
+      recentList = await withHydrationDeadline(
+        (async () => {
+          const recents = (await store.get<string[]>(KEY_RECENTS)) ?? [];
+          const normalized = Array.isArray(recents) ? recents : [];
+          // Agent Workspace starts project-free. Workspace targets are restored
+          // from each conversation's metadata, never inherited globally from the
+          // last IDE session.
+          await store.delete(KEY_FOLDER);
+          await store.save();
+          return normalized;
+        })(),
+      );
     } catch (error) {
       // A missing/corrupt store or a transient native-plugin failure must never
       // leave the entire app permanently blank. Start clean and let the user

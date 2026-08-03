@@ -33,7 +33,11 @@
 
         function showStartupError(error) {
           var root = document.getElementById("root");
-          if (!root || root.dataset.startupError) return;
+          if (
+            !root ||
+            root.dataset.startupError ||
+            document.documentElement.dataset.rendererReady === "true"
+          ) return;
           root.dataset.startupError = "true";
           var detail = error && (error.stack || error.message)
             ? String(error.stack || error.message)

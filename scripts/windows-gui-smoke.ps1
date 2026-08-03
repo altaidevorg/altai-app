@@ -78,9 +78,19 @@ try {
   try {
     $graphics.CopyFromScreen($rect.Left, $rect.Top, 0, 0, $bitmap.Size)
     $bitmap.Save($ScreenshotPath, [System.Drawing.Imaging.ImageFormat]::Png)
-    $center = $bitmap.GetPixel([Math]::Floor($width / 2), [Math]::Floor($height / 2))
-    if ([Math]::Abs($center.R - 0x12) -gt 8 -or [Math]::Abs($center.G - 0x34) -gt 8 -or [Math]::Abs($center.B - 0x56) -gt 8) {
-      throw "WebView2 did not paint the smoke probe; center pixel was RGB($($center.R),$($center.G),$($center.B))."
+    # Sample the real application viewport. A blank WebView2 compositor is
+    # essentially one color; ALTAI's committed shell contains borders, labels,
+    # panels, and controls even on the welcome screen.
+    $colors = New-Object 'System.Collections.Generic.HashSet[string]'
+    for ($x = 24; $x -lt $width - 24; $x += 32) {
+      for ($y = 72; $y -lt $height - 24; $y += 32) {
+        $pixel = $bitmap.GetPixel($x, $y)
+        $bucket = '{0},{1},{2}' -f ([Math]::Floor($pixel.R / 8)), ([Math]::Floor($pixel.G / 8)), ([Math]::Floor($pixel.B / 8))
+        [void]$colors.Add($bucket)
+      }
+    }
+    if ($colors.Count -lt 6) {
+      throw "WebView2 did not paint the real ALTAI shell; viewport contained only $($colors.Count) sampled color buckets."
     }
   } finally {
     $graphics.Dispose()
