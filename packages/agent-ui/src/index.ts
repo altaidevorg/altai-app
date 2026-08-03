@@ -74,6 +74,15 @@ export {
   type ContextChipsProps,
 } from "./components/ContextChips.js";
 
+export {
+  PermissionModeSwitcher,
+  effectivePermissionMode,
+  visiblePermissionModes,
+  PERMISSION_MODE_LABELS,
+  PERMISSION_MODE_DESCRIPTIONS,
+  type PermissionModeSwitcherProps,
+} from "./components/PermissionModeSwitcher.js";
+
 /** Re-export contract types so consumers can depend primarily on agent-ui. */
 export type {
   Capabilities,
