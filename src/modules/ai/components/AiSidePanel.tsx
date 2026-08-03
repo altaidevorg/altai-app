@@ -37,8 +37,7 @@ import {
 import { HugeiconsIcon } from "@hugeicons/react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { type ReactElement, useEffect, useRef, useState } from "react";
-import { EditApprovalCard } from "./EditApprovalCard";
-import { SurfaceHeader, SurfaceSearch } from "@altai/agent-ui";
+import { EditApprovalCard, SurfaceHeader, SurfaceSearch } from "@altai/agent-ui";
 import {
   retryFailedRun,
   sendMessage,
@@ -1891,7 +1890,12 @@ function ClarificationChoices() {
   // the plain choice chips: it renders a richer diff-review card with
   // Approve / Deny actions. The reply still rides the clarification channel.
   if (editDiff) {
-    return <EditApprovalCard diff={editDiff} />;
+    return (
+      <EditApprovalCard
+        diff={editDiff}
+        onRespond={(choice) => void sendMessage(choice)}
+      />
+    );
   }
 
   if (!choices || choices.length === 0) return null;
