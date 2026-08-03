@@ -1,5 +1,5 @@
 import { WindowControls } from "@/components/WindowControls";
-import { IS_MAC, USE_CUSTOM_WINDOW_CONTROLS } from "@/lib/platform";
+import { IS_MAC } from "@/lib/platform";
 import { hasTauriWindowMetadata } from "@/lib/tauriWindow";
 import type { SettingsTab } from "@/modules/settings/openSettingsWindow";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
@@ -46,7 +46,7 @@ export function SettingsApp() {
         }`}
       >
         <div className="flex-1" />
-        {USE_CUSTOM_WINDOW_CONTROLS && <WindowControls closeOnly />}
+        {!IS_MAC && <WindowControls closeOnly />}
       </header>
       <div className="min-h-0 flex-1">
         <SettingsContent
