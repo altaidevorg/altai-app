@@ -55,7 +55,8 @@ pub fn spawn_new_window(app: &AppHandle) {
     .title("ALTAI IDE")
     .inner_size(1280.0, 800.0)
     .min_inner_size(900.0, 600.0)
-    .focused(true);
+    .focused(true)
+    .background_color(tauri::webview::Color(10, 10, 10, 255));
 
     // Mirror the IDE chrome in `show_or_create_studio_window`: the overlay
     // titlebar on macOS, app-owned chrome on Linux, and native chrome on Windows.

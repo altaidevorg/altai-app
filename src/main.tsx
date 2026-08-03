@@ -5,6 +5,7 @@ import "@fontsource/jetbrains-mono/cyrillic-700.css";
 import "@xterm/xterm/css/xterm.css";
 import "./styles/globals.css";
 
+import { invoke } from "@tauri-apps/api/core";
 import ReactDOM from "react-dom/client";
 import { Component, type ErrorInfo, type ReactNode } from "react";
 import App from "./app/App";
@@ -80,3 +81,22 @@ ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
     </WorkspaceGate>
   </StartupBoundary>,
 );
+
+// Native startup checkpoint. Release CI opts into a deterministic paint probe
+// so it can verify that WebView2 actually composited the page before testing
+// the native WM_CLOSE path; normal application sessions receive `false` and
+// render nothing extra.
+void invoke<boolean>("renderer_ready")
+  .then((showSmokeProbe) => {
+    if (!showSmokeProbe) return;
+    const probe = document.createElement("div");
+    probe.id = "altai-gui-smoke-probe";
+    probe.setAttribute("aria-hidden", "true");
+    probe.style.cssText =
+      "position:fixed;inset:0;z-index:2147483647;background:#123456;color:#fedcba;display:grid;place-items:center;font:700 24px sans-serif";
+    probe.textContent = "ALTAI GUI SMOKE READY";
+    document.body.appendChild(probe);
+  })
+  .catch((error) => {
+    console.warn("renderer-ready checkpoint failed", error);
+  });

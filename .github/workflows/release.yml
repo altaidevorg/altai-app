@@ -193,11 +193,22 @@ jobs:
           test -f "$install_dir/altai-cli.exe"
           "$install_dir/altai-cli.exe" version --verbose
           "$install_dir/altai-cli.exe" open . --dry-run >/dev/null
+          powershell -NoProfile -ExecutionPolicy Bypass -File scripts/windows-gui-smoke.ps1 \
+            -Executable "$install_dir/altai-desktop.exe" \
+            -ScreenshotPath "$RUNNER_TEMP/altai-gui-smoke.png"
           powershell -NoProfile -Command \
             '$target=[IO.Path]::GetFullPath($env:LOCALAPPDATA + "\ALTAI").TrimEnd("\"); $deadline=[DateTime]::UtcNow.AddSeconds(30); do { $parts=[Environment]::GetEnvironmentVariable("Path","User") -split ";"; if ($parts | Where-Object { [StringComparer]::OrdinalIgnoreCase.Equals($_.TrimEnd("\"),$target) }) { exit 0 }; Start-Sleep -Seconds 1 } while ([DateTime]::UtcNow -lt $deadline); exit 1'
           MSYS2_ARG_CONV_EXCL='*' "$install_dir/uninstall.exe" /S
           powershell -NoProfile -Command \
             '$target=[IO.Path]::GetFullPath($env:LOCALAPPDATA + "\ALTAI").TrimEnd("\"); $deadline=[DateTime]::UtcNow.AddSeconds(30); do { $parts=[Environment]::GetEnvironmentVariable("Path","User") -split ";"; if (-not ($parts | Where-Object { [StringComparer]::OrdinalIgnoreCase.Equals($_.TrimEnd("\"),$target) })) { exit 0 }; Start-Sleep -Seconds 1 } while ([DateTime]::UtcNow -lt $deadline); exit 1'
+
+      - name: Upload Windows GUI smoke screenshot
+        if: runner.os == 'Windows' && always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: altai-windows-gui-smoke-${{ matrix.target }}
+          path: ${{ runner.temp }}/altai-gui-smoke.png
+          if-no-files-found: ignore
 
       - uses: actions/upload-artifact@v4
         with:
