@@ -64,7 +64,6 @@ export function TodoSummaryChip({ todos }: TodoSummaryChipProps) {
         ) : null}
       </summary>
       <div
-        role="dialog"
         aria-label="Plan checklist"
         className="absolute right-0 top-full z-50 mt-1 w-72 overflow-hidden rounded-md border border-border bg-popover text-popover-foreground shadow-md"
       >
