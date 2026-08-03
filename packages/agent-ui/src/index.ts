@@ -152,6 +152,11 @@ export {
   type FilteredEmptyInboxProps,
 } from "./components/FilteredEmptyInbox.js";
 
+export {
+  RowIconButton,
+  type RowIconButtonProps,
+} from "./components/RowIconButton.js";
+
 /** Re-export contract types so consumers can depend primarily on agent-ui. */
 export type {
   Capabilities,
