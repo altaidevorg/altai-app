@@ -13,6 +13,16 @@ export {
   withUnsupportedDefaults,
 } from "./host/unsupported.js";
 
+export {
+  AuxiliarySurface,
+  SurfaceEmptyState,
+  SurfaceHeader,
+  SurfaceIconAction,
+  SurfaceSearch,
+  SurfaceSectionHeader,
+  SurfaceTabs,
+} from "./components/AuxiliarySurface.js";
+
 /** Re-export contract types so consumers can depend primarily on agent-ui. */
 export type {
   Capabilities,

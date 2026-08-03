@@ -1,7 +1,7 @@
-import { cn } from "@/lib/utils";
 import { Cancel01Icon, Search01Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react";
 import type { ReactNode } from "react";
+import { cn } from "../lib/cn.js";
 
 const CLOSE_BTN =
   "inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground";

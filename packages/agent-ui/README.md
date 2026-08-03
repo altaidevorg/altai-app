@@ -11,10 +11,15 @@ Shared ALTAI agent chat UI for Desktop and the VS Code Webview.
 
 ## Status (TASK-007 / A4)
 
-This package currently exports the host-ports React seam used to extract
-`AiSidePanel` and its dependency tree. Presentational components move here
-incrementally; Desktop must consume this package (not a local copy) as each
-slice lands.
+Incremental extraction of the Desktop `AiSidePanel` tree:
+
+| Slice | Contents |
+|---|---|
+| A4.1 | `HostPortsProvider` / capability hooks |
+| A4.2 | `AuxiliarySurface` chrome (`SurfaceHeader`, `SurfaceSearch`, …) |
+
+Desktop must import shared components from this package; local duplicates are
+deleted as each slice lands.
 
 ```bash
 pnpm --filter @altai/agent-ui typecheck
