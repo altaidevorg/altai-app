@@ -84,6 +84,7 @@ import {
 } from "@/modules/preview";
 import {
   openSettingsWindow,
+  registerOpenSettings,
   type SettingsTab as SettingsSection,
 } from "@/modules/settings/openSettingsWindow";
 import {
@@ -651,11 +652,17 @@ export default function App() {
 
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [newEditorOpen, setNewEditorOpen] = useState(false);
-  const isStudioWindow = initialAppMode() === "studio";
+  const [initialMode] = useState<AppMode>(() => initialAppMode());
+  const [isNativeWindow] = useState(() => hasTauriWindowMetadata());
+  const isStudioWindow = isNativeWindow && initialMode === "studio";
   // Agent Workspace and IDE are separate native pages. This mode is fixed for
-  // the lifetime of each window; navigation only focuses the other window.
-  const appMode: AppMode = isStudioWindow ? "studio" : "agent";
-  const studioHasOpened = isStudioWindow;
+  // the lifetime of each window; navigation only focuses the other window. A
+  // regular browser has no native windows, so it swaps the two surfaces here.
+  const [browserAppMode, setBrowserAppMode] = useState<AppMode>(initialMode);
+  const appMode: AppMode = isNativeWindow ? initialMode : browserAppMode;
+  const [studioHasOpened, setStudioHasOpened] = useState(
+    initialMode === "studio",
+  );
   const miniOpen = useChatStore((s) => s.mini.open);
   const openMini = useChatStore((s) => s.openMini);
   const closeMini = useChatStore((s) => s.closeMini);
@@ -667,29 +674,72 @@ export default function App() {
   const setLive = useChatStore((s) => s.setLive);
   const respondToApproval = useChatStore((s) => s.respondToApproval);
   const setSessionWorkspace = useChatStore((s) => s.setSessionWorkspace);
+  const showBrowserSurface = useCallback((mode: AppMode) => {
+    setBrowserAppMode(mode);
+    const url = new URL(window.location.href);
+    if (mode === "studio") url.searchParams.set("mode", "studio");
+    else url.searchParams.delete("mode");
+    window.history.replaceState(
+      window.history.state,
+      "",
+      `${url.pathname}${url.search}${url.hash}`,
+    );
+  }, []);
+
   const openStudio = useCallback(() => {
-    if (isStudioWindow) return;
+    if (appMode === "studio") return;
+    if (!isNativeWindow) {
+      setStudioHasOpened(true);
+      showBrowserSurface("studio");
+      return;
+    }
     void invoke("open_studio_window").catch((error) => {
       console.warn("Could not open ALTAI IDE", error);
     });
-  }, [isStudioWindow]);
+  }, [appMode, isNativeWindow, showBrowserSurface]);
 
   const returnToAgentWorkspace = useCallback(() => {
+    if (!isNativeWindow) {
+      showBrowserSurface("agent");
+      return;
+    }
     void invoke("focus_agent_window").catch((error) => {
       console.warn("Could not focus the Agent Workspace window", error);
     });
-  }, []);
+  }, [isNativeWindow, showBrowserSurface]);
+
+  const openBrowserSettings = useCallback(
+    (tab?: SettingsSection) => {
+      setStudioHasOpened(true);
+      showBrowserSurface("studio");
+      openSettingsTab(tab);
+    },
+    [openSettingsTab, showBrowserSurface],
+  );
+
+  useEffect(() => {
+    if (isNativeWindow) return;
+    return registerOpenSettings(openBrowserSettings);
+  }, [isNativeWindow, openBrowserSettings]);
 
   const openSettingsFromAgentWorkspace = useCallback(() => {
-    void openSettingsWindow();
-  }, []);
-  const openSettingsForCurrentSurface = useCallback(() => {
-    if (isStudioWindow) {
-      openSettingsTab();
+    if (!isNativeWindow) {
+      openBrowserSettings();
       return;
     }
     void openSettingsWindow();
-  }, [isStudioWindow, openSettingsTab]);
+  }, [isNativeWindow, openBrowserSettings]);
+  const openSettingsForCurrentSurface = useCallback(() => {
+    if (appMode === "studio") {
+      openSettingsTab();
+      return;
+    }
+    if (!isNativeWindow) {
+      openBrowserSettings();
+      return;
+    }
+    void openSettingsWindow();
+  }, [appMode, isNativeWindow, openBrowserSettings, openSettingsTab]);
   const lmstudioModelId = usePreferencesStore((s) => s.lmstudioModelId);
   const lmstudioBaseURL = usePreferencesStore((s) => s.lmstudioBaseURL);
   const mlxModelId = usePreferencesStore((s) => s.mlxModelId);

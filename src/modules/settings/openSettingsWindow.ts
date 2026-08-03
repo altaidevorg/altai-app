@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { hasTauriWindowMetadata } from "@/lib/tauriWindow";
 
 export type SettingsTab =
   | "general"
@@ -38,7 +39,26 @@ function openNativeSettingsWindow(
   label: "Studio",
   tab?: SettingsTab,
 ): Promise<void> {
-  return invoke<void>(command, { tab: tab ?? null }).catch((error) => {
+  if (!hasTauriWindowMetadata() && openImpl) {
+    openImpl(tab);
+    return Promise.resolve();
+  }
+
+  let invocation: Promise<void>;
+  try {
+    invocation = invoke<void>(command, { tab: tab ?? null });
+  } catch (error) {
+    if (openImpl) {
+      openImpl(tab);
+      return Promise.resolve();
+    }
+    if (typeof console !== "undefined") {
+      console.warn(`Could not open ALTAI ${label} settings`, error);
+    }
+    return Promise.reject(error);
+  }
+
+  return invocation.catch((error) => {
     if (openImpl) {
       openImpl(tab);
       return;
