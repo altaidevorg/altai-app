@@ -31,7 +31,7 @@ describe("SelectionAskAi", () => {
         viewportWidth: 200,
       }),
     );
-    expect(html).toContain("left: 8px");
-    expect(html).toContain("width: 110px");
+    expect(html).toMatch(/left:\s*8px/);
+    expect(html).toMatch(/width:\s*110px/);
   });
 });
