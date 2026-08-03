@@ -13,7 +13,21 @@ use tauri_plugin_window_state::StateFlags;
 
 #[cfg(target_os = "windows")]
 pub(crate) const WINDOWS_WEBVIEW_ARGS: &str =
-    "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --disable-gpu";
+    "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --disable-gpu --force-renderer-accessibility";
+
+/// Brings a window forward and explicitly transfers input focus into its webview.
+///
+/// On Windows, focusing only the outer HWND can leave WebView2 outside the
+/// screen reader's active focus path. `Webview::set_focus` reaches the
+/// controller-level `MoveFocus` API that NVDA, JAWS, and Narrator expect.
+pub(crate) fn focus_webview_window(window: &tauri::WebviewWindow) -> tauri::Result<()> {
+    window.show()?;
+    window.unminimize()?;
+    window.set_focus()?;
+    #[cfg(target_os = "windows")]
+    window.as_ref().set_focus()?;
+    Ok(())
+}
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
 struct LaunchPayload {
@@ -171,9 +185,7 @@ pub(crate) fn show_or_create_settings_window(
     tab: Option<&str>,
 ) -> Result<(), String> {
     if let Some(window) = app.get_webview_window(label) {
-        let _ = window.show();
-        let _ = window.unminimize();
-        let _ = window.set_focus();
+        let _ = focus_webview_window(&window);
         if let Some(t) = tab.filter(|s| !s.is_empty()) {
             // emit() serializes via JSON — no string-escape footgun, unlike
             // eval() with format!(). Frontend listens via Tauri event API.
@@ -216,10 +228,6 @@ pub(crate) fn show_or_create_settings_window(
         .additional_browser_args(WINDOWS_WEBVIEW_ARGS);
 
     let window = builder.build().map_err(|e| e.to_string())?;
-    let _ = window.show();
-    let _ = window.unminimize();
-    let _ = window.set_focus();
-
     // Some Linux window managers ignore the builder-time decorations flag.
     #[cfg(target_os = "linux")]
     {
@@ -229,7 +237,7 @@ pub(crate) fn show_or_create_settings_window(
     {
         let _ = window.set_decorations(true);
     }
-    let _ = window;
+    let _ = focus_webview_window(&window);
     Ok(())
 }
 
@@ -246,9 +254,7 @@ fn open_settings_window(app: tauri::AppHandle, tab: Option<String>) -> Result<()
 
 pub(crate) fn show_or_create_studio_window(app: &tauri::AppHandle) -> Result<(), String> {
     if let Some(window) = app.get_webview_window("studio") {
-        let _ = window.show();
-        let _ = window.unminimize();
-        let _ = window.set_focus();
+        let _ = focus_webview_window(&window);
         return Ok(());
     }
 
@@ -292,9 +298,7 @@ pub(crate) fn show_or_create_studio_window(app: &tauri::AppHandle) -> Result<(),
         let _ = window.set_decorations(true);
     }
 
-    let _ = window.show();
-    let _ = window.unminimize();
-    let _ = window.set_focus();
+    let _ = focus_webview_window(&window);
     Ok(())
 }
 
@@ -308,9 +312,7 @@ async fn focus_agent_window(app: tauri::AppHandle) -> Result<(), String> {
     let window = app
         .get_webview_window("main")
         .ok_or_else(|| "Agent window is not available".to_string())?;
-    let _ = window.show();
-    let _ = window.unminimize();
-    window.set_focus().map_err(|error| error.to_string())
+    focus_webview_window(&window).map_err(|error| error.to_string())
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -331,8 +333,7 @@ pub fn run() {
                 return;
             }
             if let Some(main) = app.get_webview_window("main") {
-                let _ = main.set_focus();
-                let _ = main.unminimize();
+                let _ = focus_webview_window(&main);
             }
             handle_launch_args(app, args, Some(&cwd));
         }))
@@ -426,7 +427,7 @@ pub fn run() {
                 // window-state snapshot cannot remove the recovery controls.
                 let _ = window.set_decorations(true);
             }
-            let _ = window;
+            let _ = focus_webview_window(&window);
 
             Ok(())
         })

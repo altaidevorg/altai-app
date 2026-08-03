@@ -83,6 +83,7 @@ pub fn spawn_new_window(app: &AppHandle) {
             let _ = _window.set_decorations(false);
             #[cfg(target_os = "windows")]
             let _ = _window.set_decorations(true);
+            let _ = crate::focus_webview_window(&_window);
         }
         Err(e) => log::error!("os_menu: failed to open new window: {e}"),
     }
