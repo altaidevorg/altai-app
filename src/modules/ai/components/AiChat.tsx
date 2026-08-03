@@ -48,6 +48,7 @@ import {
   ChatPathLink,
   CommandSnippet,
   ContextChips,
+  HoverActionButton,
   type ContextChip,
 } from "@altai/agent-ui";
 import { AgentStatusPill } from "./AgentStatusPill";
@@ -267,28 +268,6 @@ export function AiChatView({
       </ConversationContent>
       <ConversationScrollButton />
     </Conversation>
-  );
-}
-
-function HoverActionButton({
-  title,
-  onClick,
-  children,
-}: {
-  title: string;
-  onClick: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      title={title}
-      aria-label={title}
-      onClick={onClick}
-      className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[10.5px] text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground"
-    >
-      {children}
-    </button>
   );
 }
 
