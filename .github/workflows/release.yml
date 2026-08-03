@@ -188,14 +188,14 @@ jobs:
           # installation. Tauri's NSIS bootstrapper owns this path; overriding
           # it with /D can bypass its install-mode initialization in CI.
           install_dir="$LOCALAPPDATA/ALTAI"
-          "$installer" /S
+          MSYS2_ARG_CONV_EXCL='*' "$installer" /S
           test -f "$install_dir/altai-desktop.exe"
           test -f "$install_dir/altai-cli.exe"
           "$install_dir/altai-cli.exe" version --verbose
           "$install_dir/altai-cli.exe" open . --dry-run >/dev/null
           powershell -NoProfile -Command \
             '$target=[IO.Path]::GetFullPath($env:LOCALAPPDATA + "\ALTAI").TrimEnd("\"); $deadline=[DateTime]::UtcNow.AddSeconds(30); do { $parts=[Environment]::GetEnvironmentVariable("Path","User") -split ";"; if ($parts | Where-Object { [StringComparer]::OrdinalIgnoreCase.Equals($_.TrimEnd("\"),$target) }) { exit 0 }; Start-Sleep -Seconds 1 } while ([DateTime]::UtcNow -lt $deadline); exit 1'
-          "$install_dir/uninstall.exe" /S
+          MSYS2_ARG_CONV_EXCL='*' "$install_dir/uninstall.exe" /S
           powershell -NoProfile -Command \
             '$target=[IO.Path]::GetFullPath($env:LOCALAPPDATA + "\ALTAI").TrimEnd("\"); $deadline=[DateTime]::UtcNow.AddSeconds(30); do { $parts=[Environment]::GetEnvironmentVariable("Path","User") -split ";"; if (-not ($parts | Where-Object { [StringComparer]::OrdinalIgnoreCase.Equals($_.TrimEnd("\"),$target) })) { exit 0 }; Start-Sleep -Seconds 1 } while ([DateTime]::UtcNow -lt $deadline); exit 1'
 
