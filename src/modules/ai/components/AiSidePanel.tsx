@@ -14,7 +14,6 @@ import {
   Clock01Icon,
   CodeIcon,
   Settings01Icon,
-  SparklesIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -36,9 +35,9 @@ import {
   McpInspector,
   PlanModeStrip,
   ResearchInspector,
+  RunDetailsHeader,
   RunRecoveryActions,
   SnapshotsInspector,
-  SurfaceHeader,
   SurfaceSearch,
   TodosInspector,
   WorkspaceTargetForm,
@@ -845,39 +844,13 @@ function RunInspector({ className, onClose }: { className?: string; onClose?: ()
         className,
       )}
     >
-      <SurfaceHeader
-        title="Run details"
-        eyebrow="Current run"
-        icon={SparklesIcon}
+      <RunDetailsHeader
         subtitle={
           meta.status === "idle" ? "Ready for the next task" : meta.step ?? "Agent is working"
         }
-        status={
-          <span
-            className={cn(
-              "rounded px-1.5 py-0.5 text-[8.5px] font-semibold",
-              running
-                ? "bg-primary/10 text-primary"
-                : meta.error
-                  ? "bg-destructive/10 text-destructive"
-                  : "bg-muted text-muted-foreground",
-            )}
-          >
-            {meta.error ? "Blocked" : running ? "Running" : "Idle"}
-          </span>
-        }
+        status={meta.error ? "blocked" : running ? "running" : "idle"}
         onClose={onClose}
-        actions={
-          running ? (
-            <button
-              type="button"
-              onClick={stopAgent}
-              className="rounded-md border border-destructive/25 bg-destructive/[0.06] px-2 py-1 text-[9.5px] font-medium text-destructive hover:bg-destructive/10"
-            >
-              Stop run
-            </button>
-          ) : null
-        }
+        onStop={stopAgent}
       />
 
       <div className="min-h-0 flex-1 space-y-2.5 overflow-y-auto p-2.5">

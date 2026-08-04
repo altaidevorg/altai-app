@@ -504,6 +504,12 @@ export {
 } from "./components/TaskRunConfigSection.js";
 
 export {
+  RunDetailsHeader,
+  type RunDetailsHeaderProps,
+  type RunDetailsStatus,
+} from "./components/RunDetailsHeader.js";
+
+export {
   formatRelativeTime,
   humanize,
 } from "./lib/inboxFormat.js";
