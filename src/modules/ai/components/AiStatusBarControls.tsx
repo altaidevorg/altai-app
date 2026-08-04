@@ -8,6 +8,7 @@ import { Kbd } from "@/components/ui/kbd";
 import { Spinner } from "@/components/ui/spinner";
 import { fmtShortcut, MOD_KEY } from "@/lib/platform";
 import { cn } from "@/lib/utils";
+import { IconBtn } from "@altai/agent-ui";
 import {
   Context,
   ContextContent,
@@ -184,37 +185,6 @@ export function AiStatusBarControls() {
         </Button>
       )}
     </div>
-  );
-}
-
-function IconBtn({
-  title,
-  onClick,
-  disabled,
-  className,
-  children,
-}: {
-  title: string;
-  onClick: () => void;
-  disabled?: boolean;
-  className?: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <Button
-      type="button"
-      variant="ghost"
-      size="icon"
-      title={title}
-      onClick={onClick}
-      disabled={disabled}
-      className={cn(
-        "size-6 rounded-md text-muted-foreground hover:text-foreground",
-        className,
-      )}
-    >
-      {children}
-    </Button>
   );
 }
 

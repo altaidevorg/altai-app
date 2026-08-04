@@ -40,6 +40,7 @@ Incremental extraction of the Desktop `AiSidePanel` tree:
 | A4.23 | `InboxLoadFailed` (inbox error state with retry) |
 | A4.24 | `FilteredEmptyInbox` (inbox filtered empty state) |
 | A4.25 | `RowIconButton` (chat history/session row icon button, deduplicated) |
+| A4.26 | `IconBtn` (AI status bar ghost icon button) |
 
 Desktop must import shared components from this package; local duplicates are
 deleted as each slice lands.

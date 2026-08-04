@@ -157,6 +157,11 @@ export {
   type RowIconButtonProps,
 } from "./components/RowIconButton.js";
 
+export {
+  IconBtn,
+  type IconBtnProps,
+} from "./components/IconBtn.js";
+
 /** Re-export contract types so consumers can depend primarily on agent-ui. */
 export type {
   Capabilities,
