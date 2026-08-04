@@ -102,6 +102,7 @@ consumption of shared panel shells:
 | A5.20 | `RunOverviewCard` (run inspector summary metrics) |
 | A5.21 | `RunBlockedBanner` (run inspector error banner) |
 | A5.22 | `SurfacePrimaryAction` / `SurfaceSecondaryAction` |
+| A5.23 | `ConversationOwnerSection` (automation owner chat) |
 
 Desktop must import shared components from this package; local duplicates are
 deleted as each slice lands.
