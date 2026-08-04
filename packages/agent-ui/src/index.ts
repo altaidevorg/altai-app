@@ -274,6 +274,17 @@ export {
   type ClarificationChoicesProps,
 } from "./components/ClarificationChoices.js";
 
+export {
+  InboxNotificationCard,
+  type InboxNotificationCardProps,
+  type InboxNotificationItem,
+} from "./components/InboxNotificationCard.js";
+
+export {
+  formatRelativeTime,
+  humanize,
+} from "./lib/inboxFormat.js";
+
 /** Re-export contract types so consumers can depend primarily on agent-ui. */
 export type {
   Capabilities,
