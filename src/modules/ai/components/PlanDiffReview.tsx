@@ -8,7 +8,12 @@ import { useEffect, useState } from "react";
 import { native, type CheckpointInfo } from "../lib/native";
 import { usePlanStore, type AppliedPlanEdit } from "../store/planStore";
 import { useChatStore } from "../store/chatStore";
-import { AuxiliarySurface, HistoryRow, PlanRow } from "@altai/agent-ui";
+import {
+  AuxiliarySurface,
+  PlanRow,
+  ReviewHistory,
+  type ReviewHistoryItem,
+} from "@altai/agent-ui";
 
 function diffStats(
   original: string,
@@ -185,14 +190,18 @@ export function PlanDiffReview({
           ))}
           </ul>
         </section> : null}
-        <ReviewHistory items={checkpoints} applied={applied} onCheckpointsChange={setCheckpoints} />
+        <ReviewHistoryBridge
+          items={checkpoints}
+          applied={applied}
+          onCheckpointsChange={setCheckpoints}
+        />
         {!queue.length && !historyCount ? <div className="rounded-md border border-dashed border-border/60 px-4 py-8 text-center text-[11px] leading-relaxed text-muted-foreground">When the agent proposes a plan or edits a file, it will appear here with a safe restore option.</div> : null}
       </div>
     </AuxiliarySurface>
   );
 }
 
-function ReviewHistory({
+function ReviewHistoryBridge({
   items,
   applied,
   onCheckpointsChange,
@@ -207,13 +216,34 @@ function ReviewHistory({
 
   if (!items.length && !applied.length) return null;
 
-  const restoreCheckpoint = async (id: string) => {
+  const rows: ReviewHistoryItem[] = [
+    ...[...applied].reverse().map((item) => ({
+      id: `plan-${item.id}`,
+      path: item.path,
+      detail: `Accepted review · ${item.isNewFile ? "remove new file" : "restore prior content"}`,
+    })),
+    ...items.map((item) => ({
+      id: item.id,
+      path: item.path,
+      detail: `${item.label} · ${new Date(item.createdMs).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`,
+    })),
+  ];
+
+  const onRestore = async (rowId: string) => {
     if (restoring) return;
     setError(null);
-    setRestoring(id);
+    setRestoring(rowId);
     try {
-      await native.checkpointRestore(id);
-      onCheckpointsChange(await native.checkpointList());
+      if (rowId.startsWith("plan-")) {
+        const id = rowId.slice("plan-".length);
+        const result = await restoreApplied(id);
+        if (result && !result.ok) {
+          setError(result.error ?? "Could not restore change.");
+        }
+      } else {
+        await native.checkpointRestore(rowId);
+        onCheckpointsChange(await native.checkpointList());
+      }
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
@@ -221,44 +251,13 @@ function ReviewHistory({
     }
   };
 
-  const restoreReviewed = async (id: string) => {
-    if (restoring) return;
-    setError(null);
-    setRestoring(id);
-    try {
-      const result = await restoreApplied(id);
-      if (result && !result.ok) setError(result.error ?? "Could not restore change.");
-    } finally {
-      setRestoring(null);
-    }
-  };
-
   return (
-    <section className="border-t border-border/45 pt-3">
-      <div className="mb-1.5 px-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Restore points</div>
-      <p className="mb-2 px-0.5 text-[10px] leading-relaxed text-muted-foreground">Every agent edit has a pre-edit snapshot. Restoring a new file removes it; restoring an existing file puts its prior content back.</p>
-      {error ? <p className="mb-2 rounded-md bg-destructive/10 px-2 py-1.5 text-[10px] text-destructive">{error}</p> : null}
-      <div className="space-y-1.5">
-        {[...applied].reverse().map((item) => (
-          <HistoryRow
-            key={`plan-${item.id}`}
-            path={item.path}
-            detail={`Accepted review · ${item.isNewFile ? "remove new file" : "restore prior content"}`}
-            restoring={restoring === item.id}
-            onRestore={() => void restoreReviewed(item.id)}
-          />
-        ))}
-        {items.map((item) => (
-          <HistoryRow
-            key={item.id}
-            path={item.path}
-            detail={`${item.label} · ${new Date(item.createdMs).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`}
-            restoring={restoring === item.id}
-            onRestore={() => void restoreCheckpoint(item.id)}
-          />
-        ))}
-      </div>
-    </section>
+    <ReviewHistory
+      items={rows}
+      restoringId={restoring}
+      error={error}
+      onRestore={(id) => void onRestore(id)}
+    />
   );
 }
 
