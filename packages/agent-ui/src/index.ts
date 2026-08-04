@@ -240,6 +240,12 @@ export {
   type McpInspectorProps,
 } from "./components/McpInspector.js";
 
+export {
+  ArtifactsInspector,
+  type ArtifactsInspectorItem,
+  type ArtifactsInspectorProps,
+} from "./components/ArtifactsInspector.js";
+
 /** Re-export contract types so consumers can depend primarily on agent-ui. */
 export type {
   Capabilities,

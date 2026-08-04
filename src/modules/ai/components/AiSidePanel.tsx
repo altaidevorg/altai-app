@@ -40,6 +40,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { type ReactElement, useEffect, useRef, useState } from "react";
 import {
   AgentsInspector,
+  ArtifactsInspector,
   ChangeReviewBanner,
   EditApprovalCard,
   InspectorEmpty,
@@ -1155,7 +1156,14 @@ function RunInspector({ className, onClose }: { className?: string; onClose?: ()
             <div className="my-2 border-t border-border-subtle" />
           ) : null}
           {meta.artifacts.length ? (
-            <ArtifactsInspector items={meta.artifacts} />
+            <ArtifactsInspector
+              items={meta.artifacts}
+              onOpenFile={(path) =>
+                window.dispatchEvent(
+                  new CustomEvent<string>("altai:open-file", { detail: path }),
+                )
+              }
+            />
           ) : null}
           {!planQueue.length && !meta.artifacts.length ? (
             <InspectorEmpty>No changes or generated files yet.</InspectorEmpty>
@@ -1334,36 +1342,6 @@ function ActivityInspector({
           </p>
         )}
       </section>
-    </div>
-  );
-}
-
-function ArtifactsInspector({
-  items,
-}: {
-  items: ReturnType<typeof useChatStore.getState>["agentMeta"]["artifacts"];
-}) {
-  if (!items.length) {
-    return <InspectorEmpty>Files emitted by experiments and execution jobs will appear here.</InspectorEmpty>;
-  }
-  return (
-    <div className="space-y-2">
-      {[...items].reverse().map((item) => (
-        <div key={item.id} className="flex items-center gap-2 rounded-md border border-border bg-muted/30 px-2.5 py-2">
-          <HugeiconsIcon icon={FileEditIcon} size={12} strokeWidth={1.75} className="shrink-0 text-muted-foreground" />
-          <div className="min-w-0 flex-1">
-            <div className="truncate text-[11px] font-medium" title={item.path}>{item.path.split(/[\\/]/).pop() || item.path}</div>
-            <div className="mt-0.5 truncate font-mono text-[9.5px] text-muted-foreground">{item.path}</div>
-          </div>
-          <button
-            type="button"
-            onClick={() => window.dispatchEvent(new CustomEvent<string>("altai:open-file", { detail: item.path }))}
-            className="rounded-md bg-foreground/[0.07] px-1.5 py-1 text-[10px] font-medium text-foreground hover:bg-foreground/[0.12]"
-          >
-            Open
-          </button>
-        </div>
-      ))}
     </div>
   );
 }

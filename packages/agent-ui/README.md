@@ -56,6 +56,7 @@ Incremental extraction of the Desktop `AiSidePanel` tree:
 | A4.39 | `PlanModeStrip` (plan mode status strip) |
 | A4.40 | `ResearchInspector` (run inspector research event list) |
 | A4.41 | `McpInspector` (run inspector MCP call list) |
+| A4.42 | `ArtifactsInspector` (run inspector artifact file list) |
 
 Desktop must import shared components from this package; local duplicates are
 deleted as each slice lands.
