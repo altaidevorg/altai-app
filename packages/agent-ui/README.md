@@ -52,6 +52,7 @@ Incremental extraction of the Desktop `AiSidePanel` tree:
 | A4.35 | `PlanRow` (plan diff review row with apply/reject/diff toggle) |
 | A4.36 | `TodosInspector` (run inspector todos panel) |
 | A4.37 | `AgentsInspector` (run inspector subagent task list) |
+| A4.38 | `ChangeReviewBanner` (queued edits review banner) |
 
 Desktop must import shared components from this package; local duplicates are
 deleted as each slice lands.
