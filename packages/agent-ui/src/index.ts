@@ -294,6 +294,11 @@ export {
 } from "./components/InboxTicketCard.js";
 
 export {
+  RunRecoveryActions,
+  type RunRecoveryActionsProps,
+} from "./components/RunRecoveryActions.js";
+
+export {
   formatRelativeTime,
   humanize,
 } from "./lib/inboxFormat.js";
