@@ -36,10 +36,10 @@ import {
   AuxiliarySurface,
   FilteredEmptyInbox,
   InboxLoadFailed,
+  InboxSection,
   SurfaceEmptyState,
   SurfaceIconAction,
   SurfaceSearch,
-  SurfaceSectionHeader,
   SurfaceTabs,
 } from "@altai/agent-ui";
 
@@ -501,23 +501,6 @@ export function NotificationInboxPanel({ onClose }: { onClose: () => void }) {
         </AlertDialogContent>
       </AlertDialog>
     </>
-  );
-}
-
-function InboxSection({
-  title,
-  count,
-  children,
-}: {
-  title: string;
-  count: number;
-  children: React.ReactNode;
-}) {
-  return (
-    <section>
-      <SurfaceSectionHeader title={title} count={count} className="mb-2 px-0.5" />
-      <div className="space-y-2">{children}</div>
-    </section>
   );
 }
 
