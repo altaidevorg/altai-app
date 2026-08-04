@@ -218,6 +218,11 @@ export {
   type AgentsInspectorProps,
 } from "./components/AgentsInspector.js";
 
+export {
+  ChangeReviewBanner,
+  type ChangeReviewBannerProps,
+} from "./components/ChangeReviewBanner.js";
+
 /** Re-export contract types so consumers can depend primarily on agent-ui. */
 export type {
   Capabilities,
