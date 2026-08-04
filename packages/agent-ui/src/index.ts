@@ -196,6 +196,11 @@ export {
   type ModelOptionProps,
 } from "./components/ModelOption.js";
 
+export {
+  UnifiedDiffPreview,
+  type UnifiedDiffPreviewProps,
+} from "./components/UnifiedDiffPreview.js";
+
 /** Re-export contract types so consumers can depend primarily on agent-ui. */
 export type {
   Capabilities,
