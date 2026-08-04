@@ -408,6 +408,13 @@ export {
 } from "./lib/sessionHistory.js";
 
 export {
+  TaskRunCard,
+  formatTaskAge,
+  type TaskRunCardProps,
+  type TaskRunStatus,
+} from "./components/TaskRunCard.js";
+
+export {
   formatRelativeTime,
   humanize,
 } from "./lib/inboxFormat.js";
