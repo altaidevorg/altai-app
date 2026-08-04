@@ -26,7 +26,6 @@ import {
   Cancel01Icon,
   Clock01Icon,
   CodeIcon,
-  FileEditIcon,
   FolderOpenIcon,
   GithubIcon,
   Notebook01Icon,
@@ -53,6 +52,7 @@ import {
   ResearchInspector,
   RunRecoveryActions,
   RunStateMetric,
+  SnapshotsInspector,
   SurfaceHeader,
   SurfaceSearch,
   TodosInspector,
@@ -1211,7 +1211,7 @@ function RunInspector({ className, onClose }: { className?: string; onClose?: ()
           summary="Restore points created before agent edits"
           count={checkpoints.length + appliedPlanEdits.length}
         >
-          <SnapshotsInspector
+          <SnapshotsInspectorBridge
             items={checkpoints}
             applied={appliedPlanEdits}
             setItems={setCheckpoints}
@@ -1359,7 +1359,7 @@ function ActivityInspector({
   );
 }
 
-function SnapshotsInspector({
+function SnapshotsInspectorBridge({
   items,
   applied,
   setItems,
@@ -1371,65 +1371,40 @@ function SnapshotsInspector({
   const [restoring, setRestoring] = useState<string | null>(null);
   const restoreApplied = usePlanStore((s) => s.restoreApplied);
   const [error, setError] = useState<string | null>(null);
-  if (!items.length && !applied.length) return <InspectorEmpty>Before-agent-edit and reviewed-change snapshots will appear here, ready to restore safely.</InspectorEmpty>;
-  const restore = async (id: string) => {
-    if (restoring) return;
-    setError(null);
-    setRestoring(id);
-    try {
-      await native.checkpointRestore(id);
-      setItems(await native.checkpointList());
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
-    } finally {
-      setRestoring(null);
-    }
-  };
-  const restorePlan = async (id: string) => {
-    if (restoring) return;
-    setError(null);
-    setRestoring(id);
-    try {
-      const result = await restoreApplied(id);
-      if (result && !result.ok) setError(result.error ?? "Could not restore change.");
-    } finally {
-      setRestoring(null);
-    }
-  };
+
   return (
-    <div className="space-y-2">
-      {applied.length ? (
-        <section className="space-y-2">
-          <div className="px-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Plan review</div>
-          {[...applied].reverse().map((item) => (
-            <div key={item.id} className="flex items-center gap-2 rounded-md border border-border bg-muted/30 px-2.5 py-2">
-              <HugeiconsIcon icon={FileEditIcon} size={12} strokeWidth={1.75} className="shrink-0 text-muted-foreground" />
-              <div className="min-w-0 flex-1">
-                <div className="truncate text-[11px] font-medium" title={item.path}>{item.path.split(/[\\/]/).pop()}</div>
-                <div className="mt-0.5 text-[9.5px] text-muted-foreground">Accepted change · {item.isNewFile ? "removes new file" : "restores prior content"}</div>
-              </div>
-              <button type="button" disabled={restoring === item.id} onClick={() => void restorePlan(item.id)} className="rounded-md bg-foreground/[0.07] px-1.5 py-1 text-[10px] font-medium text-foreground hover:bg-foreground/[0.12] disabled:opacity-50">
-                {restoring === item.id ? "…" : "Restore"}
-              </button>
-            </div>
-          ))}
-        </section>
-      ) : null}
-      {items.length ? <div className="px-1 pt-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Agent edits</div> : null}
-      {items.map((item) => (
-        <div key={item.id} className="flex items-center gap-2 rounded-md border border-border bg-muted/30 px-2.5 py-2">
-          <HugeiconsIcon icon={FileEditIcon} size={12} strokeWidth={1.75} className="shrink-0 text-muted-foreground" />
-          <div className="min-w-0 flex-1">
-            <div className="truncate text-[11px] font-medium" title={item.path}>{item.path.split(/[\\/]/).pop()}</div>
-            <div className="mt-0.5 text-[9.5px] text-muted-foreground">{item.label}</div>
-          </div>
-          <button type="button" disabled={restoring === item.id} onClick={() => void restore(item.id)} className="rounded-md bg-foreground/[0.07] px-1.5 py-1 text-[10px] font-medium text-foreground hover:bg-foreground/[0.12] disabled:opacity-50">
-            {restoring === item.id ? "…" : "Restore"}
-          </button>
-        </div>
-      ))}
-      {error ? <div className="border border-destructive/30 bg-destructive/[0.06] p-2 text-[10.5px] text-destructive">{error}</div> : null}
-    </div>
+    <SnapshotsInspector
+      items={items}
+      applied={applied}
+      restoringId={restoring}
+      error={error}
+      onRestoreCheckpoint={async (id) => {
+        if (restoring) return;
+        setError(null);
+        setRestoring(id);
+        try {
+          await native.checkpointRestore(id);
+          setItems(await native.checkpointList());
+        } catch (cause) {
+          setError(cause instanceof Error ? cause.message : String(cause));
+        } finally {
+          setRestoring(null);
+        }
+      }}
+      onRestoreApplied={async (id) => {
+        if (restoring) return;
+        setError(null);
+        setRestoring(id);
+        try {
+          const result = await restoreApplied(id);
+          if (result && !result.ok) {
+            setError(result.error ?? "Could not restore change.");
+          }
+        } finally {
+          setRestoring(null);
+        }
+      }}
+    />
   );
 }
 
