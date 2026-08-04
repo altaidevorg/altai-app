@@ -44,7 +44,7 @@ import {
   ChangeReviewBanner,
   ChangesInspector,
   ChatProjectTarget,
-  EditApprovalCard,
+  ClarificationChoices,
   EmptyState,
   InspectorEmpty,
   InspectorMetric,
@@ -1506,7 +1506,7 @@ function Body({
       </div>
 
       <RunRecoveryActions />
-      <ClarificationChoices />
+      <ClarificationChoicesBridge />
       <ChangeReviewBanner
         queueLen={reviewQueueLen}
         onOpen={onOpenReview}
@@ -1655,44 +1655,15 @@ function RunRecoveryActions() {
   );
 }
 
-function ClarificationChoices() {
+function ClarificationChoicesBridge() {
   const choices = useChatStore((s) => s.pendingChoices);
   const editDiff = useChatStore((s) => s.pendingEditDiff);
-
-  // A file-edit approval (from the crate's edit gate) takes precedence over
-  // the plain choice chips: it renders a richer diff-review card with
-  // Approve / Deny actions. The reply still rides the clarification channel.
-  if (editDiff) {
-    return (
-      <EditApprovalCard
-        diff={editDiff}
-        onRespond={(choice) => void sendMessage(choice)}
-      />
-    );
-  }
-
-  if (!choices || choices.length === 0) return null;
   return (
-    <div
-      role="group"
-      aria-label="Suggested replies"
-      className="flex shrink-0 flex-wrap gap-1.5 border-t border-border-subtle px-3 py-2"
-    >
-      <span aria-live="polite" className="sr-only">
-        {choices.length} suggested{" "}
-        {choices.length === 1 ? "reply" : "replies"} available
-      </span>
-      {choices.map((choice, i) => (
-        <button
-          key={`${i}-${choice}`}
-          type="button"
-          onClick={() => void sendMessage(choice)}
-          className="rounded-md border border-border bg-muted px-3 py-1 text-[11px] font-medium text-foreground transition-colors hover:bg-accent"
-        >
-          {choice}
-        </button>
-      ))}
-    </div>
+    <ClarificationChoices
+      choices={choices}
+      editDiff={editDiff}
+      onRespond={(choice) => void sendMessage(choice)}
+    />
   );
 }
 
