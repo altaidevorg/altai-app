@@ -347,6 +347,16 @@ export {
 } from "./components/ComposerToolbarIcon.js";
 
 export {
+  ComposerAttachChips,
+  fileExtensionLabel,
+  selectionLineCount,
+  type ComposerAttachChipsProps,
+  type ComposerAttachCommand,
+  type ComposerAttachFile,
+  type ComposerAttachSnippet,
+} from "./components/ComposerAttachChips.js";
+
+export {
   formatRelativeTime,
   humanize,
 } from "./lib/inboxFormat.js";
