@@ -8,7 +8,6 @@ import { cn } from "@/lib/utils";
 import { openSettingsWindow } from "@/modules/settings/openSettingsWindow";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import {
-  AiBookIcon,
   AiBrain01Icon,
   AppleIcon,
   ChatGptIcon,
@@ -22,7 +21,6 @@ import {
   Grok02Icon,
   Hexagon01Icon,
   PlugIcon,
-  Search01Icon,
   Settings01Icon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
@@ -44,7 +42,7 @@ import {
 } from "../lib/modelRouting";
 import { useAgentsStore } from "../store/agentsStore";
 import { useChatStore } from "../store/chatStore";
-import { ComposerConfigTrigger, ModelOption, ModelSectionLabel, ProviderPill } from "@altai/agent-ui";
+import { ComposerConfigTrigger, ModelPickerPanel } from "@altai/agent-ui";
 
 const PROVIDER_ICON = {
   openai: ChatGptIcon,
@@ -301,108 +299,86 @@ export function ModelDropdown({
           inputRef.current?.focus();
         }}
       >
-        <div className="flex items-center gap-2 border-b border-border/70 px-3 py-2">
-          <HugeiconsIcon
-            icon={Search01Icon}
-            size={14}
-            strokeWidth={1.75}
-            className="shrink-0 text-muted-foreground/70"
-          />
-          <input
-            ref={inputRef}
-            role="combobox"
-            aria-expanded
-            aria-controls={MODEL_LISTBOX_ID}
-            aria-autocomplete="list"
-            aria-activedescendant={
-              filtered[activeIndex - (autoOptionVisible ? 1 : 0)]
-                ? modelOptionDomId(filtered[activeIndex - (autoOptionVisible ? 1 : 0)].id)
-                : undefined
-            }
-            aria-label="Search models"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            onKeyDown={handleInputKeyDown}
-            placeholder="Search models…"
-            className="w-full bg-transparent text-xs outline-none placeholder:text-muted-foreground/60"
-          />
-        </div>
-
-        <div className="flex min-h-0">
-          {configuredProviders.length > 1 ? (
-            <div className="flex w-10 flex-col gap-0.5 border-r border-border/70 bg-muted/20 py-1.5">
-              <ProviderPill
-                icon={AiBookIcon}
-                title="All providers"
-                active={activeProvider === null}
-                onClick={() => setActiveProvider(null)}
-              />
-              {configuredProviders.map((p) => (
-                <ProviderPill
-                  key={p.id}
-                  icon={PROVIDER_ICON[p.id]}
-                  title={p.label}
-                  active={activeProvider === p.id}
-                  onClick={() => setActiveProvider(p.id)}
-                />
-              ))}
-            </div>
-          ) : null}
-
-          <div className="max-h-[18rem] flex-1 overflow-y-auto py-1">
-            <div id={MODEL_LISTBOX_ID} role="listbox" aria-label="Models">
-              {filtered.length === 0 ? (
-                <div className="px-4 py-8 text-center text-xs text-muted-foreground/70">
-                  {available.length === 0
-                    ? "No models available — add an API key in Model settings."
-                    : describeModelConstraint(activeAgent) ?? "No models match."}
-                </div>
-              ) : (
-                <>
-                  {autoOptionVisible ? (
-                    <ModelOption
-                      modelLabel={autoModel?.label ?? current.label}
-                      providerIcon={PROVIDER_ICON[autoModel?.provider ?? current.provider]}
-                      domId={modelOptionDomId(autoModel?.id ?? current.id)}
-                      label="Auto"
-                      detail={autoModel ? `Recommended now: ${autoModel.label}` : "Choose from compatible models"}
-                      selected={autoSelected}
-                      active={activeIndex === 0}
-                      showProvider
-                      onClick={pickAuto}
-                    />
-                  ) : null}
-                  {pinned.length > 0 ? <ModelSectionLabel>PINNED</ModelSectionLabel> : null}
-                  {pinned.map((model) => (
-                    <ModelOption key={model.id} modelLabel={model.label} providerIcon={PROVIDER_ICON[model.provider]} domId={modelOptionDomId(model.id)} selected={!autoSelected && model.id === selected} active={filtered[activeIndex - (autoOptionVisible ? 1 : 0)]?.id === model.id} showProvider={configuredProviders.length !== 1 || activeProvider === null} pinned onClick={() => pickModel(model)} onTogglePin={() => void toggleFavoriteModel(model.id)} />
-                  ))}
-                  {recent.length > 0 ? <ModelSectionLabel>RECENT</ModelSectionLabel> : null}
-                  {recent.map((model) => (
-                    <ModelOption key={model.id} modelLabel={model.label} providerIcon={PROVIDER_ICON[model.provider]} domId={modelOptionDomId(model.id)} selected={!autoSelected && model.id === selected} active={filtered[activeIndex - (autoOptionVisible ? 1 : 0)]?.id === model.id} showProvider={configuredProviders.length !== 1 || activeProvider === null} onClick={() => pickModel(model)} onTogglePin={() => void toggleFavoriteModel(model.id)} />
-                  ))}
-                  {showSections && (pinned.length > 0 || recent.length > 0) ? <ModelSectionLabel>ALL MODELS</ModelSectionLabel> : null}
-                  {remaining.map((model) => (
-                    <ModelOption key={model.id} modelLabel={model.label} providerIcon={PROVIDER_ICON[model.provider]} domId={modelOptionDomId(model.id)} selected={!autoSelected && model.id === selected} active={filtered[activeIndex - (autoOptionVisible ? 1 : 0)]?.id === model.id} showProvider={configuredProviders.length !== 1 || activeProvider === null} onClick={() => pickModel(model)} onTogglePin={() => void toggleFavoriteModel(model.id)} />
-                  ))}
-                </>
-              )}
-            </div>
-          </div>
-        </div>
-
-        <div className="border-t border-border/70 p-1">
-          <button
-            type="button"
-            onClick={() => {
-              setOpen(false);
-              void openSettingsWindow("models");
-            }}
-            className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-[12px] text-muted-foreground transition-colors hover:bg-foreground/[0.055]"
-          >
-            <HugeiconsIcon icon={Settings01Icon} size={12} strokeWidth={1.75} />
-            Model settings…
-          </button>
-        </div>
+        <ModelPickerPanel
+          search={search}
+          onSearchChange={setSearch}
+          onSearchKeyDown={handleInputKeyDown}
+          searchInputRef={inputRef}
+          listboxId={MODEL_LISTBOX_ID}
+          activeDescendantId={
+            filtered[activeIndex - (autoOptionVisible ? 1 : 0)]
+              ? modelOptionDomId(
+                  filtered[activeIndex - (autoOptionVisible ? 1 : 0)].id,
+                )
+              : undefined
+          }
+          providers={configuredProviders.map((provider) => ({
+            id: provider.id,
+            label: provider.label,
+            icon: PROVIDER_ICON[provider.id],
+          }))}
+          activeProviderId={activeProvider}
+          onSelectProvider={(id) =>
+            setActiveProvider(id as ProviderId | null)
+          }
+          emptyMessage={
+            filtered.length === 0
+              ? available.length === 0
+                ? "No models available — add an API key in Model settings."
+                : (describeModelConstraint(activeAgent) ?? "No models match.")
+              : null
+          }
+          autoOption={
+            autoOptionVisible
+              ? {
+                  modelLabel: autoModel?.label ?? current.label,
+                  providerIcon:
+                    PROVIDER_ICON[autoModel?.provider ?? current.provider],
+                  domId: modelOptionDomId(autoModel?.id ?? current.id),
+                  detail: autoModel
+                    ? `Recommended now: ${autoModel.label}`
+                    : "Choose from compatible models",
+                  selected: autoSelected,
+                  active: activeIndex === 0,
+                  onClick: pickAuto,
+                }
+              : null
+          }
+          pinned={pinned.map((model) => ({
+            id: model.id,
+            label: model.label,
+            providerIcon: PROVIDER_ICON[model.provider],
+          }))}
+          recent={recent.map((model) => ({
+            id: model.id,
+            label: model.label,
+            providerIcon: PROVIDER_ICON[model.provider],
+          }))}
+          remaining={remaining.map((model) => ({
+            id: model.id,
+            label: model.label,
+            providerIcon: PROVIDER_ICON[model.provider],
+          }))}
+          showSections={showSections}
+          selectedId={selected}
+          autoSelected={autoSelected}
+          activeId={filtered[activeIndex - (autoOptionVisible ? 1 : 0)]?.id}
+          showProvider={
+            configuredProviders.length !== 1 || activeProvider === null
+          }
+          optionDomId={modelOptionDomId}
+          onPick={(id) => {
+            const model = filtered.find((entry) => entry.id === id);
+            if (model) pickModel(model);
+          }}
+          onTogglePin={(id) => {
+            void toggleFavoriteModel(id);
+          }}
+          onOpenSettings={() => {
+            setOpen(false);
+            void openSettingsWindow("models");
+          }}
+        />
       </PopoverContent>
     </Popover>
   );

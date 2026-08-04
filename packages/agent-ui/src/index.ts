@@ -430,6 +430,14 @@ export {
 } from "./components/AutomationCard.js";
 
 export {
+  ModelPickerPanel,
+  type ModelPickerAutoOption,
+  type ModelPickerPanelProps,
+  type ModelPickerProvider,
+  type ModelPickerRow,
+} from "./components/ModelPickerPanel.js";
+
+export {
   formatRelativeTime,
   humanize,
 } from "./lib/inboxFormat.js";
