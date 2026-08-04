@@ -90,6 +90,7 @@ consumption of shared panel shells:
 | A5.8 | `AgentOptionRow` (agent switcher option chrome) |
 | A5.9 | `TaskContextSources` (+ `contextFileName`) |
 | A5.10 | `TaskSkillChips` (create-task skills multi-select) |
+| A5.11 | `PromptTemplateGrid` + `SurfaceFilteredEmpty` |
 
 Desktop must import shared components from this package; local duplicates are
 deleted as each slice lands.

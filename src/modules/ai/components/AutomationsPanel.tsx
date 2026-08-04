@@ -35,7 +35,9 @@ import {
   automationNextRunLabel,
   automationScheduleLabel,
   AuxiliarySurface,
+  PromptTemplateGrid,
   SurfaceEmptyState,
+  SurfaceFilteredEmpty,
   SurfaceIconAction,
   SurfaceSearch,
   SurfaceSectionHeader,
@@ -296,18 +298,15 @@ export function AutomationsPanel({
           placeholder="What should the agent do?"
           className="mt-3 w-full resize-y rounded-lg border border-border bg-muted/55 px-3 py-2.5 text-[10.5px] leading-relaxed outline-none placeholder:text-muted-foreground/70 focus:border-ring"
         />
-        <div className="mt-2 grid grid-cols-3 gap-1.5">
-          {AUTOMATION_TEMPLATES.map((template) => (
-            <button
-              key={template.label}
-              type="button"
-              onClick={() => setMessage(template.message)}
-              className="rounded-md border border-border bg-card px-2 py-1.5 text-left text-[9px] font-medium text-muted-foreground hover:bg-accent hover:text-foreground"
-            >
-              {template.label}
-            </button>
-          ))}
-        </div>
+        <PromptTemplateGrid
+          templates={AUTOMATION_TEMPLATES.map((template) => ({
+            label: template.label,
+            value: template.message,
+          }))}
+          onSelect={setMessage}
+          columns={3}
+          density="compact"
+        />
         </section>
         <section className="border-b border-border-subtle px-3.5 py-3.5">
           <SurfaceSectionHeader
@@ -477,19 +476,14 @@ export function AutomationsPanel({
             }
           />
         ) : visibleItems.length === 0 ? (
-          <div className="border border-dashed border-border px-3 py-7 text-center text-[10.5px] text-muted-foreground">
-            No automations match this view.
-            <button
-              type="button"
-              onClick={() => {
-                setQuery("");
-                setFilter("all");
-              }}
-              className="ml-1 font-medium text-foreground hover:underline"
-            >
-              Clear filters
-            </button>
-          </div>
+          <SurfaceFilteredEmpty
+            message="No automations match this view."
+            className="px-3 py-7 text-[10.5px]"
+            onClear={() => {
+              setQuery("");
+              setFilter("all");
+            }}
+          />
         ) : (
           <section>
             <SurfaceSectionHeader
