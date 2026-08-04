@@ -13,7 +13,7 @@ describe("TaskOutcome", () => {
       }),
     );
     expect(html).toContain("3 files changed");
-    expect(html).toContain("2 check passed");
+    expect(html).toContain("2 checks passed");
     expect(html).toContain("text-success");
   });
 
@@ -21,12 +21,12 @@ describe("TaskOutcome", () => {
     const html = renderToStaticMarkup(
       createElement(TaskOutcome, {
         changesCount: 1,
-        checksPassed: 0,
+        checksPassed: 1,
         checksFailed: 0,
       }),
     );
     expect(html).toContain("1 file changed");
-    expect(html).toContain("No checks reported");
+    expect(html).toContain("1 check passed");
   });
 
   it("renders failed checks with destructive styling", () => {
@@ -38,7 +38,7 @@ describe("TaskOutcome", () => {
       }),
     );
     expect(html).toContain("No file changes");
-    expect(html).toContain("2 check failed");
+    expect(html).toContain("2 checks failed");
     expect(html).toContain("text-destructive");
   });
 

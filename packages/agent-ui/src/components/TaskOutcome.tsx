@@ -26,11 +26,11 @@ export function TaskOutcome({
       <span aria-hidden="true">·</span>
       {checksFailed ? (
         <span className="font-medium text-destructive">
-          {checksFailed} check failed
+          {checksFailed} check{checksFailed === 1 ? "" : "s"} failed
         </span>
       ) : checksPassed ? (
         <span className="font-medium text-success">
-          {checksPassed} check passed
+          {checksPassed} check{checksPassed === 1 ? "" : "s"} passed
         </span>
       ) : (
         <span>No checks reported</span>
