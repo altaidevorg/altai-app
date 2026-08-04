@@ -516,6 +516,11 @@ export {
 } from "./components/RunOverviewCard.js";
 
 export {
+  RunBlockedBanner,
+  type RunBlockedBannerProps,
+} from "./components/RunBlockedBanner.js";
+
+export {
   formatRelativeTime,
   humanize,
 } from "./lib/inboxFormat.js";
