@@ -269,6 +269,11 @@ export {
   type EmptyStateProps,
 } from "./components/EmptyState.js";
 
+export {
+  ClarificationChoices,
+  type ClarificationChoicesProps,
+} from "./components/ClarificationChoices.js";
+
 /** Re-export contract types so consumers can depend primarily on agent-ui. */
 export type {
   Capabilities,
