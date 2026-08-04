@@ -342,6 +342,11 @@ export {
 } from "./components/CheckpointMenuPanel.js";
 
 export {
+  ComposerToolbarIcon,
+  type ComposerToolbarIconProps,
+} from "./components/ComposerToolbarIcon.js";
+
+export {
   formatRelativeTime,
   humanize,
 } from "./lib/inboxFormat.js";

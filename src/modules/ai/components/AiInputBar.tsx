@@ -17,8 +17,8 @@ import {
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { AnimatePresence, motion } from "motion/react";
-import { useEffect, useMemo, useRef, useState } from "react";
-import { ContextAction } from "@altai/agent-ui";
+import { useEffect, useMemo, useRef, useState, type ReactElement } from "react";
+import { ComposerToolbarIcon, ContextAction } from "@altai/agent-ui";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import {
   ACCEPTED_FILES,
@@ -531,12 +531,13 @@ export function AiInputBar() {
 
         <div className="altai-ai-composer-primary flex w-full min-w-0 items-center gap-1 border-t border-border-subtle px-2.5 py-1.5">
           <div className="altai-ai-composer-tools flex min-w-0 shrink-0 items-center gap-0.5 rounded-md bg-foreground/[0.035] p-0.5">
-            <ToolbarIcon
+            <ComposerToolbarIcon
               title="Attach file or image"
               onClick={() => fileInputRef.current?.click()}
+              renderTooltip={withComposerTooltip}
             >
               <HugeiconsIcon icon={Attachment01Icon} size={14} strokeWidth={1.75} />
-            </ToolbarIcon>
+            </ComposerToolbarIcon>
 
             <Popover open={contextOpen} onOpenChange={setContextOpen}>
               <Tooltip delayDuration={350} disableHoverableContent>
@@ -567,15 +568,16 @@ export function AiInputBar() {
               </PopoverContent>
             </Popover>
 
-            <ToolbarIcon
+            <ComposerToolbarIcon
               title="Research with Semble Scout"
               onClick={prepareSembleSearch}
               disabled={!workspaceRoot}
+              renderTooltip={withComposerTooltip}
             >
               <HugeiconsIcon icon={Search01Icon} size={14} strokeWidth={1.75} />
-            </ToolbarIcon>
+            </ComposerToolbarIcon>
             {c.voice.supported && (
-              <ToolbarIcon
+              <ComposerToolbarIcon
                 title={
                   !c.voice.hasKey
                     ? "Voice needs an OpenAI key"
@@ -593,6 +595,7 @@ export function AiInputBar() {
                   c.voice.recording &&
                     "bg-destructive/10 text-destructive hover:bg-destructive/15 hover:text-destructive",
                 )}
+                renderTooltip={withComposerTooltip}
               >
                 {c.voice.recording ? (
                   <span className="size-2 animate-pulse rounded-full bg-destructive" />
@@ -601,7 +604,7 @@ export function AiInputBar() {
                 ) : (
                   <HugeiconsIcon icon={Mic01Icon} size={14} strokeWidth={1.75} />
                 )}
-              </ToolbarIcon>
+              </ComposerToolbarIcon>
             )}
           </div>
 
@@ -674,39 +677,12 @@ export function AiInputBar() {
   );
 }
 
-function ToolbarIcon({
-  title,
-  onClick,
-  disabled,
-  className,
-  children,
-}: {
-  title: string;
-  onClick?: () => void;
-  disabled?: boolean;
-  className?: string;
-  children: React.ReactNode;
-}) {
+function withComposerTooltip(label: string, children: ReactElement) {
   return (
     <Tooltip delayDuration={350} disableHoverableContent>
-      <TooltipTrigger asChild>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          aria-label={title}
-          onClick={onClick}
-          disabled={disabled}
-          className={cn(
-            "size-6 shrink-0 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground",
-            className,
-          )}
-        >
-          {children}
-        </Button>
-      </TooltipTrigger>
+      <TooltipTrigger asChild>{children}</TooltipTrigger>
       <TooltipContent side="top" sideOffset={6} className="text-[11px]">
-        {title}
+        {label}
       </TooltipContent>
     </Tooltip>
   );
