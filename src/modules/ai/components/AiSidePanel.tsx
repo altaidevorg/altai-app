@@ -37,6 +37,7 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { type ReactElement, useEffect, useRef, useState } from "react";
 import {
+  ActivityInspector,
   AgentsInspector,
   ApprovalsInspector,
   ArtifactsInspector,
@@ -51,7 +52,6 @@ import {
   PlanModeStrip,
   ResearchInspector,
   RunRecoveryActions,
-  RunStateMetric,
   SnapshotsInspector,
   SurfaceHeader,
   SurfaceSearch,
@@ -1144,10 +1144,16 @@ function RunInspector({ className, onClose }: { className?: string; onClose?: ()
             className="mb-2"
           />
           <ActivityInspector
-            meta={meta}
             events={filteredActivity}
             hasQuery={Boolean(activityQuery.trim())}
             compact
+            step={meta.step}
+            error={meta.error}
+            approvalsPending={meta.approvalsPending}
+            subagentCount={meta.activeSubagents.length}
+            inputTokens={meta.tokens.inputTokens}
+            outputTokens={meta.tokens.outputTokens}
+            statusPill={<AgentStatusPill announce={false} />}
           />
         </InspectorSection>
 
@@ -1268,94 +1274,6 @@ function InspectorSection({
         {children}
       </CollapsibleContent>
     </Collapsible>
-  );
-}
-
-function ActivityInspector({
-  meta,
-  events,
-  hasQuery,
-  compact = false,
-}: {
-  meta: ReturnType<typeof useChatStore.getState>["agentMeta"];
-  events: ReturnType<typeof useChatStore.getState>["agentMeta"]["activity"];
-  hasQuery: boolean;
-  compact?: boolean;
-}) {
-  const tokenTotal = meta.tokens.inputTokens + meta.tokens.outputTokens;
-  return (
-    <div className="space-y-2">
-      {!compact ? (
-        <>
-      <section className="rounded-md border border-border bg-muted/40 p-2.5">
-        <div className="flex items-center gap-2">
-          <AgentStatusPill announce={false} />
-          <span className="ml-auto text-[10px] tabular-nums text-muted-foreground">
-            {tokenTotal > 0 ? `${tokenTotal.toLocaleString()} tokens` : "No tokens yet"}
-          </span>
-        </div>
-        {meta.step ? <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">{meta.step}</p> : null}
-      </section>
-      <section className="rounded-md border border-border bg-muted/30 p-2.5">
-        <div className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Run state</div>
-        <div className="mt-2 grid grid-cols-2 gap-2 text-[11px]">
-          <RunStateMetric label="Approvals" value={String(meta.approvalsPending)} />
-          <RunStateMetric label="Subagents" value={String(meta.activeSubagents.length)} />
-          <RunStateMetric label="Input" value={meta.tokens.inputTokens.toLocaleString()} />
-          <RunStateMetric label="Output" value={meta.tokens.outputTokens.toLocaleString()} />
-        </div>
-      </section>
-      {meta.error ? (
-        <section className="border border-destructive/30 bg-destructive/[0.06] p-2.5 text-[11px] text-destructive">
-          {meta.error}
-        </section>
-      ) : null}
-        </>
-      ) : null}
-      <section
-        className={cn(
-          "rounded-md border border-border bg-muted/30 p-2.5",
-          compact && "border-0 bg-transparent p-0",
-        )}
-      >
-        <div className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Timeline</div>
-        {events.length ? (
-          <div className="mt-2 space-y-2">
-            {[...events].reverse().map((item) => (
-              <div key={item.id} className="flex gap-2">
-                <span
-                  className={cn(
-                    "mt-1.5 size-1.5 shrink-0 rounded-full",
-                    item.tone === "success"
-                      ? "bg-success"
-                      : item.tone === "warning"
-                        ? "bg-warning"
-                        : item.tone === "error"
-                          ? "bg-destructive"
-                          : "bg-info",
-                  )}
-                />
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-baseline gap-2">
-                    <span className="min-w-0 flex-1 truncate text-[10.5px] text-foreground">{item.label}</span>
-                    <time className="shrink-0 text-[9px] tabular-nums text-muted-foreground" dateTime={new Date(item.createdAt).toISOString()}>
-                      {new Date(item.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-                    </time>
-                  </div>
-                  {item.detail ? <div className="mt-0.5 line-clamp-2 text-[9.5px] leading-relaxed text-muted-foreground">{item.detail}</div> : null}
-                </div>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <p className="mt-2 text-[10.5px] leading-relaxed text-muted-foreground">
-            {hasQuery
-              ? "No timeline events match this search."
-              : "Run events will appear here as the agent works."}
-          </p>
-        )}
-      </section>
-    </div>
   );
 }
 
