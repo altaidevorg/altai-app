@@ -264,6 +264,11 @@ export {
   type ChatProjectTargetProps,
 } from "./components/ChatProjectTarget.js";
 
+export {
+  EmptyState,
+  type EmptyStateProps,
+} from "./components/EmptyState.js";
+
 /** Re-export contract types so consumers can depend primarily on agent-ui. */
 export type {
   Capabilities,
