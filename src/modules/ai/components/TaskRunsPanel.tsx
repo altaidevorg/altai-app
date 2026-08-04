@@ -46,11 +46,10 @@ import {
 import {
   AuxiliarySurface,
   SurfaceEmptyState,
-  SurfaceSearch,
   SurfaceSectionHeader,
-  SurfaceTabs,
   PromptTemplateGrid,
   SurfaceFilteredEmpty,
+  SurfaceFilterToolbar,
   TaskContextSources,
   TaskRunCard,
   TaskSkillChips,
@@ -372,34 +371,28 @@ export function TaskRunsPanel({
       bodyClassName="overflow-y-auto"
     >
       {viewMode === "queue" ? (
-        <div className="shrink-0 space-y-2 border-b border-border-subtle bg-card px-3 py-2.5">
-          <SurfaceSearch
-            value={query}
-            onChange={setQuery}
-            placeholder="Search by task, step, or result"
-            className="w-full"
-          />
-          <SurfaceTabs
-            label="Filter work runs"
-            value={filter}
-            onChange={(value) => setFilter(value as TaskFilter)}
-            items={[
-              { id: "all", label: "All", count: filterCounts.all },
-              { id: "active", label: "Live", count: filterCounts.active },
-              {
-                id: "attention",
-                label: "Attention",
-                count: filterCounts.attention,
-              },
-              {
-                id: "finished",
-                label: "History",
-                count: filterCounts.finished,
-              },
-            ]}
-            className="border-0 bg-transparent p-0"
-          />
-        </div>
+        <SurfaceFilterToolbar
+          query={query}
+          onQueryChange={setQuery}
+          searchPlaceholder="Search by task, step, or result"
+          tabsLabel="Filter work runs"
+          tabValue={filter}
+          onTabChange={(value) => setFilter(value as TaskFilter)}
+          tabs={[
+            { id: "all", label: "All", count: filterCounts.all },
+            { id: "active", label: "Live", count: filterCounts.active },
+            {
+              id: "attention",
+              label: "Attention",
+              count: filterCounts.attention,
+            },
+            {
+              id: "finished",
+              label: "History",
+              count: filterCounts.finished,
+            },
+          ]}
+        />
       ) : null}
       {viewMode === "create" ? (
       <form onSubmit={start} className="min-h-0 flex-1 overflow-y-auto">
