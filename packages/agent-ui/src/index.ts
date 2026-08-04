@@ -181,6 +181,11 @@ export {
   EmptyInbox,
 } from "./components/EmptyInbox.js";
 
+export {
+  SessionRow,
+  type SessionRowProps,
+} from "./components/SessionRow.js";
+
 /** Re-export contract types so consumers can depend primarily on agent-ui. */
 export type {
   Capabilities,
