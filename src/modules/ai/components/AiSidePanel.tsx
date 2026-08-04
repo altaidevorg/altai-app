@@ -34,6 +34,7 @@ import {
   McpInspector,
   PlanModeStrip,
   ResearchInspector,
+  RunBlockedBanner,
   RunDetailsHeader,
   RunOverviewCard,
   RunRecoveryActions,
@@ -877,12 +878,7 @@ function RunInspector({ className, onClose }: { className?: string; onClose?: ()
           ]}
         />
 
-        {meta.error ? (
-          <section className="rounded-lg border border-destructive/30 bg-destructive/[0.06] p-3 text-[10.5px] leading-relaxed text-destructive">
-            <div className="mb-1 text-[9px] font-semibold uppercase tracking-wide">Run blocked</div>
-            {meta.error}
-          </section>
-        ) : null}
+        {meta.error ? <RunBlockedBanner message={meta.error} /> : null}
 
         {meta.pendingApprovals.length ? (
           <section>

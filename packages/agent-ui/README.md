@@ -100,6 +100,7 @@ consumption of shared panel shells:
 | A5.18 | `TaskRunConfigSection` (create-task config chrome) |
 | A5.19 | `RunDetailsHeader` (run inspector header + stop) |
 | A5.20 | `RunOverviewCard` (run inspector summary metrics) |
+| A5.21 | `RunBlockedBanner` (run inspector error banner) |
 
 Desktop must import shared components from this package; local duplicates are
 deleted as each slice lands.
