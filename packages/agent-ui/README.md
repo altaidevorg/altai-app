@@ -97,6 +97,7 @@ consumption of shared panel shells:
 | A5.15 | `CreateFormActions` (create-form cancel/submit footer) |
 | A5.16 | `PromptEditorSection` (instruction textarea + templates) |
 | A5.17 | `ComposerConfigRow` (agent/model config slots) |
+| A5.18 | `TaskRunConfigSection` (create-task config chrome) |
 
 Desktop must import shared components from this package; local duplicates are
 deleted as each slice lands.
