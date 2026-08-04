@@ -1,6 +1,6 @@
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
-import { SessionRow } from "@altai/agent-ui";
+import { groupSessionsByRecency, SessionRow } from "@altai/agent-ui";
 import {
   Clock01Icon,
   Search01Icon,
@@ -14,38 +14,8 @@ import {
   useRef,
   useState,
 } from "react";
-import { loadMessages, type SessionMeta } from "../lib/sessions";
+import { loadMessages } from "../lib/sessions";
 import { useChatStore } from "../store/chatStore";
-
-type DateGroup = {
-  label: string;
-  items: SessionMeta[];
-};
-
-const DAY_MS = 24 * 60 * 60 * 1000;
-
-function startOfDay(ts: number): number {
-  const d = new Date(ts);
-  d.setHours(0, 0, 0, 0);
-  return d.getTime();
-}
-
-function bucketFor(ts: number, nowDay: number): string {
-  const day = startOfDay(ts);
-  if (day === nowDay) return "Today";
-  if (day === nowDay - DAY_MS) return "Yesterday";
-  if (day > nowDay - 7 * DAY_MS) return "Previous 7 days";
-  if (day > nowDay - 30 * DAY_MS) return "Previous 30 days";
-  return "Older";
-}
-
-const GROUP_ORDER = [
-  "Today",
-  "Yesterday",
-  "Previous 7 days",
-  "Previous 30 days",
-  "Older",
-];
 
 function extractSnippet(messages: UIMessage[]): string {
   for (let i = messages.length - 1; i >= 0; i--) {
@@ -141,23 +111,18 @@ export function ChatHistory() {
     });
   }, [sessions, search, snippets]);
 
-  const groups = useMemo<DateGroup[]>(() => {
-    const nowDay = startOfDay(Date.now());
-    const map = new Map<string, SessionMeta[]>();
-    for (const s of filtered) {
-      const label = bucketFor(s.updatedAt, nowDay);
-      const arr = map.get(label) ?? [];
-      arr.push(s);
-      map.set(label, arr);
-    }
-    for (const arr of map.values()) {
-      arr.sort((a, b) => b.updatedAt - a.updatedAt);
-    }
-    return GROUP_ORDER.filter((label) => map.has(label)).map((label) => ({
-      label,
-      items: map.get(label)!,
-    }));
-  }, [filtered]);
+  const groups = useMemo(
+    () =>
+      groupSessionsByRecency(
+        filtered.map((s) => ({
+          id: s.id,
+          title: s.title || "New chat",
+          updatedAt: s.updatedAt,
+          snippet: snippets[s.id],
+        })),
+      ),
+    [filtered, snippets],
+  );
 
   const handlePick = useCallback(
     (id: string) => {
@@ -167,9 +132,9 @@ export function ChatHistory() {
     [switchSession],
   );
 
-  const handleStartRename = useCallback((session: SessionMeta) => {
-    setRenamingId(session.id);
-    setRenameValue(session.title || "New chat");
+  const handleStartRename = useCallback((id: string, title: string) => {
+    setRenamingId(id);
+    setRenameValue(title || "New chat");
   }, []);
 
   const handleCommitRename = useCallback(() => {
@@ -248,12 +213,14 @@ export function ChatHistory() {
                   <SessionRow
                     key={session.id}
                     title={session.title}
-                    snippet={snippets[session.id]}
+                    snippet={session.snippet}
                     active={session.id === activeId}
                     renaming={renamingId === session.id}
                     renameValue={renameValue}
                     onPick={() => handlePick(session.id)}
-                    onStartRename={() => handleStartRename(session)}
+                    onStartRename={() =>
+                      handleStartRename(session.id, session.title)
+                    }
                     onCommitRename={handleCommitRename}
                     onCancelRename={handleCancelRename}
                     onRenameValueChange={setRenameValue}

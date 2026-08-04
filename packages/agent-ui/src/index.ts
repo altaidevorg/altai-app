@@ -394,6 +394,20 @@ export {
 } from "./components/NotificationInboxPanel.js";
 
 export {
+  ChatHistoryPanel,
+  type ChatHistoryPanelProps,
+} from "./components/ChatHistoryPanel.js";
+
+export {
+  groupSessionsByRecency,
+  sessionHistoryBucket,
+  startOfDay,
+  SESSION_HISTORY_GROUP_ORDER,
+  type SessionHistoryGroup,
+  type SessionHistoryItem,
+} from "./lib/sessionHistory.js";
+
+export {
   formatRelativeTime,
   humanize,
 } from "./lib/inboxFormat.js";
