@@ -16,13 +16,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@/components/ui/collapsible";
-import {
   Add01Icon,
-  ArrowDown01Icon,
   Cancel01Icon,
   Clock01Icon,
   CodeIcon,
@@ -48,6 +42,7 @@ import {
   EmptyState,
   InspectorEmpty,
   InspectorMetric,
+  InspectorSection,
   McpInspector,
   PlanModeStrip,
   ResearchInspector,
@@ -1225,55 +1220,6 @@ function RunInspector({ className, onClose }: { className?: string; onClose?: ()
         </InspectorSection>
       </div>
     </aside>
-  );
-}
-
-function InspectorSection({
-  title,
-  summary,
-  count,
-  defaultOpen = false,
-  children,
-}: {
-  title: string;
-  summary: string;
-  count: number;
-  defaultOpen?: boolean;
-  children: React.ReactNode;
-}) {
-  const [open, setOpen] = useState(defaultOpen);
-  return (
-    <Collapsible
-      open={open}
-      onOpenChange={setOpen}
-      className="overflow-hidden rounded-lg border border-border bg-card"
-    >
-      <CollapsibleTrigger className="group flex w-full items-center gap-2 px-3 py-2.5 text-left hover:bg-accent/60">
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-1.5">
-            <span className="text-[10.5px] font-semibold text-foreground">{title}</span>
-            {count ? (
-              <span className="rounded bg-foreground/[0.06] px-1.5 text-[8.5px] tabular-nums text-muted-foreground">
-                {count}
-              </span>
-            ) : null}
-          </div>
-          <div className="mt-0.5 truncate text-[9px] text-muted-foreground">{summary}</div>
-        </div>
-        <HugeiconsIcon
-          icon={ArrowDown01Icon}
-          size={11}
-          strokeWidth={2}
-          className={cn(
-            "shrink-0 text-muted-foreground transition-transform",
-            open && "rotate-180",
-          )}
-        />
-      </CollapsibleTrigger>
-      <CollapsibleContent className="border-t border-border-subtle bg-muted/10 p-2.5">
-        {children}
-      </CollapsibleContent>
-    </Collapsible>
   );
 }
 
