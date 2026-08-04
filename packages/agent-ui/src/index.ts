@@ -329,6 +329,11 @@ export {
 } from "./components/ChatTabStrip.js";
 
 export {
+  WorkspaceTopbarActions,
+  type WorkspaceTopbarActionsProps,
+} from "./components/WorkspaceTopbarActions.js";
+
+export {
   formatRelativeTime,
   humanize,
 } from "./lib/inboxFormat.js";
