@@ -1,24 +1,14 @@
 import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
 import {
-  ArrowDown01Icon,
   Cancel01Icon,
-  FileEditIcon,
-  FilePlusIcon,
-  FolderAddIcon,
   Tick02Icon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useEffect, useState } from "react";
 import { native, type CheckpointInfo } from "../lib/native";
-import { usePlanStore, type AppliedPlanEdit, type QueuedEdit } from "../store/planStore";
+import { usePlanStore, type AppliedPlanEdit } from "../store/planStore";
 import { useChatStore } from "../store/chatStore";
-import { AuxiliarySurface, HistoryRow, UnifiedDiffPreview } from "@altai/agent-ui";
-
-function basename(p: string): string {
-  const i = Math.max(p.lastIndexOf("/"), p.lastIndexOf("\\"));
-  return i >= 0 ? p.slice(i + 1) : p;
-}
+import { AuxiliarySurface, HistoryRow, PlanRow } from "@altai/agent-ui";
 
 function diffStats(
   original: string,
@@ -175,7 +165,13 @@ export function PlanDiffReview({
           {queue.map((q) => (
           <PlanRow
             key={q.id}
-            item={q}
+            path={q.path}
+            kind={q.kind}
+            isNewFile={q.isNewFile}
+            description={q.description}
+            originalContent={q.originalContent}
+            proposedContent={q.proposedContent}
+            stats={q.kind === "create_directory" ? null : diffStats(q.originalContent, q.proposedContent)}
             busy={busy || applyingId === q.id}
             onOpenDiff={() => {
               if (q.kind === "create_directory") return;
@@ -193,133 +189,6 @@ export function PlanDiffReview({
         {!queue.length && !historyCount ? <div className="rounded-md border border-dashed border-border/60 px-4 py-8 text-center text-[11px] leading-relaxed text-muted-foreground">When the agent proposes a plan or edits a file, it will appear here with a safe restore option.</div> : null}
       </div>
     </AuxiliarySurface>
-  );
-}
-
-function PlanRow({
-  item,
-  busy,
-  onOpenDiff,
-  onApply,
-  onReject,
-}: {
-  item: QueuedEdit;
-  busy: boolean;
-  onOpenDiff: () => void;
-  onApply: () => void;
-  onReject: () => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const isDir = item.kind === "create_directory";
-  const isNew = item.isNewFile && !isDir;
-  const stats = isDir
-    ? null
-    : diffStats(item.originalContent, item.proposedContent);
-  const Icon = isDir
-    ? FolderAddIcon
-    : isNew
-      ? FilePlusIcon
-      : FileEditIcon;
-
-  return (
-    <li className="group/row overflow-hidden rounded-md border border-border bg-muted/30">
-      <div className="flex items-start gap-2 px-2.5 py-1.5">
-        <button
-          type="button"
-          onClick={() => !isDir && setOpen((v) => !v)}
-          disabled={isDir}
-          className={cn(
-            "mt-0.5 shrink-0 text-muted-foreground transition-transform",
-            open && "rotate-180",
-            isDir && "invisible",
-          )}
-          aria-label="Toggle diff"
-        >
-          <HugeiconsIcon icon={ArrowDown01Icon} size={11} strokeWidth={1.75} />
-        </button>
-        <HugeiconsIcon
-          icon={Icon}
-          size={13}
-          strokeWidth={1.75}
-          className="mt-0.5 shrink-0 text-muted-foreground"
-        />
-        <div className="min-w-0 flex-1">
-          <div className="flex items-baseline gap-1.5 font-mono text-[11.5px]">
-            <span className="truncate text-foreground">
-              {basename(item.path)}
-            </span>
-            {isNew ? (
-              <span className="text-[10px] text-success">
-                new
-              </span>
-            ) : null}
-          </div>
-          <div className="truncate font-mono text-[10px] text-muted-foreground">
-            {item.path}
-          </div>
-          {stats ? (
-            <div className="mt-0.5 flex items-center gap-2 text-[10px] tabular-nums">
-              <span className="text-success">
-                +{stats.added}
-              </span>
-              <span className="text-destructive">−{stats.removed}</span>
-              <span className="text-muted-foreground">
-                {item.kind === "multi_edit" ? "multi-edit" : item.kind}
-              </span>
-            </div>
-          ) : (
-            <div className="mt-0.5 text-[10px] text-muted-foreground">
-              {item.description ?? "create directory"}
-            </div>
-          )}
-        </div>
-        <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover/row:opacity-100 group-focus-within/row:opacity-100">
-          {!isDir ? (
-            <Button
-              type="button"
-              size="icon"
-              variant="ghost"
-              className="size-5"
-              onClick={onOpenDiff}
-              disabled={busy}
-              aria-label="Open full diff"
-            >
-              <HugeiconsIcon icon={FileEditIcon} size={11} strokeWidth={1.75} />
-            </Button>
-          ) : null}
-          <Button
-            type="button"
-            size="icon"
-            variant="ghost"
-            className="size-5"
-            onClick={onReject}
-            disabled={busy}
-            aria-label="Reject"
-          >
-            <HugeiconsIcon icon={Cancel01Icon} size={11} strokeWidth={1.75} />
-          </Button>
-          <Button
-            type="button"
-            size="icon"
-            variant="ghost"
-            className="size-5 text-success hover:bg-success/10 focus-visible:bg-success/15"
-            onClick={onApply}
-            disabled={busy}
-            aria-label="Apply this change"
-          >
-            <HugeiconsIcon icon={Tick02Icon} size={11} strokeWidth={1.75} />
-          </Button>
-        </div>
-      </div>
-      {open && !isDir ? (
-        <div className="border-t border-border/40 bg-muted/20 px-2.5 py-2">
-          <UnifiedDiffPreview
-            original={item.originalContent}
-            proposed={item.proposedContent}
-          />
-        </div>
-      ) : null}
-    </li>
   );
 }
 
