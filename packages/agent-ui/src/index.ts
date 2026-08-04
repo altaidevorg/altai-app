@@ -201,6 +201,11 @@ export {
   type UnifiedDiffPreviewProps,
 } from "./components/UnifiedDiffPreview.js";
 
+export {
+  PlanRow,
+  type PlanRowProps,
+} from "./components/PlanRow.js";
+
 /** Re-export contract types so consumers can depend primarily on agent-ui. */
 export type {
   Capabilities,

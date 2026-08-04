@@ -49,6 +49,7 @@ Incremental extraction of the Desktop `AiSidePanel` tree:
 | A4.32 | `InspectorEmpty` (inspector section compact empty state) |
 | A4.33 | `ModelOption` (model dropdown list option row) |
 | A4.34 | `UnifiedDiffPreview` (coarse line-level diff preview) |
+| A4.35 | `PlanRow` (plan diff review row with apply/reject/diff toggle) |
 
 Desktop must import shared components from this package; local duplicates are
 deleted as each slice lands.
