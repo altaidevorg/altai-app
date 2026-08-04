@@ -494,6 +494,11 @@ export {
 } from "./components/PromptEditorSection.js";
 
 export {
+  ComposerConfigRow,
+  type ComposerConfigRowProps,
+} from "./components/ComposerConfigRow.js";
+
+export {
   formatRelativeTime,
   humanize,
 } from "./lib/inboxFormat.js";
