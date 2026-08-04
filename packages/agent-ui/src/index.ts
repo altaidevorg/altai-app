@@ -186,6 +186,11 @@ export {
   type SessionRowProps,
 } from "./components/SessionRow.js";
 
+export {
+  InspectorEmpty,
+  type InspectorEmptyProps,
+} from "./components/InspectorEmpty.js";
+
 /** Re-export contract types so consumers can depend primarily on agent-ui. */
 export type {
   Capabilities,

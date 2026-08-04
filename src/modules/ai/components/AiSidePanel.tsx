@@ -40,6 +40,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { type ReactElement, useEffect, useRef, useState } from "react";
 import {
   EditApprovalCard,
+  InspectorEmpty,
   InspectorMetric,
   RunStateMetric,
   SurfaceHeader,
@@ -1241,10 +1242,6 @@ function InspectorSection({
       </CollapsibleContent>
     </Collapsible>
   );
-}
-
-function InspectorEmpty({ children }: { children: React.ReactNode }) {
-  return <div className="px-2 py-8 text-center text-[11px] leading-relaxed text-muted-foreground">{children}</div>;
 }
 
 function ActivityInspector({
