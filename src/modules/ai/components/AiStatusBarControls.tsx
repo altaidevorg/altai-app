@@ -8,7 +8,11 @@ import { Kbd } from "@/components/ui/kbd";
 import { Spinner } from "@/components/ui/spinner";
 import { fmtShortcut, MOD_KEY } from "@/lib/platform";
 import { cn } from "@/lib/utils";
-import { CheckpointMenuPanel, IconBtn } from "@altai/agent-ui";
+import {
+  CheckpointMenuPanel,
+  CompactNowControl,
+  IconBtn,
+} from "@altai/agent-ui";
 import {
   Context,
   ContextContent,
@@ -22,7 +26,6 @@ import {
 } from "@/components/ai-elements/context";
 import {
   Add01Icon,
-  Archive02Icon,
   ArchiveRestoreIcon,
   ArrowUpIcon,
   Message01Icon,
@@ -210,13 +213,10 @@ function CompactNowButton() {
   };
 
   return (
-    <IconBtn
-      title="Compact context (run /compact now)"
+    <CompactNowControl
       onClick={() => void onClick()}
       disabled={busy || running || !active}
-    >
-      <HugeiconsIcon icon={Archive02Icon} size={13} strokeWidth={1.75} />
-    </IconBtn>
+    />
   );
 }
 
