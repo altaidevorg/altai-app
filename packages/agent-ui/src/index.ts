@@ -281,6 +281,13 @@ export {
 } from "./components/InboxNotificationCard.js";
 
 export {
+  InboxJobCard,
+  labelForInboxJob,
+  type InboxJobCardProps,
+  type InboxJobItem,
+} from "./components/InboxJobCard.js";
+
+export {
   formatRelativeTime,
   humanize,
 } from "./lib/inboxFormat.js";
