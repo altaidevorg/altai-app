@@ -499,6 +499,11 @@ export {
 } from "./components/ComposerConfigRow.js";
 
 export {
+  TaskRunConfigSection,
+  type TaskRunConfigSectionProps,
+} from "./components/TaskRunConfigSection.js";
+
+export {
   formatRelativeTime,
   humanize,
 } from "./lib/inboxFormat.js";

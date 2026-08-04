@@ -53,6 +53,7 @@ import {
   SurfaceFilterToolbar,
   TaskContextSources,
   TaskRunCard,
+  TaskRunConfigSection,
   TaskSkillChips,
 } from "@altai/agent-ui";
 
@@ -409,12 +410,7 @@ export function TaskRunsPanel({
             value: template.prompt,
           }))}
         />
-        <section className="px-3.5 py-3.5">
-          <SurfaceSectionHeader
-            title="Run configuration"
-            description="Choose how the isolated agent should work."
-          />
-        <div className="mt-3 flex flex-wrap items-center gap-1.5">
+        <TaskRunConfigSection>
           <DropdownMenu>
             <DropdownMenuTrigger className="flex h-6 items-center gap-1 rounded-md border border-border bg-card px-2 text-[10px] text-muted-foreground transition-colors hover:bg-foreground/[0.055]">
               {agents.find((agent) => agent.id === agentId)?.name ?? "Default"}
@@ -441,8 +437,7 @@ export function TaskRunsPanel({
               {bypassEnabled ? <DropdownMenuItem onClick={() => setPermissionMode("bypass")} className={cn("text-[11px]", permissionMode === "bypass" && "bg-foreground/[0.085]")}>Bypass approvals</DropdownMenuItem> : null}
             </DropdownMenuContent>
           </DropdownMenu>
-        </div>
-        </section>
+        </TaskRunConfigSection>
 
         <TaskContextSources
           files={contextFiles}
