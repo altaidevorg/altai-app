@@ -357,6 +357,11 @@ export {
 } from "./components/ComposerAttachChips.js";
 
 export {
+  CompactNowControl,
+  type CompactNowControlProps,
+} from "./components/CompactNowControl.js";
+
+export {
   formatRelativeTime,
   humanize,
 } from "./lib/inboxFormat.js";
