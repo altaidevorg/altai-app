@@ -40,10 +40,9 @@ import {
   PromptTemplateGrid,
   SurfaceEmptyState,
   SurfaceFilteredEmpty,
+  SurfaceFilterToolbar,
   SurfaceIconAction,
-  SurfaceSearch,
   SurfaceSectionHeader,
-  SurfaceTabs,
 } from "@altai/agent-ui";
 
 type ScheduleMode = "at" | "every";
@@ -262,26 +261,20 @@ export function AutomationsPanel({
       bodyClassName="overflow-y-auto"
     >
       {viewMode === "list" ? (
-        <div className="shrink-0 space-y-2 border-b border-border-subtle bg-card px-3 py-2.5">
-          <SurfaceSearch
-            value={query}
-            onChange={setQuery}
-            placeholder="Search by instruction, chat, or schedule"
-            className="w-full"
-          />
-          <SurfaceTabs
-            label="Filter automations"
-            value={filter}
-            onChange={(value) => setFilter(value as AutomationFilter)}
-            items={[
-              { id: "all", label: "All", count: filterCounts.all },
-              { id: "once", label: "Once", count: filterCounts.once },
-              { id: "repeat", label: "Repeat", count: filterCounts.repeat },
-              { id: "issues", label: "Issues", count: filterCounts.issues },
-            ]}
-            className="border-0 bg-transparent p-0"
-          />
-        </div>
+        <SurfaceFilterToolbar
+          query={query}
+          onQueryChange={setQuery}
+          searchPlaceholder="Search by instruction, chat, or schedule"
+          tabsLabel="Filter automations"
+          tabValue={filter}
+          onTabChange={(value) => setFilter(value as AutomationFilter)}
+          tabs={[
+            { id: "all", label: "All", count: filterCounts.all },
+            { id: "once", label: "Once", count: filterCounts.once },
+            { id: "repeat", label: "Repeat", count: filterCounts.repeat },
+            { id: "issues", label: "Issues", count: filterCounts.issues },
+          ]}
+        />
       ) : null}
       {viewMode === "create" ? (
       <form onSubmit={submit} className="min-h-0 flex-1 overflow-y-auto">

@@ -478,6 +478,12 @@ export {
 } from "./components/ComposerFollowupBar.js";
 
 export {
+  SurfaceFilterToolbar,
+  type SurfaceFilterTab,
+  type SurfaceFilterToolbarProps,
+} from "./components/SurfaceFilterToolbar.js";
+
+export {
   formatRelativeTime,
   humanize,
 } from "./lib/inboxFormat.js";
