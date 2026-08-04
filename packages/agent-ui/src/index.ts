@@ -466,6 +466,13 @@ export {
 } from "./components/SurfaceFilteredEmpty.js";
 
 export {
+  AutomationScheduleFields,
+  localDateTimeValue,
+  type AutomationScheduleFieldsProps,
+  type AutomationScheduleMode,
+} from "./components/AutomationScheduleFields.js";
+
+export {
   formatRelativeTime,
   humanize,
 } from "./lib/inboxFormat.js";
