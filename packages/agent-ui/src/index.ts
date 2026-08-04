@@ -443,6 +443,12 @@ export {
 } from "./components/AgentOptionRow.js";
 
 export {
+  TaskContextSources,
+  contextFileName,
+  type TaskContextSourcesProps,
+} from "./components/TaskContextSources.js";
+
+export {
   formatRelativeTime,
   humanize,
 } from "./lib/inboxFormat.js";

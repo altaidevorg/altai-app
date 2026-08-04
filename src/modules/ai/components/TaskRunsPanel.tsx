@@ -32,12 +32,8 @@ import {
 import {
   ArrowDown01Icon,
   ArrowLeft01Icon,
-  Attachment02Icon,
-  CodeIcon,
-  File01Icon,
   Notebook01Icon,
   PlayIcon,
-  TerminalIcon,
   Tick02Icon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
@@ -50,11 +46,11 @@ import {
 } from "react";
 import {
   AuxiliarySurface,
-  ContextSourceToggle,
   SurfaceEmptyState,
   SurfaceSearch,
   SurfaceSectionHeader,
   SurfaceTabs,
+  TaskContextSources,
   TaskRunCard,
 } from "@altai/agent-ui";
 
@@ -465,105 +461,43 @@ export function TaskRunsPanel({
         </div>
         </section>
 
-        <section className="border-t border-border-subtle px-3.5 py-3.5">
-          <SurfaceSectionHeader
-            title="Context"
-            description="Add only the evidence this run needs. Sources are snapshotted when work starts."
-            count={contextFiles.length + Number(includeTerminal) + Number(includeDiff)}
-          />
-          <div className="mt-3 overflow-hidden rounded-lg border border-border bg-card">
-            <div className="border-b border-border-subtle p-2.5">
-              <div className="flex min-w-0 flex-wrap items-center gap-2">
-                <span className="inline-flex size-7 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
-                  <HugeiconsIcon icon={File01Icon} size={13} strokeWidth={1.75} />
-                </span>
-                <div className="min-w-28 flex-1">
-                  <div className="text-[10.5px] font-medium text-foreground">Files</div>
-                  <div className="truncate text-[9px] text-muted-foreground">
-                    Add the exact files the agent should read first
-                  </div>
-                </div>
-                <div className="ml-auto flex shrink-0 items-center gap-1">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const path = liveContext.getActiveFile();
-                      if (path) {
-                        setContextFiles((current) =>
-                          current.includes(path) ? current : [...current, path],
-                        );
-                      }
-                    }}
-                    disabled={!activeFilePath || activeFileSelected}
-                    className="h-6 rounded-md px-2 text-[9.5px] font-medium text-muted-foreground hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
-                  >
-                    {activeFileSelected ? "Active added" : "Active file"}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => void chooseContextFiles()}
-                    className="inline-flex h-6 items-center gap-1 rounded-md border border-border bg-muted px-2 text-[9.5px] font-medium text-foreground hover:bg-accent"
-                  >
-                    <HugeiconsIcon icon={Attachment02Icon} size={10} strokeWidth={1.8} />
-                    Choose files
-                  </button>
-                </div>
-              </div>
-              {contextFiles.length ? (
-                <div className="mt-2 flex flex-wrap gap-1">
-                  {contextFiles.map((path) => (
-                    <span
-                      key={path}
-                      title={path}
-                      className="group inline-flex h-6 max-w-full items-center gap-1 rounded-md border border-border bg-muted/55 pl-2 pr-1 text-[9.5px] text-foreground"
-                    >
-                      <span className="max-w-44 truncate">{contextFileName(path)}</span>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setContextFiles((current) =>
-                            current.filter((item) => item !== path),
-                          )
-                        }
-                        aria-label={`Remove ${contextFileName(path)}`}
-                        className="inline-flex size-4 items-center justify-center rounded text-muted-foreground hover:bg-foreground/[0.08] hover:text-foreground"
-                      >
-                        ×
-                      </button>
-                    </span>
-                  ))}
-                </div>
-              ) : null}
-            </div>
-            <ContextSourceToggle
-              icon={TerminalIcon}
-              label="Terminal output"
-              detail={
-                terminalPrivate
-                  ? "Unavailable while the active terminal is private"
-                  : terminalContextAvailable
-                    ? "Latest visible output from the active terminal"
-                    : "No terminal output available"
-              }
-              checked={includeTerminal}
-              disabled={!terminalContextAvailable}
-              onChange={setIncludeTerminal}
-            />
-            <ContextSourceToggle
-              icon={CodeIcon}
-              label="Working tree changes"
-              detail={
-                workspaceContextAvailable
-                  ? "Current unstaged Git diff"
-                  : "Open a workspace to include Git changes"
-              }
-              checked={includeDiff}
-              disabled={!workspaceContextAvailable}
-              onChange={setIncludeDiff}
-              className="border-t border-border-subtle"
-            />
-          </div>
-        </section>
+        <TaskContextSources
+          files={contextFiles}
+          onAddActiveFile={() => {
+            const path = liveContext.getActiveFile();
+            if (path) {
+              setContextFiles((current) =>
+                current.includes(path) ? current : [...current, path],
+              );
+            }
+          }}
+          onChooseFiles={() => void chooseContextFiles()}
+          onRemoveFile={(path) =>
+            setContextFiles((current) =>
+              current.filter((item) => item !== path),
+            )
+          }
+          activeFileDisabled={!activeFilePath || activeFileSelected}
+          activeFileSelected={activeFileSelected}
+          includeTerminal={includeTerminal}
+          onIncludeTerminalChange={setIncludeTerminal}
+          terminalDetail={
+            terminalPrivate
+              ? "Unavailable while the active terminal is private"
+              : terminalContextAvailable
+                ? "Latest visible output from the active terminal"
+                : "No terminal output available"
+          }
+          terminalDisabled={!terminalContextAvailable}
+          includeDiff={includeDiff}
+          onIncludeDiffChange={setIncludeDiff}
+          diffDetail={
+            workspaceContextAvailable
+              ? "Current unstaged Git diff"
+              : "Open a workspace to include Git changes"
+          }
+          diffDisabled={!workspaceContextAvailable}
+        />
 
         {skills.length ? (
           <section className="border-t border-border-subtle px-3.5 py-3.5">
@@ -775,10 +709,6 @@ export function TaskRunsPanel({
       </AlertDialog>
     </AuxiliarySurface>
   );
-}
-
-function contextFileName(path: string): string {
-  return path.split(/[\\/]/).filter(Boolean).pop() ?? path;
 }
 
 async function addSelectedContext(
