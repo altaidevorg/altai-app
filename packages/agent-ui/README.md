@@ -78,6 +78,7 @@ Incremental extraction of the Desktop `AiSidePanel` tree:
 | A4.61 | `CompactNowControl` (status-bar compact-context control) |
 | A4.62 | `ProviderConnectBanner` (connect-provider strip) |
 | A4.63 | `WorkspaceTargetForm` (choose-project dialog body) |
+| A4.64 | `AiOpenControl` (status-bar show/hide AI toggle) |
 
 Desktop must import shared components from this package; local duplicates are
 deleted as each slice lands.

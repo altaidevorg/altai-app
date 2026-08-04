@@ -9,6 +9,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { fmtShortcut, MOD_KEY } from "@/lib/platform";
 import { cn } from "@/lib/utils";
 import {
+  AiOpenControl,
   CheckpointMenuPanel,
   CompactNowControl,
   IconBtn,
@@ -30,7 +31,6 @@ import {
   ArrowUpIcon,
   Message01Icon,
   Mic01Icon,
-  SidebarRightIcon,
   StopCircleIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
@@ -54,23 +54,13 @@ export function AiOpenButton({
   active?: boolean;
 }) {
   return (
-    <motion.button
-      initial={{ y: -15 }}
-      animate={{ y: 0 }}
-      type="button"
-      onClick={onOpen}
-      className={cn(
-        "inline-flex size-6 items-center justify-center rounded-md transition-colors",
-        active
-          ? "bg-accent text-foreground"
-          : "text-muted-foreground hover:bg-accent hover:text-foreground",
-      )}
-      aria-label={active ? "Hide AI agent" : "Show AI agent"}
-      aria-pressed={active}
-      title={`${active ? "Hide" : "Show"} AI agent  ${fmtShortcut(MOD_KEY, "I")}`}
-    >
-      <HugeiconsIcon icon={SidebarRightIcon} size={14} strokeWidth={1.75} />
-    </motion.button>
+    <motion.div initial={{ y: -15 }} animate={{ y: 0 }} className="inline-flex">
+      <AiOpenControl
+        active={active}
+        onOpen={onOpen}
+        title={`${active ? "Hide" : "Show"} AI agent  ${fmtShortcut(MOD_KEY, "I")}`}
+      />
+    </motion.div>
   );
 }
 
