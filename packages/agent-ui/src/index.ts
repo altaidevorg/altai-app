@@ -259,6 +259,11 @@ export {
   type ApprovalsInspectorProps,
 } from "./components/ApprovalsInspector.js";
 
+export {
+  ChatProjectTarget,
+  type ChatProjectTargetProps,
+} from "./components/ChatProjectTarget.js";
+
 /** Re-export contract types so consumers can depend primarily on agent-ui. */
 export type {
   Capabilities,
