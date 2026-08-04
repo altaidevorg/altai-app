@@ -71,6 +71,7 @@ Incremental extraction of the Desktop `AiSidePanel` tree:
 | A4.54 | `ActivityInspector` (run activity / timeline inspector) |
 | A4.55 | `InspectorSection` (run inspector collapsible section) |
 | A4.56 | `ChatTabStrip` (open-chat tab strip) |
+| A4.57 | `WorkspaceTopbarActions` (Work / Inbox / Run details cluster) |
 
 Desktop must import shared components from this package; local duplicates are
 deleted as each slice lands.

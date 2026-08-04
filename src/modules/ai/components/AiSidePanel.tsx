@@ -21,8 +21,6 @@ import {
   CodeIcon,
   FolderOpenIcon,
   GithubIcon,
-  Notebook01Icon,
-  Notification01Icon,
   Settings01Icon,
   SparklesIcon,
 } from "@hugeicons/core-free-icons";
@@ -51,6 +49,7 @@ import {
   SurfaceHeader,
   SurfaceSearch,
   TodosInspector,
+  WorkspaceTopbarActions,
 } from "@altai/agent-ui";
 import {
   retryFailedRun,
@@ -771,81 +770,20 @@ function WorkspaceTopbar({
   );
 
   const workspaceActions = (
-    <div className="altai-ai-topbar-actions flex shrink-0 items-center gap-0.5 rounded-lg border border-border/60 bg-muted/35 p-0.5">
-        <IconTooltip label={workOpen ? "Close work" : "Open work"}>
-          <button
-            type="button"
-            onClick={onToggleWork}
-            aria-label={workOpen ? "Close work" : "Open work"}
-            aria-pressed={workOpen}
-            className={cn(
-              "inline-flex h-7 shrink-0 items-center justify-center gap-1.5 rounded-md px-1.5 text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground",
-              workOpen && "bg-foreground/[0.09] text-foreground",
-            )}
-          >
-            <HugeiconsIcon icon={Notebook01Icon} size={14} strokeWidth={1.75} />
-            {variant === "workspace" ? (
-              <span className="hidden pr-0.5 text-[10px] font-medium @[40rem]:inline">
-                Work
-              </span>
-            ) : null}
-          </button>
-        </IconTooltip>
-        <IconTooltip
-          label={
-            inboxOpen
-              ? "Close inbox"
-              : inboxAttentionCount
-                ? `Open inbox, ${inboxAttentionCount} need attention`
-                : "Open inbox"
-          }
-        >
-          <button
-            type="button"
-            onClick={onToggleInbox}
-            aria-label={
-              inboxOpen
-                ? "Close inbox"
-                : inboxAttentionCount
-                  ? `Open inbox, ${inboxAttentionCount} need attention`
-                  : "Open inbox"
-            }
-            aria-pressed={inboxOpen}
-            className={cn(
-              "relative inline-flex h-7 shrink-0 items-center justify-center gap-1.5 rounded-md px-1.5 text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground",
-              inboxOpen && "bg-foreground/[0.09] text-foreground",
-            )}
-          >
-            <HugeiconsIcon icon={Notification01Icon} size={14} strokeWidth={1.75} />
-            {variant === "workspace" ? (
-              <span className="hidden pr-0.5 text-[10px] font-medium @[40rem]:inline">
-                Inbox
-              </span>
-            ) : null}
-            {inboxAttentionCount ? (
-              <span className="absolute -right-1 -top-1 flex min-w-3.5 items-center justify-center rounded-full bg-warning px-1 text-[8px] font-semibold leading-3 text-warning-foreground">
-                {inboxAttentionCount > 99 ? "99+" : inboxAttentionCount}
-              </span>
-            ) : null}
-          </button>
-        </IconTooltip>
-        {inspectorAvailable ? (
-          <IconTooltip label={inspectorOpen ? "Close run details" : "Open run details"}>
-            <button
-              type="button"
-              onClick={onToggleInspector}
-              aria-label={inspectorOpen ? "Close run details" : "Open run details"}
-              aria-pressed={inspectorOpen}
-              className={cn(
-                "inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground",
-                inspectorOpen ? "bg-foreground/[0.09] text-foreground" : "",
-              )}
-            >
-              <HugeiconsIcon icon={SparklesIcon} size={14} strokeWidth={1.75} />
-            </button>
-          </IconTooltip>
-        ) : null}
-    </div>
+    <WorkspaceTopbarActions
+      variant={variant}
+      workOpen={workOpen}
+      inboxOpen={inboxOpen}
+      inboxAttentionCount={inboxAttentionCount}
+      inspectorOpen={inspectorOpen}
+      inspectorAvailable={inspectorAvailable}
+      onToggleWork={onToggleWork}
+      onToggleInbox={onToggleInbox}
+      onToggleInspector={onToggleInspector}
+      renderTooltip={(label, children) => (
+        <IconTooltip label={label}>{children}</IconTooltip>
+      )}
+    />
   );
 
   const todoSummary =
