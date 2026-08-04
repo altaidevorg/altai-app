@@ -48,7 +48,7 @@ import {
   SurfaceEmptyState,
   SurfaceSectionHeader,
   CreateFormActions,
-  PromptTemplateGrid,
+  PromptEditorSection,
   SurfaceFilteredEmpty,
   SurfaceFilterToolbar,
   TaskContextSources,
@@ -397,26 +397,18 @@ export function TaskRunsPanel({
       ) : null}
       {viewMode === "create" ? (
       <form onSubmit={start} className="min-h-0 flex-1 overflow-y-auto">
-        <section className="border-b border-border-subtle px-3.5 py-3.5">
-          <SurfaceSectionHeader
-            title="Describe the outcome"
-            description="Give the agent a concrete result to deliver and how to verify it."
-          />
-        <textarea
-          id="background-task-prompt"
+        <PromptEditorSection
+          title="Describe the outcome"
+          description="Give the agent a concrete result to deliver and how to verify it."
           value={prompt}
-          onChange={(event) => setPrompt(event.target.value)}
+          onChange={setPrompt}
+          textareaId="background-task-prompt"
           placeholder="Example: Review the auth flow, fix the highest-impact issue, and run the relevant tests."
-          className="mt-3 min-h-28 w-full resize-y rounded-lg border border-border bg-muted/55 px-3 py-2.5 text-[11px] leading-relaxed text-foreground outline-none placeholder:text-muted-foreground/65 focus:border-ring focus:ring-2 focus:ring-ring/20"
-        />
-        <PromptTemplateGrid
           templates={TASK_TEMPLATES.map((template) => ({
             label: template.label,
             value: template.prompt,
           }))}
-          onSelect={setPrompt}
         />
-        </section>
         <section className="px-3.5 py-3.5">
           <SurfaceSectionHeader
             title="Run configuration"
