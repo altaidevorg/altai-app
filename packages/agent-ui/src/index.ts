@@ -318,6 +318,11 @@ export {
 } from "./components/ActivityInspector.js";
 
 export {
+  InspectorSection,
+  type InspectorSectionProps,
+} from "./components/InspectorSection.js";
+
+export {
   formatRelativeTime,
   humanize,
 } from "./lib/inboxFormat.js";
