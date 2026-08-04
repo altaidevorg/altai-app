@@ -57,6 +57,7 @@ import {
   SurfaceSearch,
   SurfaceSectionHeader,
   SurfaceTabs,
+  TaskOutcome,
 } from "@altai/agent-ui";
 
 const TERMINAL: AssignmentStatus[] = ["done", "failed", "cancelled"];
@@ -720,7 +721,13 @@ export function TaskRunsPanel({
                   </div>
                   {active && run?.step ? <p className="mt-2 flex items-center gap-1.5 truncate rounded-md bg-muted/70 px-2 py-1.5 text-[10px] text-muted-foreground"><Spinner className="size-3 shrink-0" /> {run.step}</p> : null}
                   {status === "done" && run?.lastResult ? <p className="mt-2 line-clamp-2 text-[10px] leading-relaxed text-muted-foreground">{run.lastResult}</p> : null}
-                  {(status === "done" || status === "failed") && run ? <TaskOutcome run={run} /> : null}
+                  {(status === "done" || status === "failed") && run ? (
+                    <TaskOutcome
+                      changesCount={run.changes.length}
+                      checksPassed={run.verifications.filter((v) => v.status === "passed").length}
+                      checksFailed={run.verifications.filter((v) => v.status === "failed").length}
+                    />
+                  ) : null}
                   <div className="mt-2 flex items-center gap-1">
                     <button type="button" onClick={() => { switchSession(task.sessionId); onClose(); }} className="rounded-md px-2 py-1 text-[10px] font-medium text-muted-foreground hover:bg-muted hover:text-foreground">
                       {activeSessionId === task.sessionId ? "Open now" : "Open transcript"}
@@ -854,25 +861,4 @@ async function addSelectedContext(
   return blocks.length ? `${prompt.trim()}\n\n<selected-context>\n${blocks.join("\n\n")}\n</selected-context>` : prompt;
 }
 
-function TaskOutcome({ run }: { run: NonNullable<ReturnType<typeof useAgentRunsStore.getState>["runs"][string]> }) {
-  const checks = run.verifications.filter((item) => item.status !== "running");
-  const passed = checks.filter((item) => item.status === "passed").length;
-  const failed = checks.filter((item) => item.status === "failed").length;
-  return (
-    <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-[9px] text-muted-foreground">
-      {run.changes.length ? (
-        <span>{run.changes.length} file{run.changes.length === 1 ? "" : "s"} changed</span>
-      ) : (
-        <span>No file changes</span>
-      )}
-      <span aria-hidden="true">·</span>
-      {failed ? (
-        <span className="font-medium text-destructive">{failed} check failed</span>
-      ) : passed ? (
-        <span className="font-medium text-success">{passed} check passed</span>
-      ) : (
-        <span>No checks reported</span>
-      )}
-    </div>
-  );
-}
+
