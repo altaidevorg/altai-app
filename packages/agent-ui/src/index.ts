@@ -367,6 +367,12 @@ export {
 } from "./components/ProviderConnectBanner.js";
 
 export {
+  WorkspaceTargetForm,
+  type WorkspaceTargetBusy,
+  type WorkspaceTargetFormProps,
+} from "./components/WorkspaceTargetForm.js";
+
+export {
   formatRelativeTime,
   humanize,
 } from "./lib/inboxFormat.js";
