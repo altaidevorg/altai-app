@@ -17,7 +17,6 @@ import {
   Notebook01Icon,
   Notification01Icon,
   Refresh01Icon,
-  Tick02Icon,
   TickDouble01Icon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
@@ -34,10 +33,10 @@ import {
 } from "../store/notificationStore";
 import {
   AuxiliarySurface,
+  EmptyInbox,
   FilteredEmptyInbox,
   InboxLoadFailed,
   InboxSection,
-  SurfaceEmptyState,
   SurfaceIconAction,
   SurfaceSearch,
   SurfaceTabs,
@@ -821,17 +820,6 @@ function JobCard({
         ) : null}
       </div>
     </article>
-  );
-}
-
-function EmptyInbox() {
-  return (
-    <SurfaceEmptyState
-      icon={Tick02Icon}
-      title="You’re all caught up"
-      description="Questions, review-ready results, and durable agent updates will appear here."
-      className="border-0 bg-transparent"
-    />
   );
 }
 
