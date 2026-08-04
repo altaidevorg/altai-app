@@ -252,6 +252,13 @@ export {
   type ChangesInspectorProps,
 } from "./components/ChangesInspector.js";
 
+export {
+  ApprovalsInspector,
+  approvalPreview,
+  type ApprovalsInspectorItem,
+  type ApprovalsInspectorProps,
+} from "./components/ApprovalsInspector.js";
+
 /** Re-export contract types so consumers can depend primarily on agent-ui. */
 export type {
   Capabilities,
