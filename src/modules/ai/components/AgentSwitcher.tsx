@@ -24,12 +24,11 @@ import {
   Settings01Icon,
   ShieldUserIcon,
   SparklesIcon,
-  Tick02Icon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { ISANAGENT_AGENT_IDS, type AgentIconId } from "../lib/agents";
 import { useAgentsStore } from "../store/agentsStore";
-import { ComposerConfigTrigger } from "@altai/agent-ui";
+import { AgentOptionRow, ComposerConfigTrigger } from "@altai/agent-ui";
 
 const ICONS: Record<AgentIconId, typeof CodeIcon> = {
   coder: CodeIcon,
@@ -164,31 +163,12 @@ export function AgentSwitcher({
                 a.id === activeId && "bg-foreground/[0.085]",
               )}
             >
-              <HugeiconsIcon
+              <AgentOptionRow
+                name={a.name}
+                description={a.description}
                 icon={Icon}
-                size={13}
-                strokeWidth={1.75}
-                className={cn(
-                  "mt-0.5",
-                  a.id === activeId
-                    ? "text-foreground"
-                    : "text-muted-foreground",
-                )}
+                selected={a.id === activeId}
               />
-              <span className="flex min-w-0 flex-1 flex-col">
-                <span>{a.name}</span>
-                <span className="line-clamp-1 text-[10.5px] text-muted-foreground">
-                  {a.description}
-                </span>
-              </span>
-              {a.id === activeId ? (
-                <HugeiconsIcon
-                  icon={Tick02Icon}
-                  size={12}
-                  strokeWidth={2}
-                  className="mt-0.5 shrink-0 text-foreground"
-                />
-              ) : null}
             </DropdownMenuItem>
           );
         })}
@@ -227,31 +207,12 @@ export function AgentSwitcher({
                       a.id === activeId && "bg-foreground/[0.085]",
                     )}
                   >
-                    <HugeiconsIcon
+                    <AgentOptionRow
+                      name={a.name}
+                      description={a.description}
                       icon={Icon}
-                      size={13}
-                      strokeWidth={1.75}
-                      className={cn(
-                        "mt-0.5 shrink-0",
-                        a.id === activeId
-                          ? "text-foreground"
-                          : "text-muted-foreground",
-                      )}
+                      selected={a.id === activeId}
                     />
-                    <span className="flex min-w-0 flex-1 flex-col">
-                      <span>{a.name}</span>
-                      <span className="line-clamp-1 text-[10.5px] text-muted-foreground">
-                        {a.description}
-                      </span>
-                    </span>
-                    {a.id === activeId ? (
-                      <HugeiconsIcon
-                        icon={Tick02Icon}
-                        size={12}
-                        strokeWidth={2}
-                        className="mt-0.5 shrink-0 text-foreground"
-                      />
-                    ) : null}
                   </DropdownMenuItem>
                 );
               })}
@@ -275,28 +236,13 @@ export function AgentSwitcher({
                     a.id === activeId && "bg-foreground/[0.085]",
                   )}
                 >
-                  <HugeiconsIcon
+                  <AgentOptionRow
+                    name={a.name}
+                    description={a.description}
                     icon={Icon}
-                    size={13}
-                    strokeWidth={1.75}
-                    className="mt-0.5 text-muted-foreground"
+                    selected={a.id === activeId}
+                    iconAlwaysMuted
                   />
-                  <span className="flex min-w-0 flex-1 flex-col">
-                    <span className="truncate">{a.name}</span>
-                    {a.description ? (
-                      <span className="line-clamp-1 text-[10.5px] text-muted-foreground">
-                        {a.description}
-                      </span>
-                    ) : null}
-                  </span>
-                  {a.id === activeId ? (
-                    <HugeiconsIcon
-                      icon={Tick02Icon}
-                      size={12}
-                      strokeWidth={2}
-                      className="mt-0.5 shrink-0 text-foreground"
-                    />
-                  ) : null}
                 </DropdownMenuItem>
               );
             })}

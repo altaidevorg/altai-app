@@ -438,6 +438,11 @@ export {
 } from "./components/ModelPickerPanel.js";
 
 export {
+  AgentOptionRow,
+  type AgentOptionRowProps,
+} from "./components/AgentOptionRow.js";
+
+export {
   formatRelativeTime,
   humanize,
 } from "./lib/inboxFormat.js";
