@@ -305,6 +305,13 @@ export {
 } from "./components/ReviewHistory.js";
 
 export {
+  SnapshotsInspector,
+  type SnapshotsInspectorAppliedItem,
+  type SnapshotsInspectorCheckpointItem,
+  type SnapshotsInspectorProps,
+} from "./components/SnapshotsInspector.js";
+
+export {
   formatRelativeTime,
   humanize,
 } from "./lib/inboxFormat.js";

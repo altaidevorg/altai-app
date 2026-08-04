@@ -67,6 +67,7 @@ Incremental extraction of the Desktop `AiSidePanel` tree:
 | A4.50 | `InboxTicketCard` (clarification ticket inbox row) |
 | A4.51 | `RunRecoveryActions` (stuck/retry/warning strip) |
 | A4.52 | `ReviewHistory` (plan review restore-points section) |
+| A4.53 | `SnapshotsInspector` (run inspector restore snapshots) |
 
 Desktop must import shared components from this package; local duplicates are
 deleted as each slice lands.
