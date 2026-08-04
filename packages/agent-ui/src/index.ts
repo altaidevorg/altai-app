@@ -421,6 +421,15 @@ export {
 } from "./components/WorkHubNavigation.js";
 
 export {
+  AutomationCard,
+  automationLastRunLabel,
+  automationNextRunLabel,
+  automationScheduleLabel,
+  type AutomationCardProps,
+  type AutomationSchedule,
+} from "./components/AutomationCard.js";
+
+export {
   formatRelativeTime,
   humanize,
 } from "./lib/inboxFormat.js";

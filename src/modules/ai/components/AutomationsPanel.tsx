@@ -21,8 +21,6 @@ import {
   ArrowDown01Icon,
   ArrowLeft01Icon,
   CalendarSyncIcon,
-  Copy01Icon,
-  Delete02Icon,
   Notebook01Icon,
   Refresh01Icon,
 } from "@hugeicons/core-free-icons";
@@ -32,6 +30,10 @@ import type { AgentAutomationInfo } from "../lib/native";
 import { useChatStore } from "../store/chatStore";
 import { useAutomationStore } from "../store/automationStore";
 import {
+  AutomationCard,
+  automationLastRunLabel,
+  automationNextRunLabel,
+  automationScheduleLabel,
   AuxiliarySurface,
   SurfaceEmptyState,
   SurfaceIconAction,
@@ -66,34 +68,6 @@ function defaultAtValue(): string {
   next.setSeconds(0, 0);
   const local = new Date(next.getTime() - next.getTimezoneOffset() * 60_000);
   return local.toISOString().slice(0, 16);
-}
-
-function scheduleLabel(item: AgentAutomationInfo): string {
-  if (item.schedule.kind === "at") {
-    return `Once · ${new Date(item.schedule.atMs).toLocaleString()}`;
-  }
-  if (item.schedule.kind === "every") {
-    const minutes = item.schedule.everyMs / 60_000;
-    return `Every ${minutes % 60 === 0 ? `${minutes / 60}h` : `${minutes}m`}`;
-  }
-  return `Cron · ${item.schedule.cronExpr}`;
-}
-
-function lastRunLabel(lastRunAtMs: number | null): string {
-  return lastRunAtMs === null
-    ? "Not run yet"
-    : `Last run ${new Date(lastRunAtMs).toLocaleString()}`;
-}
-
-function nextRunLabel(item: AgentAutomationInfo): string {
-  if (item.schedule.kind === "at") {
-    return `Scheduled ${new Date(item.schedule.atMs).toLocaleString()}`;
-  }
-  if (item.schedule.kind === "every") {
-    if (item.lastRunAtMs === null) return "Next run after initial sync";
-    return `Next ${new Date(item.lastRunAtMs + item.schedule.everyMs).toLocaleString()}`;
-  }
-  return "Next run determined by cron expression";
 }
 
 export function AutomationsPanel({
@@ -183,7 +157,7 @@ export function AutomationsPanel({
         return [
           item.message,
           titles.get(item.chatId) ?? "",
-          scheduleLabel(item),
+          automationScheduleLabel(item.schedule),
           jobsByAutomationId[item.id]?.lastError ?? "",
         ]
           .join("\n")
@@ -529,66 +503,24 @@ export function AutomationsPanel({
               const pending = Boolean(pendingIds[`remove:${item.id}`]);
               const job = jobsByAutomationId[item.id];
               return (
-                <li key={item.id} className={cn("px-3 py-3", index > 0 && "border-t border-border-subtle")}>
-                  <div className="flex items-start gap-2">
-                    <span className={cn(
-                      "mt-0.5 inline-flex size-6 shrink-0 items-center justify-center rounded-md",
-                      job?.lastError ? "bg-destructive/10 text-destructive" : "bg-primary/10 text-primary",
-                    )}>
-                      <HugeiconsIcon icon={CalendarSyncIcon} size={13} strokeWidth={1.8} />
-                    </span>
-                    <div className="min-w-0 flex-1">
-                      <p className="line-clamp-3 text-[10.5px] leading-relaxed text-foreground">{item.message}</p>
-                      <span className="mt-1 inline-flex rounded bg-foreground/[0.06] px-1.5 py-0.5 text-[8.5px] font-medium text-muted-foreground">
-                        {scheduleLabel(item)}
-                      </span>
-                    </div>
-                  </div>
-                  <div className="mt-2 grid grid-cols-2 gap-2 rounded-md bg-muted/50 px-2.5 py-2 text-[9.5px]">
-                    <div>
-                      <div className="text-[8.5px] font-medium uppercase tracking-wide text-muted-foreground/65">Next run</div>
-                      <div className="mt-0.5 text-foreground">{nextRunLabel(item)}</div>
-                    </div>
-                    <div>
-                      <div className="text-[8.5px] font-medium uppercase tracking-wide text-muted-foreground/65">Last run</div>
-                      <div className="mt-0.5 text-muted-foreground">{lastRunLabel(item.lastRunAtMs)}</div>
-                    </div>
-                  </div>
-                  {job ? (
-                    <p className={cn("mt-1 text-[9.5px]", job.lastError ? "text-destructive" : "text-muted-foreground")}>
-                      {job.lastError ? `Failed: ${job.lastError}` : `Latest run: ${job.state}`}
-                    </p>
-                  ) : null}
-                  <div className="mt-1.5 flex items-center justify-between gap-2">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        switchSession(item.chatId);
-                        onClose();
-                      }}
-                      className="min-w-0 truncate text-[9.5px] text-primary hover:underline"
-                    >
-                      {titles.get(item.chatId) || "Owning chat"}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => reuseAutomation(item)}
-                      className="ml-auto inline-flex size-6 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
-                      aria-label="Duplicate automation"
-                    >
-                      <HugeiconsIcon icon={Copy01Icon} size={11} strokeWidth={1.8} />
-                    </button>
-                    <button
-                      type="button"
-                      disabled={pending}
-                      onClick={() => setRemoveTarget(item)}
-                      className="inline-flex size-6 items-center justify-center rounded-md text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:opacity-45"
-                      aria-label="Remove automation"
-                    >
-                      {pending ? <Spinner className="size-3" /> : <HugeiconsIcon icon={Delete02Icon} size={11} strokeWidth={1.8} />}
-                    </button>
-                  </div>
-                </li>
+                <AutomationCard
+                  key={item.id}
+                  className={index > 0 ? "border-t border-border-subtle" : undefined}
+                  message={item.message}
+                  scheduleLabel={automationScheduleLabel(item.schedule)}
+                  nextRunLabel={automationNextRunLabel(item)}
+                  lastRunLabel={automationLastRunLabel(item.lastRunAtMs)}
+                  owningChatLabel={titles.get(item.chatId) || "Owning chat"}
+                  jobState={job?.state ?? null}
+                  jobError={job?.lastError ?? null}
+                  pendingRemove={pending}
+                  onOpenChat={() => {
+                    switchSession(item.chatId);
+                    onClose();
+                  }}
+                  onDuplicate={() => reuseAutomation(item)}
+                  onRemove={() => setRemoveTarget(item)}
+                />
               );
             })}
           </ul>
