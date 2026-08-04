@@ -1,14 +1,17 @@
 import { useEffect, useState } from "react";
+import {
+  WorkHubNavigation,
+  type WorkHubView,
+} from "@altai/agent-ui";
 import { AutomationsPanel } from "./AutomationsPanel";
-import { SurfaceTabs } from "@altai/agent-ui";
 import { TaskRunsPanel } from "./TaskRunsPanel";
 
-export type WorkHubView = "runs" | "scheduled";
+export type { WorkHubView };
 
 /**
  * One home for agent work. Runs are individual executions; scheduled work is
- * the durable definition that can create executions later. The two existing
- * views keep their focused controls while this shell keeps navigation stable.
+ * the durable definition that can create executions later. Navigation chrome
+ * comes from `@altai/agent-ui`; this host mounts the focused panel bodies.
  */
 export function WorkHubPanel({
   initialView,
@@ -24,18 +27,7 @@ export function WorkHubPanel({
   }, [initialView]);
 
   const navigation = (
-    <div className="shrink-0 border-b border-border-subtle bg-card px-3 py-2">
-      <SurfaceTabs
-        label="Work view"
-        value={view}
-        onChange={(value) => setView(value as WorkHubView)}
-        items={[
-          { id: "runs", label: "Runs" },
-          { id: "scheduled", label: "Scheduled" },
-        ]}
-        className="w-full"
-      />
-    </div>
+    <WorkHubNavigation view={view} onViewChange={setView} />
   );
 
   return view === "runs" ? (
