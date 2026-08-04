@@ -334,6 +334,14 @@ export {
 } from "./components/WorkspaceTopbarActions.js";
 
 export {
+  CheckpointMenuPanel,
+  checkpointBasename,
+  formatCheckpointTimeAgo,
+  type CheckpointItem,
+  type CheckpointMenuPanelProps,
+} from "./components/CheckpointMenuPanel.js";
+
+export {
   formatRelativeTime,
   humanize,
 } from "./lib/inboxFormat.js";
