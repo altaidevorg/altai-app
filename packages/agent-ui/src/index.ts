@@ -373,6 +373,11 @@ export {
 } from "./components/WorkspaceTargetForm.js";
 
 export {
+  AiOpenControl,
+  type AiOpenControlProps,
+} from "./components/AiOpenControl.js";
+
+export {
   formatRelativeTime,
   humanize,
 } from "./lib/inboxFormat.js";
