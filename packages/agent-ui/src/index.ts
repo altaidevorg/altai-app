@@ -212,6 +212,12 @@ export {
   type TodosInspectorProps,
 } from "./components/TodosInspector.js";
 
+export {
+  AgentsInspector,
+  type AgentsInspectorTask,
+  type AgentsInspectorProps,
+} from "./components/AgentsInspector.js";
+
 /** Re-export contract types so consumers can depend primarily on agent-ui. */
 export type {
   Capabilities,
