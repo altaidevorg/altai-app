@@ -51,6 +51,7 @@ import {
   McpInspector,
   PlanModeStrip,
   ResearchInspector,
+  RunRecoveryActions,
   RunStateMetric,
   SurfaceHeader,
   SurfaceSearch,
@@ -1505,7 +1506,7 @@ function Body({
         )}
       </div>
 
-      <RunRecoveryActions />
+      <RunRecoveryActionsBridge />
       <ClarificationChoicesBridge />
       <ChangeReviewBanner
         queueLen={reviewQueueLen}
@@ -1521,13 +1522,12 @@ function Body({
   );
 }
 
-function RunRecoveryActions() {
+function RunRecoveryActionsBridge() {
   const sessionId = useChatStore((s) => s.activeSessionId);
   const focusInput = useChatStore((s) => s.focusInput);
   const run = useAgentRunsStore((s) =>
     sessionId ? s.runs[sessionId] : undefined,
   );
-  const [submitting, setSubmitting] = useState(false);
 
   if (!run?.runId) return null;
   const warning = !run.completed ? run.warning : null;
@@ -1545,113 +1545,51 @@ function RunRecoveryActions() {
         ? `Hit the turn limit after ${outcome.budget.iterations_used} steps. Continue picks up where it left off.`
         : "The provider request failed after its retry policy was exhausted.";
 
+  const title = warning
+    ? "Possible repeated failure"
+    : canRetry
+      ? "Retry available"
+      : outcome?.kind === "budget_exhausted"
+        ? "Turn limit reached"
+        : "Run paused";
+
   const dismissWarning = () => {
     dismissRunAttention(sessionId);
   };
 
-  const continueRun = async () => {
-    if (submitting) return;
-    setSubmitting(true);
-    dismissWarning();
-    try {
-      await sendMessage(
-        outcome?.kind === "budget_exhausted"
-          ? continueBudgetSegmentPrompt()
-          : continueStuckPrompt(),
-      );
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  const retryRun = async () => {
-    if (submitting) return;
-    setSubmitting(true);
-    dismissWarning();
-    try {
-      await retryFailedRun();
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
   return (
-    <div
-      role={warning ? "status" : "alert"}
-      className="mx-3 mb-2 rounded-lg border border-warning/35 bg-warning/[0.08] px-3 py-2.5"
-    >
-      <div className="text-[11px] font-medium text-foreground">
-        {warning
-          ? "Possible repeated failure"
-          : canRetry
-            ? "Retry available"
-            : outcome?.kind === "budget_exhausted"
-              ? "Turn limit reached"
-              : "Run paused"}
-      </div>
-      <div className="mt-0.5 text-[10.5px] leading-relaxed text-muted-foreground">
-        {detail}
-      </div>
-      <div className="mt-2 flex flex-wrap gap-1.5">
-        {canContinue ? (
-          <button
-            type="button"
-            disabled={submitting}
-            onClick={() => void continueRun()}
-            className="rounded-md bg-foreground px-2 py-1 text-[10.5px] font-medium text-background disabled:opacity-50"
-          >
-            Continue
-          </button>
-        ) : null}
-        {canRetry ? (
-          <button
-            type="button"
-            disabled={submitting}
-            onClick={() => void retryRun()}
-            className="rounded-md bg-foreground px-2 py-1 text-[10.5px] font-medium text-background disabled:opacity-50"
-          >
-            Retry
-          </button>
-        ) : null}
-        {warning || canContinue ? (
-          <button
-            type="button"
-            onClick={() => {
-              dismissWarning();
-              focusInput(
-                warning
-                  ? "Adjust the active run with this direction: "
-                  : "Continue the previous run with this adjustment: ",
-              );
-            }}
-            className="rounded-md border border-border bg-muted px-2 py-1 text-[10.5px] font-medium text-foreground hover:bg-accent"
-          >
-            Steer
-          </button>
-        ) : null}
-        {warning ? (
-          <button
-            type="button"
-            onClick={() => {
-              dismissWarning();
-              stopAgent();
-            }}
-            className="rounded-md border border-border bg-muted px-2 py-1 text-[10.5px] font-medium text-foreground hover:bg-accent"
-          >
-            Stop
-          </button>
-        ) : null}
-        {warning ? (
-          <button
-            type="button"
-            onClick={dismissWarning}
-            className="rounded-md border border-border bg-muted px-2 py-1 text-[10.5px] font-medium text-foreground hover:bg-accent"
-          >
-            Dismiss
-          </button>
-        ) : null}
-      </div>
-    </div>
+    <RunRecoveryActions
+      warning={Boolean(warning)}
+      title={title}
+      detail={detail}
+      canContinue={canContinue}
+      canRetry={canRetry}
+      onContinue={async () => {
+        dismissWarning();
+        await sendMessage(
+          outcome?.kind === "budget_exhausted"
+            ? continueBudgetSegmentPrompt()
+            : continueStuckPrompt(),
+        );
+      }}
+      onRetry={async () => {
+        dismissWarning();
+        await retryFailedRun();
+      }}
+      onSteer={() => {
+        dismissWarning();
+        focusInput(
+          warning
+            ? "Adjust the active run with this direction: "
+            : "Continue the previous run with this adjustment: ",
+        );
+      }}
+      onStop={() => {
+        dismissWarning();
+        stopAgent();
+      }}
+      onDismiss={dismissWarning}
+    />
   );
 }
 
