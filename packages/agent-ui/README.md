@@ -85,6 +85,7 @@ consumption of shared panel shells:
 | A5.3 | `ChatHistoryPanel` (+ session recency grouping helpers) |
 | A5.4 | `TaskRunCard` (+ `formatTaskAge`) |
 | A5.5 | `WorkHubNavigation` (Runs / Scheduled tab strip) |
+| A5.6 | `AutomationCard` (+ schedule/next/last-run label helpers) |
 
 Desktop must import shared components from this package; local duplicates are
 deleted as each slice lands.
