@@ -9,9 +9,10 @@ Shared ALTAI agent chat UI for Desktop and the VS Code Webview.
 - Hosts inject a `HostPorts` implementation via `HostPortsProvider`.
 - Visible controls must be gated with `useCapability` / `isCapabilityEnabled`.
 
-## Status (TASK-007 / A4)
+## Status (TASK-007 / A4 → A5)
 
-Incremental extraction of the Desktop `AiSidePanel` tree:
+Incremental extraction of the Desktop `AiSidePanel` tree, then Desktop
+consumption of shared panel shells:
 
 | Slice | Contents |
 |---|---|
@@ -79,6 +80,7 @@ Incremental extraction of the Desktop `AiSidePanel` tree:
 | A4.62 | `ProviderConnectBanner` (connect-provider strip) |
 | A4.63 | `WorkspaceTargetForm` (choose-project dialog body) |
 | A4.64 | `AiOpenControl` (status-bar show/hide AI toggle) |
+| A5.1 | `PlanDiffReviewPanel` (change-review centre shell) |
 
 Desktop must import shared components from this package; local duplicates are
 deleted as each slice lands.

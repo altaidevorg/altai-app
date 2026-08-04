@@ -378,6 +378,13 @@ export {
 } from "./components/AiOpenControl.js";
 
 export {
+  PlanDiffReviewPanel,
+  planDiffStats,
+  type PlanDiffReviewPanelProps,
+  type PlanDiffReviewQueueItem,
+} from "./components/PlanDiffReviewPanel.js";
+
+export {
   formatRelativeTime,
   humanize,
 } from "./lib/inboxFormat.js";
