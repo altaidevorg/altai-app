@@ -64,6 +64,7 @@ Incremental extraction of the Desktop `AiSidePanel` tree:
 | A4.47 | `ClarificationChoices` (edit approval / suggested replies) |
 | A4.48 | `InboxNotificationCard` (+ inbox relative-time helpers) |
 | A4.49 | `InboxJobCard` (background job inbox row) |
+| A4.50 | `InboxTicketCard` (clarification ticket inbox row) |
 
 Desktop must import shared components from this package; local duplicates are
 deleted as each slice lands.

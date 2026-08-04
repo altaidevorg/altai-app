@@ -288,6 +288,12 @@ export {
 } from "./components/InboxJobCard.js";
 
 export {
+  InboxTicketCard,
+  type InboxTicketCardProps,
+  type InboxTicketItem,
+} from "./components/InboxTicketCard.js";
+
+export {
   formatRelativeTime,
   humanize,
 } from "./lib/inboxFormat.js";
