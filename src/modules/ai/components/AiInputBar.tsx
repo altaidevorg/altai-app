@@ -6,10 +6,8 @@ import { cn } from "@/lib/utils";
 import {
   ArrowUpIcon,
   Attachment01Icon,
-  Cancel01Icon,
   CodeIcon,
   File01Icon,
-  HashtagIcon,
   Key01Icon,
   Mic01Icon,
   Search01Icon,
@@ -18,13 +16,16 @@ import {
 import { HugeiconsIcon } from "@hugeicons/react";
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useMemo, useRef, useState, type ReactElement } from "react";
-import { ComposerToolbarIcon, ContextAction } from "@altai/agent-ui";
+import {
+  ComposerAttachChips,
+  ComposerToolbarIcon,
+  ContextAction,
+} from "@altai/agent-ui";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import {
   ACCEPTED_FILES,
   resolveComposerEnterAction,
   useComposer,
-  type FileAttachment,
 } from "../lib/composer";
 import { native } from "../lib/native";
 import { useWorkspaceFiles } from "../hooks/useWorkspaceFiles";
@@ -32,7 +33,6 @@ import {
   findSlashCommands,
   refreshWorkspaceSlashCommands,
 } from "../lib/slashCommands";
-import type { Snippet } from "../lib/snippets";
 import { useChatStore } from "../store/chatStore";
 import { useSnippetsStore } from "../store/snippetsStore";
 import { AgentSwitcher } from "./AgentSwitcher";
@@ -357,10 +357,14 @@ export function AiInputBar() {
       >
         {hasChips && (
           <div className="border-b border-border-subtle px-2.5 py-2">
-            <ChipsRow
+            <ComposerAttachChips
               files={c.files}
               onRemoveFile={c.removeFile}
-              snippets={c.pickedSnippets}
+              snippets={c.pickedSnippets.map((s) => ({
+                id: s.id,
+                handle: s.handle,
+                description: s.description,
+              }))}
               onRemoveSnippet={(id) => {
                 const snip = c.pickedSnippets.find((s) => s.id === id);
                 c.removeSnippet(id);
@@ -368,7 +372,18 @@ export function AiInputBar() {
                 const re = new RegExp(`(^|\\s)#${snip.handle}\\b ?`);
                 c.setValue((v) => v.replace(re, (_m, lead: string) => lead));
               }}
-              commands={c.pickedCommands}
+              commands={c.pickedCommands.map((cmd) => ({
+                name: cmd.name,
+                label: cmd.label,
+                icon: (
+                  <HugeiconsIcon
+                    icon={cmd.icon}
+                    size={11}
+                    strokeWidth={1.75}
+                    className="text-muted-foreground"
+                  />
+                ),
+              }))}
               onRemoveCommand={(name) => c.removeCommand(name)}
               contextTokenEstimate={c.contextTokenEstimate}
             />
@@ -700,157 +715,6 @@ function HoverTooltip({ label, children }: { label: string; children: React.Reac
       </TooltipContent>
     </Tooltip>
   );
-}
-
-function ChipsRow({
-  files,
-  onRemoveFile,
-  snippets,
-  onRemoveSnippet,
-  commands,
-  onRemoveCommand,
-  contextTokenEstimate,
-}: {
-  files: FileAttachment[];
-  onRemoveFile: (id: string) => void;
-  snippets: Snippet[];
-  onRemoveSnippet: (id: string) => void;
-  commands: { name: string; label: string; icon: typeof HashtagIcon }[];
-  onRemoveCommand: (name: string) => void;
-  contextTokenEstimate: number;
-}) {
-  if (files.length === 0 && snippets.length === 0 && commands.length === 0)
-    return null;
-  return (
-    <div className="flex flex-wrap gap-1">
-      <AnimatePresence initial={false}>
-        {commands.map((cmd) => (
-          <motion.div
-            key={`cmd-${cmd.name}`}
-            layout
-            initial={{ opacity: 0, scale: 0.92 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.92 }}
-            transition={{ duration: 0.12 }}
-            className="group flex items-center gap-1 rounded-md border border-border-subtle bg-card px-1.5 py-0.5 text-[11px]"
-            title={cmd.label}
-          >
-            <HugeiconsIcon
-              icon={cmd.icon}
-              size={11}
-              strokeWidth={1.75}
-              className="text-muted-foreground"
-            />
-            <span className="font-medium">#{cmd.name}</span>
-            <button
-              type="button"
-              onClick={() => onRemoveCommand(cmd.name)}
-              className="ml-0.5 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100"
-              aria-label="Remove command"
-            >
-              <HugeiconsIcon icon={Cancel01Icon} size={10} strokeWidth={2} />
-            </button>
-          </motion.div>
-        ))}
-        {snippets.map((s) => (
-          <motion.div
-            key={`snip-${s.id}`}
-            layout
-            initial={{ opacity: 0, scale: 0.92 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.92 }}
-            transition={{ duration: 0.12 }}
-            className="group flex items-center gap-1 rounded-md border border-border-subtle bg-card px-1.5 py-0.5 text-[11px] text-foreground"
-            title={s.description || s.name}
-          >
-            <HugeiconsIcon
-              icon={HashtagIcon}
-              size={11}
-              strokeWidth={2}
-              className="opacity-80"
-            />
-            <span className="font-medium">{s.handle}</span>
-            <button
-              type="button"
-              onClick={() => onRemoveSnippet(s.id)}
-              className="ml-0.5 opacity-0 transition-opacity group-hover:opacity-100"
-              aria-label="Remove snippet"
-            >
-              <HugeiconsIcon icon={Cancel01Icon} size={10} strokeWidth={2} />
-            </button>
-          </motion.div>
-        ))}
-        {files.map((f) => (
-          <motion.div
-            key={f.id}
-            layout
-            initial={{ opacity: 0, scale: 0.92 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.92 }}
-            transition={{ duration: 0.12 }}
-            className="group flex items-center gap-1 rounded-md border border-border-subtle bg-card px-1.5 py-0.5 text-[11px]"
-          >
-            {f.kind === "image" && f.url ? (
-              <img src={f.url} alt="" className="size-4 rounded object-cover" />
-            ) : f.kind === "selection" ? (
-              <HugeiconsIcon
-                icon={f.source === "editor" ? CodeIcon : TerminalIcon}
-                size={11}
-                strokeWidth={1.75}
-                className="text-muted-foreground"
-              />
-            ) : f.kind === "terminal" ? (
-              <HugeiconsIcon icon={TerminalIcon} size={11} strokeWidth={1.75} className="text-info" />
-            ) : f.kind === "diff" ? (
-              <HugeiconsIcon icon={CodeIcon} size={11} strokeWidth={1.75} className="text-warning" />
-            ) : f.kind === "folder" ? (
-              <HugeiconsIcon icon={Attachment01Icon} size={11} strokeWidth={1.75} className="text-primary" />
-            ) : (
-              <span className="font-mono text-[10px] text-muted-foreground">
-                {extOf(f.name)}
-              </span>
-            )}
-            <span className="max-w-35 truncate">
-              {f.name}
-              {f.kind === "selection" && f.text ? (
-                <span className="ml-1 text-muted-foreground">
-                  · {selLineCount(f.text)}L
-                </span>
-              ) : null}
-              {(f.kind === "terminal" || f.kind === "diff" || f.kind === "folder") && f.text ? (
-                <span className="ml-1 text-muted-foreground">· {selLineCount(f.text)}L</span>
-              ) : null}
-            </span>
-            <button
-              type="button"
-              onClick={() => onRemoveFile(f.id)}
-              className="ml-0.5 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100"
-              aria-label="Remove"
-            >
-              <HugeiconsIcon icon={Cancel01Icon} size={10} strokeWidth={2} />
-            </button>
-          </motion.div>
-        ))}
-        {contextTokenEstimate > 0 ? (
-          <span className="self-center px-1 text-[10px] tabular-nums text-muted-foreground" title="Approximate attached context tokens">
-            ~{contextTokenEstimate >= 1000 ? `${(contextTokenEstimate / 1000).toFixed(1)}k` : contextTokenEstimate} tokens
-          </span>
-        ) : null}
-      </AnimatePresence>
-    </div>
-  );
-}
-
-function selLineCount(text: string): number {
-  if (!text) return 0;
-  const trimmed = text.replace(/\n+$/, "");
-  if (!trimmed) return 0;
-  return trimmed.split("\n").length;
-}
-
-function extOf(name: string): string {
-  const i = name.lastIndexOf(".");
-  return i === -1 ? "FILE" : name.slice(i + 1).toUpperCase();
 }
 
 function autoresize(el: HTMLTextAreaElement | null) {

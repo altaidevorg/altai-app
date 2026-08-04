@@ -74,6 +74,7 @@ Incremental extraction of the Desktop `AiSidePanel` tree:
 | A4.57 | `WorkspaceTopbarActions` (Work / Inbox / Run details cluster) |
 | A4.58 | `CheckpointMenuPanel` (edit-checkpoint popover body) |
 | A4.59 | `ComposerToolbarIcon` (composer ghost icon control) |
+| A4.60 | `ComposerAttachChips` (composer attachment chip row) |
 
 Desktop must import shared components from this package; local duplicates are
 deleted as each slice lands.
