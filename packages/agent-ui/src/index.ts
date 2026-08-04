@@ -228,6 +228,12 @@ export {
   type PlanModeStripProps,
 } from "./components/PlanModeStrip.js";
 
+export {
+  ResearchInspector,
+  type ResearchInspectorEvent,
+  type ResearchInspectorProps,
+} from "./components/ResearchInspector.js";
+
 /** Re-export contract types so consumers can depend primarily on agent-ui. */
 export type {
   Capabilities,
