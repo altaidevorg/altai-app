@@ -415,6 +415,12 @@ export {
 } from "./components/TaskRunCard.js";
 
 export {
+  WorkHubNavigation,
+  type WorkHubNavigationProps,
+  type WorkHubView,
+} from "./components/WorkHubNavigation.js";
+
+export {
   formatRelativeTime,
   humanize,
 } from "./lib/inboxFormat.js";
