@@ -24,7 +24,6 @@ import {
   PlugIcon,
   Search01Icon,
   Settings01Icon,
-  Tick01Icon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -45,7 +44,7 @@ import {
 } from "../lib/modelRouting";
 import { useAgentsStore } from "../store/agentsStore";
 import { useChatStore } from "../store/chatStore";
-import { ComposerConfigTrigger, ModelSectionLabel, ProviderPill } from "@altai/agent-ui";
+import { ComposerConfigTrigger, ModelOption, ModelSectionLabel, ProviderPill } from "@altai/agent-ui";
 
 const PROVIDER_ICON = {
   openai: ChatGptIcon,
@@ -362,7 +361,9 @@ export function ModelDropdown({
                 <>
                   {autoOptionVisible ? (
                     <ModelOption
-                      model={autoModel ?? current}
+                      modelLabel={autoModel?.label ?? current.label}
+                      providerIcon={PROVIDER_ICON[autoModel?.provider ?? current.provider]}
+                      domId={modelOptionDomId(autoModel?.id ?? current.id)}
                       label="Auto"
                       detail={autoModel ? `Recommended now: ${autoModel.label}` : "Choose from compatible models"}
                       selected={autoSelected}
@@ -373,15 +374,15 @@ export function ModelDropdown({
                   ) : null}
                   {pinned.length > 0 ? <ModelSectionLabel>PINNED</ModelSectionLabel> : null}
                   {pinned.map((model) => (
-                    <ModelOption key={model.id} model={model} selected={!autoSelected && model.id === selected} active={filtered[activeIndex - (autoOptionVisible ? 1 : 0)]?.id === model.id} showProvider={configuredProviders.length !== 1 || activeProvider === null} pinned onClick={() => pickModel(model)} onTogglePin={() => void toggleFavoriteModel(model.id)} />
+                    <ModelOption key={model.id} modelLabel={model.label} providerIcon={PROVIDER_ICON[model.provider]} domId={modelOptionDomId(model.id)} selected={!autoSelected && model.id === selected} active={filtered[activeIndex - (autoOptionVisible ? 1 : 0)]?.id === model.id} showProvider={configuredProviders.length !== 1 || activeProvider === null} pinned onClick={() => pickModel(model)} onTogglePin={() => void toggleFavoriteModel(model.id)} />
                   ))}
                   {recent.length > 0 ? <ModelSectionLabel>RECENT</ModelSectionLabel> : null}
                   {recent.map((model) => (
-                    <ModelOption key={model.id} model={model} selected={!autoSelected && model.id === selected} active={filtered[activeIndex - (autoOptionVisible ? 1 : 0)]?.id === model.id} showProvider={configuredProviders.length !== 1 || activeProvider === null} onClick={() => pickModel(model)} onTogglePin={() => void toggleFavoriteModel(model.id)} />
+                    <ModelOption key={model.id} modelLabel={model.label} providerIcon={PROVIDER_ICON[model.provider]} domId={modelOptionDomId(model.id)} selected={!autoSelected && model.id === selected} active={filtered[activeIndex - (autoOptionVisible ? 1 : 0)]?.id === model.id} showProvider={configuredProviders.length !== 1 || activeProvider === null} onClick={() => pickModel(model)} onTogglePin={() => void toggleFavoriteModel(model.id)} />
                   ))}
                   {showSections && (pinned.length > 0 || recent.length > 0) ? <ModelSectionLabel>ALL MODELS</ModelSectionLabel> : null}
                   {remaining.map((model) => (
-                    <ModelOption key={model.id} model={model} selected={!autoSelected && model.id === selected} active={filtered[activeIndex - (autoOptionVisible ? 1 : 0)]?.id === model.id} showProvider={configuredProviders.length !== 1 || activeProvider === null} onClick={() => pickModel(model)} onTogglePin={() => void toggleFavoriteModel(model.id)} />
+                    <ModelOption key={model.id} modelLabel={model.label} providerIcon={PROVIDER_ICON[model.provider]} domId={modelOptionDomId(model.id)} selected={!autoSelected && model.id === selected} active={filtered[activeIndex - (autoOptionVisible ? 1 : 0)]?.id === model.id} showProvider={configuredProviders.length !== 1 || activeProvider === null} onClick={() => pickModel(model)} onTogglePin={() => void toggleFavoriteModel(model.id)} />
                   ))}
                 </>
               )}
@@ -404,85 +405,6 @@ export function ModelDropdown({
         </div>
       </PopoverContent>
     </Popover>
-  );
-}
-
-function ModelOption({
-  model,
-  label,
-  detail,
-  selected,
-  active,
-  showProvider,
-  pinned = false,
-  onClick,
-  onTogglePin,
-}: {
-  model: ModelInfo;
-  label?: string;
-  detail?: string;
-  selected: boolean;
-  active: boolean;
-  showProvider: boolean;
-  pinned?: boolean;
-  onClick: () => void;
-  onTogglePin?: () => void;
-}) {
-  const Icon = PROVIDER_ICON[model.provider];
-  return (
-    <div className="group/model-option relative mx-1 my-0.5">
-      <button
-        type="button"
-        id={label ? undefined : modelOptionDomId(model.id)}
-        role="option"
-        aria-selected={selected}
-        data-active={active || undefined}
-        onClick={onClick}
-        className={cn(
-          "flex w-full items-center gap-2 rounded-md px-2 py-1.5 pr-8 text-left",
-          selected
-            ? "bg-foreground/[0.085] text-popover-foreground"
-            : active
-              ? "bg-foreground/[0.065] text-popover-foreground"
-              : "text-popover-foreground hover:bg-foreground/[0.055]",
-        )}
-      >
-        {showProvider ? (
-          <HugeiconsIcon
-            icon={Icon}
-            size={13}
-            strokeWidth={1.5}
-            className="shrink-0 text-muted-foreground/70"
-          />
-        ) : null}
-        <span className="min-w-0 flex-1">
-          <span className="block truncate text-[12px] font-medium">{label ?? model.label}</span>
-          {detail ? <span className="block truncate text-[10px] text-muted-foreground">{detail}</span> : null}
-        </span>
-        {selected ? (
-          <HugeiconsIcon icon={Tick01Icon} size={13} strokeWidth={2} className="shrink-0" />
-        ) : null}
-      </button>
-      {onTogglePin ? (
-        <button
-          type="button"
-          aria-label={`${pinned ? "Unpin" : "Pin"} ${model.label}`}
-          title={pinned ? "Unpin model" : "Pin model"}
-          onClick={(event) => {
-            event.stopPropagation();
-            onTogglePin();
-          }}
-          className={cn(
-            "absolute top-1/2 right-1 -translate-y-1/2 rounded-md px-1.5 py-0.5 text-[10px] transition-colors",
-            pinned
-              ? "text-foreground"
-              : "text-muted-foreground opacity-0 group-hover/model-option:opacity-100 hover:bg-foreground/[0.08] hover:text-foreground",
-          )}
-        >
-          {pinned ? "Pinned" : "Pin"}
-        </button>
-      ) : null}
-    </div>
   );
 }
 
