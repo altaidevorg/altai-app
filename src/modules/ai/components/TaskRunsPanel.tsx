@@ -49,6 +49,8 @@ import {
   SurfaceSearch,
   SurfaceSectionHeader,
   SurfaceTabs,
+  PromptTemplateGrid,
+  SurfaceFilteredEmpty,
   TaskContextSources,
   TaskRunCard,
   TaskSkillChips,
@@ -413,18 +415,13 @@ export function TaskRunsPanel({
           placeholder="Example: Review the auth flow, fix the highest-impact issue, and run the relevant tests."
           className="mt-3 min-h-28 w-full resize-y rounded-lg border border-border bg-muted/55 px-3 py-2.5 text-[11px] leading-relaxed text-foreground outline-none placeholder:text-muted-foreground/65 focus:border-ring focus:ring-2 focus:ring-ring/20"
         />
-        <div className="mt-2 grid grid-cols-2 gap-1.5">
-          {TASK_TEMPLATES.map((template) => (
-            <button
-              key={template.label}
-              type="button"
-              onClick={() => setPrompt(template.prompt)}
-              className="min-h-8 rounded-md border border-border bg-card px-2 py-1.5 text-left text-[9.5px] font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-            >
-              {template.label}
-            </button>
-          ))}
-        </div>
+        <PromptTemplateGrid
+          templates={TASK_TEMPLATES.map((template) => ({
+            label: template.label,
+            value: template.prompt,
+          }))}
+          onSelect={setPrompt}
+        />
         </section>
         <section className="px-3.5 py-3.5">
           <SurfaceSectionHeader
@@ -554,19 +551,13 @@ export function TaskRunsPanel({
             }
           />
         ) : visibleTasks.length === 0 ? (
-          <div className="border border-dashed border-border px-4 py-8 text-center text-[11px] leading-relaxed text-muted-foreground">
-            No tasks match this view.
-            <button
-              type="button"
-              onClick={() => {
-                setQuery("");
-                setFilter("all");
-              }}
-              className="ml-1 font-medium text-foreground hover:underline"
-            >
-              Clear filters
-            </button>
-          </div>
+          <SurfaceFilteredEmpty
+            message="No tasks match this view."
+            onClear={() => {
+              setQuery("");
+              setFilter("all");
+            }}
+          />
         ) : (
           <div className="space-y-5">
             {taskGroups.map((group) => (

@@ -455,6 +455,17 @@ export {
 } from "./components/TaskSkillChips.js";
 
 export {
+  PromptTemplateGrid,
+  type PromptTemplate,
+  type PromptTemplateGridProps,
+} from "./components/PromptTemplateGrid.js";
+
+export {
+  SurfaceFilteredEmpty,
+  type SurfaceFilteredEmptyProps,
+} from "./components/SurfaceFilteredEmpty.js";
+
+export {
   formatRelativeTime,
   humanize,
 } from "./lib/inboxFormat.js";
