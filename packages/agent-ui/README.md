@@ -45,6 +45,7 @@ Incremental extraction of the Desktop `AiSidePanel` tree:
 | A4.28 | `TaskOutcome` (task run outcome summary) |
 | A4.29 | `InboxSection` (inbox panel section wrapper) |
 | A4.30 | `EmptyInbox` (inbox default empty state preset) |
+| A4.31 | `SessionRow` (chat history session row with rename/delete) |
 
 Desktop must import shared components from this package; local duplicates are
 deleted as each slice lands.
