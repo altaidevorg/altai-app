@@ -38,7 +38,7 @@ import {
   AuxiliarySurface,
   CreateFormActions,
   localDateTimeValue,
-  PromptTemplateGrid,
+  PromptEditorSection,
   SurfaceEmptyState,
   SurfaceFilteredEmpty,
   SurfaceFilterToolbar,
@@ -279,30 +279,23 @@ export function AutomationsPanel({
       ) : null}
       {viewMode === "create" ? (
       <form onSubmit={submit} className="min-h-0 flex-1 overflow-y-auto">
-        <section className="border-b border-border-subtle px-3.5 py-3.5">
-          <SurfaceSectionHeader
-            title="Instruction"
-            description="Keep it specific, repeatable, and easy to review."
-          />
-        <textarea
+        <PromptEditorSection
+          title="Instruction"
+          description="Keep it specific, repeatable, and easy to review."
           value={message}
-          onChange={(event) => setMessage(event.target.value)}
+          onChange={setMessage}
           maxLength={10_000}
           rows={4}
-          aria-label="Automation message"
+          ariaLabel="Automation message"
           placeholder="What should the agent do?"
-          className="mt-3 w-full resize-y rounded-lg border border-border bg-muted/55 px-3 py-2.5 text-[10.5px] leading-relaxed outline-none placeholder:text-muted-foreground/70 focus:border-ring"
-        />
-        <PromptTemplateGrid
+          size="automation"
+          templateColumns={3}
+          templateDensity="compact"
           templates={AUTOMATION_TEMPLATES.map((template) => ({
             label: template.label,
             value: template.message,
           }))}
-          onSelect={setMessage}
-          columns={3}
-          density="compact"
         />
-        </section>
         <AutomationScheduleFields
           mode={mode}
           onModeChange={setMode}

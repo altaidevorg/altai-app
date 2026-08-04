@@ -489,6 +489,11 @@ export {
 } from "./components/CreateFormActions.js";
 
 export {
+  PromptEditorSection,
+  type PromptEditorSectionProps,
+} from "./components/PromptEditorSection.js";
+
+export {
   formatRelativeTime,
   humanize,
 } from "./lib/inboxFormat.js";
