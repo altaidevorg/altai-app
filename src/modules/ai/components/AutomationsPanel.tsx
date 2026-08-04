@@ -34,7 +34,9 @@ import {
   automationLastRunLabel,
   automationNextRunLabel,
   automationScheduleLabel,
+  AutomationScheduleFields,
   AuxiliarySurface,
+  localDateTimeValue,
   PromptTemplateGrid,
   SurfaceEmptyState,
   SurfaceFilteredEmpty,
@@ -68,8 +70,7 @@ const AUTOMATION_TEMPLATES = [
 function defaultAtValue(): string {
   const next = new Date(Date.now() + 5 * 60_000);
   next.setSeconds(0, 0);
-  const local = new Date(next.getTime() - next.getTimezoneOffset() * 60_000);
-  return local.toISOString().slice(0, 16);
+  return localDateTimeValue(next.getTime());
 }
 
 export function AutomationsPanel({
@@ -308,95 +309,14 @@ export function AutomationsPanel({
           density="compact"
         />
         </section>
-        <section className="border-b border-border-subtle px-3.5 py-3.5">
-          <SurfaceSectionHeader
-            title="Schedule"
-            description="Choose when this instruction should return to its chat."
-          />
-        <div className="mt-3 flex items-center gap-2">
-          <span className="text-[10px] text-muted-foreground">Schedule</span>
-          <DropdownMenu>
-            <DropdownMenuTrigger className="flex items-center justify-between gap-1 rounded-md border border-border bg-card px-1.5 py-1 text-[10px] text-foreground outline-none transition-colors hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring/25">
-              {mode === "at" ? "Once" : "Repeat"}
-              <HugeiconsIcon icon={ArrowDown01Icon} size={10} strokeWidth={2} className="text-muted-foreground" />
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start">
-              <DropdownMenuItem onClick={() => setMode("at")} className={cn(mode === "at" && "bg-foreground/[0.085]")}>Once</DropdownMenuItem>
-              <DropdownMenuItem onClick={() => setMode("every")} className={cn(mode === "every" && "bg-foreground/[0.085]")}>Repeat</DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-          {mode === "at" ? (
-            <input
-              type="datetime-local"
-              value={atValue}
-              onChange={(event) => setAtValue(event.target.value)}
-              aria-label="Automation run time"
-              className="min-w-0 flex-1 border border-border bg-card px-1.5 py-1 text-[10px] outline-none focus:border-ring"
-            />
-          ) : (
-            <label className="flex min-w-0 flex-1 items-center gap-1 text-[10px] text-muted-foreground">
-              Every
-              <input
-                type="number"
-                min="1"
-                value={everyMinutes}
-                onChange={(event) => setEveryMinutes(event.target.value)}
-                aria-label="Repeat interval in minutes"
-                className="w-14 border border-border bg-card px-1.5 py-1 text-[10px] outline-none focus:border-ring"
-              />
-              min
-            </label>
-          )}
-        </div>
-        <div className="mt-2 flex flex-wrap items-center gap-1">
-          <span className="mr-1 text-[9px] font-medium uppercase tracking-wide text-muted-foreground">
-            Quick set
-          </span>
-          <button
-            type="button"
-            onClick={() => {
-              setMode("at");
-              setAtValue(localDateTimeValue(Date.now() + 15 * 60_000));
-            }}
-            className="rounded-md border border-border bg-card px-2 py-0.5 text-[9.5px] text-muted-foreground hover:bg-accent hover:text-foreground"
-          >
-            In 15 min
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              setMode("at");
-              const tomorrow = new Date();
-              tomorrow.setDate(tomorrow.getDate() + 1);
-              tomorrow.setHours(9, 0, 0, 0);
-              setAtValue(localDateTimeValue(tomorrow.getTime()));
-            }}
-            className="rounded-md border border-border bg-card px-2 py-0.5 text-[9.5px] text-muted-foreground hover:bg-accent hover:text-foreground"
-          >
-            Tomorrow 09:00
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              setMode("every");
-              setEveryMinutes("1440");
-            }}
-            className="rounded-md border border-border bg-card px-2 py-0.5 text-[9.5px] text-muted-foreground hover:bg-accent hover:text-foreground"
-          >
-            Daily
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              setMode("every");
-              setEveryMinutes("10080");
-            }}
-            className="rounded-md border border-border bg-card px-2 py-0.5 text-[9.5px] text-muted-foreground hover:bg-accent hover:text-foreground"
-          >
-            Weekly
-          </button>
-        </div>
-        </section>
+        <AutomationScheduleFields
+          mode={mode}
+          onModeChange={setMode}
+          atValue={atValue}
+          onAtValueChange={setAtValue}
+          everyMinutes={everyMinutes}
+          onEveryMinutesChange={setEveryMinutes}
+        />
         <section className="px-3.5 py-3.5">
           <SurfaceSectionHeader
             title="Conversation"
@@ -556,12 +476,6 @@ export function AutomationsPanel({
       </AlertDialog>
     </AuxiliarySurface>
   );
-}
-
-function localDateTimeValue(timestamp: number): string {
-  const value = new Date(timestamp);
-  const local = new Date(value.getTime() - value.getTimezoneOffset() * 60_000);
-  return local.toISOString().slice(0, 16);
 }
 
 function nextRunAt(item: AgentAutomationInfo): number {
