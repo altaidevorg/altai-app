@@ -36,6 +36,7 @@ import {
   automationScheduleLabel,
   AutomationScheduleFields,
   AuxiliarySurface,
+  ConversationOwnerSection,
   CreateFormActions,
   localDateTimeValue,
   PromptEditorSection,
@@ -298,44 +299,52 @@ export function AutomationsPanel({
           everyMinutes={everyMinutes}
           onEveryMinutesChange={setEveryMinutes}
         />
-        <section className="px-3.5 py-3.5">
-          <SurfaceSectionHeader
-            title="Conversation"
-            description="The automation continues with the context of its owning chat."
-          />
-        <div className="mt-3 flex items-center gap-2">
-          <span className="text-[10px] text-muted-foreground">Run in</span>
-          <DropdownMenu>
-            <DropdownMenuTrigger className="flex min-w-0 flex-1 items-center justify-between gap-2 rounded-md border border-border bg-card px-2 py-1 text-[10px] text-foreground hover:bg-accent">
-              <span className="truncate">
-                {titles.get(ownerChatId) || "Select a chat"}
-              </span>
-              <HugeiconsIcon icon={ArrowDown01Icon} size={10} strokeWidth={2} className="shrink-0 text-muted-foreground" />
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="max-h-64 min-w-56 overflow-y-auto">
-              {sessions.map((session) => (
-                <DropdownMenuItem
-                  key={session.id}
-                  onClick={() => setOwnerChatId(session.id)}
-                  className={cn(ownerChatId === session.id && "bg-foreground/[0.085]")}
-                >
-                  <span className="max-w-52 truncate">{session.title || "New chat"}</span>
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
-        <CreateFormActions
-          status={
-            scheduleError ??
-            (ownerChatId ? "Schedule is ready" : "Select a chat to create one")
+        <ConversationOwnerSection
+          picker={
+            <DropdownMenu>
+              <DropdownMenuTrigger className="flex min-w-0 flex-1 items-center justify-between gap-2 rounded-md border border-border bg-card px-2 py-1 text-[10px] text-foreground hover:bg-accent">
+                <span className="truncate">
+                  {titles.get(ownerChatId) || "Select a chat"}
+                </span>
+                <HugeiconsIcon
+                  icon={ArrowDown01Icon}
+                  size={10}
+                  strokeWidth={2}
+                  className="shrink-0 text-muted-foreground"
+                />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent
+                align="start"
+                className="max-h-64 min-w-56 overflow-y-auto"
+              >
+                {sessions.map((session) => (
+                  <DropdownMenuItem
+                    key={session.id}
+                    onClick={() => setOwnerChatId(session.id)}
+                    className={cn(
+                      ownerChatId === session.id && "bg-foreground/[0.085]",
+                    )}
+                  >
+                    <span className="max-w-52 truncate">
+                      {session.title || "New chat"}
+                    </span>
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
           }
-          statusTone={scheduleError ? "destructive" : "muted"}
-          onCancel={() => setViewMode("list")}
-          submitDisabled={!canCreate}
-          submitLabel={creating ? "Creating…" : "Create"}
-        />
-        </section>
+        >
+          <CreateFormActions
+            status={
+              scheduleError ??
+              (ownerChatId ? "Schedule is ready" : "Select a chat to create one")
+            }
+            statusTone={scheduleError ? "destructive" : "muted"}
+            onCancel={() => setViewMode("list")}
+            submitDisabled={!canCreate}
+            submitLabel={creating ? "Creating…" : "Create"}
+          />
+        </ConversationOwnerSection>
       </form>
       ) : null}
 

@@ -528,6 +528,11 @@ export {
 } from "./components/SurfacePrimaryAction.js";
 
 export {
+  ConversationOwnerSection,
+  type ConversationOwnerSectionProps,
+} from "./components/ConversationOwnerSection.js";
+
+export {
   formatRelativeTime,
   humanize,
 } from "./lib/inboxFormat.js";
