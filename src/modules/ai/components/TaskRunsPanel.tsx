@@ -34,7 +34,6 @@ import {
   ArrowLeft01Icon,
   Notebook01Icon,
   PlayIcon,
-  Tick02Icon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
@@ -52,6 +51,7 @@ import {
   SurfaceTabs,
   TaskContextSources,
   TaskRunCard,
+  TaskSkillChips,
 } from "@altai/agent-ui";
 
 const TERMINAL: AssignmentStatus[] = ["done", "failed", "cancelled"];
@@ -499,46 +499,17 @@ export function TaskRunsPanel({
           diffDisabled={!workspaceContextAvailable}
         />
 
-        {skills.length ? (
-          <section className="border-t border-border-subtle px-3.5 py-3.5">
-            <SurfaceSectionHeader
-              title="Skills"
-              description="Optional playbooks the agent should follow for this run."
-              count={selectedSkills.length}
-            />
-            <div className="mt-3 flex flex-wrap gap-1.5">
-              {skills.map((skill) => {
-                const selected = selectedSkills.includes(skill.name);
-                return (
-                  <button
-                    key={skill.name}
-                    type="button"
-                    title={skill.description ?? skill.name}
-                    aria-pressed={selected}
-                    onClick={() =>
-                      setSelectedSkills((current) =>
-                        selected
-                          ? current.filter((name) => name !== skill.name)
-                          : [...current, skill.name],
-                      )
-                    }
-                    className={cn(
-                      "inline-flex h-7 items-center gap-1.5 rounded-md border px-2.5 text-[9.5px] font-medium transition-colors",
-                      selected
-                        ? "border-foreground/15 bg-accent text-foreground"
-                        : "border-border bg-card text-muted-foreground hover:bg-accent hover:text-foreground",
-                    )}
-                  >
-                    {selected ? (
-                      <HugeiconsIcon icon={Tick02Icon} size={10} strokeWidth={2} />
-                    ) : null}
-                    {skill.name}
-                  </button>
-                );
-              })}
-            </div>
-          </section>
-        ) : null}
+        <TaskSkillChips
+          skills={skills}
+          selected={selectedSkills}
+          onToggle={(skillName) =>
+            setSelectedSkills((current) =>
+              current.includes(skillName)
+                ? current.filter((name) => name !== skillName)
+                : [...current, skillName],
+            )
+          }
+        />
 
         <section className="border-t border-border-subtle px-3.5 py-3">
         <div className="flex items-center gap-2">

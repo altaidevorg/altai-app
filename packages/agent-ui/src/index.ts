@@ -449,6 +449,12 @@ export {
 } from "./components/TaskContextSources.js";
 
 export {
+  TaskSkillChips,
+  type TaskSkillChipsProps,
+  type TaskSkillOption,
+} from "./components/TaskSkillChips.js";
+
+export {
   formatRelativeTime,
   humanize,
 } from "./lib/inboxFormat.js";
