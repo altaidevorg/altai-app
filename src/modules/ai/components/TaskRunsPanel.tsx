@@ -51,6 +51,8 @@ import {
   PromptEditorSection,
   SurfaceFilteredEmpty,
   SurfaceFilterToolbar,
+  SurfacePrimaryAction,
+  SurfaceSecondaryAction,
   TaskContextSources,
   TaskRunCard,
   TaskRunConfigSection,
@@ -351,23 +353,15 @@ export function TaskRunsPanel({
       navigation={navigation}
       actions={
         viewMode === "queue" ? (
-          <button
-            type="button"
-            onClick={() => setViewMode("create")}
-            className="inline-flex h-7 items-center gap-1.5 rounded-md bg-primary px-2.5 text-[9.5px] font-semibold text-primary-foreground hover:bg-primary/85"
-          >
+          <SurfacePrimaryAction onClick={() => setViewMode("create")}>
             <HugeiconsIcon icon={PlayIcon} size={11} strokeWidth={2} />
             Delegate work
-          </button>
+          </SurfacePrimaryAction>
         ) : (
-          <button
-            type="button"
-            onClick={() => setViewMode("queue")}
-            className="inline-flex h-7 items-center gap-1.5 rounded-md border border-border bg-muted px-2.5 text-[9.5px] font-medium text-foreground hover:bg-accent"
-          >
+          <SurfaceSecondaryAction onClick={() => setViewMode("queue")}>
             <HugeiconsIcon icon={ArrowLeft01Icon} size={11} strokeWidth={2} />
             Queue
-          </button>
+          </SurfaceSecondaryAction>
         )
       }
       bodyClassName="overflow-y-auto"

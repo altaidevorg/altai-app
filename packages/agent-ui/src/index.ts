@@ -521,6 +521,13 @@ export {
 } from "./components/RunBlockedBanner.js";
 
 export {
+  SurfacePrimaryAction,
+  SurfaceSecondaryAction,
+  type SurfacePrimaryActionProps,
+  type SurfaceSecondaryActionProps,
+} from "./components/SurfacePrimaryAction.js";
+
+export {
   formatRelativeTime,
   humanize,
 } from "./lib/inboxFormat.js";
