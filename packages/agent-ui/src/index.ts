@@ -223,6 +223,11 @@ export {
   type ChangeReviewBannerProps,
 } from "./components/ChangeReviewBanner.js";
 
+export {
+  PlanModeStrip,
+  type PlanModeStripProps,
+} from "./components/PlanModeStrip.js";
+
 /** Re-export contract types so consumers can depend primarily on agent-ui. */
 export type {
   Capabilities,
