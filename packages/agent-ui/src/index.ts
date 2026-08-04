@@ -234,6 +234,12 @@ export {
   type ResearchInspectorProps,
 } from "./components/ResearchInspector.js";
 
+export {
+  McpInspector,
+  type McpInspectorEvent,
+  type McpInspectorProps,
+} from "./components/McpInspector.js";
+
 /** Re-export contract types so consumers can depend primarily on agent-ui. */
 export type {
   Capabilities,
