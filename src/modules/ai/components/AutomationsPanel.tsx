@@ -43,6 +43,8 @@ import {
   SurfaceFilteredEmpty,
   SurfaceFilterToolbar,
   SurfaceIconAction,
+  SurfacePrimaryAction,
+  SurfaceSecondaryAction,
   SurfaceSectionHeader,
 } from "@altai/agent-ui";
 
@@ -239,23 +241,15 @@ export function AutomationsPanel({
                   <HugeiconsIcon icon={Refresh01Icon} size={13} strokeWidth={1.75} />
                 )}
               </SurfaceIconAction>
-              <button
-                type="button"
-                onClick={() => setViewMode("create")}
-                className="inline-flex h-7 items-center gap-1.5 rounded-md bg-primary px-2.5 text-[9.5px] font-semibold text-primary-foreground hover:bg-primary/85"
-              >
+              <SurfacePrimaryAction onClick={() => setViewMode("create")}>
                 New schedule
-              </button>
+              </SurfacePrimaryAction>
             </>
           ) : (
-            <button
-              type="button"
-              onClick={() => setViewMode("list")}
-              className="inline-flex h-7 items-center gap-1.5 rounded-md border border-border bg-muted px-2.5 text-[9.5px] font-medium text-foreground hover:bg-accent"
-            >
+            <SurfaceSecondaryAction onClick={() => setViewMode("list")}>
               <HugeiconsIcon icon={ArrowLeft01Icon} size={11} strokeWidth={2} />
               Schedules
-            </button>
+            </SurfaceSecondaryAction>
           )}
         </>
       }
