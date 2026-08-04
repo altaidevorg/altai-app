@@ -246,6 +246,12 @@ export {
   type ArtifactsInspectorProps,
 } from "./components/ArtifactsInspector.js";
 
+export {
+  ChangesInspector,
+  type ChangesInspectorItem,
+  type ChangesInspectorProps,
+} from "./components/ChangesInspector.js";
+
 /** Re-export contract types so consumers can depend primarily on agent-ui. */
 export type {
   Capabilities,
