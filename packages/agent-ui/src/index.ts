@@ -473,6 +473,11 @@ export {
 } from "./components/AutomationScheduleFields.js";
 
 export {
+  ComposerFollowupBar,
+  type ComposerFollowupBarProps,
+} from "./components/ComposerFollowupBar.js";
+
+export {
   formatRelativeTime,
   humanize,
 } from "./lib/inboxFormat.js";

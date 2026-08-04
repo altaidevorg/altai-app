@@ -17,6 +17,7 @@ import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useMemo, useRef, useState, type ReactElement } from "react";
 import {
   ComposerAttachChips,
+  ComposerFollowupBar,
   ComposerToolbarIcon,
   ContextAction,
   ProviderConnectBanner,
@@ -484,47 +485,29 @@ export function AiInputBar() {
         </Popover>
 
         {(c.canSteer || c.canQueue) && (
-          <div className="altai-ai-run-followup flex items-center gap-1.5 border-t border-border-subtle px-2.5 py-1.5">
-            <span className="min-w-0 flex-1 truncate text-[10px] text-muted-foreground">
-              {c.isCancelling
+          <ComposerFollowupBar
+            hint={
+              c.isCancelling
                 ? "Cancellation requested — you can queue the next task"
                 : c.canSteer
                   ? "Enter queues next · ⌘/Ctrl+Enter steers this run"
-                  : "Enter queues next · starts after the active run ends"}
-            </span>
-            {c.isRunning && (
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                onClick={c.steer}
-                disabled={!c.canSteer}
-                title={
-                  c.files.some(
-                    (file) => file.kind === "image" || file.kind === "pdf",
-                  )
-                    ? "Steering cannot include images or PDFs; use Queue next"
-                    : "Apply at the active run's next safe boundary"
-                }
-                className="h-6 px-2 text-[11px]"
-              >
-                Steer now
-              </Button>
-            )}
-            {c.isBusy && (
-              <Button
-                type="button"
-                variant="secondary"
-                size="sm"
-                onClick={c.queueNext}
-                disabled={!c.canQueue}
-                title="Start after the active run terminates"
-                className="h-6 px-2 text-[11px]"
-              >
-                Queue next
-              </Button>
-            )}
-          </div>
+                  : "Enter queues next · starts after the active run ends"
+            }
+            showSteer={c.isRunning}
+            showQueue={c.isBusy}
+            canSteer={c.canSteer}
+            canQueue={c.canQueue}
+            onSteer={c.steer}
+            onQueue={c.queueNext}
+            steerTitle={
+              c.files.some(
+                (file) => file.kind === "image" || file.kind === "pdf",
+              )
+                ? "Steering cannot include images or PDFs; use Queue next"
+                : "Apply at the active run's next safe boundary"
+            }
+            queueTitle="Start after the active run terminates"
+          />
         )}
 
         <div
