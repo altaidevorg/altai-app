@@ -167,6 +167,11 @@ export {
   type ContextSourceToggleProps,
 } from "./components/ContextSourceToggle.js";
 
+export {
+  TaskOutcome,
+  type TaskOutcomeProps,
+} from "./components/TaskOutcome.js";
+
 /** Re-export contract types so consumers can depend primarily on agent-ui. */
 export type {
   Capabilities,
