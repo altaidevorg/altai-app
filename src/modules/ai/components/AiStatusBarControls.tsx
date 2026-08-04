@@ -8,7 +8,7 @@ import { Kbd } from "@/components/ui/kbd";
 import { Spinner } from "@/components/ui/spinner";
 import { fmtShortcut, MOD_KEY } from "@/lib/platform";
 import { cn } from "@/lib/utils";
-import { IconBtn } from "@altai/agent-ui";
+import { CheckpointMenuPanel, IconBtn } from "@altai/agent-ui";
 import {
   Context,
   ContextContent,
@@ -273,71 +273,14 @@ function CheckpointButton() {
         sideOffset={6}
         className="w-[min(20rem,calc(100vw-1rem))] overflow-hidden rounded-lg border border-border/70 p-0 shadow-xl"
       >
-        <div className="border-b border-border/70 px-3 py-2.5">
-          <div className="text-[12px] font-medium">Edit checkpoints</div>
-          <div className="text-[11px] text-muted-foreground">
-            Restore files to their state before the agent edited them.
-          </div>
-        </div>
-        <div className="max-h-[16rem] overflow-y-auto">
-          {items.length === 0 ? (
-            <div className="px-3 py-6 text-center text-[11px] text-muted-foreground">
-              No checkpoints yet. The runtime saves one before each edit.
-            </div>
-          ) : (
-            <ul className="divide-y divide-border/40">
-              {items.map((c) => (
-                <li
-                  key={c.id}
-                  className="flex items-center gap-2 px-3 py-2 hover:bg-muted/50"
-                >
-                  <div className="min-w-0 flex-1">
-                    <div
-                      className="truncate text-[11px] font-medium"
-                      title={c.path}
-                    >
-                      {basename(c.path)}
-                    </div>
-                    <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
-                      <span>{c.label}</span>
-                      <span>·</span>
-                      <span>{fmtTimeAgo(c.createdMs)}</span>
-                    </div>
-                  </div>
-                  <Button
-                    type="button"
-                    size="xs"
-                    variant="secondary"
-                    disabled={restoring === c.id}
-                    onClick={() => void onRestore(c.id)}
-                    className="h-6 text-[10.5px]"
-                  >
-                    {restoring === c.id ? "Restoring…" : "Restore"}
-                  </Button>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
+        <CheckpointMenuPanel
+          items={items}
+          restoringId={restoring}
+          onRestore={(id) => void onRestore(id)}
+        />
       </PopoverContent>
     </Popover>
   );
-}
-
-function basename(p: string): string {
-  const i = Math.max(p.lastIndexOf("/"), p.lastIndexOf("\\"));
-  return i >= 0 ? p.slice(i + 1) : p;
-}
-
-function fmtTimeAgo(ms: number): string {
-  const secs = Math.floor((Date.now() - ms) / 1000);
-  if (secs < 60) return "just now";
-  const mins = Math.floor(secs / 60);
-  if (mins < 60) return `${mins}m ago`;
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  return `${days}d ago`;
 }
 
 /**

@@ -72,6 +72,7 @@ Incremental extraction of the Desktop `AiSidePanel` tree:
 | A4.55 | `InspectorSection` (run inspector collapsible section) |
 | A4.56 | `ChatTabStrip` (open-chat tab strip) |
 | A4.57 | `WorkspaceTopbarActions` (Work / Inbox / Run details cluster) |
+| A4.58 | `CheckpointMenuPanel` (edit-checkpoint popover body) |
 
 Desktop must import shared components from this package; local duplicates are
 deleted as each slice lands.
