@@ -362,6 +362,11 @@ export {
 } from "./components/CompactNowControl.js";
 
 export {
+  ProviderConnectBanner,
+  type ProviderConnectBannerProps,
+} from "./components/ProviderConnectBanner.js";
+
+export {
   formatRelativeTime,
   humanize,
 } from "./lib/inboxFormat.js";

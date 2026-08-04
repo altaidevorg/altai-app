@@ -8,7 +8,6 @@ import {
   Attachment01Icon,
   CodeIcon,
   File01Icon,
-  Key01Icon,
   Mic01Icon,
   Search01Icon,
   TerminalIcon,
@@ -20,6 +19,7 @@ import {
   ComposerAttachChips,
   ComposerToolbarIcon,
   ContextAction,
+  ProviderConnectBanner,
 } from "@altai/agent-ui";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import {
@@ -729,18 +729,5 @@ function autoresize(el: HTMLTextAreaElement | null) {
 export type AiInputBarProps = { tabId: number };
 
 export function AiInputBarConnect({ onAdd }: { onAdd: () => void }) {
-  return (
-    <div className="shrink-0 border-t border-border-subtle bg-raised">
-      <div className="flex h-10 items-center justify-between gap-3 px-3 text-xs">
-        <span className="text-muted-foreground">
-          Connect any AI provider (or use local models) - your key stays in your
-          OS keychain.
-        </span>
-        <Button size="xs" onClick={onAdd}>
-          <HugeiconsIcon icon={Key01Icon} />
-          Connect provider
-        </Button>
-      </div>
-    </div>
-  );
+  return <ProviderConnectBanner onAdd={onAdd} />;
 }
