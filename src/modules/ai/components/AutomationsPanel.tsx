@@ -36,6 +36,7 @@ import {
   automationScheduleLabel,
   AutomationScheduleFields,
   AuxiliarySurface,
+  CreateFormActions,
   localDateTimeValue,
   PromptTemplateGrid,
   SurfaceEmptyState,
@@ -337,25 +338,16 @@ export function AutomationsPanel({
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
-        <div className="mt-4 flex items-center justify-between gap-2 border-t border-border-subtle pt-3">
-          <span className={cn("min-w-0 truncate text-[9.5px]", scheduleError ? "text-destructive" : "text-muted-foreground")}>
-            {scheduleError ?? (ownerChatId ? "Schedule is ready" : "Select a chat to create one")}
-          </span>
-          <button
-            type="button"
-            onClick={() => setViewMode("list")}
-            className="ml-auto rounded-md px-2.5 py-1.5 text-[10px] font-medium text-muted-foreground hover:bg-muted hover:text-foreground"
-          >
-            Cancel
-          </button>
-          <button
-            type="submit"
-            disabled={!canCreate}
-            className="rounded-md bg-primary px-3 py-1.5 text-[10px] font-semibold text-primary-foreground disabled:opacity-45"
-          >
-            {creating ? "Creating…" : "Create"}
-          </button>
-        </div>
+        <CreateFormActions
+          status={
+            scheduleError ??
+            (ownerChatId ? "Schedule is ready" : "Select a chat to create one")
+          }
+          statusTone={scheduleError ? "destructive" : "muted"}
+          onCancel={() => setViewMode("list")}
+          submitDisabled={!canCreate}
+          submitLabel={creating ? "Creating…" : "Create"}
+        />
         </section>
       </form>
       ) : null}
