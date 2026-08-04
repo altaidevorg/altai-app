@@ -47,6 +47,7 @@ import {
   AuxiliarySurface,
   SurfaceEmptyState,
   SurfaceSectionHeader,
+  CreateFormActions,
   PromptTemplateGrid,
   SurfaceFilteredEmpty,
   SurfaceFilterToolbar,
@@ -501,26 +502,19 @@ export function TaskRunsPanel({
           }
         />
 
-        <section className="border-t border-border-subtle px-3.5 py-3">
-        <div className="flex items-center gap-2">
-          {error ? <p className="min-w-0 flex-1 text-[10px] text-destructive">{error}</p> : <span className="flex-1" />}
-          <button
-            type="button"
-            onClick={() => setViewMode("queue")}
-            className="rounded-md px-2.5 py-1.5 text-[10px] font-medium text-muted-foreground hover:bg-muted hover:text-foreground"
-          >
-            Cancel
-          </button>
-          <button
-            type="submit"
-            disabled={!prompt.trim() || dispatching}
-            className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-[10.5px] font-semibold text-primary-foreground transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-45"
-          >
-            {dispatching ? <Spinner className="size-3" /> : null}
-            Run in background
-          </button>
-        </div>
-        </section>
+        <CreateFormActions
+          sectioned
+          status={error ?? undefined}
+          statusTone={error ? "destructive" : "muted"}
+          onCancel={() => setViewMode("queue")}
+          submitDisabled={!prompt.trim() || dispatching}
+          submitLabel={
+            <>
+              {dispatching ? <Spinner className="size-3" /> : null}
+              Run in background
+            </>
+          }
+        />
       </form>
       ) : null}
 

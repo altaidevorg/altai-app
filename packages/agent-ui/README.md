@@ -94,6 +94,7 @@ consumption of shared panel shells:
 | A5.12 | `AutomationScheduleFields` (+ `localDateTimeValue`) |
 | A5.13 | `ComposerFollowupBar` (steer / queue strip) |
 | A5.14 | `SurfaceFilterToolbar` (search + filter tabs strip) |
+| A5.15 | `CreateFormActions` (create-form cancel/submit footer) |
 
 Desktop must import shared components from this package; local duplicates are
 deleted as each slice lands.
