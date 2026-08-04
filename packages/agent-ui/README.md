@@ -87,6 +87,7 @@ consumption of shared panel shells:
 | A5.5 | `WorkHubNavigation` (Runs / Scheduled tab strip) |
 | A5.6 | `AutomationCard` (+ schedule/next/last-run label helpers) |
 | A5.7 | `ModelPickerPanel` (model dropdown popover body) |
+| A5.8 | `AgentOptionRow` (agent switcher option chrome) |
 
 Desktop must import shared components from this package; local duplicates are
 deleted as each slice lands.
