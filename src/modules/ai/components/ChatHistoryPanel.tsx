@@ -1,4 +1,5 @@
 import { cn } from "@/lib/utils";
+import { RowIconButton } from "@altai/agent-ui";
 import {
   Add01Icon,
   Cancel01Icon,
@@ -376,31 +377,4 @@ export function ChatHistoryPanel({
   );
 }
 
-function RowIconButton({
-  title,
-  onClick,
-  tone,
-  children,
-}: {
-  title: string;
-  onClick: (e: React.MouseEvent) => void;
-  tone?: "destructive";
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      title={title}
-      aria-label={title}
-      onClick={onClick}
-      className={cn(
-        "inline-flex size-5 items-center justify-center rounded transition-colors",
-        tone === "destructive"
-          ? "text-muted-foreground/80 hover:bg-destructive/10 hover:text-destructive"
-          : "text-muted-foreground/80 hover:bg-foreground/10 hover:text-foreground",
-      )}
-    >
-      {children}
-    </button>
-  );
-}
+
