@@ -312,6 +312,12 @@ export {
 } from "./components/SnapshotsInspector.js";
 
 export {
+  ActivityInspector,
+  type ActivityInspectorEvent,
+  type ActivityInspectorProps,
+} from "./components/ActivityInspector.js";
+
+export {
   formatRelativeTime,
   humanize,
 } from "./lib/inboxFormat.js";
