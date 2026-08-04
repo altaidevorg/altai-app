@@ -53,6 +53,7 @@ Incremental extraction of the Desktop `AiSidePanel` tree:
 | A4.36 | `TodosInspector` (run inspector todos panel) |
 | A4.37 | `AgentsInspector` (run inspector subagent task list) |
 | A4.38 | `ChangeReviewBanner` (queued edits review banner) |
+| A4.39 | `PlanModeStrip` (plan mode status strip) |
 
 Desktop must import shared components from this package; local duplicates are
 deleted as each slice lands.

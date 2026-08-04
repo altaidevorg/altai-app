@@ -44,6 +44,7 @@ import {
   EditApprovalCard,
   InspectorEmpty,
   InspectorMetric,
+  PlanModeStrip,
   RunStateMetric,
   SurfaceHeader,
   SurfaceSearch,
@@ -1599,6 +1600,8 @@ function Body({
   const respondToApproval = useChatStore((s) => s.respondToApproval);
   const patchAgentMeta = useChatStore((s) => s.patchAgentMeta);
   const reviewQueueLen = usePlanStore((s) => s.queue.length);
+  const planModeActive = usePlanStore((s) => s.active);
+  const disablePlanMode = usePlanStore((s) => s.disable);
 
   const displayMessages = nativeMessages;
   const displayStatus =
@@ -1614,7 +1617,14 @@ function Body({
       tabIndex={-1}
       className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
     >
-      <PlanModeStrip />
+      <PlanModeStrip
+        active={planModeActive}
+        queueLen={reviewQueueLen}
+        onReview={() =>
+          window.dispatchEvent(new CustomEvent("altai:open-change-review"))
+        }
+        onExit={() => disablePlanMode()}
+      />
 
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
         {displayMessages.length === 0 ? (
@@ -1872,41 +1882,6 @@ function ClarificationChoices() {
           {choice}
         </button>
       ))}
-    </div>
-  );
-}
-
-function PlanModeStrip() {
-  const active = usePlanStore((s) => s.active);
-  const queueLen = usePlanStore((s) => s.queue.length);
-  const disable = usePlanStore((s) => s.disable);
-  if (!active) return null;
-  return (
-    <div className="flex shrink-0 items-center gap-2 border-b border-border-subtle bg-warning/[0.035] px-3 py-1.5">
-      <span className="size-1.5 shrink-0 rounded-full bg-warning" />
-      <span className="text-[11px] font-medium text-foreground">Plan mode</span>
-      <span className="text-[11px] text-muted-foreground">
-        {queueLen > 0 ? `· ${queueLen} queued` : "· no edits queued"}
-      </span>
-      <span className="flex-1" />
-      {queueLen > 0 ? (
-        <button
-          type="button"
-          onClick={() =>
-            window.dispatchEvent(new CustomEvent("altai:open-change-review"))
-          }
-          className="rounded-md px-1.5 py-0.5 text-[10.5px] font-medium text-foreground transition-colors hover:bg-foreground/[0.06]"
-        >
-          Review
-        </button>
-      ) : null}
-      <button
-        type="button"
-        onClick={() => disable()}
-        className="rounded-md px-1.5 py-0.5 text-[10.5px] text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground"
-      >
-        Exit
-      </button>
     </div>
   );
 }
