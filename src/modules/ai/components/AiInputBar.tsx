@@ -17,6 +17,7 @@ import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useMemo, useRef, useState, type ReactElement } from "react";
 import {
   ComposerAttachChips,
+  ComposerConfigRow,
   ComposerFollowupBar,
   ComposerToolbarIcon,
   ContextAction,
@@ -510,22 +511,14 @@ export function AiInputBar() {
           />
         )}
 
-        <div
-          className={cn(
-            "altai-ai-composer-config grid w-full min-w-0 gap-1 border-t border-border-subtle px-2.5 py-1.5",
-            agentPickerEnabled ? "grid-cols-2" : "grid-cols-1",
-          )}
-          aria-label="Chat configuration"
-        >
-          {agentPickerEnabled && (
-            <span className="altai-ai-composer-config-item altai-ai-composer-agent inline-flex min-w-0">
-              <AgentSwitcher variant="toolbar" />
-            </span>
-          )}
-          <span className="altai-ai-composer-config-item altai-ai-composer-model inline-flex min-w-0">
+        <ComposerConfigRow
+          agentSlot={
+            agentPickerEnabled ? <AgentSwitcher variant="toolbar" /> : undefined
+          }
+          modelSlot={
             <ModelDropdown allowAuto className="w-full max-w-none" />
-          </span>
-        </div>
+          }
+        />
 
         <div className="altai-ai-composer-primary flex w-full min-w-0 items-center gap-1 border-t border-border-subtle px-2.5 py-1.5">
           <div className="altai-ai-composer-tools flex min-w-0 shrink-0 items-center gap-0.5 rounded-md bg-foreground/[0.035] p-0.5">
