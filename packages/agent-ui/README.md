@@ -77,6 +77,7 @@ Incremental extraction of the Desktop `AiSidePanel` tree:
 | A4.60 | `ComposerAttachChips` (composer attachment chip row) |
 | A4.61 | `CompactNowControl` (status-bar compact-context control) |
 | A4.62 | `ProviderConnectBanner` (connect-provider strip) |
+| A4.63 | `WorkspaceTargetForm` (choose-project dialog body) |
 
 Desktop must import shared components from this package; local duplicates are
 deleted as each slice lands.
