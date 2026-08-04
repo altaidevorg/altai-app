@@ -172,6 +172,11 @@ export {
   type TaskOutcomeProps,
 } from "./components/TaskOutcome.js";
 
+export {
+  InboxSection,
+  type InboxSectionProps,
+} from "./components/InboxSection.js";
+
 /** Re-export contract types so consumers can depend primarily on agent-ui. */
 export type {
   Capabilities,

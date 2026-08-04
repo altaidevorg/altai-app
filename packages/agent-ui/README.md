@@ -43,6 +43,7 @@ Incremental extraction of the Desktop `AiSidePanel` tree:
 | A4.26 | `IconBtn` (AI status bar ghost icon button) |
 | A4.27 | `ContextSourceToggle` (task runs context source toggle) |
 | A4.28 | `TaskOutcome` (task run outcome summary) |
+| A4.29 | `InboxSection` (inbox panel section wrapper) |
 
 Desktop must import shared components from this package; local duplicates are
 deleted as each slice lands.
