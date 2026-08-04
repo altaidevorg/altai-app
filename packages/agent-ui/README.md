@@ -60,6 +60,7 @@ Incremental extraction of the Desktop `AiSidePanel` tree:
 | A4.43 | `ChangesInspector` (run inspector queued changes summary) |
 | A4.44 | `ApprovalsInspector` (run inspector pending approvals) |
 | A4.45 | `ChatProjectTarget` (composer project target chip) |
+| A4.46 | `EmptyState` (empty chat home) |
 
 Desktop must import shared components from this package; local duplicates are
 deleted as each slice lands.
