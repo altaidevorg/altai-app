@@ -81,6 +81,7 @@ consumption of shared panel shells:
 | A4.63 | `WorkspaceTargetForm` (choose-project dialog body) |
 | A4.64 | `AiOpenControl` (status-bar show/hide AI toggle) |
 | A5.1 | `PlanDiffReviewPanel` (change-review centre shell) |
+| A5.2 | `NotificationInboxPanel` (agent inbox shell) |
 
 Desktop must import shared components from this package; local duplicates are
 deleted as each slice lands.

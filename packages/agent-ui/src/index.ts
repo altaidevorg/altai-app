@@ -385,6 +385,15 @@ export {
 } from "./components/PlanDiffReviewPanel.js";
 
 export {
+  NotificationInboxPanel,
+  type NotificationInboxFilter,
+  type NotificationInboxJobRow,
+  type NotificationInboxNotificationRow,
+  type NotificationInboxPanelProps,
+  type NotificationInboxTicketRow,
+} from "./components/NotificationInboxPanel.js";
+
+export {
   formatRelativeTime,
   humanize,
 } from "./lib/inboxFormat.js";
