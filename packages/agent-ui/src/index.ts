@@ -162,6 +162,11 @@ export {
   type IconBtnProps,
 } from "./components/IconBtn.js";
 
+export {
+  ContextSourceToggle,
+  type ContextSourceToggleProps,
+} from "./components/ContextSourceToggle.js";
+
 /** Re-export contract types so consumers can depend primarily on agent-ui. */
 export type {
   Capabilities,
