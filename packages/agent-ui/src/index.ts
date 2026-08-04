@@ -299,6 +299,12 @@ export {
 } from "./components/RunRecoveryActions.js";
 
 export {
+  ReviewHistory,
+  type ReviewHistoryItem,
+  type ReviewHistoryProps,
+} from "./components/ReviewHistory.js";
+
+export {
   formatRelativeTime,
   humanize,
 } from "./lib/inboxFormat.js";
