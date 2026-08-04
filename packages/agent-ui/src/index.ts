@@ -323,6 +323,12 @@ export {
 } from "./components/InspectorSection.js";
 
 export {
+  ChatTabStrip,
+  type ChatTabItem,
+  type ChatTabStripProps,
+} from "./components/ChatTabStrip.js";
+
+export {
   formatRelativeTime,
   humanize,
 } from "./lib/inboxFormat.js";

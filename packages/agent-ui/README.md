@@ -70,6 +70,7 @@ Incremental extraction of the Desktop `AiSidePanel` tree:
 | A4.53 | `SnapshotsInspector` (run inspector restore snapshots) |
 | A4.54 | `ActivityInspector` (run activity / timeline inspector) |
 | A4.55 | `InspectorSection` (run inspector collapsible section) |
+| A4.56 | `ChatTabStrip` (open-chat tab strip) |
 
 Desktop must import shared components from this package; local duplicates are
 deleted as each slice lands.

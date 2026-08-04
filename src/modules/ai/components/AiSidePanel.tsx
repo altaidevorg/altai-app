@@ -16,7 +16,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import {
-  Add01Icon,
   Cancel01Icon,
   Clock01Icon,
   CodeIcon,
@@ -38,6 +37,7 @@ import {
   ChangeReviewBanner,
   ChangesInspector,
   ChatProjectTarget,
+  ChatTabStrip,
   ClarificationChoices,
   EmptyState,
   InspectorEmpty,
@@ -661,7 +661,7 @@ function IconTooltip({ label, children }: { label: string; children: ReactElemen
  * matches the mental model used by coding-agent chat editors: tabs switch
  * context; the header opens auxiliary surfaces.
  */
-function ChatTabStrip({
+function ChatTabStripBridge({
   openChatIds,
   onSelect,
   onCloseChat,
@@ -677,75 +677,26 @@ function ChatTabStrip({
   const activeId = useChatStore((s) => s.activeSessionId);
   const sessions = useChatStore((s) => s.sessions);
   const switchSession = useChatStore((s) => s.switchSession);
-  const openSessions = openChatIds
+  const tabs = openChatIds
     .map((id) => sessions.find((session) => session.id === id))
-    .filter((session): session is NonNullable<typeof session> => Boolean(session));
-
-  const select = (id: string) => {
-    switchSession(id);
-    onSelect();
-  };
+    .filter((session): session is NonNullable<typeof session> => Boolean(session))
+    .map((session) => ({ id: session.id, title: session.title }));
 
   return (
-    <div
-      className={cn(
-        "altai-ai-chat-tabs flex h-10 min-w-0 items-center gap-1.5",
-        embedded
-          ? "flex-1 bg-transparent"
-          : "shrink-0 border-b border-border-subtle bg-card px-2.5",
+    <ChatTabStrip
+      tabs={tabs}
+      activeId={activeId}
+      embedded={embedded}
+      onSelect={(id) => {
+        switchSession(id);
+        onSelect();
+      }}
+      onClose={onCloseChat}
+      onNewChat={onNewChat}
+      renderTooltip={(label, children) => (
+        <IconTooltip label={label}>{children}</IconTooltip>
       )}
-    >
-      <div
-        role="tablist"
-        aria-label="Open chats"
-        className="flex min-w-0 shrink items-center gap-1 overflow-x-auto"
-      >
-        {openSessions.map((session) => (
-          <div
-            key={session.id}
-            className={cn(
-              "group flex h-7 max-w-44 shrink-0 items-center rounded-lg border text-[10.5px] transition-colors",
-              session.id === activeId
-                ? "border-border bg-muted/70 font-medium text-foreground"
-                : "border-transparent text-muted-foreground hover:border-border/60 hover:bg-accent hover:text-foreground",
-            )}
-          >
-            <button
-              id={`altai-chat-tab-${session.id}`}
-              type="button"
-              role="tab"
-              aria-controls="altai-active-chat"
-              aria-selected={session.id === activeId}
-              onClick={() => select(session.id)}
-              title={session.title || "New chat"}
-              className="h-full min-w-0 truncate px-2.5 text-left outline-none"
-            >
-              {session.title || "New chat"}
-            </button>
-            <IconTooltip label={`Close ${session.title || "new chat"}`}>
-              <button
-                type="button"
-                onClick={() => onCloseChat(session.id)}
-                aria-label={`Close ${session.title || "new chat"}`}
-                className="mr-1 inline-flex size-4 shrink-0 items-center justify-center rounded-md text-muted-foreground/70 hover:bg-foreground/[0.1] hover:text-foreground"
-              >
-                <HugeiconsIcon icon={Cancel01Icon} size={10} strokeWidth={2} />
-              </button>
-            </IconTooltip>
-          </div>
-        ))}
-      </div>
-      <IconTooltip label="New chat">
-        <button
-          type="button"
-          onClick={onNewChat}
-          aria-label="New chat"
-          className="inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground"
-        >
-          <HugeiconsIcon icon={Add01Icon} size={14} strokeWidth={1.75} />
-        </button>
-      </IconTooltip>
-    </div>
+    />
   );
 }
 
@@ -910,7 +861,7 @@ function WorkspaceTopbar({
       <div className="altai-ai-topbar flex shrink-0 flex-col border-b border-border-subtle bg-card">
         <div className="flex h-10 min-w-0 items-center gap-1.5 px-2.5">
           {historyControl}
-          <ChatTabStrip
+          <ChatTabStripBridge
             embedded
             openChatIds={openChatIds}
             onSelect={onSelectChat}
