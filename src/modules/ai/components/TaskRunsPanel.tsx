@@ -32,10 +32,8 @@ import {
 import {
   ArrowDown01Icon,
   ArrowLeft01Icon,
-  ArrowReloadHorizontalIcon,
   Attachment02Icon,
   CodeIcon,
-  Delete02Icon,
   File01Icon,
   Notebook01Icon,
   PlayIcon,
@@ -57,7 +55,7 @@ import {
   SurfaceSearch,
   SurfaceSectionHeader,
   SurfaceTabs,
-  TaskOutcome,
+  TaskRunCard,
 } from "@altai/agent-ui";
 
 const TERMINAL: AssignmentStatus[] = ["done", "failed", "cancelled"];
@@ -78,15 +76,6 @@ function currentStatus(
   if (run.status === "error") return "failed";
   return assignment.status;
 }
-
-const statusCopy: Record<AssignmentStatus, string> = {
-  dispatching: "Starting",
-  running: "Working",
-  "awaiting-approval": "Needs approval",
-  done: "Done",
-  failed: "Failed",
-  cancelled: "Stopped",
-};
 
 const TASK_TEMPLATES = [
   {
@@ -689,83 +678,62 @@ export function TaskRunsPanel({
               const active = ACTIVE_ASSIGNMENT_STATES.includes(status);
               const tokens = run ? run.tokens.input + run.tokens.output : 0;
               return (
-                <article key={task.id} className={cn("p-3", index > 0 && "border-t border-border-subtle")}>
-                  <div className="flex items-start gap-2">
-                    <span className={cn("mt-1.5 size-1.5 shrink-0 rounded-full", status === "failed" ? "bg-destructive" : status === "done" ? "bg-success" : status === "cancelled" ? "bg-muted-foreground/50" : "animate-pulse bg-info")} />
-                    <div className="min-w-0 flex-1">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          switchSession(task.sessionId);
-                          onClose();
-                        }}
-                        className="line-clamp-2 text-left text-[11.5px] font-medium leading-snug text-foreground hover:underline"
-                      >
-                        {task.title.replace(/^🤖\s*/, "")}
-                      </button>
-                      <p className="mt-1 text-[10px] text-muted-foreground">
-                        <span className={cn(status === "failed" && "text-destructive", status === "done" && "text-success")}>{statusCopy[status]}</span>
-                        {tokens ? ` · ${tokens >= 1000 ? `${(tokens / 1000).toFixed(1)}k` : tokens} tokens` : ""}
-                        {run?.subagents.length ? ` · ${run.subagents.length} agents` : ""}
-                        {task.runConfig?.agentId ? ` · ${agents.find((agent) => agent.id === task.runConfig?.agentId)?.name ?? "Custom agent"}` : ""}
-                        {task.runConfig?.modelId ? ` · ${MODELS.find((model) => model.id === task.runConfig?.modelId)?.label ?? task.runConfig.modelId}` : ""}
-                        {task.runConfig?.skills?.length ? ` · ${task.runConfig.skills.join(", ")}` : ""}
-                      </p>
-                    </div>
-                    <time
-                      dateTime={new Date(task.createdAt).toISOString()}
-                      className="shrink-0 text-[9px] tabular-nums text-muted-foreground/70"
-                    >
-                      {formatTaskAge(task.createdAt)}
-                    </time>
-                  </div>
-                  {active && run?.step ? <p className="mt-2 flex items-center gap-1.5 truncate rounded-md bg-muted/70 px-2 py-1.5 text-[10px] text-muted-foreground"><Spinner className="size-3 shrink-0" /> {run.step}</p> : null}
-                  {status === "done" && run?.lastResult ? <p className="mt-2 line-clamp-2 text-[10px] leading-relaxed text-muted-foreground">{run.lastResult}</p> : null}
-                  {(status === "done" || status === "failed") && run ? (
-                    <TaskOutcome
-                      changesCount={run.changes.length}
-                      checksPassed={run.verifications.filter((v) => v.status === "passed").length}
-                      checksFailed={run.verifications.filter((v) => v.status === "failed").length}
-                    />
-                  ) : null}
-                  <div className="mt-2 flex items-center gap-1">
-                    <button type="button" onClick={() => { switchSession(task.sessionId); onClose(); }} className="rounded-md px-2 py-1 text-[10px] font-medium text-muted-foreground hover:bg-muted hover:text-foreground">
-                      {activeSessionId === task.sessionId ? "Open now" : "Open transcript"}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => reuseTask(task)}
-                      className="rounded-md px-2 py-1 text-[10px] font-medium text-muted-foreground hover:bg-muted hover:text-foreground"
-                    >
-                      Reuse
-                    </button>
-                    {status === "failed" ? (
-                      <button
-                        type="button"
-                        disabled={dispatching}
-                        onClick={() => void retryTask(task)}
-                        className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-medium text-foreground hover:bg-muted disabled:opacity-45"
-                      >
-                        <HugeiconsIcon icon={ArrowReloadHorizontalIcon} size={10} strokeWidth={2} />
-                        Retry
-                      </button>
-                    ) : null}
-                    {active ? (
-                      <button type="button" onClick={() => void cancel(task.id)} className="ml-auto rounded-md px-2 py-1 text-[10px] font-medium text-destructive hover:bg-destructive/10">
-                        Stop
-                      </button>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={() => setRemoveTarget(task)}
-                        aria-label={`Remove ${task.title.replace(/^🤖\s*/, "")}`}
-                        className="ml-auto inline-flex size-6 items-center justify-center rounded-md text-muted-foreground/70 hover:bg-destructive/10 hover:text-destructive"
-                      >
-                        <HugeiconsIcon icon={Delete02Icon} size={11} strokeWidth={1.8} />
-                      </button>
-                    )}
-                  </div>
-                </article>
+                <TaskRunCard
+                  key={task.id}
+                  className={index > 0 ? "border-t border-border-subtle" : undefined}
+                  title={task.title.replace(/^🤖\s*/, "")}
+                  status={status}
+                  createdAtMs={task.createdAt}
+                  tokens={tokens}
+                  subagentCount={run?.subagents.length ?? 0}
+                  agentLabel={
+                    task.runConfig?.agentId
+                      ? (agents.find((agent) => agent.id === task.runConfig?.agentId)
+                          ?.name ?? "Custom agent")
+                      : undefined
+                  }
+                  modelLabel={
+                    task.runConfig?.modelId
+                      ? (MODELS.find((model) => model.id === task.runConfig?.modelId)
+                          ?.label ?? task.runConfig.modelId)
+                      : undefined
+                  }
+                  skillsLabel={
+                    task.runConfig?.skills?.length
+                      ? task.runConfig.skills.join(", ")
+                      : undefined
+                  }
+                  step={run?.step}
+                  lastResult={run?.lastResult}
+                  outcome={
+                    (status === "done" || status === "failed") && run
+                      ? {
+                          changesCount: run.changes.length,
+                          checksPassed: run.verifications.filter(
+                            (v) => v.status === "passed",
+                          ).length,
+                          checksFailed: run.verifications.filter(
+                            (v) => v.status === "failed",
+                          ).length,
+                        }
+                      : null
+                  }
+                  isOpenNow={activeSessionId === task.sessionId}
+                  active={active}
+                  busyRetry={dispatching}
+                  onOpen={() => {
+                    switchSession(task.sessionId);
+                    onClose();
+                  }}
+                  onReuse={() => reuseTask(task)}
+                  onRetry={
+                    status === "failed" ? () => void retryTask(task) : undefined
+                  }
+                  onStop={active ? () => void cancel(task.id) : undefined}
+                  onRemove={
+                    active ? undefined : () => setRemoveTarget(task)
+                  }
+                />
               );
             })}
                 </div>
@@ -807,15 +775,6 @@ export function TaskRunsPanel({
       </AlertDialog>
     </AuxiliarySurface>
   );
-}
-
-function formatTaskAge(timestamp: number): string {
-  const minutes = Math.max(0, Math.floor((Date.now() - timestamp) / 60_000));
-  if (minutes < 1) return "now";
-  if (minutes < 60) return `${minutes}m`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h`;
-  return `${Math.floor(hours / 24)}d`;
 }
 
 function contextFileName(path: string): string {

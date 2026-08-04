@@ -83,6 +83,7 @@ consumption of shared panel shells:
 | A5.1 | `PlanDiffReviewPanel` (change-review centre shell) |
 | A5.2 | `NotificationInboxPanel` (agent inbox shell) |
 | A5.3 | `ChatHistoryPanel` (+ session recency grouping helpers) |
+| A5.4 | `TaskRunCard` (+ `formatTaskAge`) |
 
 Desktop must import shared components from this package; local duplicates are
 deleted as each slice lands.
