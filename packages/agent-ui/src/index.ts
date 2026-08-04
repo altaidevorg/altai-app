@@ -191,6 +191,11 @@ export {
   type InspectorEmptyProps,
 } from "./components/InspectorEmpty.js";
 
+export {
+  ModelOption,
+  type ModelOptionProps,
+} from "./components/ModelOption.js";
+
 /** Re-export contract types so consumers can depend primarily on agent-ui. */
 export type {
   Capabilities,

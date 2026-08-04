@@ -47,6 +47,7 @@ Incremental extraction of the Desktop `AiSidePanel` tree:
 | A4.30 | `EmptyInbox` (inbox default empty state preset) |
 | A4.31 | `SessionRow` (chat history session row with rename/delete) |
 | A4.32 | `InspectorEmpty` (inspector section compact empty state) |
+| A4.33 | `ModelOption` (model dropdown list option row) |
 
 Desktop must import shared components from this package; local duplicates are
 deleted as each slice lands.
