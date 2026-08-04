@@ -30,12 +30,12 @@ import {
   ClarificationChoices,
   EmptyState,
   InspectorEmpty,
-  InspectorMetric,
   InspectorSection,
   McpInspector,
   PlanModeStrip,
   ResearchInspector,
   RunDetailsHeader,
+  RunOverviewCard,
   RunRecoveryActions,
   SnapshotsInspector,
   SurfaceSearch,
@@ -854,25 +854,28 @@ function RunInspector({ className, onClose }: { className?: string; onClose?: ()
       />
 
       <div className="min-h-0 flex-1 space-y-2.5 overflow-y-auto p-2.5">
-        <section className="rounded-lg border border-border bg-muted/30 p-3">
-          <div className="flex items-center gap-2">
-            <AgentStatusPill announce={false} />
-            <span className="ml-auto text-[9.5px] tabular-nums text-muted-foreground">
-              {tokenTotal ? `${tokenTotal.toLocaleString()} tokens` : "No usage yet"}
-            </span>
-          </div>
-          {meta.step ? (
-            <p className="mt-2 line-clamp-2 text-[10.5px] leading-relaxed text-foreground">
-              {meta.step}
-            </p>
-          ) : null}
-          <div className="mt-3 grid grid-cols-2 gap-px overflow-hidden rounded-md border border-border bg-border">
-            <InspectorMetric label="Plan" value={todos.length ? `${completedTodos}/${todos.length}` : "—"} />
-            <InspectorMetric label="Changes" value={String(planQueue.length)} />
-            <InspectorMetric label="Approvals" value={String(meta.pendingApprovals.length)} />
-            <InspectorMetric label="Subagents" value={String(meta.activeSubagents.length)} />
-          </div>
-        </section>
+        <RunOverviewCard
+          statusPill={<AgentStatusPill announce={false} />}
+          tokenLabel={
+            tokenTotal ? `${tokenTotal.toLocaleString()} tokens` : "No usage yet"
+          }
+          step={meta.step}
+          metrics={[
+            {
+              label: "Plan",
+              value: todos.length ? `${completedTodos}/${todos.length}` : "—",
+            },
+            { label: "Changes", value: String(planQueue.length) },
+            {
+              label: "Approvals",
+              value: String(meta.pendingApprovals.length),
+            },
+            {
+              label: "Subagents",
+              value: String(meta.activeSubagents.length),
+            },
+          ]}
+        />
 
         {meta.error ? (
           <section className="rounded-lg border border-destructive/30 bg-destructive/[0.06] p-3 text-[10.5px] leading-relaxed text-destructive">

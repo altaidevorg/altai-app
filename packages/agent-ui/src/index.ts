@@ -510,6 +510,12 @@ export {
 } from "./components/RunDetailsHeader.js";
 
 export {
+  RunOverviewCard,
+  type RunOverviewCardProps,
+  type RunOverviewMetric,
+} from "./components/RunOverviewCard.js";
+
+export {
   formatRelativeTime,
   humanize,
 } from "./lib/inboxFormat.js";
