@@ -206,6 +206,12 @@ export {
   type PlanRowProps,
 } from "./components/PlanRow.js";
 
+export {
+  TodosInspector,
+  type TodosInspectorItem,
+  type TodosInspectorProps,
+} from "./components/TodosInspector.js";
+
 /** Re-export contract types so consumers can depend primarily on agent-ui. */
 export type {
   Capabilities,
