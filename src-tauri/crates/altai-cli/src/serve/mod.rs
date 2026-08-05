@@ -86,6 +86,7 @@ pub async fn run(workspace: WorkspacePaths) -> Result<(), String> {
                                 "initialize",
                                 "workspace/status",
                                 "config/get",
+                                "config/update",
                                 "models/list",
                                 "agents/list",
                                 "sessions/list",
@@ -326,6 +327,33 @@ pub async fn run(workspace: WorkspacePaths) -> Result<(), String> {
                         .await?;
                     }
                 },
+                "config/update" if initialized => {
+                    let params = params
+                        .and_then(|value| value.as_object().cloned())
+                        .unwrap_or_default();
+                    match update_workspace_config(&workspace, &params) {
+                        Ok(()) => match load_run_configuration(&workspace) {
+                            Ok(configuration) => {
+                                respond(
+                                    &writer,
+                                    id,
+                                    Some(json!({
+                                        "model": configuration.model.map(|value| value.value).unwrap_or_else(|| "auto".to_string()),
+                                    })),
+                                    None,
+                                )
+                                .await?;
+                            }
+                            Err(error) => {
+                                eprintln!("altai-cli serve: could not reload configuration: {error}");
+                                respond(&writer, id, None, Some(error_value(-32603, "configuration_unavailable"))).await?;
+                            }
+                        },
+                        Err(error) => {
+                            respond(&writer, id, None, Some(error_value(-32602, &error))).await?;
+                        }
+                    }
+                }
                 "run/start" if initialized => {
                     handle_run_start(&service, &workspace, &writer, id, params).await?;
                 }
@@ -836,4 +864,57 @@ fn load_run_configuration(
         &workspace.root.join(".altai/config.toml"),
         &workspace.isanagent_state.join("config.toml"),
     )
+}
+
+fn update_workspace_config(
+    workspace: &WorkspacePaths,
+    params: &serde_json::Map<String, Value>,
+) -> Result<(), String> {
+    if params.len() != 1 || !params.contains_key("model") {
+        return Err("unsupported_config_patch".to_string());
+    }
+    let model = params
+        .get("model")
+        .and_then(Value::as_str)
+        .ok_or_else(|| "invalid_model".to_string())?
+        .trim();
+    if model.len() > 512 {
+        return Err("invalid_model".to_string());
+    }
+
+    let path = workspace.root.join(".altai/config.toml");
+    let source = if path.exists() {
+        std::fs::read_to_string(&path).map_err(|_| "configuration_unavailable".to_string())?
+    } else {
+        String::new()
+    };
+    let mut document = if source.trim().is_empty() {
+        toml::Value::Table(toml::map::Map::new())
+    } else {
+        source
+            .parse::<toml::Value>()
+            .map_err(|_| "configuration_invalid".to_string())?
+    };
+    let root = document
+        .as_table_mut()
+        .ok_or_else(|| "configuration_invalid".to_string())?;
+    let agent = root
+        .entry("agent")
+        .or_insert_with(|| toml::Value::Table(toml::map::Map::new()))
+        .as_table_mut()
+        .ok_or_else(|| "configuration_invalid".to_string())?;
+    if model.is_empty() || model == "auto" {
+        agent.remove("model");
+    } else {
+        agent.insert("model".to_string(), toml::Value::String(model.to_string()));
+    }
+    let parent = path.parent().ok_or_else(|| "configuration_unavailable".to_string())?;
+    std::fs::create_dir_all(parent).map_err(|_| "configuration_unavailable".to_string())?;
+    let temporary = path.with_extension("toml.tmp");
+    let serialized = toml::to_string(&document)
+        .map_err(|_| "configuration_unavailable".to_string())?;
+    std::fs::write(&temporary, serialized)
+        .map_err(|_| "configuration_unavailable".to_string())?;
+    std::fs::rename(&temporary, &path).map_err(|_| "configuration_unavailable".to_string())?;
+    Ok(())
 }

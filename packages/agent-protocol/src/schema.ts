@@ -14,7 +14,7 @@ export const JsonRpcErrorCode = {
 } as const;
 
 const REQUEST_METHODS = new Set([
-  "initialize", "workspace/status", "config/get", "models/list", "agents/list", "sessions/list", "sessions/get", "sessions/create", "run/start", "run/steer", "run/cancel", "run/replay", "clarification/respond", "context/compact", "checkpoints/list", "checkpoints/restore", "shutdown",
+  "initialize", "workspace/status", "config/get", "config/update", "models/list", "agents/list", "sessions/list", "sessions/get", "sessions/create", "run/start", "run/steer", "run/cancel", "run/replay", "clarification/respond", "context/compact", "checkpoints/list", "checkpoints/restore", "shutdown",
 ]);
 const NOTIFICATION_METHODS = new Set(["run/event", "workspace/changed", "host/log", "host/status"]);
 
