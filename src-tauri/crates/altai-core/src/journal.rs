@@ -709,10 +709,23 @@ impl EventJournal {
         let created_at_ms = now_ms();
         let connection = self.connection.lock().map_err(|_| JournalError::LockPoisoned)?;
         connection.execute(
-            "INSERT INTO agent_event_journal_task_runs (chat_id, title, created_at_ms) VALUES (?1, ?2, ?3)",
+            "INSERT INTO agent_event_journal_task_runs (chat_id, title, created_at_ms)
+             VALUES (?1, ?2, ?3)
+             ON CONFLICT(chat_id) DO NOTHING",
             params![chat_id, title, created_at_ms],
         )?;
-        Ok(TaskRunJournalMetadata { chat_id: chat_id.to_string(), title: title.to_string(), created_at_ms: u64::try_from(created_at_ms).map_err(|_| JournalError::NumericOverflow("created_at_ms"))? })
+        let stored: (String, String, i64) = connection.query_row(
+            "SELECT chat_id, title, created_at_ms
+             FROM agent_event_journal_task_runs WHERE chat_id = ?1",
+            params![chat_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )?;
+        Ok(TaskRunJournalMetadata {
+            chat_id: stored.0,
+            title: stored.1,
+            created_at_ms: u64::try_from(stored.2)
+                .map_err(|_| JournalError::NumericOverflow("created_at_ms"))?,
+        })
     }
 
     pub fn list_task_runs(&self, limit: usize) -> JournalResult<Vec<TaskRunJournalMetadata>> {
@@ -1163,6 +1176,8 @@ mod tests {
     fn task_run_metadata_is_durable_and_removable() {
         let journal = EventJournal::open_in_memory().expect("journal");
         journal.create_task_run("task-chat", "Review pull request").expect("create task");
+        let replayed = journal.create_task_run("task-chat", "Different title").expect("idempotent task");
+        assert_eq!(replayed.title, "Review pull request");
         assert_eq!(journal.list_task_runs(10).expect("list")[0].title, "Review pull request");
         assert!(journal.remove_task_run("task-chat").expect("remove task"));
         assert!(journal.list_task_runs(10).expect("list").is_empty());
