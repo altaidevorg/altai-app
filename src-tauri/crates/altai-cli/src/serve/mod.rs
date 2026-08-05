@@ -92,6 +92,8 @@ pub async fn run(workspace: WorkspacePaths) -> Result<(), String> {
                                 "sessions/list",
                                 "sessions/get",
                                 "sessions/create",
+                                "sessions/messages",
+                                "sessions/truncate",
                                 "run/start",
                                 "run/cancel",
                                 "run/steer",
@@ -266,6 +268,12 @@ pub async fn run(workspace: WorkspacePaths) -> Result<(), String> {
                             .await?;
                         }
                     }
+                }
+                "sessions/messages" if initialized => {
+                    handle_session_messages(&host, &writer, id, params).await?;
+                }
+                "sessions/truncate" if initialized => {
+                    handle_session_truncate(&host, &run_coordinator, &writer, id, params).await?;
                 }
                 "agents/list" if initialized => {
                     respond(
@@ -755,6 +763,162 @@ async fn handle_run_start(
                 id,
                 None,
                 Some(error_value(-32603, "run_start_failed")),
+            )
+            .await
+        }
+    }
+}
+
+fn valid_session_chat_id(chat_id: &str) -> bool {
+    !chat_id.trim().is_empty() && chat_id.len() <= 256 && !chat_id.contains(':')
+}
+
+async fn handle_session_messages(
+    host: &Arc<StdioHost>,
+    writer: &Writer,
+    id: Value,
+    params: Option<Value>,
+) -> Result<(), String> {
+    let params = params
+        .and_then(|value| value.as_object().cloned())
+        .unwrap_or_default();
+    let chat_id = params.get("chat_id").and_then(Value::as_str).unwrap_or("");
+    if !valid_session_chat_id(chat_id) {
+        return respond(
+            writer,
+            id,
+            None,
+            Some(error_value(-32602, "invalid_chat_id")),
+        )
+        .await;
+    }
+
+    match host.get_session_messages(chat_id).await {
+        Ok(messages) => {
+            let mut user_turn = 0_usize;
+            let messages = messages
+                .into_iter()
+                .enumerate()
+                .map(|(index, message)| {
+                    let message_id = if message.role == "user" {
+                        user_turn += 1;
+                        format!("user:{user_turn}")
+                    } else {
+                        format!("message:{}", index + 1)
+                    };
+                    json!({
+                        "id": message_id,
+                        "role": message.role,
+                        "content": session_message_content(&message),
+                    })
+                })
+                .collect::<Vec<_>>();
+            respond(writer, id, Some(json!({"messages": messages})), None).await
+        }
+        Err(error) => {
+            eprintln!("altai-cli serve: could not load session messages: {error}");
+            respond(
+                writer,
+                id,
+                None,
+                Some(error_value(-32603, "session_memory_unavailable")),
+            )
+            .await
+        }
+    }
+}
+
+/// IsanAgent prepends host-derived runtime context to stored inbound user
+/// messages. That prompt is model-facing metadata, not chat transcript text.
+fn session_message_content(message: &isanagent::utils::ChatMessage) -> String {
+    let content = message
+        .content
+        .as_ref()
+        .map(|content| content.text_content())
+        .unwrap_or_default();
+    if message.role == "user" {
+        return content
+            .strip_prefix("[RUNTIME CONTEXT]")
+            .and_then(|_| content.split_once("---ISANAGENT_RUNTIME_CONTEXT_END---\n\n"))
+            .map(|(_, prompt)| prompt.to_string())
+            .unwrap_or(content);
+    }
+    content
+}
+
+async fn handle_session_truncate(
+    host: &Arc<StdioHost>,
+    run_coordinator: &SharedRunCoordinator,
+    writer: &Writer,
+    id: Value,
+    params: Option<Value>,
+) -> Result<(), String> {
+    let params = params
+        .and_then(|value| value.as_object().cloned())
+        .unwrap_or_default();
+    let chat_id = params.get("chat_id").and_then(Value::as_str).unwrap_or("");
+    let keep_user_messages = params.get("keep_user_messages").and_then(Value::as_u64);
+    let Some(keep_user_messages) = keep_user_messages else {
+        return respond(
+            writer,
+            id,
+            None,
+            Some(error_value(-32602, "invalid_session_truncate_params")),
+        )
+        .await;
+    };
+    let Ok(keep_user_messages) = usize::try_from(keep_user_messages) else {
+        return respond(
+            writer,
+            id,
+            None,
+            Some(error_value(-32602, "invalid_session_truncate_params")),
+        )
+        .await;
+    };
+    if !valid_session_chat_id(chat_id) {
+        return respond(
+            writer,
+            id,
+            None,
+            Some(error_value(-32602, "invalid_chat_id")),
+        )
+        .await;
+    }
+    if coordinator_guard(run_coordinator)
+        .active_runs()
+        .into_iter()
+        .any(|(active_chat_id, _, _)| active_chat_id == chat_id)
+    {
+        return respond(
+            writer,
+            id,
+            None,
+            Some(error_value(-32002, "session_run_active")),
+        )
+        .await;
+    }
+
+    match host
+        .truncate_session_after_user_message(chat_id, keep_user_messages)
+        .await
+    {
+        Ok(deleted_messages) => {
+            respond(
+                writer,
+                id,
+                Some(json!({"deleted_messages": deleted_messages})),
+                None,
+            )
+            .await
+        }
+        Err(error) => {
+            eprintln!("altai-cli serve: could not truncate session: {error}");
+            respond(
+                writer,
+                id,
+                None,
+                Some(error_value(-32603, "session_memory_unavailable")),
             )
             .await
         }
