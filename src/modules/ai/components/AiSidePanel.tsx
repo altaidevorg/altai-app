@@ -34,6 +34,7 @@ import {
   McpInspector,
   PlanModeStrip,
   ResearchInspector,
+  RunActionRequiredSection,
   RunBlockedBanner,
   RunDetailsHeader,
   RunOverviewCard,
@@ -881,15 +882,12 @@ function RunInspector({ className, onClose }: { className?: string; onClose?: ()
         {meta.error ? <RunBlockedBanner message={meta.error} /> : null}
 
         {meta.pendingApprovals.length ? (
-          <section>
-            <div className="mb-1.5 px-1 text-[9px] font-semibold uppercase tracking-[0.12em] text-warning">
-              Action required
-            </div>
+          <RunActionRequiredSection>
             <ApprovalsInspector
               approvals={meta.pendingApprovals}
               onRespond={respondToApproval}
             />
-          </section>
+          </RunActionRequiredSection>
         ) : null}
 
         <InspectorSection

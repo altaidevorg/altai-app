@@ -105,6 +105,7 @@ consumption of shared panel shells:
 | A5.23 | `ConversationOwnerSection` (automation owner chat) |
 | A5.24 | `SurfaceInlineError` (dismissible list error strip) |
 | A5.25 | `SurfaceLoadingState` (queue/list loading chrome) |
+| A5.26 | `RunActionRequiredSection` (approvals section chrome) |
 
 Desktop must import shared components from this package; local duplicates are
 deleted as each slice lands.

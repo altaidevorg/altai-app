@@ -543,6 +543,11 @@ export {
 } from "./components/SurfaceLoadingState.js";
 
 export {
+  RunActionRequiredSection,
+  type RunActionRequiredSectionProps,
+} from "./components/RunActionRequiredSection.js";
+
+export {
   formatRelativeTime,
   humanize,
 } from "./lib/inboxFormat.js";
