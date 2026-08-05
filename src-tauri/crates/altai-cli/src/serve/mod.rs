@@ -2,6 +2,7 @@ use std::io;
 use std::sync::{Arc, Mutex};
 
 use altai_agent_service::{coordinator_guard, AgentService, DocumentPart, RunCoordinator, SharedRunCoordinator};
+use altai_agent_service::mcp::McpServerConfig;
 use base64::Engine;
 use altai_core::EventJournal;
 use altai_core::WorkspacePaths;
@@ -99,6 +100,7 @@ pub async fn run(workspace: WorkspacePaths) -> Result<(), String> {
                                 "providers/status",
                                 "providers/connect",
                                 "providers/clear",
+                                "mcp/servers/list", "mcp/servers/configure", "mcp/servers/enable", "mcp/servers/restart",
                                 "work/tasks/list",
                                 "work/tasks/create",
                                 "work/tasks/cancel",
@@ -588,6 +590,33 @@ pub async fn run(workspace: WorkspacePaths) -> Result<(), String> {
                         }
                     }
                 }
+                "mcp/servers/list" if initialized => match host.list_mcp_servers().await {
+                    Ok((servers, statuses)) => {
+                        let status_by_id: std::collections::HashMap<_, _> = statuses.into_iter().map(|status| (status.server_id.clone(), status)).collect();
+                        let servers = servers.into_iter().map(|server| { let status = status_by_id.get(&server.id); json!({"id": server.id, "name": server.name, "enabled": server.enabled, "connected": status.is_some_and(|status| status.state == altai_agent_service::mcp::McpState::Connected), "error": status.and_then(|status| status.last_error.clone())}) }).collect::<Vec<_>>();
+                        respond(&writer, id, Some(json!({"servers": servers})), None).await?;
+                    }
+                    Err(error) => respond(&writer, id, None, Some(error_value(-32603, &error))).await?,
+                },
+                "mcp/servers/configure" if initialized => {
+                    let Some(mut params) = params.and_then(|value| value.as_object().cloned()) else { respond(&writer, id, None, Some(error_value(-32602, "invalid_mcp_server"))).await?; continue; };
+                    let Some(server_id) = params.remove("id").and_then(|value| value.as_str().map(str::to_string)) else { respond(&writer, id, None, Some(error_value(-32602, "invalid_mcp_server"))).await?; continue; };
+                    let Some(mut config) = params.remove("config").and_then(|value| value.as_object().cloned()) else { respond(&writer, id, None, Some(error_value(-32602, "invalid_mcp_server"))).await?; continue; };
+                    config.insert("id".to_string(), Value::String(server_id));
+                    match serde_json::from_value::<McpServerConfig>(Value::Object(config)) {
+                        Ok(server) => match host.configure_mcp_server(server.clone()).await { Ok(()) => respond(&writer, id, Some(json!({"id": server.id, "name": server.name, "enabled": server.enabled, "connected": false})), None).await?, Err(error) => respond(&writer, id, None, Some(error_value(-32602, &error))).await? },
+                        Err(_) => respond(&writer, id, None, Some(error_value(-32602, "invalid_mcp_server"))).await?,
+                    }
+                },
+                "mcp/servers/enable" if initialized => {
+                    let server_id = params.as_ref().and_then(Value::as_object).and_then(|object| object.get("id")).and_then(Value::as_str).unwrap_or("");
+                    let Some(enabled) = params.as_ref().and_then(Value::as_object).and_then(|object| object.get("enabled")).and_then(Value::as_bool) else { respond(&writer, id, None, Some(error_value(-32602, "invalid_mcp_enable"))).await?; continue; };
+                    match host.set_mcp_server_enabled(server_id, enabled).await { Ok(()) => respond(&writer, id, Some(json!({"id": server_id, "enabled": enabled})), None).await?, Err(error) => respond(&writer, id, None, Some(error_value(-32602, &error))).await? }
+                },
+                "mcp/servers/restart" if initialized => {
+                    let server_id = params.as_ref().and_then(Value::as_object).and_then(|object| object.get("id")).and_then(Value::as_str).unwrap_or("");
+                    match host.restart_mcp_server(server_id).await { Ok(result) => respond(&writer, id, Some(json!({"id": server_id, "connected": true, "tool_count": result.tools.len()})), None).await?, Err(error) => respond(&writer, id, None, Some(error_value(-32603, &error))).await? }
+                },
                 "work/tasks/list" if initialized => {
                     handle_task_list(&workspace, &writer, id).await?;
                 }

@@ -34,14 +34,6 @@ pub use altai_agent_service::{
 #[allow(unused_imports)]
 pub use altai_agent_service::EditDiffPayload;
 
-/// Wall-clock epoch millis for advisory MCP status timestamps.
-pub(crate) fn now_epoch_ms() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as u64)
-        .unwrap_or(0)
-}
-
 struct WorkspaceIngress {
     chat_id: String,
     inbound: isanagent::bus::InboundMessage,
