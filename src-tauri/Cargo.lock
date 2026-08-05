@@ -221,6 +221,7 @@ dependencies = [
  "altai-core",
  "altai-protocol",
  "async-trait",
+ "base64 0.22.1",
  "chrono",
  "clap",
  "clap_complete",

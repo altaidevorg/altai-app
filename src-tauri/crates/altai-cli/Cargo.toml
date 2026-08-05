@@ -15,6 +15,7 @@ altai-core = { path = "../altai-core" }
 altai-agent-service = { path = "../altai-agent-service" }
 altai-protocol = { path = "../altai-protocol" }
 async-trait = "0.1"
+base64 = "0.22"
 clap = { version = "4.6.1", features = ["derive"] }
 clap_complete = "4.6.0"
 isanagent = { git = "https://github.com/altaidevorg/isanagent.git", branch = "main" }
