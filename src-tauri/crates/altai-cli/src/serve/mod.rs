@@ -1,9 +1,7 @@
 use std::io;
 use std::sync::{Arc, Mutex};
 
-use altai_agent_service::{
-    coordinator_guard, AgentService, RunCoordinator, SharedRunCoordinator,
-};
+use altai_agent_service::{coordinator_guard, AgentService, RunCoordinator, SharedRunCoordinator};
 use altai_core::EventJournal;
 use altai_core::WorkspacePaths;
 use altai_protocol::{
@@ -27,7 +25,10 @@ pub async fn run(workspace: WorkspacePaths) -> Result<(), String> {
         event_sink.clone() as Arc<dyn altai_agent_service::AgentEventSink>,
         run_coordinator.clone(),
     ));
-    let service = Arc::new(AgentService::with_coordinator(host.clone(), run_coordinator.clone()));
+    let service = Arc::new(AgentService::with_coordinator(
+        host.clone(),
+        run_coordinator.clone(),
+    ));
 
     let mut stdin = tokio::io::stdin();
     let mut decoder = FrameDecoder::new(FrameLimits::default());
@@ -89,6 +90,11 @@ pub async fn run(workspace: WorkspacePaths) -> Result<(), String> {
                                 "config/update",
                                 "models/list",
                                 "providers/status",
+                                "work/tasks/list",
+                                "work/tasks/create",
+                                "work/tasks/cancel",
+                                "work/tasks/retry",
+                                "work/tasks/remove",
                                 "agents/list",
                                 "sessions/list",
                                 "sessions/get",
@@ -151,22 +157,48 @@ pub async fn run(workspace: WorkspacePaths) -> Result<(), String> {
                         .await?;
                         continue;
                     }
-                    let title = params.get("title").and_then(Value::as_str).unwrap_or("New chat");
+                    let title = params
+                        .get("title")
+                        .and_then(Value::as_str)
+                        .unwrap_or("New chat");
                     if title.trim().is_empty() || title.len() > 256 {
-                        respond(&writer, id, None, Some(error_value(-32602, "invalid_session_title"))).await?;
+                        respond(
+                            &writer,
+                            id,
+                            None,
+                            Some(error_value(-32602, "invalid_session_title")),
+                        )
+                        .await?;
                         continue;
                     }
                     let journal = match EventJournal::open(workspace.agent_event_journal_db()) {
                         Ok(journal) => journal,
                         Err(error) => {
                             eprintln!("altai-cli serve: could not open session journal: {error}");
-                            respond(&writer, id, None, Some(error_value(-32603, "journal_unavailable"))).await?;
+                            respond(
+                                &writer,
+                                id,
+                                None,
+                                Some(error_value(-32603, "journal_unavailable")),
+                            )
+                            .await?;
                             continue;
                         }
                     };
                     match journal.create_session(chat_id, title.trim()) {
-                        Ok(session) => respond(&writer, id, Some(session_metadata_value(session)), None).await?,
-                        Err(_) => respond(&writer, id, None, Some(error_value(-32602, "session_already_exists"))).await?,
+                        Ok(session) => {
+                            respond(&writer, id, Some(session_metadata_value(session)), None)
+                                .await?
+                        }
+                        Err(_) => {
+                            respond(
+                                &writer,
+                                id,
+                                None,
+                                Some(error_value(-32602, "session_already_exists")),
+                            )
+                            .await?
+                        }
                     }
                 }
                 "sessions/list" if initialized => {
@@ -205,18 +237,28 @@ pub async fn run(workspace: WorkspacePaths) -> Result<(), String> {
                                 .map(|session| {
                                     let chat_id = session.chat_id.clone();
                                     let mut response = session_metadata_value(session);
-                                    if let Ok(Some(summary)) = journal.latest_run_summary_for_chat(&chat_id) {
+                                    if let Ok(Some(summary)) =
+                                        journal.latest_run_summary_for_chat(&chat_id)
+                                    {
                                         if let Some(record) = response.as_object_mut() {
-                                            record.insert("latest_run_id".to_string(), json!(summary.run_id));
-                                            record.insert("last_seq".to_string(), json!(summary.last_seq));
-                                            record.insert("terminal_seq".to_string(), json!(summary.terminal_seq));
+                                            record.insert(
+                                                "latest_run_id".to_string(),
+                                                json!(summary.run_id),
+                                            );
+                                            record.insert(
+                                                "last_seq".to_string(),
+                                                json!(summary.last_seq),
+                                            );
+                                            record.insert(
+                                                "terminal_seq".to_string(),
+                                                json!(summary.terminal_seq),
+                                            );
                                         }
                                     }
                                     response
                                 })
                                 .collect::<Vec<_>>();
-                            respond(&writer, id, Some(json!({"sessions": sessions})), None)
-                                .await?;
+                            respond(&writer, id, Some(json!({"sessions": sessions})), None).await?;
                         }
                         Err(error) => {
                             eprintln!("altai-cli serve: could not list sessions: {error}");
@@ -262,11 +304,16 @@ pub async fn run(workspace: WorkspacePaths) -> Result<(), String> {
                     match journal.session_metadata(chat_id) {
                         Ok(Some(session)) => {
                             let mut response = session_metadata_value(session);
-                            if let Ok(Some(summary)) = journal.latest_run_summary_for_chat(chat_id) {
+                            if let Ok(Some(summary)) = journal.latest_run_summary_for_chat(chat_id)
+                            {
                                 if let Some(record) = response.as_object_mut() {
-                                    record.insert("latest_run_id".to_string(), json!(summary.run_id));
+                                    record
+                                        .insert("latest_run_id".to_string(), json!(summary.run_id));
                                     record.insert("last_seq".to_string(), json!(summary.last_seq));
-                                    record.insert("terminal_seq".to_string(), json!(summary.terminal_seq));
+                                    record.insert(
+                                        "terminal_seq".to_string(),
+                                        json!(summary.terminal_seq),
+                                    );
                                 }
                             }
                             respond(&writer, id, Some(response), None).await?;
@@ -293,7 +340,16 @@ pub async fn run(workspace: WorkspacePaths) -> Result<(), String> {
                     }
                 }
                 "sessions/rename" | "sessions/archive" | "sessions/delete" if initialized => {
-                    handle_session_mutation(&host, &workspace, &run_coordinator, &writer, id, method.as_str(), params).await?;
+                    handle_session_mutation(
+                        &host,
+                        &workspace,
+                        &run_coordinator,
+                        &writer,
+                        id,
+                        method.as_str(),
+                        params,
+                    )
+                    .await?;
                 }
                 "sessions/messages" if initialized => {
                     handle_session_messages(&host, &writer, id, params).await?;
@@ -302,21 +358,53 @@ pub async fn run(workspace: WorkspacePaths) -> Result<(), String> {
                     handle_session_truncate(&host, &run_coordinator, &writer, id, params).await?;
                 }
                 "inbox/list" if initialized => {
-                    let unseen_only = params.as_ref().and_then(Value::as_object).and_then(|value| value.get("unseen_only")).and_then(Value::as_bool).unwrap_or(false);
+                    let unseen_only = params
+                        .as_ref()
+                        .and_then(Value::as_object)
+                        .and_then(|value| value.get("unseen_only"))
+                        .and_then(Value::as_bool)
+                        .unwrap_or(false);
                     match host.list_notifications(unseen_only).await {
-                        Ok(notifications) => respond(&writer, id, Some(json!({"notifications": notifications})), None).await?,
+                        Ok(notifications) => {
+                            respond(
+                                &writer,
+                                id,
+                                Some(json!({"notifications": notifications})),
+                                None,
+                            )
+                            .await?
+                        }
                         Err(error) => {
                             eprintln!("altai-cli serve: could not list inbox: {error}");
-                            respond(&writer, id, None, Some(error_value(-32603, "inbox_unavailable"))).await?;
+                            respond(
+                                &writer,
+                                id,
+                                None,
+                                Some(error_value(-32603, "inbox_unavailable")),
+                            )
+                            .await?;
                         }
                     }
                 }
                 "inbox/mark-seen" | "inbox/resolve" if initialized => {
-                    let notification_id = params.as_ref().and_then(Value::as_object).and_then(|value| value.get("notification_id")).and_then(Value::as_str).unwrap_or("");
-                    let result = if method == "inbox/resolve" { host.resolve_notification(notification_id).await } else { host.mark_notification_seen(notification_id).await };
+                    let notification_id = params
+                        .as_ref()
+                        .and_then(Value::as_object)
+                        .and_then(|value| value.get("notification_id"))
+                        .and_then(Value::as_str)
+                        .unwrap_or("");
+                    let result = if method == "inbox/resolve" {
+                        host.resolve_notification(notification_id).await
+                    } else {
+                        host.mark_notification_seen(notification_id).await
+                    };
                     match result {
-                        Ok(()) => respond(&writer, id, Some(json!({"accepted": true})), None).await?,
-                        Err(error) => respond(&writer, id, None, Some(error_value(-32002, &error))).await?,
+                        Ok(()) => {
+                            respond(&writer, id, Some(json!({"accepted": true})), None).await?
+                        }
+                        Err(error) => {
+                            respond(&writer, id, None, Some(error_value(-32002, &error))).await?
+                        }
                     }
                 }
                 "agents/list" if initialized => {
@@ -372,13 +460,38 @@ pub async fn run(workspace: WorkspacePaths) -> Result<(), String> {
                                 }]
                             })),
                             None,
-                        ).await?;
+                        )
+                        .await?;
                     }
                     Err(error) => {
-                        eprintln!("altai-cli serve: could not load provider configuration: {error}");
-                        respond(&writer, id, None, Some(error_value(-32603, "configuration_unavailable"))).await?;
+                        eprintln!(
+                            "altai-cli serve: could not load provider configuration: {error}"
+                        );
+                        respond(
+                            &writer,
+                            id,
+                            None,
+                            Some(error_value(-32603, "configuration_unavailable")),
+                        )
+                        .await?;
                     }
                 },
+                "work/tasks/list" if initialized => {
+                    handle_task_list(&workspace, &writer, id).await?;
+                }
+                "work/tasks/create" if initialized => {
+                    handle_task_create(&service, &workspace, &writer, id, params).await?;
+                }
+                "work/tasks/cancel" if initialized => {
+                    handle_task_cancel(&service, &event_sink, &workspace, &writer, id, params)
+                        .await?;
+                }
+                "work/tasks/retry" if initialized => {
+                    handle_task_retry(&service, &host, &workspace, &writer, id, params).await?;
+                }
+                "work/tasks/remove" if initialized => {
+                    handle_task_remove(&workspace, &run_coordinator, &writer, id, params).await?;
+                }
                 "config/get" if initialized => match load_run_configuration(&workspace) {
                     Ok(configuration) => {
                         respond(
@@ -429,8 +542,16 @@ pub async fn run(workspace: WorkspacePaths) -> Result<(), String> {
                                 .await?;
                             }
                             Err(error) => {
-                                eprintln!("altai-cli serve: could not reload configuration: {error}");
-                                respond(&writer, id, None, Some(error_value(-32603, "configuration_unavailable"))).await?;
+                                eprintln!(
+                                    "altai-cli serve: could not reload configuration: {error}"
+                                );
+                                respond(
+                                    &writer,
+                                    id,
+                                    None,
+                                    Some(error_value(-32603, "configuration_unavailable")),
+                                )
+                                .await?;
                             }
                         },
                         Err(error) => {
@@ -468,13 +589,7 @@ pub async fn run(workspace: WorkspacePaths) -> Result<(), String> {
                             respond(&writer, id, Some(json!({"accepted": true})), None).await?;
                         }
                         Err(error) => {
-                            respond(
-                                &writer,
-                                id,
-                                None,
-                                Some(error_value(-32002, &error)),
-                            )
-                            .await?;
+                            respond(&writer, id, None, Some(error_value(-32002, &error))).await?;
                         }
                     }
                 }
@@ -526,20 +641,38 @@ pub async fn run(workspace: WorkspacePaths) -> Result<(), String> {
                         .and_then(|value| value.as_object().cloned())
                         .unwrap_or_default();
                     let chat_id = params.get("chat_id").and_then(Value::as_str).unwrap_or("");
-                    let action = params.get("action").and_then(Value::as_str).unwrap_or("reply");
+                    let action = params
+                        .get("action")
+                        .and_then(Value::as_str)
+                        .unwrap_or("reply");
                     let text = params.get("text").and_then(Value::as_str).unwrap_or("");
-                    if chat_id.trim().is_empty() || chat_id.len() > 256 || !matches!(action, "reply" | "dismiss") || (action == "reply" && (text.trim().is_empty() || text.len() > 16_384)) {
-                        respond(&writer, id, None, Some(error_value(-32602, "invalid_clarification_response"))).await?;
+                    if chat_id.trim().is_empty()
+                        || chat_id.len() > 256
+                        || !matches!(action, "reply" | "dismiss")
+                        || (action == "reply" && (text.trim().is_empty() || text.len() > 16_384))
+                    {
+                        respond(
+                            &writer,
+                            id,
+                            None,
+                            Some(error_value(-32602, "invalid_clarification_response")),
+                        )
+                        .await?;
                         continue;
                     }
                     let result = if action == "dismiss" {
                         host.dismiss_clarification(chat_id).await
                     } else {
-                        host.deliver_clarification_reply(chat_id, text.to_string()).await
+                        host.deliver_clarification_reply(chat_id, text.to_string())
+                            .await
                     };
                     match result {
-                        Ok(()) => respond(&writer, id, Some(json!({"accepted": true})), None).await?,
-                        Err(error) => respond(&writer, id, None, Some(error_value(-32002, &error))).await?,
+                        Ok(()) => {
+                            respond(&writer, id, Some(json!({"accepted": true})), None).await?
+                        }
+                        Err(error) => {
+                            respond(&writer, id, None, Some(error_value(-32002, &error))).await?
+                        }
                     }
                 }
                 "context/compact" if initialized => {
@@ -574,13 +707,7 @@ pub async fn run(workspace: WorkspacePaths) -> Result<(), String> {
                             respond(&writer, id, Some(json!({"accepted": true})), None).await?;
                         }
                         Err(error) => {
-                            respond(
-                                &writer,
-                                id,
-                                None,
-                                Some(error_value(-32002, &error)),
-                            )
-                            .await?;
+                            respond(&writer, id, None, Some(error_value(-32002, &error))).await?;
                         }
                     }
                 }
@@ -686,6 +813,349 @@ fn session_metadata_value(session: altai_core::SessionJournalMetadata) -> Value 
     })
 }
 
+fn task_status(summary: Option<&altai_core::RunJournalSummary>) -> &'static str {
+    let Some(summary) = summary else {
+        return "queued";
+    };
+    if summary.terminal_seq.is_none() {
+        return "running";
+    }
+    match summary
+        .terminal_payload
+        .as_ref()
+        .and_then(|value| value.pointer("/outcome/kind"))
+        .and_then(Value::as_str)
+    {
+        Some("cancelled") => "cancelled",
+        Some("failed") | Some("error") => "failed",
+        _ => "succeeded",
+    }
+}
+
+async fn handle_task_list(
+    workspace: &WorkspacePaths,
+    writer: &Writer,
+    id: Value,
+) -> Result<(), String> {
+    let journal = match EventJournal::open(workspace.agent_event_journal_db()) {
+        Ok(journal) => journal,
+        Err(_) => {
+            return respond(
+                writer,
+                id,
+                None,
+                Some(error_value(-32603, "journal_unavailable")),
+            )
+            .await
+        }
+    };
+    let tasks = match journal.list_task_runs(200) {
+        Ok(tasks) => tasks,
+        Err(_) => {
+            return respond(
+                writer,
+                id,
+                None,
+                Some(error_value(-32603, "journal_unavailable")),
+            )
+            .await
+        }
+    }
+    .into_iter()
+    .map(|task| {
+        let summary = journal
+            .latest_run_summary_for_chat(&task.chat_id)
+            .ok()
+            .flatten();
+        json!({"id": task.chat_id, "chat_id": task.chat_id, "title": task.title,
+               "status": task_status(summary.as_ref()), "created_at_ms": task.created_at_ms})
+    })
+    .collect::<Vec<_>>();
+    respond(writer, id, Some(json!({"task_runs": tasks})), None).await
+}
+
+async fn handle_task_create(
+    service: &Arc<AgentService<StdioHost>>,
+    workspace: &WorkspacePaths,
+    writer: &Writer,
+    id: Value,
+    params: Option<Value>,
+) -> Result<(), String> {
+    let Some(params) = params.and_then(|value| value.as_object().cloned()) else {
+        return respond(
+            writer,
+            id,
+            None,
+            Some(error_value(-32602, "invalid_task_params")),
+        )
+        .await;
+    };
+    let chat_id = params.get("chat_id").and_then(Value::as_str).unwrap_or("");
+    let title = params
+        .get("task_title")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .unwrap_or("")
+        .to_string();
+    let prompt = params.get("prompt").and_then(Value::as_str).unwrap_or("");
+    if !valid_session_chat_id(chat_id)
+        || title.is_empty()
+        || title.len() > 256
+        || prompt.trim().is_empty()
+        || prompt.len() > 16_384
+    {
+        return respond(
+            writer,
+            id,
+            None,
+            Some(error_value(-32602, "invalid_task_params")),
+        )
+        .await;
+    }
+    let mut start_params = params;
+    start_params.insert("task_title".to_string(), Value::String(title));
+    handle_run_start(
+        service,
+        workspace,
+        writer,
+        id,
+        Some(Value::Object(start_params)),
+    )
+    .await
+}
+
+async fn handle_task_cancel(
+    service: &Arc<AgentService<StdioHost>>,
+    event_sink: &Arc<StdioEventSink>,
+    workspace: &WorkspacePaths,
+    writer: &Writer,
+    id: Value,
+    params: Option<Value>,
+) -> Result<(), String> {
+    let task_id = params
+        .as_ref()
+        .and_then(Value::as_object)
+        .and_then(|value| value.get("task_id"))
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    if !valid_session_chat_id(task_id) {
+        return respond(
+            writer,
+            id,
+            None,
+            Some(error_value(-32602, "invalid_task_id")),
+        )
+        .await;
+    }
+    let journal = match EventJournal::open(workspace.agent_event_journal_db()) {
+        Ok(journal) => journal,
+        Err(_) => {
+            return respond(
+                writer,
+                id,
+                None,
+                Some(error_value(-32603, "journal_unavailable")),
+            )
+            .await
+        }
+    };
+    let summary = match journal.latest_run_summary_for_chat(task_id) {
+        Ok(Some(summary)) if summary.terminal_seq.is_none() => summary,
+        Ok(Some(_)) => {
+            return respond(
+                writer,
+                id,
+                None,
+                Some(error_value(-32002, "task_run_not_active")),
+            )
+            .await
+        }
+        Ok(None) => {
+            return respond(
+                writer,
+                id,
+                None,
+                Some(error_value(-32002, "task_run_not_found")),
+            )
+            .await
+        }
+        Err(_) => {
+            return respond(
+                writer,
+                id,
+                None,
+                Some(error_value(-32603, "journal_unavailable")),
+            )
+            .await
+        }
+    };
+    let terminal_still_open = event_sink.claim_cancel(&summary.run_id);
+    match service
+        .route_cancel(task_id.to_string(), summary.run_id)
+        .await
+    {
+        Ok(_) => respond(writer, id, Some(json!({"accepted": true})), None).await,
+        Err(_) if terminal_still_open => {
+            respond(writer, id, Some(json!({"accepted": true})), None).await
+        }
+        Err(_) => {
+            respond(
+                writer,
+                id,
+                None,
+                Some(error_value(-32002, "task_run_not_active")),
+            )
+            .await
+        }
+    }
+}
+
+async fn handle_task_retry(
+    service: &Arc<AgentService<StdioHost>>,
+    host: &Arc<StdioHost>,
+    workspace: &WorkspacePaths,
+    writer: &Writer,
+    id: Value,
+    params: Option<Value>,
+) -> Result<(), String> {
+    let task_id = params
+        .as_ref()
+        .and_then(Value::as_object)
+        .and_then(|value| value.get("task_id"))
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    if !valid_session_chat_id(task_id) {
+        return respond(
+            writer,
+            id,
+            None,
+            Some(error_value(-32602, "invalid_task_id")),
+        )
+        .await;
+    }
+    let journal = match EventJournal::open(workspace.agent_event_journal_db()) {
+        Ok(journal) => journal,
+        Err(_) => {
+            return respond(
+                writer,
+                id,
+                None,
+                Some(error_value(-32603, "journal_unavailable")),
+            )
+            .await
+        }
+    };
+    let summary = match journal.latest_run_summary_for_chat(task_id) {
+        Ok(Some(summary)) if summary.terminal_seq.is_some() => summary,
+        Ok(Some(_)) => {
+            return respond(
+                writer,
+                id,
+                None,
+                Some(error_value(-32002, "task_run_not_terminal")),
+            )
+            .await
+        }
+        Ok(None) => {
+            return respond(
+                writer,
+                id,
+                None,
+                Some(error_value(-32002, "task_run_not_found")),
+            )
+            .await
+        }
+        Err(_) => {
+            return respond(
+                writer,
+                id,
+                None,
+                Some(error_value(-32603, "journal_unavailable")),
+            )
+            .await
+        }
+    };
+    handle_run_retry(
+        service,
+        host,
+        workspace,
+        writer,
+        id,
+        Some(json!({"chat_id": task_id, "run_id": summary.run_id})),
+    )
+    .await
+}
+
+async fn handle_task_remove(
+    workspace: &WorkspacePaths,
+    run_coordinator: &SharedRunCoordinator,
+    writer: &Writer,
+    id: Value,
+    params: Option<Value>,
+) -> Result<(), String> {
+    let task_id = params
+        .as_ref()
+        .and_then(Value::as_object)
+        .and_then(|value| value.get("task_id"))
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    if task_id.trim().is_empty() || task_id.len() > 256 {
+        return respond(
+            writer,
+            id,
+            None,
+            Some(error_value(-32602, "invalid_task_id")),
+        )
+        .await;
+    }
+    if coordinator_guard(run_coordinator)
+        .active_runs()
+        .into_iter()
+        .any(|(chat_id, _, _)| chat_id == task_id)
+    {
+        return respond(
+            writer,
+            id,
+            None,
+            Some(error_value(-32002, "task_run_active")),
+        )
+        .await;
+    }
+    let journal = match EventJournal::open(workspace.agent_event_journal_db()) {
+        Ok(journal) => journal,
+        Err(_) => {
+            return respond(
+                writer,
+                id,
+                None,
+                Some(error_value(-32603, "journal_unavailable")),
+            )
+            .await
+        }
+    };
+    match journal.remove_task_run(task_id) {
+        Ok(true) => respond(writer, id, Some(json!({"removed": true})), None).await,
+        Ok(false) => {
+            respond(
+                writer,
+                id,
+                None,
+                Some(error_value(-32002, "task_run_not_found")),
+            )
+            .await
+        }
+        Err(_) => {
+            respond(
+                writer,
+                id,
+                None,
+                Some(error_value(-32603, "journal_unavailable")),
+            )
+            .await
+        }
+    }
+}
+
 async fn handle_session_mutation(
     host: &Arc<StdioHost>,
     workspace: &WorkspacePaths,
@@ -695,50 +1165,142 @@ async fn handle_session_mutation(
     method: &str,
     params: Option<Value>,
 ) -> Result<(), String> {
-    let params = params.and_then(|value| value.as_object().cloned()).unwrap_or_default();
+    let params = params
+        .and_then(|value| value.as_object().cloned())
+        .unwrap_or_default();
     let chat_id = params.get("chat_id").and_then(Value::as_str).unwrap_or("");
     if chat_id.trim().is_empty() || chat_id.len() > 256 {
-        return respond(writer, id, None, Some(error_value(-32602, "invalid_chat_id"))).await;
+        return respond(
+            writer,
+            id,
+            None,
+            Some(error_value(-32602, "invalid_chat_id")),
+        )
+        .await;
     }
     let journal = match EventJournal::open(workspace.agent_event_journal_db()) {
         Ok(journal) => journal,
         Err(error) => {
             eprintln!("altai-cli serve: could not open session journal: {error}");
-            return respond(writer, id, None, Some(error_value(-32603, "journal_unavailable"))).await;
+            return respond(
+                writer,
+                id,
+                None,
+                Some(error_value(-32603, "journal_unavailable")),
+            )
+            .await;
         }
     };
     match method {
         "sessions/rename" => {
             let title = params.get("title").and_then(Value::as_str).unwrap_or("");
             match journal.rename_session(chat_id, title.trim()) {
-                Ok(Some(session)) => respond(writer, id, Some(session_metadata_value(session)), None).await,
-                Ok(None) => respond(writer, id, None, Some(error_value(-32002, "session_not_found"))).await,
-                Err(_) => respond(writer, id, None, Some(error_value(-32602, "invalid_session_title"))).await,
+                Ok(Some(session)) => {
+                    respond(writer, id, Some(session_metadata_value(session)), None).await
+                }
+                Ok(None) => {
+                    respond(
+                        writer,
+                        id,
+                        None,
+                        Some(error_value(-32002, "session_not_found")),
+                    )
+                    .await
+                }
+                Err(_) => {
+                    respond(
+                        writer,
+                        id,
+                        None,
+                        Some(error_value(-32602, "invalid_session_title")),
+                    )
+                    .await
+                }
             }
         }
         "sessions/archive" => match journal.archive_session(chat_id) {
-            Ok(Some(session)) => respond(writer, id, Some(session_metadata_value(session)), None).await,
-            Ok(None) => respond(writer, id, None, Some(error_value(-32002, "session_not_found"))).await,
-            Err(_) => respond(writer, id, None, Some(error_value(-32602, "invalid_chat_id"))).await,
+            Ok(Some(session)) => {
+                respond(writer, id, Some(session_metadata_value(session)), None).await
+            }
+            Ok(None) => {
+                respond(
+                    writer,
+                    id,
+                    None,
+                    Some(error_value(-32002, "session_not_found")),
+                )
+                .await
+            }
+            Err(_) => {
+                respond(
+                    writer,
+                    id,
+                    None,
+                    Some(error_value(-32602, "invalid_chat_id")),
+                )
+                .await
+            }
         },
         "sessions/delete" => {
-            if coordinator_guard(run_coordinator).active_runs().into_iter().any(|(active_chat_id, _, _)| active_chat_id == chat_id) {
-                return respond(writer, id, None, Some(error_value(-32002, "session_run_active"))).await;
+            if coordinator_guard(run_coordinator)
+                .active_runs()
+                .into_iter()
+                .any(|(active_chat_id, _, _)| active_chat_id == chat_id)
+            {
+                return respond(
+                    writer,
+                    id,
+                    None,
+                    Some(error_value(-32002, "session_run_active")),
+                )
+                .await;
             }
-            if journal.session_metadata(chat_id).map_err(|error| error.to_string())?.is_none() {
-                return respond(writer, id, None, Some(error_value(-32002, "session_not_found"))).await;
+            if journal
+                .session_metadata(chat_id)
+                .map_err(|error| error.to_string())?
+                .is_none()
+            {
+                return respond(
+                    writer,
+                    id,
+                    None,
+                    Some(error_value(-32002, "session_not_found")),
+                )
+                .await;
             }
             host.delete_session_memory(chat_id).await?;
             match journal.delete_session(chat_id) {
                 Ok(true) => respond(writer, id, Some(json!({"deleted": true})), None).await,
-                Ok(false) => respond(writer, id, None, Some(error_value(-32002, "session_not_found"))).await,
+                Ok(false) => {
+                    respond(
+                        writer,
+                        id,
+                        None,
+                        Some(error_value(-32002, "session_not_found")),
+                    )
+                    .await
+                }
                 Err(error) => {
                     eprintln!("altai-cli serve: could not delete session: {error}");
-                    respond(writer, id, None, Some(error_value(-32603, "journal_unavailable"))).await
+                    respond(
+                        writer,
+                        id,
+                        None,
+                        Some(error_value(-32603, "journal_unavailable")),
+                    )
+                    .await
                 }
             }
         }
-        _ => respond(writer, id, None, Some(error_value(-32004, "capability_unavailable"))).await,
+        _ => {
+            respond(
+                writer,
+                id,
+                None,
+                Some(error_value(-32004, "capability_unavailable")),
+            )
+            .await
+        }
     }
 }
 
@@ -804,13 +1366,7 @@ async fn handle_run_start(
         .and_then(Value::as_str)
         .filter(|value| *value != "auto");
     if model.is_some_and(|value| value.trim().is_empty() || value.len() > 512) {
-        return respond(
-            writer,
-            id,
-            None,
-            Some(error_value(-32602, "invalid_model")),
-        )
-        .await;
+        return respond(writer, id, None, Some(error_value(-32602, "invalid_model"))).await;
     }
     let permission = params
         .get("permission")
@@ -842,8 +1398,8 @@ async fn handle_run_start(
         .or_else(|_| std::env::var("OPENAI_API_KEY"))
         .unwrap_or_default();
     // Scripted CI/test runs intentionally omit provider credentials.
-    let scripted = cfg!(debug_assertions)
-        && std::env::var_os("ALTAI_CLI_TEST_SCRIPTED_RESPONSE").is_some();
+    let scripted =
+        cfg!(debug_assertions) && std::env::var_os("ALTAI_CLI_TEST_SCRIPTED_RESPONSE").is_some();
     if api_key.trim().is_empty() && !scripted {
         return respond(
             writer,
@@ -860,6 +1416,19 @@ async fn handle_run_start(
         .get("queue")
         .and_then(Value::as_bool)
         .unwrap_or(false);
+    let task_title = params
+        .get("task_title")
+        .and_then(Value::as_str)
+        .map(str::trim);
+    if task_title.is_some_and(|title| title.is_empty() || title.len() > 256) {
+        return respond(
+            writer,
+            id,
+            None,
+            Some(error_value(-32602, "invalid_task_title")),
+        )
+        .await;
+    }
 
     // Admission returns once the user message is on the bus; the agent loop
     // continues in the background and emits framed `run/event` notifications.
@@ -877,20 +1446,49 @@ async fn handle_run_start(
             prompt,
             Vec::new(),
             Vec::new(),
-            chat_id,
+            chat_id.clone(),
             queue,
         )
         .await
     {
         Ok(ack) => {
+            if let Some(title) = task_title {
+                let journal = match EventJournal::open(workspace.agent_event_journal_db()) {
+                    Ok(journal) => journal,
+                    Err(error) => {
+                        eprintln!("altai-cli serve: could not open task journal: {error}");
+                        return respond(
+                            writer,
+                            id,
+                            None,
+                            Some(error_value(-32603, "journal_unavailable")),
+                        )
+                        .await;
+                    }
+                };
+                if let Err(error) = journal.create_task_run(&chat_id, title) {
+                    eprintln!("altai-cli serve: could not persist task run: {error}");
+                    return respond(
+                        writer,
+                        id,
+                        None,
+                        Some(error_value(-32603, "journal_unavailable")),
+                    )
+                    .await;
+                }
+            }
+            let mut result = json!({
+                "accepted": true,
+                "run_id": ack.run_id,
+                "queued": ack.queued,
+            });
+            if task_title.is_some() {
+                result["task_id"] = Value::String(chat_id);
+            }
             respond(
                 writer,
                 id,
-                Some(json!({
-                    "accepted": true,
-                    "run_id": ack.run_id,
-                    "queued": ack.queued,
-                })),
+                Some(result),
                 None,
             )
             .await
@@ -1300,9 +1898,16 @@ fn update_workspace_config(
         return Err("unsupported_config_patch".to_string());
     }
     let model = params.get("model").and_then(Value::as_str).map(str::trim);
-    let permission = params.get("permission").and_then(Value::as_str).map(str::trim);
-    if model.is_some_and(|value| value.len() > 512) { return Err("invalid_model".to_string()); }
-    if permission.is_some_and(|value| !matches!(value, "ask" | "auto-edit" | "plan")) { return Err("invalid_permission".to_string()); }
+    let permission = params
+        .get("permission")
+        .and_then(Value::as_str)
+        .map(str::trim);
+    if model.is_some_and(|value| value.len() > 512) {
+        return Err("invalid_model".to_string());
+    }
+    if permission.is_some_and(|value| !matches!(value, "ask" | "auto-edit" | "plan")) {
+        return Err("invalid_permission".to_string());
+    }
 
     let path = workspace.root.join(".altai/config.toml");
     let source = if path.exists() {
@@ -1326,18 +1931,26 @@ fn update_workspace_config(
         .as_table_mut()
         .ok_or_else(|| "configuration_invalid".to_string())?;
     if let Some(model) = model {
-        if model.is_empty() || model == "auto" { agent.remove("model"); } else { agent.insert("model".to_string(), toml::Value::String(model.to_string())); }
+        if model.is_empty() || model == "auto" {
+            agent.remove("model");
+        } else {
+            agent.insert("model".to_string(), toml::Value::String(model.to_string()));
+        }
     }
     if let Some(permission) = permission {
-        agent.insert("permission_mode".to_string(), toml::Value::String(permission.to_string()));
+        agent.insert(
+            "permission_mode".to_string(),
+            toml::Value::String(permission.to_string()),
+        );
     }
-    let parent = path.parent().ok_or_else(|| "configuration_unavailable".to_string())?;
+    let parent = path
+        .parent()
+        .ok_or_else(|| "configuration_unavailable".to_string())?;
     std::fs::create_dir_all(parent).map_err(|_| "configuration_unavailable".to_string())?;
     let temporary = path.with_extension("toml.tmp");
-    let serialized = toml::to_string(&document)
-        .map_err(|_| "configuration_unavailable".to_string())?;
-    std::fs::write(&temporary, serialized)
-        .map_err(|_| "configuration_unavailable".to_string())?;
+    let serialized =
+        toml::to_string(&document).map_err(|_| "configuration_unavailable".to_string())?;
+    std::fs::write(&temporary, serialized).map_err(|_| "configuration_unavailable".to_string())?;
     std::fs::rename(&temporary, &path).map_err(|_| "configuration_unavailable".to_string())?;
     Ok(())
 }
