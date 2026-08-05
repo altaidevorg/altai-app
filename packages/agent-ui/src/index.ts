@@ -428,6 +428,13 @@ export {
 } from "./components/OperationsNavigationShell.js";
 
 export {
+  OperationsOverview,
+  type OperationsOverviewMetric,
+  type OperationsOverviewProps,
+  type OperationsOverviewRow,
+} from "./components/OperationsOverview.js";
+
+export {
   AutomationCard,
   automationLastRunLabel,
   automationNextRunLabel,
