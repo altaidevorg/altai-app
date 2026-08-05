@@ -46,11 +46,11 @@ import {
 import {
   AuxiliarySurface,
   SurfaceEmptyState,
-  SurfaceSectionHeader,
   CreateFormActions,
   PromptEditorSection,
   SurfaceFilteredEmpty,
   SurfaceFilterToolbar,
+  SurfaceListGroup,
   SurfaceLoadingState,
   SurfacePrimaryAction,
   SurfaceSecondaryAction,
@@ -532,14 +532,12 @@ export function TaskRunsPanel({
         ) : (
           <div className="space-y-5">
             {taskGroups.map((group) => (
-              <section key={group.id}>
-                <SurfaceSectionHeader
-                  title={group.title}
-                  description={group.description}
-                  count={group.items.length}
-                  className="mb-2 px-0.5"
-                />
-                <div className="overflow-hidden rounded-lg border border-border bg-card">
+              <SurfaceListGroup
+                key={group.id}
+                title={group.title}
+                description={group.description}
+                count={group.items.length}
+              >
             {group.items.map(({ task, status }, index) => {
               const run = runs[task.sessionId];
               const active = ACTIVE_ASSIGNMENT_STATES.includes(status);
@@ -603,8 +601,7 @@ export function TaskRunsPanel({
                 />
               );
             })}
-                </div>
-              </section>
+              </SurfaceListGroup>
             ))}
           </div>
         )}
@@ -682,5 +679,4 @@ async function addSelectedContext(
   }
   return blocks.length ? `${prompt.trim()}\n\n<selected-context>\n${blocks.join("\n\n")}\n</selected-context>` : prompt;
 }
-
 

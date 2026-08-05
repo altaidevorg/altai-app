@@ -543,6 +543,11 @@ export {
 } from "./components/SurfaceLoadingState.js";
 
 export {
+  SurfaceListGroup,
+  type SurfaceListGroupProps,
+} from "./components/SurfaceListGroup.js";
+
+export {
   RunActionRequiredSection,
   type RunActionRequiredSectionProps,
 } from "./components/RunActionRequiredSection.js";

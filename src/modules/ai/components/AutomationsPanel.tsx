@@ -45,10 +45,10 @@ import {
   SurfaceFilterToolbar,
   SurfaceIconAction,
   SurfaceInlineError,
+  SurfaceListGroup,
   SurfaceLoadingState,
   SurfacePrimaryAction,
   SurfaceSecondaryAction,
-  SurfaceSectionHeader,
 } from "@altai/agent-ui";
 
 type ScheduleMode = "at" | "every";
@@ -389,14 +389,13 @@ export function AutomationsPanel({
             }}
           />
         ) : (
-          <section>
-            <SurfaceSectionHeader
-              title="Workspace schedules"
-              description="Ordered by the next expected run"
-              count={visibleItems.length}
-              className="mb-2 px-0.5"
-            />
-          <ul className="overflow-hidden rounded-lg border border-border bg-card" aria-label="Workspace automations">
+          <SurfaceListGroup
+            title="Workspace schedules"
+            description="Ordered by the next expected run"
+            count={visibleItems.length}
+            containerAs="ul"
+            containerAriaLabel="Workspace automations"
+          >
             {visibleItems.map((item, index) => {
               const pending = Boolean(pendingIds[`remove:${item.id}`]);
               const job = jobsByAutomationId[item.id];
@@ -421,8 +420,7 @@ export function AutomationsPanel({
                 />
               );
             })}
-          </ul>
-          </section>
+          </SurfaceListGroup>
         )}
       </div>
       ) : null}
