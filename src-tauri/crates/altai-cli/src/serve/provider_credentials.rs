@@ -5,11 +5,17 @@
 //! provider is configured.  The Webview therefore cannot retrieve a stored
 //! credential even when it asks the Extension Host to initiate a connection.
 
+#[cfg(not(windows))]
 use std::collections::HashMap;
+#[cfg(not(windows))]
 use std::path::PathBuf;
 
+#[cfg(not(windows))]
 const CREDENTIALS_FILE: &str = "agent-host-credentials.json";
+#[cfg(windows)]
+const CREDENTIAL_SERVICE: &str = "altai-agent-host";
 
+#[cfg(not(windows))]
 fn credentials_path() -> Result<PathBuf, String> {
     if let Some(directory) = std::env::var_os("ALTAI_CLI_CREDENTIALS_DIR") {
         return Ok(PathBuf::from(directory).join(CREDENTIALS_FILE));
@@ -19,6 +25,7 @@ fn credentials_path() -> Result<PathBuf, String> {
         .ok_or_else(|| "credential_store_unavailable".to_string())
 }
 
+#[cfg(not(windows))]
 fn read_store() -> Result<HashMap<String, String>, String> {
     let path = credentials_path()?;
     if !path.exists() {
@@ -28,6 +35,7 @@ fn read_store() -> Result<HashMap<String, String>, String> {
     serde_json::from_slice(&contents).map_err(|_| "credential_store_unavailable".to_string())
 }
 
+#[cfg(not(windows))]
 fn write_store(credentials: &HashMap<String, String>) -> Result<(), String> {
     let path = credentials_path()?;
     let parent = path
@@ -75,11 +83,25 @@ pub fn validate_provider_id(provider_id: &str) -> Result<&str, &'static str> {
     Ok(provider_id)
 }
 
+#[cfg(not(windows))]
 pub fn get(provider_id: &str) -> Result<Option<String>, String> {
     let provider_id = validate_provider_id(provider_id).map_err(str::to_string)?;
     Ok(read_store()?.remove(provider_id))
 }
 
+#[cfg(windows)]
+pub fn get(provider_id: &str) -> Result<Option<String>, String> {
+    let provider_id = validate_provider_id(provider_id).map_err(str::to_string)?;
+    let entry = keyring::Entry::new(CREDENTIAL_SERVICE, provider_id)
+        .map_err(|_| "credential_store_unavailable".to_string())?;
+    match entry.get_password() {
+        Ok(credential) => Ok(Some(credential)),
+        Err(keyring::Error::NoEntry) => Ok(None),
+        Err(_) => Err("credential_store_unavailable".to_string()),
+    }
+}
+
+#[cfg(not(windows))]
 pub fn set(provider_id: &str, credential: &str) -> Result<(), String> {
     let provider_id = validate_provider_id(provider_id).map_err(str::to_string)?;
     if credential.trim().is_empty() || credential.len() > 16 * 1024 {
@@ -90,11 +112,35 @@ pub fn set(provider_id: &str, credential: &str) -> Result<(), String> {
     write_store(&credentials)
 }
 
+#[cfg(windows)]
+pub fn set(provider_id: &str, credential: &str) -> Result<(), String> {
+    let provider_id = validate_provider_id(provider_id).map_err(str::to_string)?;
+    if credential.trim().is_empty() || credential.len() > 16 * 1024 {
+        return Err("invalid_provider_credential".to_string());
+    }
+    keyring::Entry::new(CREDENTIAL_SERVICE, provider_id)
+        .map_err(|_| "credential_store_unavailable".to_string())?
+        .set_password(credential.trim())
+        .map_err(|_| "credential_store_unavailable".to_string())
+}
+
+#[cfg(not(windows))]
 pub fn delete(provider_id: &str) -> Result<(), String> {
     let provider_id = validate_provider_id(provider_id).map_err(str::to_string)?;
     let mut credentials = read_store()?;
     credentials.remove(provider_id);
     write_store(&credentials)
+}
+
+#[cfg(windows)]
+pub fn delete(provider_id: &str) -> Result<(), String> {
+    let provider_id = validate_provider_id(provider_id).map_err(str::to_string)?;
+    let entry = keyring::Entry::new(CREDENTIAL_SERVICE, provider_id)
+        .map_err(|_| "credential_store_unavailable".to_string())?;
+    match entry.delete_credential() {
+        Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
+        Err(_) => Err("credential_store_unavailable".to_string()),
+    }
 }
 
 #[cfg(test)]

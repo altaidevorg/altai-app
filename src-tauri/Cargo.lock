@@ -227,6 +227,7 @@ dependencies = [
  "clap_complete",
  "dirs 5.0.1",
  "isanagent",
+ "keyring",
  "log",
  "serde",
  "serde_json",
