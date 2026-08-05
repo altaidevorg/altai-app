@@ -20,11 +20,28 @@ jobs:
         id: filter
         with:
           filters: |
+            # Desktop host dependency closure: the Tauri package itself plus
+            # the two shared crates it links. Keep platform-specific compile
+            # and lifecycle coverage on every relevant PR.
             native:
-              - 'src-tauri/**'
+              - 'src-tauri/Cargo.toml'
+              - 'src-tauri/Cargo.lock'
+              - 'src-tauri/build.rs'
+              - 'src-tauri/tauri.conf.json'
+              - 'src-tauri/capabilities/**'
+              - 'src-tauri/src/**'
+              - 'src-tauri/crates/altai-core/**'
+              - 'src-tauri/crates/altai-agent-service/**'
               - '.github/workflows/ci.yml'
+            # CLI dependency closure. Desktop-only Rust changes do not need
+            # to pay for a release CLI build on three operating systems.
             cli:
-              - 'src-tauri/**'
+              - 'src-tauri/Cargo.toml'
+              - 'src-tauri/Cargo.lock'
+              - 'src-tauri/crates/altai-cli/**'
+              - 'src-tauri/crates/altai-core/**'
+              - 'src-tauri/crates/altai-agent-service/**'
+              - 'src-tauri/crates/altai-protocol/**'
               - 'scripts/stage-altai-cli.mjs'
               - '.github/workflows/ci.yml'
 
@@ -101,7 +118,8 @@ jobs:
           cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings
           cargo test --manifest-path src-tauri/Cargo.toml
 
-  frontend:
+  frontend-static:
+    name: frontend static
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -118,10 +136,27 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm exec tsc --noEmit
       - run: pnpm lint
-      - run: pnpm test
       # TypeScript was checked above; call Vite directly so `pnpm build`
       # (`tsc && vite build`) does not type-check the whole app a second time.
       - run: pnpm exec vite build
+
+  frontend-tests:
+    name: frontend tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test
 
   cli-smoke:
     name: altai-cli smoke (${{ matrix.label }})
