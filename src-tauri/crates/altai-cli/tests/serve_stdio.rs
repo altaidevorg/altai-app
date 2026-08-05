@@ -151,8 +151,10 @@ fn clarification_response_rejects_a_non_pending_ticket() {
     assert_eq!(process.next()["id"], 1);
     process.frame(json!({"jsonrpc":"2.0","id":2,"method":"clarification/respond","params":{"chat_id":"chat-test","text":"yes"}}));
     assert_eq!(process.next()["error"]["message"], "clarification_not_pending");
-    process.frame(json!({"jsonrpc":"2.0","id":3,"method":"shutdown"}));
-    assert_eq!(process.next()["id"], 3);
+    process.frame(json!({"jsonrpc":"2.0","id":3,"method":"clarification/respond","params":{"chat_id":"chat-test","action":"dismiss"}}));
+    assert_eq!(process.next()["error"]["message"], "clarification_not_pending");
+    process.frame(json!({"jsonrpc":"2.0","id":4,"method":"shutdown"}));
+    assert_eq!(process.next()["id"], 4);
     let _stderr = process.shutdown();
 }
 

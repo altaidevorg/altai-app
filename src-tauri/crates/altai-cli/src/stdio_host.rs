@@ -86,6 +86,21 @@ impl StdioHost {
         }
     }
 
+    /// Dismiss a live clarification exactly once.
+    pub async fn dismiss_clarification(&self, chat_id: &str) -> Result<(), String> {
+        let workspace_root = self.workspace.root.to_string_lossy().to_string();
+        let services = self.workspace_bundle_inner(&workspace_root).await?;
+        let session_key = isanagent::bus::clarification_session_key("stdio", chat_id, None);
+        if services
+            .clarification_hub
+            .cancel_wait_if_pending(&session_key)
+        {
+            Ok(())
+        } else {
+            Err("clarification_not_pending".to_string())
+        }
+    }
+
     async fn workspace_bundle_inner(
         &self,
         workspace_root: &str,
