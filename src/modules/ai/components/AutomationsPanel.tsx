@@ -45,6 +45,7 @@ import {
   SurfaceFilterToolbar,
   SurfaceIconAction,
   SurfaceInlineError,
+  SurfaceLoadingState,
   SurfacePrimaryAction,
   SurfaceSecondaryAction,
   SurfaceSectionHeader,
@@ -360,7 +361,9 @@ export function AutomationsPanel({
       {viewMode === "list" ? (
       <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
         {!hydrated || loading ? (
-          <div className="flex items-center gap-2 text-[10px] text-muted-foreground"><Spinner className="size-3" /> Loading automations…</div>
+          <SurfaceLoadingState density="inline">
+            <Spinner className="size-3" /> Loading automations…
+          </SurfaceLoadingState>
         ) : items.length === 0 ? (
           <SurfaceEmptyState
             icon={CalendarSyncIcon}

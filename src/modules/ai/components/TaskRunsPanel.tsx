@@ -51,6 +51,7 @@ import {
   PromptEditorSection,
   SurfaceFilteredEmpty,
   SurfaceFilterToolbar,
+  SurfaceLoadingState,
   SurfacePrimaryAction,
   SurfaceSecondaryAction,
   TaskContextSources,
@@ -502,7 +503,9 @@ export function TaskRunsPanel({
       {viewMode === "queue" ? (
       <div className="min-h-0 flex-1 overflow-y-auto p-3">
         {!hydrated ? (
-          <div className="flex items-center justify-center gap-2 py-8 text-[11px] text-muted-foreground"><Spinner className="size-3.5" /> Loading tasks…</div>
+          <SurfaceLoadingState density="panel">
+            <Spinner className="size-3.5" /> Loading tasks…
+          </SurfaceLoadingState>
         ) : tasks.length === 0 ? (
           <SurfaceEmptyState
             icon={Notebook01Icon}
