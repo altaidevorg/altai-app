@@ -449,6 +449,12 @@ export {
 } from "./components/AgentOptionRow.js";
 
 export {
+  AgentSwitcherTrigger,
+  type AgentSwitcherTriggerProps,
+  type AgentSwitcherTriggerVariant,
+} from "./components/AgentSwitcherTrigger.js";
+
+export {
   TaskContextSources,
   contextFileName,
   type TaskContextSourcesProps,
