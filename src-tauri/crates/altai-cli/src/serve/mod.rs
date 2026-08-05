@@ -1,7 +1,8 @@
 use std::io;
 use std::sync::{Arc, Mutex};
 
-use altai_agent_service::{coordinator_guard, AgentService, RunCoordinator, SharedRunCoordinator};
+use altai_agent_service::{coordinator_guard, AgentService, DocumentPart, RunCoordinator, SharedRunCoordinator};
+use base64::Engine;
 use altai_core::EventJournal;
 use altai_core::WorkspacePaths;
 use altai_protocol::{
@@ -14,6 +15,10 @@ use crate::stdio_host::StdioHost;
 use crate::stdio_sink::{write_framed, SharedStdout, StdioEventSink};
 
 type Writer = SharedStdout;
+
+const MAX_RUN_ATTACHMENTS: usize = 4;
+const MAX_RUN_ATTACHMENT_ENCODED_BYTES: usize = 2 * 1024 * 1024;
+const MAX_RUN_ATTACHMENTS_ENCODED_BYTES: usize = 3 * 1024 * 1024;
 
 pub async fn run(workspace: WorkspacePaths) -> Result<(), String> {
     let writer: Writer = Arc::new(Mutex::new(io::stdout()));
@@ -1623,6 +1628,10 @@ async fn handle_run_start(
         )
         .await;
     }
+    let (images, documents) = match parse_run_attachments(params.get("attachments")) {
+        Ok(attachments) => attachments,
+        Err(error) => return respond(writer, id, None, Some(error_value(-32602, error))).await,
+    };
 
     // Admission returns once the user message is on the bus; the agent loop
     // continues in the background and emits framed `run/event` notifications.
@@ -1638,8 +1647,8 @@ async fn handle_run_start(
             None,
             None,
             prompt,
-            Vec::new(),
-            Vec::new(),
+            images,
+            documents,
             chat_id.clone(),
             queue,
         )
@@ -1697,6 +1706,126 @@ async fn handle_run_start(
             )
             .await
         }
+    }
+}
+
+/// Attachments are already materialized by the trusted extension host. The
+/// Webview can never supply a filesystem path to this process. Keeping the
+/// payload bounded here protects the stdio frame and provider request even if
+/// another protocol client sends a forged request.
+fn parse_run_attachments(
+    value: Option<&Value>,
+) -> Result<(Vec<String>, Vec<DocumentPart>), &'static str> {
+    let Some(value) = value else {
+        return Ok((Vec::new(), Vec::new()));
+    };
+    let attachments = value.as_array().ok_or("invalid_attachments")?;
+    if attachments.len() > MAX_RUN_ATTACHMENTS {
+        return Err("too_many_attachments");
+    }
+    let mut total_encoded_bytes = 0_usize;
+    let mut images = Vec::new();
+    let mut documents = Vec::new();
+    for attachment in attachments {
+        let attachment = attachment.as_object().ok_or("invalid_attachment")?;
+        let kind = attachment.get("kind").and_then(Value::as_str).ok_or("invalid_attachment")?;
+        let media_type = attachment
+            .get("media_type")
+            .and_then(Value::as_str)
+            .ok_or("invalid_attachment")?;
+        let data = attachment.get("data").and_then(Value::as_str).ok_or("invalid_attachment")?;
+        if data.len() > MAX_RUN_ATTACHMENT_ENCODED_BYTES {
+            return Err("attachment_too_large");
+        }
+        total_encoded_bytes = total_encoded_bytes.saturating_add(data.len());
+        if total_encoded_bytes > MAX_RUN_ATTACHMENTS_ENCODED_BYTES {
+            return Err("attachments_too_large");
+        }
+        let name = attachment.get("name").and_then(Value::as_str);
+        if name.is_some_and(|name| name.trim().is_empty() || name.len() > 256) {
+            return Err("invalid_attachment_name");
+        }
+        match kind {
+            "image" => {
+                if !matches!(media_type, "image/jpeg" | "image/png" | "image/gif" | "image/webp") {
+                    return Err("unsupported_image_media_type");
+                }
+                decode_attachment_base64(data)?;
+                images.push(format!("data:{media_type};base64,{data}"));
+            }
+            "document" => {
+                if media_type != "application/pdf" {
+                    return Err("unsupported_document_media_type");
+                }
+                decode_attachment_base64(data)?;
+                documents.push(DocumentPart {
+                    data: data.to_string(),
+                    media_type: media_type.to_string(),
+                    name: name.map(str::to_string),
+                });
+            }
+            _ => return Err("unsupported_attachment_kind"),
+        }
+    }
+    Ok((images, documents))
+}
+
+fn decode_attachment_base64(value: &str) -> Result<(), &'static str> {
+    base64::engine::general_purpose::STANDARD
+        .decode(value)
+        .map(|_| ())
+        .map_err(|_| "invalid_attachment_data")
+}
+
+#[cfg(test)]
+mod attachment_tests {
+    use super::parse_run_attachments;
+    use serde_json::json;
+
+    #[test]
+    fn accepts_bounded_image_and_pdf_payloads_without_paths() {
+        let (images, documents) = parse_run_attachments(Some(&json!([
+            {
+                "kind": "image",
+                "media_type": "image/png",
+                "data": "aGVsbG8=",
+                "name": "diagram.png"
+            },
+            {
+                "kind": "document",
+                "media_type": "application/pdf",
+                "data": "aGVsbG8=",
+                "name": "notes.pdf"
+            }
+        ])))
+        .expect("attachment payload");
+        assert_eq!(images, ["data:image/png;base64,aGVsbG8="]);
+        assert_eq!(documents.len(), 1);
+        assert_eq!(documents[0].name.as_deref(), Some("notes.pdf"));
+    }
+
+    #[test]
+    fn rejects_untrusted_or_unsupported_attachment_shapes() {
+        assert!(matches!(
+            parse_run_attachments(Some(&json!([
+                {
+                    "kind": "image",
+                    "media_type": "image/svg+xml",
+                    "data": "aGVsbG8="
+                }
+            ]))),
+            Err("unsupported_image_media_type")
+        ));
+        assert!(matches!(
+            parse_run_attachments(Some(&json!([
+                {
+                    "kind": "document",
+                    "media_type": "application/pdf",
+                    "data": "not-base64"
+                }
+            ]))),
+            Err("invalid_attachment_data")
+        ));
     }
 }
 
