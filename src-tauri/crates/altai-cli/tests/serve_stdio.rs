@@ -136,10 +136,14 @@ fn config_update_persists_a_non_secret_model_setting() {
     assert_eq!(updated["result"]["model"], "openai/gpt-test", "response: {updated}");
     process.frame(json!({"jsonrpc":"2.0","id":3,"method":"config/get"}));
     assert_eq!(process.next()["result"]["model"], "openai/gpt-test");
+    process.frame(json!({"jsonrpc":"2.0","id":4,"method":"config/update","params":{"permission":"auto-edit"}}));
+    assert_eq!(process.next()["result"]["permission"], "auto-edit");
+    process.frame(json!({"jsonrpc":"2.0","id":5,"method":"config/get"}));
+    assert_eq!(process.next()["result"]["permission"], "auto-edit");
     assert!(workspace.path().join(".altai/config.toml").exists());
 
-    process.frame(json!({"jsonrpc":"2.0","id":4,"method":"shutdown"}));
-    assert_eq!(process.next()["id"], 4);
+    process.frame(json!({"jsonrpc":"2.0","id":6,"method":"shutdown"}));
+    assert_eq!(process.next()["id"], 6);
     let _stderr = process.shutdown();
 }
 

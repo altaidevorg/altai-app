@@ -314,7 +314,7 @@ pub async fn run(workspace: WorkspacePaths) -> Result<(), String> {
                             Some(json!({
                                 "agent": "altai",
                                 "model": configuration.model.map(|value| value.value).unwrap_or_else(|| "auto".to_string()),
-                                "permission": "plan",
+                                "permission": configuration.permission_mode.map(|value| value.value).unwrap_or_else(|| "plan".to_string()),
                                 "permissions": [
                                     {"id":"ask","label":"Ask","description":"Approve shell and edits"},
                                     {"id":"auto-edit","label":"Auto-edit","description":"Auto-apply edits; ask for shell"},
@@ -349,6 +349,7 @@ pub async fn run(workspace: WorkspacePaths) -> Result<(), String> {
                                     id,
                                     Some(json!({
                                         "model": configuration.model.map(|value| value.value).unwrap_or_else(|| "auto".to_string()),
+                                        "permission": configuration.permission_mode.map(|value| value.value).unwrap_or_else(|| "plan".to_string()),
                                     })),
                                     None,
                                 )
@@ -1157,17 +1158,13 @@ fn update_workspace_config(
     workspace: &WorkspacePaths,
     params: &serde_json::Map<String, Value>,
 ) -> Result<(), String> {
-    if params.len() != 1 || !params.contains_key("model") {
+    if params.len() != 1 || !(params.contains_key("model") || params.contains_key("permission")) {
         return Err("unsupported_config_patch".to_string());
     }
-    let model = params
-        .get("model")
-        .and_then(Value::as_str)
-        .ok_or_else(|| "invalid_model".to_string())?
-        .trim();
-    if model.len() > 512 {
-        return Err("invalid_model".to_string());
-    }
+    let model = params.get("model").and_then(Value::as_str).map(str::trim);
+    let permission = params.get("permission").and_then(Value::as_str).map(str::trim);
+    if model.is_some_and(|value| value.len() > 512) { return Err("invalid_model".to_string()); }
+    if permission.is_some_and(|value| !matches!(value, "ask" | "auto-edit" | "plan")) { return Err("invalid_permission".to_string()); }
 
     let path = workspace.root.join(".altai/config.toml");
     let source = if path.exists() {
@@ -1190,10 +1187,11 @@ fn update_workspace_config(
         .or_insert_with(|| toml::Value::Table(toml::map::Map::new()))
         .as_table_mut()
         .ok_or_else(|| "configuration_invalid".to_string())?;
-    if model.is_empty() || model == "auto" {
-        agent.remove("model");
-    } else {
-        agent.insert("model".to_string(), toml::Value::String(model.to_string()));
+    if let Some(model) = model {
+        if model.is_empty() || model == "auto" { agent.remove("model"); } else { agent.insert("model".to_string(), toml::Value::String(model.to_string())); }
+    }
+    if let Some(permission) = permission {
+        agent.insert("permission_mode".to_string(), toml::Value::String(permission.to_string()));
     }
     let parent = path.parent().ok_or_else(|| "configuration_unavailable".to_string())?;
     std::fs::create_dir_all(parent).map_err(|_| "configuration_unavailable".to_string())?;
