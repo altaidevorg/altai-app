@@ -27,7 +27,7 @@ pub async fn run(workspace: WorkspacePaths) -> Result<(), String> {
         event_sink.clone() as Arc<dyn altai_agent_service::AgentEventSink>,
         run_coordinator.clone(),
     ));
-    let service = Arc::new(AgentService::with_coordinator(host, run_coordinator.clone()));
+    let service = Arc::new(AgentService::with_coordinator(host.clone(), run_coordinator.clone()));
 
     let mut stdin = tokio::io::stdin();
     let mut decoder = FrameDecoder::new(FrameLimits::default());
@@ -96,6 +96,7 @@ pub async fn run(workspace: WorkspacePaths) -> Result<(), String> {
                                 "run/cancel",
                                 "run/steer",
                                 "run/replay",
+                                "clarification/respond",
                                 "context/compact",
                                 "checkpoints/list",
                                 "checkpoints/restore",
@@ -433,6 +434,21 @@ pub async fn run(workspace: WorkspacePaths) -> Result<(), String> {
                 }
                 "run/replay" if initialized => {
                     handle_run_replay(&workspace, &writer, id, params).await?;
+                }
+                "clarification/respond" if initialized => {
+                    let params = params
+                        .and_then(|value| value.as_object().cloned())
+                        .unwrap_or_default();
+                    let chat_id = params.get("chat_id").and_then(Value::as_str).unwrap_or("");
+                    let text = params.get("text").and_then(Value::as_str).unwrap_or("");
+                    if chat_id.trim().is_empty() || chat_id.len() > 256 || text.trim().is_empty() || text.len() > 16_384 {
+                        respond(&writer, id, None, Some(error_value(-32602, "invalid_clarification_response"))).await?;
+                        continue;
+                    }
+                    match host.deliver_clarification_reply(chat_id, text.to_string()).await {
+                        Ok(()) => respond(&writer, id, Some(json!({"accepted": true})), None).await?,
+                        Err(error) => respond(&writer, id, None, Some(error_value(-32002, &error))).await?,
+                    }
                 }
                 "context/compact" if initialized => {
                     let params = params
