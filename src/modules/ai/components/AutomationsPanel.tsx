@@ -30,7 +30,7 @@ import type { AgentAutomationInfo } from "../lib/native";
 import { useChatStore } from "../store/chatStore";
 import { useAutomationStore } from "../store/automationStore";
 import {
-  AutomationCard,
+  AutomationList,
   automationLastRunLabel,
   automationNextRunLabel,
   automationScheduleLabel,
@@ -45,7 +45,6 @@ import {
   SurfaceFilterToolbar,
   SurfaceIconAction,
   SurfaceInlineError,
-  SurfaceListGroup,
   SurfaceLoadingState,
   SurfacePrimaryAction,
   SurfaceSecondaryAction,
@@ -389,38 +388,29 @@ export function AutomationsPanel({
             }}
           />
         ) : (
-          <SurfaceListGroup
-            title="Workspace schedules"
-            description="Ordered by the next expected run"
-            count={visibleItems.length}
-            containerAs="ul"
-            containerAriaLabel="Workspace automations"
-          >
-            {visibleItems.map((item, index) => {
+          <AutomationList
+            items={visibleItems.map((item) => {
               const pending = Boolean(pendingIds[`remove:${item.id}`]);
               const job = jobsByAutomationId[item.id];
-              return (
-                <AutomationCard
-                  key={item.id}
-                  className={index > 0 ? "border-t border-border-subtle" : undefined}
-                  message={item.message}
-                  scheduleLabel={automationScheduleLabel(item.schedule)}
-                  nextRunLabel={automationNextRunLabel(item)}
-                  lastRunLabel={automationLastRunLabel(item.lastRunAtMs)}
-                  owningChatLabel={titles.get(item.chatId) || "Owning chat"}
-                  jobState={job?.state ?? null}
-                  jobError={job?.lastError ?? null}
-                  pendingRemove={pending}
-                  onOpenChat={() => {
-                    switchSession(item.chatId);
-                    onClose();
-                  }}
-                  onDuplicate={() => reuseAutomation(item)}
-                  onRemove={() => setRemoveTarget(item)}
-                />
-              );
+              return {
+                id: item.id,
+                message: item.message,
+                scheduleLabel: automationScheduleLabel(item.schedule),
+                nextRunLabel: automationNextRunLabel(item),
+                lastRunLabel: automationLastRunLabel(item.lastRunAtMs),
+                owningChatLabel: titles.get(item.chatId) || "Owning chat",
+                jobState: job?.state ?? null,
+                jobError: job?.lastError ?? null,
+                pendingRemove: pending,
+                onOpenChat: () => {
+                  switchSession(item.chatId);
+                  onClose();
+                },
+                onDuplicate: () => reuseAutomation(item),
+                onRemove: () => setRemoveTarget(item),
+              };
             })}
-          </SurfaceListGroup>
+          />
         )}
       </div>
       ) : null}
