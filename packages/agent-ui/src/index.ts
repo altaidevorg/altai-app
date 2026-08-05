@@ -538,6 +538,11 @@ export {
 } from "./components/SurfaceInlineError.js";
 
 export {
+  SurfaceLoadingState,
+  type SurfaceLoadingStateProps,
+} from "./components/SurfaceLoadingState.js";
+
+export {
   formatRelativeTime,
   humanize,
 } from "./lib/inboxFormat.js";
