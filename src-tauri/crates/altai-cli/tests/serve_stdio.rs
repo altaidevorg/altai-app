@@ -363,8 +363,59 @@ fn completed_run_is_replayable_from_the_shared_journal() {
     assert_eq!(session["result"]["latest_run_id"], run_id);
     assert_eq!(session["result"]["terminal_seq"], terminal_seq);
 
-    process.frame(json!({"jsonrpc":"2.0","id":6,"method":"shutdown"}));
-    assert_eq!(process.next()["id"], 6);
+    process.frame(json!({
+        "jsonrpc": "2.0",
+        "id": 6,
+        "method": "sessions/messages",
+        "params": { "chat_id": "chat-test" }
+    }));
+    let messages = process.next();
+    assert_eq!(messages["id"], 6);
+    assert_eq!(messages["result"]["messages"][0]["id"], "user:1");
+    assert_eq!(messages["result"]["messages"][0]["role"], "user");
+    assert_eq!(messages["result"]["messages"][0]["content"], "say hello");
+    assert!(
+        messages["result"]["messages"]
+            .as_array()
+            .expect("messages")
+            .len()
+            > 1
+    );
+
+    process.frame(json!({
+        "jsonrpc": "2.0",
+        "id": 7,
+        "method": "sessions/truncate",
+        "params": { "chat_id": "chat-test", "keep_user_messages": 1 }
+    }));
+    let truncated = process.next();
+    assert_eq!(truncated["id"], 7);
+    assert!(
+        truncated["result"]["deleted_messages"]
+            .as_u64()
+            .unwrap_or(0)
+            > 0
+    );
+
+    process.frame(json!({
+        "jsonrpc": "2.0",
+        "id": 8,
+        "method": "sessions/messages",
+        "params": { "chat_id": "chat-test" }
+    }));
+    let trimmed_messages = process.next();
+    assert_eq!(trimmed_messages["id"], 8);
+    assert_eq!(
+        trimmed_messages["result"]["messages"]
+            .as_array()
+            .expect("messages")
+            .len(),
+        1
+    );
+    assert_eq!(trimmed_messages["result"]["messages"][0]["id"], "user:1");
+
+    process.frame(json!({"jsonrpc":"2.0","id":9,"method":"shutdown"}));
+    assert_eq!(process.next()["id"], 9);
     let _stderr = process.shutdown();
 }
 

@@ -10,6 +10,7 @@ use isanagent::bus::BusMessage;
 use isanagent::clarification::ClarificationHub;
 use isanagent::memory::{MemoryMessage, SharedReply};
 use isanagent::scheduler::{CronActor, CronSchedulingMode};
+use isanagent::utils::ChatMessage;
 use isanagent::workspace::resolve_workspace_root;
 use isanagent::{NodeHandle, Supervisor, SupervisorPolicy};
 use tokio::sync::{mpsc, oneshot};
@@ -163,6 +164,63 @@ impl StdioHost {
             .await
             .map_err(|_| "retry_memory_unavailable".to_string())??;
         Ok(prompt)
+    }
+
+    /// Read the durable transcript for one stdio chat. The Webview never talks
+    /// to the memory store directly; this keeps thread ownership and storage
+    /// behind the native host.
+    pub async fn get_session_messages(&self, chat_id: &str) -> Result<Vec<ChatMessage>, String> {
+        let services = self.session_workspace_services().await?;
+        let thread_id = isanagent::bus::clarification_session_key("stdio", chat_id, None);
+        let (reply_tx, reply_rx) = oneshot::channel();
+        services
+            .memory_node
+            .send_packet(MemoryMessage::GetContext {
+                thread_id,
+                reply: SharedReply::new(reply_tx),
+            })
+            .await
+            .map_err(|error| format!("session_memory_unavailable: {error}"))?;
+        reply_rx
+            .await
+            .map_err(|_| "session_memory_unavailable".to_string())?
+    }
+
+    /// Keep the transcript through the requested user turn. The IsanAgent
+    /// memory actor performs the tail deletion atomically, including derived
+    /// summaries and dropped tool-result cache rows.
+    pub async fn truncate_session_after_user_message(
+        &self,
+        chat_id: &str,
+        keep_user_messages: usize,
+    ) -> Result<usize, String> {
+        let services = self.session_workspace_services().await?;
+        let thread_id = isanagent::bus::clarification_session_key("stdio", chat_id, None);
+        let (reply_tx, reply_rx) = oneshot::channel();
+        services
+            .memory_node
+            .send_packet(MemoryMessage::TruncateAfterUserMessage {
+                thread_id,
+                keep_user_messages,
+                reply: SharedReply::new(reply_tx),
+            })
+            .await
+            .map_err(|error| format!("session_memory_unavailable: {error}"))?;
+        reply_rx
+            .await
+            .map_err(|_| "session_memory_unavailable".to_string())?
+    }
+
+    fn session_workspace_root(&self) -> String {
+        format!(
+            "{}/.isanagent",
+            self.workspace.root.to_string_lossy().trim_end_matches('/')
+        )
+    }
+
+    async fn session_workspace_services(&self) -> Result<Arc<StdioWorkspaceServices>, String> {
+        self.workspace_bundle_inner(&self.session_workspace_root())
+            .await
     }
 
     async fn workspace_bundle_inner(

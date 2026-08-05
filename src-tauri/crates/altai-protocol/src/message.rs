@@ -175,6 +175,8 @@ fn request_method(method: &str) -> bool {
             | "sessions/list"
             | "sessions/get"
             | "sessions/create"
+            | "sessions/messages"
+            | "sessions/truncate"
             | "run/start"
             | "run/steer"
             | "run/cancel"
