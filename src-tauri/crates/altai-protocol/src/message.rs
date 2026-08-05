@@ -169,6 +169,7 @@ fn request_method(method: &str) -> bool {
         "initialize"
             | "workspace/status"
             | "config/get"
+            | "config/update"
             | "models/list"
             | "agents/list"
             | "sessions/list"

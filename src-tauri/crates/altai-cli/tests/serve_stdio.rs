@@ -121,6 +121,29 @@ fn replay_event_type(value: &Value) -> Option<&str> {
 }
 
 #[test]
+fn config_update_persists_a_non_secret_model_setting() {
+    let workspace = tempfile::tempdir().expect("workspace");
+    let mut process = ServeProcess::spawn(workspace.path(), false);
+    process.frame(initialize(json!(1)));
+    let initialized = process.next();
+    assert!(initialized["result"]["capabilities"]
+        .as_array()
+        .expect("capabilities")
+        .contains(&json!("config/update")));
+
+    process.frame(json!({"jsonrpc":"2.0","id":2,"method":"config/update","params":{"model":"openai/gpt-test"}}));
+    let updated = process.next();
+    assert_eq!(updated["result"]["model"], "openai/gpt-test", "response: {updated}");
+    process.frame(json!({"jsonrpc":"2.0","id":3,"method":"config/get"}));
+    assert_eq!(process.next()["result"]["model"], "openai/gpt-test");
+    assert!(workspace.path().join(".altai/config.toml").exists());
+
+    process.frame(json!({"jsonrpc":"2.0","id":4,"method":"shutdown"}));
+    assert_eq!(process.next()["id"], 4);
+    let _stderr = process.shutdown();
+}
+
+#[test]
 fn compiled_stdio_handles_split_and_multiple_frames_with_ordered_terminal_stream() {
     let workspace = tempfile::tempdir().expect("workspace");
     let mut process = ServeProcess::spawn(workspace.path(), false);
