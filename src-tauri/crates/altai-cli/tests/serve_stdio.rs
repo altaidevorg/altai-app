@@ -157,6 +157,88 @@ fn config_update_persists_a_non_secret_model_setting() {
 }
 
 #[test]
+fn automation_rpc_persists_a_prompt_and_full_lifecycle() {
+    let workspace = tempfile::tempdir().expect("workspace");
+    let mut process = ServeProcess::spawn(workspace.path(), false);
+    process.frame(initialize(json!(1)));
+    let initialized = process.next();
+    for capability in [
+        "work/automations/list",
+        "work/automations/create",
+        "work/automations/update",
+        "work/automations/trigger",
+        "work/automations/pause",
+        "work/automations/delete",
+    ] {
+        assert!(initialized["result"]["capabilities"]
+            .as_array()
+            .expect("capabilities")
+            .contains(&json!(capability)));
+    }
+
+    process.frame(json!({
+        "jsonrpc":"2.0", "id":2, "method":"work/automations/create",
+        "params":{
+            "chat_id":"automation-chat", "title":"Nightly checks",
+            "prompt":"Run the project checks and report failures.",
+            "schedule":{"kind":"every","every_ms":60000}
+        }
+    }));
+    let created = process.next();
+    let automation_id = created["result"]["automation"]["id"]
+        .as_str()
+        .expect("automation id")
+        .to_string();
+    assert_eq!(
+        created["result"]["automation"]["prompt"],
+        "Run the project checks and report failures."
+    );
+
+    // Commands are actor-backed. Retrying the read gives the actor a bounded
+    // opportunity to persist the accepted create command without timing tests
+    // against the scheduler tick interval.
+    let mut listed = None;
+    for request_id in 3..13 {
+        process.frame(json!({"jsonrpc":"2.0","id":request_id,"method":"work/automations/list"}));
+        let response = process.next();
+        if response["result"]["automations"]
+            .as_array()
+            .is_some_and(|items| items.iter().any(|item| item["id"] == automation_id))
+        {
+            listed = Some(response);
+            break;
+        }
+        thread::sleep(Duration::from_millis(25));
+    }
+    let listed = listed.expect("automation persisted");
+    assert_eq!(listed["result"]["automations"][0]["title"], "Nightly checks");
+
+    process.frame(json!({
+        "jsonrpc":"2.0", "id":13, "method":"work/automations/update",
+        "params":{"automation_id":automation_id,"title":"Updated checks","enabled":true}
+    }));
+    assert_eq!(process.next()["result"]["automation"]["title"], "Updated checks");
+    process.frame(json!({
+        "jsonrpc":"2.0", "id":14, "method":"work/automations/trigger",
+        "params":{"automation_id":automation_id}
+    }));
+    assert_eq!(process.next()["result"]["accepted"], true);
+    process.frame(json!({
+        "jsonrpc":"2.0", "id":15, "method":"work/automations/pause",
+        "params":{"automation_id":automation_id}
+    }));
+    assert_eq!(process.next()["result"]["accepted"], true);
+    process.frame(json!({
+        "jsonrpc":"2.0", "id":16, "method":"work/automations/delete",
+        "params":{"automation_id":automation_id}
+    }));
+    assert_eq!(process.next()["result"]["removed"], true);
+    process.frame(json!({"jsonrpc":"2.0","id":17,"method":"shutdown"}));
+    assert_eq!(process.next()["id"], 17);
+    let _stderr = process.shutdown();
+}
+
+#[test]
 fn session_metadata_is_durable_and_can_be_archived_or_deleted() {
     let workspace = tempfile::tempdir().expect("workspace");
     let mut process = ServeProcess::spawn(workspace.path(), false);

@@ -6,13 +6,15 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
+use chrono::Utc;
 use isanagent::bus::BusMessage;
 use isanagent::clarification::ClarificationHub;
 use isanagent::memory::{MemoryMessage, SharedReply};
-use isanagent::scheduler::{CronActor, CronSchedulingMode};
+use isanagent::scheduler::{CronActor, CronCommand, CronSchedulingMode, CronStore, ScheduleKind};
 use isanagent::utils::ChatMessage;
 use isanagent::workspace::resolve_workspace_root;
 use isanagent::{NodeHandle, Supervisor, SupervisorPolicy};
+use serde::{Deserialize, Serialize};
 use tokio::sync::{mpsc, oneshot};
 
 use altai_agent_service::{
@@ -45,6 +47,26 @@ struct StdioWorkspaceServices {
     clarification_hub: Arc<ClarificationHub>,
     logger: WorkspaceLogger,
     cron: WorkspaceCron,
+}
+
+/// A host-owned automation record. The scheduler keeps its opaque trigger
+/// payload and webhook secrets private; this is the safe subset exposed by
+/// the native protocol.
+#[derive(Debug, Clone)]
+pub struct StdioAutomation {
+    pub id: String,
+    pub chat_id: String,
+    pub title: String,
+    pub prompt: String,
+    pub schedule: ScheduleKind,
+    pub enabled: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct AutomationPayload {
+    altai_automation: u8,
+    title: String,
+    prompt: String,
 }
 
 /// Stdio host adapter. Owns workspace actor bundles; AgentService owns instances.
@@ -262,6 +284,180 @@ impl StdioHost {
         reply_rx.await.map_err(|_| "inbox_memory_unavailable".to_string())?
     }
 
+    /// List only stdio-owned automations. Scheduler credentials and webhook
+    /// tokens never cross this boundary.
+    pub async fn list_automations(&self) -> Result<Vec<StdioAutomation>, String> {
+        let services = self.session_workspace_services().await?;
+        let store = Self::automation_store(&self.session_workspace_root())?;
+        let mut jobs = store
+            .load_jobs()?
+            .into_iter()
+            .filter(|job| job.channel == "stdio" && job.id.starts_with("altai:"))
+            .map(|job| {
+                let payload = decode_automation_payload(&job.message);
+                StdioAutomation {
+                    id: job.id,
+                    chat_id: job.chat_id,
+                    title: payload
+                        .as_ref()
+                        .map(|value| value.title.clone())
+                        .unwrap_or_else(|| job.message.clone()),
+                    prompt: payload
+                        .map(|value| value.prompt)
+                        .unwrap_or(job.message),
+                    schedule: job.schedule,
+                    enabled: job.enabled,
+                }
+            })
+            .collect::<Vec<_>>();
+        // Force construction of the workspace services before returning. This
+        // keeps the scheduler actor alive for subsequent mutation commands.
+        let _ = services;
+        jobs.sort_by(|left, right| left.id.cmp(&right.id));
+        Ok(jobs)
+    }
+
+    pub async fn create_automation(
+        &self,
+        chat_id: &str,
+        title: &str,
+        prompt: &str,
+        schedule: ScheduleKind,
+    ) -> Result<StdioAutomation, String> {
+        validate_automation_chat_id(chat_id)?;
+        let title = validate_automation_title(title)?;
+        let prompt = validate_automation_prompt(prompt)?;
+        validate_automation_schedule(&schedule)?;
+        let services = self.session_workspace_services().await?;
+        let id = format!("altai:{}", uuid::Uuid::new_v4());
+        let message = encode_automation_payload(&title, &prompt)?;
+        services
+            .cron
+            .node
+            .send_packet(
+                serde_json::to_string(&CronCommand::Add {
+                    id: id.clone(),
+                    schedule: schedule.clone(),
+                    message,
+                    chat_id: chat_id.to_string(),
+                    channel: "stdio".to_string(),
+                })
+                .map_err(|error| format!("automation_command_encode_failed: {error}"))?,
+            )
+            .await
+            .map_err(|error| format!("automation_command_unavailable: {error}"))?;
+        Ok(StdioAutomation {
+            id,
+            chat_id: chat_id.to_string(),
+            title,
+            prompt,
+            schedule,
+            enabled: true,
+        })
+    }
+
+    pub async fn update_automation(
+        &self,
+        automation_id: &str,
+        title: Option<&str>,
+        prompt: Option<&str>,
+        schedule: Option<ScheduleKind>,
+        enabled: Option<bool>,
+    ) -> Result<StdioAutomation, String> {
+        let existing = self.find_automation(automation_id).await?;
+        let title = match title {
+            Some(value) => validate_automation_title(value)?,
+            None => existing.title.clone(),
+        };
+        let prompt = match prompt {
+            Some(value) => validate_automation_prompt(value)?,
+            None => existing.prompt.clone(),
+        };
+        if let Some(schedule) = schedule.as_ref() {
+            validate_automation_schedule(schedule)?;
+        }
+        let services = self.session_workspace_services().await?;
+        services
+            .cron
+            .node
+            .send_packet(
+                serde_json::to_string(&CronCommand::Update {
+                    id: existing.id.clone(),
+                    schedule: schedule.clone(),
+                    message: if title != existing.title || prompt != existing.prompt {
+                        Some(encode_automation_payload(&title, &prompt)?)
+                    } else {
+                        None
+                    },
+                    enabled,
+                })
+                .map_err(|error| format!("automation_command_encode_failed: {error}"))?,
+            )
+            .await
+            .map_err(|error| format!("automation_command_unavailable: {error}"))?;
+        Ok(StdioAutomation {
+            id: existing.id,
+            chat_id: existing.chat_id,
+            title,
+            prompt,
+            schedule: schedule.unwrap_or(existing.schedule),
+            enabled: enabled.unwrap_or(existing.enabled),
+        })
+    }
+
+    pub async fn trigger_automation(&self, automation_id: &str) -> Result<(), String> {
+        let automation = self.find_automation(automation_id).await?;
+        if !automation.enabled {
+            return Err("automation_paused".to_string());
+        }
+        self.send_automation_command(CronCommand::Trigger { id: automation.id })
+            .await
+    }
+
+    pub async fn pause_automation(&self, automation_id: &str) -> Result<(), String> {
+        self.update_automation(automation_id, None, None, None, Some(false))
+            .await
+            .map(|_| ())
+    }
+
+    pub async fn delete_automation(&self, automation_id: &str) -> Result<(), String> {
+        let automation = self.find_automation(automation_id).await?;
+        self.send_automation_command(CronCommand::Remove { id: automation.id })
+            .await
+    }
+
+    async fn find_automation(&self, automation_id: &str) -> Result<StdioAutomation, String> {
+        validate_automation_id(automation_id)?;
+        self.list_automations()
+            .await?
+            .into_iter()
+            .find(|automation| automation.id == automation_id)
+            .ok_or_else(|| "automation_not_found".to_string())
+    }
+
+    async fn send_automation_command(&self, command: CronCommand) -> Result<(), String> {
+        let services = self.session_workspace_services().await?;
+        services
+            .cron
+            .node
+            .send_packet(
+                serde_json::to_string(&command)
+                    .map_err(|error| format!("automation_command_encode_failed: {error}"))?,
+            )
+            .await
+            .map_err(|error| format!("automation_command_unavailable: {error}"))
+    }
+
+    fn automation_store(workspace_root: &str) -> Result<CronStore, String> {
+        let root = resolve_workspace_root(Some(workspace_root));
+        let database = root.join(".system_generated").join("agent_memory.db");
+        CronStore::new(
+            database
+                .to_str()
+                .ok_or("automation_database_path_invalid")?,
+        )
+    }
+
     fn session_workspace_root(&self) -> String {
         format!(
             "{}/.isanagent",
@@ -350,11 +546,17 @@ impl StdioHost {
         let cron_routes = self.cron_routes.clone();
         let cron_forwarder = tokio::spawn(async move {
             while let Some(message) = cron_bus_rx.recv().await {
-                let BusMessage::Inbound(inbound) = message else {
+                let BusMessage::Inbound(mut inbound) = message else {
                     continue;
                 };
                 if inbound.channel != "stdio" || inbound.thread_id.is_some() || inbound.chat_id.trim().is_empty() {
                     continue;
+                }
+                // ALTAI's native automation payload retains the user-facing
+                // title separately from the instruction. Only the instruction
+                // is delivered into the agent conversation.
+                if let Some(payload) = decode_automation_payload(&inbound.content) {
+                    inbound.content = payload.prompt;
                 }
                 let route = cron_routes.lock().await.get(&inbound.chat_id).cloned();
                 if let Some(route) = route {
@@ -380,6 +582,71 @@ impl StdioHost {
         });
         guard.insert(workspace_root.to_string(), services.clone());
         Ok(services)
+    }
+}
+
+fn encode_automation_payload(title: &str, prompt: &str) -> Result<String, String> {
+    serde_json::to_string(&AutomationPayload {
+        altai_automation: 1,
+        title: title.to_string(),
+        prompt: prompt.to_string(),
+    })
+    .map_err(|error| format!("automation_payload_encode_failed: {error}"))
+}
+
+fn decode_automation_payload(message: &str) -> Option<AutomationPayload> {
+    let payload = serde_json::from_str::<AutomationPayload>(message).ok()?;
+    (payload.altai_automation == 1 && !payload.title.trim().is_empty() && !payload.prompt.trim().is_empty())
+        .then_some(payload)
+}
+
+fn validate_automation_id(id: &str) -> Result<(), String> {
+    if id.starts_with("altai:") && id.len() <= 512 {
+        Ok(())
+    } else {
+        Err("invalid_automation_id".to_string())
+    }
+}
+
+fn validate_automation_chat_id(chat_id: &str) -> Result<(), String> {
+    if !chat_id.trim().is_empty() && chat_id.len() <= 256 && !chat_id.contains(':') {
+        Ok(())
+    } else {
+        Err("invalid_automation_chat_id".to_string())
+    }
+}
+
+fn validate_automation_title(title: &str) -> Result<String, String> {
+    let title = title.trim();
+    if title.is_empty() || title.len() > 256 {
+        Err("invalid_automation_title".to_string())
+    } else {
+        Ok(title.to_string())
+    }
+}
+
+fn validate_automation_prompt(prompt: &str) -> Result<String, String> {
+    let prompt = prompt.trim();
+    if prompt.is_empty() || prompt.len() > 10_000 {
+        Err("invalid_automation_prompt".to_string())
+    } else {
+        Ok(prompt.to_string())
+    }
+}
+
+fn validate_automation_schedule(schedule: &ScheduleKind) -> Result<(), String> {
+    match schedule {
+        ScheduleKind::At { at_ms } if *at_ms <= Utc::now().timestamp_millis() => {
+            Err("automation_schedule_must_be_future".to_string())
+        }
+        ScheduleKind::Every { every_ms } if *every_ms < 60_000 => {
+            Err("automation_interval_too_short".to_string())
+        }
+        ScheduleKind::Every { every_ms } if *every_ms > 366 * 24 * 60 * 60 * 1_000 => {
+            Err("automation_interval_too_long".to_string())
+        }
+        ScheduleKind::Cron { .. } => Err("automation_cron_not_supported".to_string()),
+        _ => Ok(()),
     }
 }
 
