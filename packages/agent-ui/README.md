@@ -113,6 +113,21 @@ consumption of shared panel shells:
 | A5.31 | `ComposerTextArea` (composer text-entry chrome) |
 | A5.32 | `ComposerShell` (composer card + attachment chrome) |
 
+### A5 complete enough
+
+The TASK-007 / A5 stop condition is met. Desktop Work and Scheduled lists,
+run-details chrome, and composer chrome now compose exported
+`@altai/agent-ui` components. Desktop retains only host glue around those
+surfaces: stores and message orchestration, Tauri/native calls, Radix
+popover/dialog shells, resizable window layout, secrets, and capability
+decisions. A VS Code Webview host can mount the shared package without copying
+the Desktop JSX for these surfaces.
+
+The next workstream is A6 / VS Code V5 host integration and parity. Remaining
+Desktop-local message-pipeline and window-shell code is intentionally outside
+this extraction boundary; it should move only when a host-neutral contract is
+required by that workstream.
+
 Desktop must import shared components from this package; local duplicates are
 deleted as each slice lands.
 
