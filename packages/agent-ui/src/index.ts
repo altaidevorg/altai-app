@@ -511,6 +511,11 @@ export {
 } from "./components/ComposerConfigRow.js";
 
 export {
+  ComposerPrimaryRow,
+  type ComposerPrimaryRowProps,
+} from "./components/ComposerPrimaryRow.js";
+
+export {
   TaskRunConfigSection,
   type TaskRunConfigSectionProps,
 } from "./components/TaskRunConfigSection.js";
