@@ -430,6 +430,12 @@ export {
 } from "./components/AutomationCard.js";
 
 export {
+  AutomationList,
+  type AutomationListItem,
+  type AutomationListProps,
+} from "./components/AutomationList.js";
+
+export {
   ModelPickerPanel,
   type ModelPickerAutoOption,
   type ModelPickerPanelProps,

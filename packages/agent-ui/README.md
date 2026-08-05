@@ -107,6 +107,7 @@ consumption of shared panel shells:
 | A5.25 | `SurfaceLoadingState` (queue/list loading chrome) |
 | A5.26 | `RunActionRequiredSection` (approvals section chrome) |
 | A5.27 | `SurfaceListGroup` (titled queue/list group chrome) |
+| A5.28 | `AutomationList` (Scheduled card-list shell) |
 
 Desktop must import shared components from this package; local duplicates are
 deleted as each slice lands.
