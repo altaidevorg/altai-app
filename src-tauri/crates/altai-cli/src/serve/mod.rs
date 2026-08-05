@@ -94,6 +94,9 @@ pub async fn run(workspace: WorkspacePaths) -> Result<(), String> {
                                 "sessions/create",
                                 "sessions/messages",
                                 "sessions/truncate",
+                                "inbox/list",
+                                "inbox/mark-seen",
+                                "inbox/resolve",
                                 "run/start",
                                 "run/cancel",
                                 "run/steer",
@@ -274,6 +277,24 @@ pub async fn run(workspace: WorkspacePaths) -> Result<(), String> {
                 }
                 "sessions/truncate" if initialized => {
                     handle_session_truncate(&host, &run_coordinator, &writer, id, params).await?;
+                }
+                "inbox/list" if initialized => {
+                    let unseen_only = params.as_ref().and_then(Value::as_object).and_then(|value| value.get("unseen_only")).and_then(Value::as_bool).unwrap_or(false);
+                    match host.list_notifications(unseen_only).await {
+                        Ok(notifications) => respond(&writer, id, Some(json!({"notifications": notifications})), None).await?,
+                        Err(error) => {
+                            eprintln!("altai-cli serve: could not list inbox: {error}");
+                            respond(&writer, id, None, Some(error_value(-32603, "inbox_unavailable"))).await?;
+                        }
+                    }
+                }
+                "inbox/mark-seen" | "inbox/resolve" if initialized => {
+                    let notification_id = params.as_ref().and_then(Value::as_object).and_then(|value| value.get("notification_id")).and_then(Value::as_str).unwrap_or("");
+                    let result = if method == "inbox/resolve" { host.resolve_notification(notification_id).await } else { host.mark_notification_seen(notification_id).await };
+                    match result {
+                        Ok(()) => respond(&writer, id, Some(json!({"accepted": true})), None).await?,
+                        Err(error) => respond(&writer, id, None, Some(error_value(-32002, &error))).await?,
+                    }
                 }
                 "agents/list" if initialized => {
                     respond(
