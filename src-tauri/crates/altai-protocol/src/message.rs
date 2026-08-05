@@ -178,6 +178,7 @@ fn request_method(method: &str) -> bool {
             | "run/start"
             | "run/steer"
             | "run/cancel"
+            | "run/retry"
             | "run/replay"
             | "clarification/respond"
             | "context/compact"

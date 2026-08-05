@@ -8,10 +8,11 @@ use std::time::Duration;
 use async_trait::async_trait;
 use isanagent::bus::BusMessage;
 use isanagent::clarification::ClarificationHub;
+use isanagent::memory::{MemoryMessage, SharedReply};
 use isanagent::scheduler::{CronActor, CronSchedulingMode};
 use isanagent::workspace::resolve_workspace_root;
 use isanagent::{NodeHandle, Supervisor, SupervisorPolicy};
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
 
 use altai_agent_service::{
     build_shared_instance, AgentEventSink, BuildInstanceRequest, BuiltInstance, HostAdapter,
@@ -99,6 +100,69 @@ impl StdioHost {
         } else {
             Err("clarification_not_pending".to_string())
         }
+    }
+
+    /// Rewind the most recent user turn so the host can retry it as a fresh run.
+    ///
+    /// The caller first verifies that the requested run is the chat's newest
+    /// terminal run. Keeping that ownership check in the protocol layer avoids
+    /// silently rewinding a newer turn when an old retry control is clicked.
+    pub async fn rewind_latest_turn_for_retry(
+        &self,
+        chat_id: &str,
+        replacement: Option<&str>,
+    ) -> Result<String, String> {
+        let workspace_root = format!(
+            "{}/.isanagent",
+            self.workspace.root.to_string_lossy().trim_end_matches('/')
+        );
+        let services = self.workspace_bundle_inner(&workspace_root).await?;
+        let thread_id = isanagent::bus::clarification_session_key("stdio", chat_id, None);
+
+        let (context_tx, context_rx) = oneshot::channel();
+        services
+            .memory_node
+            .send_packet(MemoryMessage::GetContext {
+                thread_id: thread_id.clone(),
+                reply: SharedReply::new(context_tx),
+            })
+            .await
+            .map_err(|error| format!("retry_memory_unavailable: {error}"))?;
+        let context = context_rx
+            .await
+            .map_err(|_| "retry_memory_unavailable".to_string())??;
+
+        let mut user_turns = 0_usize;
+        let mut latest_prompt = None;
+        for message in context {
+            if message.role == "user" {
+                user_turns += 1;
+                latest_prompt = message.content.map(|content| content.text_content());
+            }
+        }
+        let prompt = replacement
+            .map(str::to_string)
+            .or(latest_prompt)
+            .filter(|value| !value.trim().is_empty())
+            .ok_or_else(|| "retry_prompt_not_found".to_string())?;
+        if prompt.len() > 16_384 {
+            return Err("invalid_retry_prompt".to_string());
+        }
+
+        let (truncate_tx, truncate_rx) = oneshot::channel();
+        services
+            .memory_node
+            .send_packet(MemoryMessage::TruncateAfterUserMessage {
+                thread_id,
+                keep_user_messages: user_turns.saturating_sub(1),
+                reply: SharedReply::new(truncate_tx),
+            })
+            .await
+            .map_err(|error| format!("retry_memory_unavailable: {error}"))?;
+        truncate_rx
+            .await
+            .map_err(|_| "retry_memory_unavailable".to_string())??;
+        Ok(prompt)
     }
 
     async fn workspace_bundle_inner(

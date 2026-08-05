@@ -368,6 +368,73 @@ fn completed_run_is_replayable_from_the_shared_journal() {
     let _stderr = process.shutdown();
 }
 
+#[test]
+fn retry_rewinds_the_latest_terminal_run_and_starts_a_new_one() {
+    let workspace = tempfile::tempdir().expect("workspace");
+    let mut process = ServeProcess::spawn(workspace.path(), false);
+    process.frame(initialize(json!(1)));
+    let initialized = process.next();
+    assert!(initialized["result"]["capabilities"]
+        .as_array()
+        .expect("capabilities")
+        .contains(&json!("run/retry")));
+
+    process.frame(start(json!(2)));
+    let first_run_id = loop {
+        let frame = process.next();
+        if event_type(&frame) == Some("run_started") {
+            break frame["params"]["run_id"]
+                .as_str()
+                .expect("first run id")
+                .to_string();
+        }
+    };
+    loop {
+        if event_type(&process.next()) == Some("run_terminated") {
+            break;
+        }
+    }
+
+    process.frame(json!({
+        "jsonrpc":"2.0",
+        "id":3,
+        "method":"run/retry",
+        "params":{"chat_id":"chat-test","run_id":first_run_id}
+    }));
+    let mut retry_ack = false;
+    let second_run_id = loop {
+        let frame = process.next();
+        if frame["id"] == 3 {
+            assert!(frame.get("error").is_none(), "retry response: {frame}");
+            retry_ack = frame["result"]["accepted"].as_bool() == Some(true);
+        }
+        if event_type(&frame) == Some("run_started") {
+            break frame["params"]["run_id"]
+                .as_str()
+                .expect("second run id")
+                .to_string();
+        }
+    };
+    assert!(retry_ack);
+    assert_ne!(first_run_id, second_run_id);
+    loop {
+        if event_type(&process.next()) == Some("run_terminated") {
+            break;
+        }
+    }
+
+    process.frame(json!({
+        "jsonrpc":"2.0",
+        "id":4,
+        "method":"run/retry",
+        "params":{"chat_id":"chat-test","run_id":first_run_id}
+    }));
+    assert_eq!(process.next()["error"]["message"], "retry_not_latest_run");
+
+    process.frame(json!({"jsonrpc":"2.0","id":5,"method":"shutdown"}));
+    assert_eq!(process.next()["id"], 5);
+    let _stderr = process.shutdown();
+}
 
 #[test]
 fn second_chat_can_start_while_first_is_active() {

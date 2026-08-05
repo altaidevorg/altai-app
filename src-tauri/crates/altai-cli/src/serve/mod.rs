@@ -95,6 +95,7 @@ pub async fn run(workspace: WorkspacePaths) -> Result<(), String> {
                                 "run/start",
                                 "run/cancel",
                                 "run/steer",
+                                "run/retry",
                                 "run/replay",
                                 "clarification/respond",
                                 "context/compact",
@@ -357,6 +358,9 @@ pub async fn run(workspace: WorkspacePaths) -> Result<(), String> {
                 }
                 "run/start" if initialized => {
                     handle_run_start(&service, &workspace, &writer, id, params).await?;
+                }
+                "run/retry" if initialized => {
+                    handle_run_retry(&service, &host, &workspace, &writer, id, params).await?;
                 }
                 "run/steer" if initialized => {
                     let params = params
@@ -755,6 +759,103 @@ async fn handle_run_start(
             .await
         }
     }
+}
+
+async fn handle_run_retry(
+    service: &Arc<AgentService<StdioHost>>,
+    host: &Arc<StdioHost>,
+    workspace: &WorkspacePaths,
+    writer: &Writer,
+    id: Value,
+    params: Option<Value>,
+) -> Result<(), String> {
+    let params = params
+        .and_then(|value| value.as_object().cloned())
+        .unwrap_or_default();
+    let chat_id = params.get("chat_id").and_then(Value::as_str).unwrap_or("");
+    let run_id = params.get("run_id").and_then(Value::as_str).unwrap_or("");
+    let replacement = params.get("edit_user_message").and_then(Value::as_str);
+    if chat_id.trim().is_empty()
+        || run_id.trim().is_empty()
+        || chat_id.len() > 256
+        || run_id.len() > 256
+        || replacement.is_some_and(|value| value.trim().is_empty() || value.len() > 16_384)
+    {
+        return respond(
+            writer,
+            id,
+            None,
+            Some(error_value(-32602, "invalid_retry_params")),
+        )
+        .await;
+    }
+
+    let journal = match EventJournal::open(workspace.agent_event_journal_db()) {
+        Ok(journal) => journal,
+        Err(error) => {
+            eprintln!("altai-cli serve: could not open retry journal: {error}");
+            return respond(
+                writer,
+                id,
+                None,
+                Some(error_value(-32603, "journal_unavailable")),
+            )
+            .await;
+        }
+    };
+    let latest = match journal.latest_run_summary_for_chat(chat_id) {
+        Ok(Some(summary)) => summary,
+        Ok(None) => {
+            return respond(writer, id, None, Some(error_value(-32002, "run_not_found"))).await
+        }
+        Err(error) => {
+            eprintln!("altai-cli serve: could not inspect retry run: {error}");
+            return respond(
+                writer,
+                id,
+                None,
+                Some(error_value(-32603, "journal_unavailable")),
+            )
+            .await;
+        }
+    };
+    if latest.run_id != run_id {
+        return respond(
+            writer,
+            id,
+            None,
+            Some(error_value(-32002, "retry_not_latest_run")),
+        )
+        .await;
+    }
+    if latest.terminal_seq.is_none() {
+        return respond(
+            writer,
+            id,
+            None,
+            Some(error_value(-32002, "retry_run_not_terminal")),
+        )
+        .await;
+    }
+
+    let prompt = match host
+        .rewind_latest_turn_for_retry(chat_id, replacement)
+        .await
+    {
+        Ok(prompt) => prompt,
+        Err(error) => return respond(writer, id, None, Some(error_value(-32002, &error))).await,
+    };
+    let mut start_params = serde_json::Map::new();
+    start_params.insert("chat_id".to_string(), Value::String(chat_id.to_string()));
+    start_params.insert("prompt".to_string(), Value::String(prompt));
+    handle_run_start(
+        service,
+        workspace,
+        writer,
+        id,
+        Some(Value::Object(start_params)),
+    )
+    .await
 }
 
 async fn handle_run_replay(
