@@ -95,6 +95,12 @@ pub async fn run(workspace: WorkspacePaths) -> Result<(), String> {
                                 "work/tasks/cancel",
                                 "work/tasks/retry",
                                 "work/tasks/remove",
+                                "work/automations/list",
+                                "work/automations/create",
+                                "work/automations/update",
+                                "work/automations/trigger",
+                                "work/automations/pause",
+                                "work/automations/delete",
                                 "agents/list",
                                 "sessions/list",
                                 "sessions/get",
@@ -491,6 +497,24 @@ pub async fn run(workspace: WorkspacePaths) -> Result<(), String> {
                 }
                 "work/tasks/remove" if initialized => {
                     handle_task_remove(&workspace, &run_coordinator, &writer, id, params).await?;
+                }
+                "work/automations/list" if initialized => {
+                    handle_automation_list(&host, &writer, id).await?;
+                }
+                "work/automations/create" if initialized => {
+                    handle_automation_create(&host, &writer, id, params).await?;
+                }
+                "work/automations/update" if initialized => {
+                    handle_automation_update(&host, &writer, id, params).await?;
+                }
+                "work/automations/trigger" if initialized => {
+                    handle_automation_trigger(&host, &writer, id, params).await?;
+                }
+                "work/automations/pause" if initialized => {
+                    handle_automation_pause(&host, &writer, id, params).await?;
+                }
+                "work/automations/delete" if initialized => {
+                    handle_automation_delete(&host, &writer, id, params).await?;
                 }
                 "config/get" if initialized => match load_run_configuration(&workspace) {
                     Ok(configuration) => {
@@ -1154,6 +1178,176 @@ async fn handle_task_remove(
             .await
         }
     }
+}
+
+async fn handle_automation_list(
+    host: &Arc<StdioHost>,
+    writer: &Writer,
+    id: Value,
+) -> Result<(), String> {
+    match host.list_automations().await {
+        Ok(automations) => respond(
+            writer,
+            id,
+            Some(json!({
+                "automations": automations
+                    .iter()
+                    .map(automation_value)
+                    .collect::<Vec<_>>()
+            })),
+            None,
+        )
+        .await,
+        Err(error) => respond(writer, id, None, Some(automation_error(&error))).await,
+    }
+}
+
+async fn handle_automation_create(
+    host: &Arc<StdioHost>,
+    writer: &Writer,
+    id: Value,
+    params: Option<Value>,
+) -> Result<(), String> {
+    let Some(params) = params.and_then(|value| value.as_object().cloned()) else {
+        return respond(writer, id, None, Some(error_value(-32602, "invalid_automation_params"))).await;
+    };
+    let chat_id = params.get("chat_id").and_then(Value::as_str).unwrap_or("");
+    let title = params.get("title").and_then(Value::as_str).unwrap_or("");
+    let prompt = params.get("prompt").and_then(Value::as_str).unwrap_or("");
+    let Some(schedule) = params.get("schedule").and_then(parse_automation_schedule) else {
+        return respond(writer, id, None, Some(error_value(-32602, "invalid_automation_schedule"))).await;
+    };
+    match host.create_automation(chat_id, title, prompt, schedule).await {
+        Ok(automation) => respond(writer, id, Some(json!({"automation": automation_value(&automation)})), None).await,
+        Err(error) => respond(writer, id, None, Some(automation_error(&error))).await,
+    }
+}
+
+async fn handle_automation_update(
+    host: &Arc<StdioHost>,
+    writer: &Writer,
+    id: Value,
+    params: Option<Value>,
+) -> Result<(), String> {
+    let Some(params) = params.and_then(|value| value.as_object().cloned()) else {
+        return respond(writer, id, None, Some(error_value(-32602, "invalid_automation_params"))).await;
+    };
+    let automation_id = params.get("automation_id").and_then(Value::as_str).unwrap_or("");
+    let title = params.get("title").and_then(Value::as_str);
+    let prompt = params.get("prompt").and_then(Value::as_str);
+    let enabled = params.get("enabled").and_then(Value::as_bool);
+    let schedule = match params.get("schedule") {
+        Some(value) => match parse_automation_schedule(value) {
+            Some(value) => Some(value),
+            None => return respond(writer, id, None, Some(error_value(-32602, "invalid_automation_schedule"))).await,
+        },
+        None => None,
+    };
+    if title.is_none() && prompt.is_none() && schedule.is_none() && enabled.is_none() {
+        return respond(writer, id, None, Some(error_value(-32602, "automation_patch_empty"))).await;
+    }
+    match host.update_automation(automation_id, title, prompt, schedule, enabled).await {
+        Ok(automation) => respond(writer, id, Some(json!({"automation": automation_value(&automation)})), None).await,
+        Err(error) => respond(writer, id, None, Some(automation_error(&error))).await,
+    }
+}
+
+async fn handle_automation_trigger(
+    host: &Arc<StdioHost>,
+    writer: &Writer,
+    id: Value,
+    params: Option<Value>,
+) -> Result<(), String> {
+    let automation_id = automation_id_from_params(params);
+    match host.trigger_automation(&automation_id).await {
+        Ok(()) => respond(writer, id, Some(json!({"accepted": true})), None).await,
+        Err(error) => respond(writer, id, None, Some(automation_error(&error))).await,
+    }
+}
+
+async fn handle_automation_pause(
+    host: &Arc<StdioHost>,
+    writer: &Writer,
+    id: Value,
+    params: Option<Value>,
+) -> Result<(), String> {
+    let automation_id = automation_id_from_params(params);
+    match host.pause_automation(&automation_id).await {
+        Ok(()) => respond(writer, id, Some(json!({"accepted": true})), None).await,
+        Err(error) => respond(writer, id, None, Some(automation_error(&error))).await,
+    }
+}
+
+async fn handle_automation_delete(
+    host: &Arc<StdioHost>,
+    writer: &Writer,
+    id: Value,
+    params: Option<Value>,
+) -> Result<(), String> {
+    let automation_id = automation_id_from_params(params);
+    match host.delete_automation(&automation_id).await {
+        Ok(()) => respond(writer, id, Some(json!({"removed": true})), None).await,
+        Err(error) => respond(writer, id, None, Some(automation_error(&error))).await,
+    }
+}
+
+fn automation_id_from_params(params: Option<Value>) -> String {
+    params
+        .as_ref()
+        .and_then(Value::as_object)
+        .and_then(|value| value.get("automation_id"))
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string()
+}
+
+fn parse_automation_schedule(value: &Value) -> Option<isanagent::scheduler::ScheduleKind> {
+    let value = value.as_object()?;
+    match value.get("kind")?.as_str()? {
+        "once" => chrono::DateTime::parse_from_rfc3339(value.get("at")?.as_str()?)
+            .ok()
+            .map(|at| isanagent::scheduler::ScheduleKind::At { at_ms: at.timestamp_millis() }),
+        "every" => value
+            .get("every_ms")?
+            .as_i64()
+            .filter(|every_ms| *every_ms > 0)
+            .map(|every_ms| isanagent::scheduler::ScheduleKind::Every { every_ms }),
+        _ => None,
+    }
+}
+
+fn automation_value(automation: &crate::stdio_host::StdioAutomation) -> Value {
+    let schedule = match &automation.schedule {
+        isanagent::scheduler::ScheduleKind::At { at_ms } => {
+            let at = chrono::DateTime::from_timestamp_millis(*at_ms)
+                .map(|value| value.to_rfc3339())
+                .unwrap_or_default();
+            json!({"kind": "once", "at": at})
+        }
+        isanagent::scheduler::ScheduleKind::Every { every_ms } => {
+            json!({"kind": "every", "every_ms": every_ms})
+        }
+        isanagent::scheduler::ScheduleKind::Cron { cron_expr } => {
+            json!({"kind": "cron", "expression": cron_expr})
+        }
+    };
+    json!({
+        "id": automation.id,
+        "chat_id": automation.chat_id,
+        "title": automation.title,
+        "prompt": automation.prompt,
+        "schedule": schedule,
+        "enabled": automation.enabled,
+    })
+}
+
+fn automation_error(error: &str) -> Value {
+    let code = match error {
+        "automation_not_found" => -32002,
+        "automation_paused" => -32002,
+        _ => -32602,
+    };
+    error_value(code, error)
 }
 
 async fn handle_session_mutation(

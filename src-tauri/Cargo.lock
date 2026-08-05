@@ -221,6 +221,7 @@ dependencies = [
  "altai-core",
  "altai-protocol",
  "async-trait",
+ "chrono",
  "clap",
  "clap_complete",
  "isanagent",
@@ -230,6 +231,7 @@ dependencies = [
  "tempfile",
  "tokio",
  "toml 0.8.23",
+ "uuid",
 ]
 
 [[package]]

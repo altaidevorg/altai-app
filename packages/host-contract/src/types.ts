@@ -218,7 +218,11 @@ export type TaskRunInfo = {
 
 export type AutomationInfo = {
   id: string;
+  /** Conversation that owns the scheduled agent turn. */
+  chatId: string;
   title: string;
+  /** Instruction injected into the owner conversation when the schedule fires. */
+  prompt: string;
   schedule: { kind: "once"; at: string } | { kind: "every"; everyMs: number };
   enabled: boolean;
 };

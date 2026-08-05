@@ -105,6 +105,7 @@ export interface WorkPort {
   cancelTaskRun(taskRunId: string): Promise<void>;
   retryTaskRun(taskRunId: string): Promise<TaskRunInfo>;
   removeTaskRun(taskRunId: string): Promise<void>;
+  /** Automations always retain both their owning chat and run instruction. */
   listAutomations(): Promise<AutomationInfo[]>;
   createAutomation(input: Omit<AutomationInfo, "id">): Promise<AutomationInfo>;
   updateAutomation(
