@@ -88,6 +88,7 @@ pub async fn run(workspace: WorkspacePaths) -> Result<(), String> {
                                 "config/get",
                                 "config/update",
                                 "models/list",
+                                "providers/status",
                                 "agents/list",
                                 "sessions/list",
                                 "sessions/get",
@@ -347,6 +348,35 @@ pub async fn run(workspace: WorkspacePaths) -> Result<(), String> {
                             Some(error_value(-32603, "configuration_unavailable")),
                         )
                         .await?;
+                    }
+                },
+                "providers/status" if initialized => match load_run_configuration(&workspace) {
+                    Ok(configuration) => {
+                        let provider_id = configuration
+                            .provider
+                            .map(|value| value.value)
+                            .unwrap_or_else(|| "openai".to_string());
+                        // The native host exposes only the boolean outcome of
+                        // credential resolution; raw keys never cross stdio.
+                        let connected = std::env::var("ALTAI_API_KEY")
+                            .or_else(|_| std::env::var("OPENAI_API_KEY"))
+                            .is_ok_and(|value| !value.trim().is_empty());
+                        respond(
+                            &writer,
+                            id,
+                            Some(json!({
+                                "providers": [{
+                                    "provider_id": provider_id,
+                                    "label": "Configured provider",
+                                    "connected": connected,
+                                }]
+                            })),
+                            None,
+                        ).await?;
+                    }
+                    Err(error) => {
+                        eprintln!("altai-cli serve: could not load provider configuration: {error}");
+                        respond(&writer, id, None, Some(error_value(-32603, "configuration_unavailable"))).await?;
                     }
                 },
                 "config/get" if initialized => match load_run_configuration(&workspace) {

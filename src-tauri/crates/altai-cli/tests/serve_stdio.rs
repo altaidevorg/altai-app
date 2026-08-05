@@ -140,10 +140,14 @@ fn config_update_persists_a_non_secret_model_setting() {
     assert_eq!(process.next()["result"]["permission"], "auto-edit");
     process.frame(json!({"jsonrpc":"2.0","id":5,"method":"config/get"}));
     assert_eq!(process.next()["result"]["permission"], "auto-edit");
+    process.frame(json!({"jsonrpc":"2.0","id":6,"method":"providers/status"}));
+    let provider_status = process.next();
+    assert!(provider_status["result"]["providers"][0]["connected"].is_boolean());
+    assert!(provider_status["result"]["providers"][0].get("api_key").is_none());
     assert!(workspace.path().join(".altai/config.toml").exists());
 
-    process.frame(json!({"jsonrpc":"2.0","id":6,"method":"shutdown"}));
-    assert_eq!(process.next()["id"], 6);
+    process.frame(json!({"jsonrpc":"2.0","id":7,"method":"shutdown"}));
+    assert_eq!(process.next()["id"], 7);
     let _stderr = process.shutdown();
 }
 
