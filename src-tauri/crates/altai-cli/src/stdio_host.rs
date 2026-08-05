@@ -52,6 +52,7 @@ pub struct StdioHost {
     workspace: WorkspacePaths,
     event_sink: Arc<dyn AgentEventSink>,
     workspace_services_by_root: tokio::sync::Mutex<HashMap<String, Arc<StdioWorkspaceServices>>>,
+    cron_routes: Arc<tokio::sync::Mutex<HashMap<String, mpsc::Sender<BusMessage>>>>,
 }
 
 impl StdioHost {
@@ -64,6 +65,7 @@ impl StdioHost {
             workspace,
             event_sink,
             workspace_services_by_root: tokio::sync::Mutex::new(HashMap::new()),
+            cron_routes: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
         }
     }
 
@@ -345,9 +347,19 @@ impl StdioHost {
         )
         .map_err(|error| format!("Failed to initialize workspace cron actor: {error}"))?;
         let cron_node = NodeHandle::new(cron_logic, 100, 1, Duration::from_millis(50));
+        let cron_routes = self.cron_routes.clone();
         let cron_forwarder = tokio::spawn(async move {
-            while cron_bus_rx.recv().await.is_some() {
-                // Cron delivery into long-lived stdio chats lands in a later slice.
+            while let Some(message) = cron_bus_rx.recv().await {
+                let BusMessage::Inbound(inbound) = message else {
+                    continue;
+                };
+                if inbound.channel != "stdio" || inbound.thread_id.is_some() || inbound.chat_id.trim().is_empty() {
+                    continue;
+                }
+                let route = cron_routes.lock().await.get(&inbound.chat_id).cloned();
+                if let Some(route) = route {
+                    let _ = route.send(BusMessage::Inbound(inbound)).await;
+                }
             }
         });
 
@@ -399,6 +411,17 @@ impl HostAdapter for StdioHost {
             .lock()
             .await
             .retain(|k, _| k == keep_root);
+    }
+
+    async fn on_chat_bound(
+        &self,
+        _workspace_root: &str,
+        chat_id: &str,
+        _owner_id: &str,
+        bus_tx: mpsc::Sender<BusMessage>,
+        _is_first_bind: bool,
+    ) {
+        self.cron_routes.lock().await.insert(chat_id.to_string(), bus_tx);
     }
 
     async fn build_instance(
