@@ -110,6 +110,7 @@ consumption of shared panel shells:
 | A5.28 | `AutomationList` (Scheduled card-list shell) |
 | A5.29 | `AgentSwitcherTrigger` (agent-picker trigger variants) |
 | A5.30 | `ComposerPrimaryRow` (composer tools/actions shell) |
+| A5.31 | `ComposerTextArea` (composer text-entry chrome) |
 
 Desktop must import shared components from this package; local duplicates are
 deleted as each slice lands.

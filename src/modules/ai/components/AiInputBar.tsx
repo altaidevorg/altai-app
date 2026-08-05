@@ -20,6 +20,7 @@ import {
   ComposerConfigRow,
   ComposerFollowupBar,
   ComposerPrimaryRow,
+  ComposerTextArea,
   ComposerToolbarIcon,
   ContextAction,
   ProviderConnectBanner,
@@ -396,7 +397,7 @@ export function AiInputBar() {
         <Popover open={pickerOpen}>
           <PopoverAnchor asChild>
             <div className="relative w-full min-w-0 px-3 pb-1 pt-2.5">
-              <textarea
+              <ComposerTextArea
                 ref={c.textareaRef}
                 value={c.value}
                 onChange={(e) => c.setValue(e.target.value)}
@@ -455,13 +456,6 @@ export function AiInputBar() {
                     ? "Add a follow-up, steer the active run, or queue the next task…"
                     : "Describe a task or ask a follow-up…  @ files  / commands  # snippets"
                 }
-                aria-label="Message ALTAI"
-                rows={2}
-                className={cn(
-                  "block w-full min-w-0 max-w-full max-h-44 min-h-[48px] resize-none bg-transparent",
-                  "pr-1 text-[13px] leading-5 text-foreground outline-none",
-                  "placeholder:text-muted-foreground/55",
-                )}
               />
             </div>
           </PopoverAnchor>
