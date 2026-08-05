@@ -52,7 +52,9 @@ Host oneshot / theme / approval / attachment APIs landed on IsanAgent `main` via
 [#101](https://github.com/altaidevorg/isanagent/pull/101) (superseding the earlier
 [#99](https://github.com/altaidevorg/isanagent/pull/99) / revert cycle). ALTAI
 depends on git `main` again; the temporary `tools/isanagent-oneshot` path pin is
-removed. `pnpm isanagent:sync` / CI continue to refresh the lockfile tip.
+removed. The scheduled/dispatch sync workflow keeps the lockfile tip current,
+release refreshes it once more, and normal CI builds the committed lockfile for
+reproducibility. `pnpm isanagent:sync` remains available for manual refreshes.
 
 ## M5 / M6 notes
 
