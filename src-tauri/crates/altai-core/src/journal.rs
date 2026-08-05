@@ -11,7 +11,7 @@ use std::path::Path;
 use std::sync::Mutex;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-const SCHEMA_VERSION: i64 = 2;
+const SCHEMA_VERSION: i64 = 3;
 const MAX_FETCH_LIMIT: usize = 1_000;
 
 const MIGRATION_V1: &str = r#"
@@ -56,6 +56,14 @@ CREATE TABLE IF NOT EXISTS agent_event_journal_sessions (
     title         TEXT NOT NULL,
     archived      INTEGER NOT NULL DEFAULT 0 CHECK (archived IN (0, 1)),
     updated_at_ms INTEGER NOT NULL CHECK (updated_at_ms >= 0)
+);
+"#;
+
+const MIGRATION_V3: &str = r#"
+CREATE TABLE IF NOT EXISTS agent_event_journal_task_runs (
+    chat_id       TEXT PRIMARY KEY,
+    title         TEXT NOT NULL,
+    created_at_ms INTEGER NOT NULL CHECK (created_at_ms >= 0)
 );
 "#;
 
@@ -121,6 +129,13 @@ pub struct SessionJournalMetadata {
     pub title: String,
     pub archived: bool,
     pub updated_at_ms: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TaskRunJournalMetadata {
+    pub chat_id: String,
+    pub title: String,
+    pub created_at_ms: u64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -680,8 +695,42 @@ impl EventJournal {
             "DELETE FROM agent_event_journal_sessions WHERE chat_id = ?1",
             params![chat_id],
         )?;
+        let deleted_task = transaction.execute(
+            "DELETE FROM agent_event_journal_task_runs WHERE chat_id = ?1",
+            params![chat_id],
+        )?;
         transaction.commit()?;
-        Ok(deleted_events != 0 || deleted_runs != 0 || deleted_metadata != 0)
+        Ok(deleted_events != 0 || deleted_runs != 0 || deleted_metadata != 0 || deleted_task != 0)
+    }
+
+    pub fn create_task_run(&self, chat_id: &str, title: &str) -> JournalResult<TaskRunJournalMetadata> {
+        validate_session_field(chat_id, "chat_id")?;
+        validate_session_field(title, "title")?;
+        let created_at_ms = now_ms();
+        let connection = self.connection.lock().map_err(|_| JournalError::LockPoisoned)?;
+        connection.execute(
+            "INSERT INTO agent_event_journal_task_runs (chat_id, title, created_at_ms) VALUES (?1, ?2, ?3)",
+            params![chat_id, title, created_at_ms],
+        )?;
+        Ok(TaskRunJournalMetadata { chat_id: chat_id.to_string(), title: title.to_string(), created_at_ms: u64::try_from(created_at_ms).map_err(|_| JournalError::NumericOverflow("created_at_ms"))? })
+    }
+
+    pub fn list_task_runs(&self, limit: usize) -> JournalResult<Vec<TaskRunJournalMetadata>> {
+        if limit == 0 || limit > MAX_FETCH_LIMIT { return Err(JournalError::InvalidField("limit")); }
+        let limit = i64::try_from(limit).map_err(|_| JournalError::NumericOverflow("limit"))?;
+        let connection = self.connection.lock().map_err(|_| JournalError::LockPoisoned)?;
+        let mut statement = connection.prepare("SELECT chat_id, title, created_at_ms FROM agent_event_journal_task_runs ORDER BY created_at_ms DESC, chat_id DESC LIMIT ?1")?;
+        let rows = statement.query_map(params![limit], |row| Ok(TaskRunJournalMetadata {
+            chat_id: row.get(0)?, title: row.get(1)?,
+            created_at_ms: u64::try_from(row.get::<_, i64>(2)?).map_err(|_| rusqlite::Error::IntegralValueOutOfRange(2, 0))?,
+        }))?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
+    }
+
+    pub fn remove_task_run(&self, chat_id: &str) -> JournalResult<bool> {
+        validate_session_field(chat_id, "chat_id")?;
+        let connection = self.connection.lock().map_err(|_| JournalError::LockPoisoned)?;
+        Ok(connection.execute("DELETE FROM agent_event_journal_task_runs WHERE chat_id = ?1", params![chat_id])? != 0)
     }
 
     fn update_session_metadata(
@@ -924,6 +973,10 @@ fn migrate(connection: &mut Connection) -> JournalResult<()> {
             params![now_ms()],
         )?;
     }
+    if current < 3 {
+        transaction.execute_batch(MIGRATION_V3)?;
+        transaction.execute("INSERT INTO agent_event_journal_migrations (version, applied_at_ms) VALUES (3, ?1)", params![now_ms()])?;
+    }
     transaction.commit()?;
     Ok(())
 }
@@ -975,7 +1028,7 @@ mod tests {
         let temp = tempfile::tempdir().expect("tempdir");
         let path = temp.path().join("events.sqlite3");
         let journal = EventJournal::open(&path).expect("open journal");
-        assert_eq!(journal.schema_version().expect("schema version"), 2);
+        assert_eq!(journal.schema_version().expect("schema version"), 3);
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
@@ -994,7 +1047,7 @@ mod tests {
                 .expect("reopen migrated journal")
                 .schema_version()
                 .expect("schema version"),
-            2
+            3
         );
 
         let future_path = temp.path().join("future.sqlite3");
@@ -1034,14 +1087,14 @@ mod tests {
         barrier.wait();
 
         for handle in handles {
-            assert_eq!(handle.join().expect("migration thread").expect("open"), 2);
+            assert_eq!(handle.join().expect("migration thread").expect("open"), 3);
         }
         assert_eq!(
             EventJournal::open(path.as_ref())
                 .expect("verify journal")
                 .schema_version()
                 .expect("schema version"),
-            2
+            3
         );
     }
 
@@ -1104,6 +1157,15 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec![("chat-1", "run-2"), ("chat-2", "run-3")]
         );
+    }
+
+    #[test]
+    fn task_run_metadata_is_durable_and_removable() {
+        let journal = EventJournal::open_in_memory().expect("journal");
+        journal.create_task_run("task-chat", "Review pull request").expect("create task");
+        assert_eq!(journal.list_task_runs(10).expect("list")[0].title, "Review pull request");
+        assert!(journal.remove_task_run("task-chat").expect("remove task"));
+        assert!(journal.list_task_runs(10).expect("list").is_empty());
     }
 
     #[test]
