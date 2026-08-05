@@ -33,7 +33,7 @@ export function OperationsNavigationShell({ view, onViewChange, availableViews, 
           {OPERATIONS_VIEWS.map((item) => {
             const available = availableViews.includes(item);
             const selected = item === view;
-            return <button key={item} type="button" role="tab" aria-selected={selected} disabled={!available} onClick={() => onViewChange(item)} className={cn("shrink-0 rounded-md px-2.5 py-1.5 text-[10.5px] font-medium transition-colors", selected ? "bg-accent text-foreground" : "text-muted-foreground hover:bg-muted/70 hover:text-foreground", "disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:bg-transparent disabled:hover:text-muted-foreground")}>{LABELS[item]}</button>;
+            return <button key={item} type="button" role="tab" aria-selected={selected} disabled={!available} onClick={() => { if (available) onViewChange(item); }} className={cn("shrink-0 rounded-md px-2.5 py-1.5 text-[10.5px] font-medium transition-colors", selected ? "bg-accent text-foreground" : "text-muted-foreground hover:bg-muted/70 hover:text-foreground", "disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:bg-transparent disabled:hover:text-muted-foreground")}>{LABELS[item]}</button>;
           })}
         </div>
       </nav>
