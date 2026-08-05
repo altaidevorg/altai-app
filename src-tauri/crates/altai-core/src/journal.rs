@@ -11,7 +11,7 @@ use std::path::Path;
 use std::sync::Mutex;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-const SCHEMA_VERSION: i64 = 1;
+const SCHEMA_VERSION: i64 = 2;
 const MAX_FETCH_LIMIT: usize = 1_000;
 
 const MIGRATION_V1: &str = r#"
@@ -44,6 +44,18 @@ CREATE TABLE IF NOT EXISTS agent_event_journal_runs (
         OR
         (terminal_seq IS NOT NULL AND terminal_kind IS NOT NULL AND terminal_payload_json IS NOT NULL)
     )
+);
+"#;
+
+// Session records live beside the append-only run journal. They intentionally
+// contain only host-neutral presentation metadata: runtime state and message
+// bodies continue to belong to the agent service and memory store.
+const MIGRATION_V2: &str = r#"
+CREATE TABLE IF NOT EXISTS agent_event_journal_sessions (
+    chat_id       TEXT PRIMARY KEY,
+    title         TEXT NOT NULL,
+    archived      INTEGER NOT NULL DEFAULT 0 CHECK (archived IN (0, 1)),
+    updated_at_ms INTEGER NOT NULL CHECK (updated_at_ms >= 0)
 );
 "#;
 
@@ -100,6 +112,14 @@ pub struct ChatJournalSummary {
     pub latest_run_id: String,
     pub last_seq: u64,
     pub terminal_seq: Option<u64>,
+    pub updated_at_ms: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SessionJournalMetadata {
+    pub chat_id: String,
+    pub title: String,
+    pub archived: bool,
     pub updated_at_ms: u64,
 }
 
@@ -207,6 +227,9 @@ pub struct EventJournal {
 
 impl EventJournal {
     pub fn open(path: impl AsRef<Path>) -> JournalResult<Self> {
+        if let Some(parent) = path.as_ref().parent() {
+            std::fs::create_dir_all(parent)?;
+        }
         create_private_file(path.as_ref())?;
         let connection = Connection::open(path)?;
         Self::from_connection(connection)
@@ -509,6 +532,206 @@ impl EventJournal {
         Ok(summaries)
     }
 
+    /// Lists explicit sessions as well as legacy chats discovered from the
+    /// event journal. This lets existing conversations gain durable metadata
+    /// lazily without losing history created before the session table existed.
+    pub fn list_session_metadata(
+        &self,
+        limit: usize,
+    ) -> JournalResult<Vec<SessionJournalMetadata>> {
+        if limit == 0 || limit > MAX_FETCH_LIMIT {
+            return Err(JournalError::InvalidField("limit"));
+        }
+        let limit = i64::try_from(limit).map_err(|_| JournalError::NumericOverflow("limit"))?;
+        let connection = self
+            .connection
+            .lock()
+            .map_err(|_| JournalError::LockPoisoned)?;
+        let mut statement = connection.prepare(
+            "WITH event_sessions AS (
+                 SELECT chat_id, MAX(recorded_at_ms) AS updated_at_ms
+                 FROM agent_event_journal_events
+                 GROUP BY chat_id
+             ), all_sessions AS (
+                 SELECT sessions.chat_id,
+                        sessions.title,
+                        sessions.archived,
+                        MAX(sessions.updated_at_ms, COALESCE(events.updated_at_ms, 0)) AS updated_at_ms
+                 FROM agent_event_journal_sessions AS sessions
+                 LEFT JOIN event_sessions AS events ON events.chat_id = sessions.chat_id
+                 UNION ALL
+                 SELECT events.chat_id, events.chat_id, 0, events.updated_at_ms
+                 FROM event_sessions AS events
+                 WHERE NOT EXISTS (
+                     SELECT 1 FROM agent_event_journal_sessions AS sessions
+                     WHERE sessions.chat_id = events.chat_id
+                 )
+             )
+             SELECT chat_id, title, archived, updated_at_ms
+             FROM all_sessions
+             ORDER BY updated_at_ms DESC, chat_id DESC
+             LIMIT ?1",
+        )?;
+        let rows = statement.query_map(params![limit], |row| {
+            Ok(SessionJournalMetadata {
+                chat_id: row.get(0)?,
+                title: row.get(1)?,
+                archived: row.get::<_, i64>(2)? != 0,
+                updated_at_ms: u64::try_from(row.get::<_, i64>(3)?)
+                    .map_err(|_| rusqlite::Error::IntegralValueOutOfRange(3, 0))?,
+            })
+        })?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
+    }
+
+    pub fn session_metadata(&self, chat_id: &str) -> JournalResult<Option<SessionJournalMetadata>> {
+        validate_session_field(chat_id, "chat_id")?;
+        let connection = self
+            .connection
+            .lock()
+            .map_err(|_| JournalError::LockPoisoned)?;
+        connection
+            .query_row(
+                "WITH event_session AS (
+                     SELECT MAX(recorded_at_ms) AS updated_at_ms
+                     FROM agent_event_journal_events WHERE chat_id = ?1
+                 )
+                 SELECT sessions.chat_id, sessions.title, sessions.archived,
+                        MAX(sessions.updated_at_ms, COALESCE(events.updated_at_ms, 0))
+                 FROM agent_event_journal_sessions AS sessions
+                 LEFT JOIN event_session AS events ON true
+                 WHERE sessions.chat_id = ?1
+                 UNION ALL
+                 SELECT ?1, ?1, 0, updated_at_ms FROM event_session
+                 WHERE updated_at_ms IS NOT NULL
+                   AND NOT EXISTS (SELECT 1 FROM agent_event_journal_sessions WHERE chat_id = ?1)
+                 LIMIT 1",
+                params![chat_id],
+                |row| {
+                    Ok(SessionJournalMetadata {
+                        chat_id: row.get(0)?,
+                        title: row.get(1)?,
+                        archived: row.get::<_, i64>(2)? != 0,
+                        updated_at_ms: u64::try_from(row.get::<_, i64>(3)?)
+                            .map_err(|_| rusqlite::Error::IntegralValueOutOfRange(3, 0))?,
+                    })
+                },
+            )
+            .optional()
+            .map_err(Into::into)
+    }
+
+    pub fn create_session(
+        &self,
+        chat_id: &str,
+        title: &str,
+    ) -> JournalResult<SessionJournalMetadata> {
+        validate_session_field(chat_id, "chat_id")?;
+        validate_session_field(title, "title")?;
+        let updated_at_ms = now_ms();
+        let connection = self
+            .connection
+            .lock()
+            .map_err(|_| JournalError::LockPoisoned)?;
+        connection.execute(
+            "INSERT INTO agent_event_journal_sessions (chat_id, title, archived, updated_at_ms)
+             VALUES (?1, ?2, 0, ?3)",
+            params![chat_id, title, updated_at_ms],
+        )?;
+        Ok(SessionJournalMetadata {
+            chat_id: chat_id.to_string(),
+            title: title.to_string(),
+            archived: false,
+            updated_at_ms: u64::try_from(updated_at_ms)
+                .map_err(|_| JournalError::NumericOverflow("updated_at_ms"))?,
+        })
+    }
+
+    pub fn rename_session(
+        &self,
+        chat_id: &str,
+        title: &str,
+    ) -> JournalResult<Option<SessionJournalMetadata>> {
+        self.update_session_metadata(chat_id, Some(title), None)
+    }
+
+    pub fn archive_session(&self, chat_id: &str) -> JournalResult<Option<SessionJournalMetadata>> {
+        self.update_session_metadata(chat_id, None, Some(true))
+    }
+
+    /// Removes all journal records for this chat. The host adapter is also
+    /// responsible for clearing the agent-memory thread before calling this.
+    pub fn delete_session(&self, chat_id: &str) -> JournalResult<bool> {
+        validate_session_field(chat_id, "chat_id")?;
+        let mut connection = self
+            .connection
+            .lock()
+            .map_err(|_| JournalError::LockPoisoned)?;
+        let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let deleted_events = transaction.execute(
+            "DELETE FROM agent_event_journal_events WHERE chat_id = ?1",
+            params![chat_id],
+        )?;
+        let deleted_runs = transaction.execute(
+            "DELETE FROM agent_event_journal_runs WHERE chat_id = ?1",
+            params![chat_id],
+        )?;
+        let deleted_metadata = transaction.execute(
+            "DELETE FROM agent_event_journal_sessions WHERE chat_id = ?1",
+            params![chat_id],
+        )?;
+        transaction.commit()?;
+        Ok(deleted_events != 0 || deleted_runs != 0 || deleted_metadata != 0)
+    }
+
+    fn update_session_metadata(
+        &self,
+        chat_id: &str,
+        title: Option<&str>,
+        archived: Option<bool>,
+    ) -> JournalResult<Option<SessionJournalMetadata>> {
+        validate_session_field(chat_id, "chat_id")?;
+        if let Some(title) = title {
+            validate_session_field(title, "title")?;
+        }
+        let updated_at_ms = now_ms();
+        let mut connection = self
+            .connection
+            .lock()
+            .map_err(|_| JournalError::LockPoisoned)?;
+        let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let exists = transaction.query_row(
+            "SELECT EXISTS(
+                 SELECT 1 FROM agent_event_journal_sessions WHERE chat_id = ?1
+                 UNION ALL
+                 SELECT 1 FROM agent_event_journal_runs WHERE chat_id = ?1
+             )",
+            params![chat_id],
+            |row| row.get::<_, i64>(0),
+        )? != 0;
+        if !exists {
+            transaction.rollback()?;
+            return Ok(None);
+        }
+        transaction.execute(
+            "INSERT INTO agent_event_journal_sessions (chat_id, title, archived, updated_at_ms)
+             VALUES (?1, COALESCE(?2, ?1), COALESCE(?3, 0), ?4)
+             ON CONFLICT(chat_id) DO UPDATE SET
+                title = COALESCE(?2, agent_event_journal_sessions.title),
+                archived = COALESCE(?3, agent_event_journal_sessions.archived),
+                updated_at_ms = excluded.updated_at_ms",
+            params![
+                chat_id,
+                title,
+                archived.map(|value| if value { 1_i64 } else { 0_i64 }),
+                updated_at_ms
+            ],
+        )?;
+        transaction.commit()?;
+        drop(connection);
+        self.session_metadata(chat_id)
+    }
+
     /// Snapshot unfinished runs from a previous host process. Callers may
     /// classify each one only by appending its next terminal sequence.
     pub fn incomplete_run_summaries(&self) -> JournalResult<Vec<RunJournalSummary>> {
@@ -649,6 +872,21 @@ fn validate_event(event: &JournalEvent) -> JournalResult<()> {
     Ok(())
 }
 
+fn validate_session_field(value: &str, field: &'static str) -> JournalResult<()> {
+    if value.trim().is_empty() || value.len() > 256 {
+        return Err(JournalError::InvalidField(field));
+    }
+    Ok(())
+}
+
+fn now_ms() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis()
+        .min(i64::MAX as u128) as i64
+}
+
 fn sqlite_u64(value: u64, field: &'static str) -> JournalResult<i64> {
     i64::try_from(value).map_err(|_| JournalError::NumericOverflow(field))
 }
@@ -676,6 +914,14 @@ fn migrate(connection: &mut Connection) -> JournalResult<()> {
             "INSERT INTO agent_event_journal_migrations (version, applied_at_ms)
              VALUES (1, ?1)",
             params![applied_at_ms],
+        )?;
+    }
+    if current < 2 {
+        transaction.execute_batch(MIGRATION_V2)?;
+        transaction.execute(
+            "INSERT INTO agent_event_journal_migrations (version, applied_at_ms)
+             VALUES (2, ?1)",
+            params![now_ms()],
         )?;
     }
     transaction.commit()?;
@@ -729,7 +975,7 @@ mod tests {
         let temp = tempfile::tempdir().expect("tempdir");
         let path = temp.path().join("events.sqlite3");
         let journal = EventJournal::open(&path).expect("open journal");
-        assert_eq!(journal.schema_version().expect("schema version"), 1);
+        assert_eq!(journal.schema_version().expect("schema version"), 2);
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
@@ -748,7 +994,7 @@ mod tests {
                 .expect("reopen migrated journal")
                 .schema_version()
                 .expect("schema version"),
-            1
+            2
         );
 
         let future_path = temp.path().join("future.sqlite3");
@@ -788,14 +1034,14 @@ mod tests {
         barrier.wait();
 
         for handle in handles {
-            assert_eq!(handle.join().expect("migration thread").expect("open"), 1);
+            assert_eq!(handle.join().expect("migration thread").expect("open"), 2);
         }
         assert_eq!(
             EventJournal::open(path.as_ref())
                 .expect("verify journal")
                 .schema_version()
                 .expect("schema version"),
-            1
+            2
         );
     }
 
@@ -857,6 +1103,63 @@ mod tests {
                 .map(|summary| (summary.chat_id.as_str(), summary.latest_run_id.as_str()))
                 .collect::<Vec<_>>(),
             vec![("chat-1", "run-2"), ("chat-2", "run-3")]
+        );
+    }
+
+    #[test]
+    fn session_metadata_persists_titles_archives_and_legacy_chats() {
+        let journal = EventJournal::open_in_memory().expect("journal");
+        let created = journal
+            .create_session("empty-chat", "Empty chat")
+            .expect("create session");
+        assert_eq!(created.title, "Empty chat");
+        assert!(!created.archived);
+
+        journal
+            .append(&JournalEvent {
+                version: 1,
+                run_id: "legacy-run".to_string(),
+                seq: 1,
+                chat_id: "legacy-chat".to_string(),
+                recorded_at_ms: 42,
+                kind: "run_started".to_string(),
+                payload: serde_json::json!({}),
+            })
+            .expect("append legacy event");
+        assert_eq!(
+            journal
+                .session_metadata("legacy-chat")
+                .expect("legacy metadata")
+                .expect("legacy session")
+                .title,
+            "legacy-chat"
+        );
+
+        let renamed = journal
+            .rename_session("legacy-chat", "Renamed legacy chat")
+            .expect("rename")
+            .expect("renamed session");
+        assert_eq!(renamed.title, "Renamed legacy chat");
+        let archived = journal
+            .archive_session("legacy-chat")
+            .expect("archive")
+            .expect("archived session");
+        assert!(archived.archived);
+        assert!(journal
+            .delete_session("legacy-chat")
+            .expect("delete session"));
+        assert!(journal
+            .session_metadata("legacy-chat")
+            .expect("deleted metadata")
+            .is_none());
+        assert_eq!(
+            journal
+                .list_session_metadata(10)
+                .expect("list sessions")
+                .iter()
+                .map(|session| session.chat_id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["empty-chat"]
         );
     }
 

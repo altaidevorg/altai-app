@@ -211,6 +211,23 @@ impl StdioHost {
             .map_err(|_| "session_memory_unavailable".to_string())?
     }
 
+    /// Permanently clear a stdio chat's memory transcript. Event-journal
+    /// deletion remains in the protocol layer, after this host-owned action.
+    pub async fn delete_session_memory(&self, chat_id: &str) -> Result<(), String> {
+        if chat_id.trim().is_empty() || chat_id.len() > 256 {
+            return Err("invalid_chat_id".to_string());
+        }
+        let services = self.session_workspace_services().await?;
+        let thread_id = isanagent::bus::clarification_session_key("stdio", chat_id, None);
+        let (reply_tx, reply_rx) = oneshot::channel();
+        services.memory_node.send_packet(MemoryMessage::Clear {
+            thread_id,
+            keep_last: 0,
+            reply: SharedReply::new(reply_tx),
+        }).await.map_err(|error| format!("session_memory_unavailable: {error}"))?;
+        reply_rx.await.map_err(|_| "session_memory_unavailable".to_string())?
+    }
+
     pub async fn list_notifications(&self, unseen_only: bool) -> Result<Vec<isanagent::memory::NotificationRecord>, String> {
         let services = self.session_workspace_services().await?;
         let (reply_tx, reply_rx) = oneshot::channel();
