@@ -1477,14 +1477,18 @@ async fn handle_run_start(
                     .await;
                 }
             }
+            let mut result = json!({
+                "accepted": true,
+                "run_id": ack.run_id,
+                "queued": ack.queued,
+            });
+            if task_title.is_some() {
+                result["task_id"] = Value::String(chat_id);
+            }
             respond(
                 writer,
                 id,
-                Some(json!({
-                    "accepted": true,
-                    "run_id": ack.run_id,
-                    "queued": ack.queued,
-                })),
+                Some(result),
                 None,
             )
             .await

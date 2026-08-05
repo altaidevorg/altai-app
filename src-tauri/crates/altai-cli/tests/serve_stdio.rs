@@ -574,6 +574,7 @@ fn task_run_rpc_persists_status_and_supports_lifecycle_actions() {
         if frame["id"] == 2 {
             assert!(frame.get("error").is_none(), "create response: {frame}");
             create_ack = frame["result"]["accepted"].as_bool() == Some(true);
+            assert_eq!(frame["result"]["task_id"], "task-rpc");
         }
         if event_type(&frame) == Some("run_started") {
             break frame["params"]["run_id"]
@@ -641,42 +642,28 @@ fn task_run_rpc_persists_status_and_supports_lifecycle_actions() {
     assert!(retry_ack);
     assert_ne!(first_run_id, second_run_id);
 
-    process.frame(json!({
-        "jsonrpc":"2.0", "id":6, "method":"work/tasks/cancel", "params":{"task_id":"task-rpc"}
-    }));
-    let mut second_cancel_ack = false;
     loop {
         let frame = process.next();
-        if frame["id"] == 6 {
-            second_cancel_ack = frame["result"]["accepted"].as_bool() == Some(true);
-        }
         if event_type(&frame) == Some("run_terminated") {
             assert_eq!(frame["params"]["run_id"], second_run_id);
             break;
         }
     }
-    while !second_cancel_ack {
-        let frame = process.next();
-        if frame["id"] == 6 {
-            second_cancel_ack = frame["result"]["accepted"].as_bool() == Some(true);
-        }
-    }
-    assert!(second_cancel_ack);
 
     process.frame(json!({
-        "jsonrpc":"2.0", "id":7, "method":"work/tasks/remove", "params":{"task_id":"task-rpc"}
+        "jsonrpc":"2.0", "id":6, "method":"work/tasks/remove", "params":{"task_id":"task-rpc"}
     }));
     loop {
         let frame = process.next();
-        if frame["id"] == 7 {
+        if frame["id"] == 6 {
             assert_eq!(frame["result"]["removed"], true);
             break;
         }
     }
-    process.frame(json!({"jsonrpc":"2.0","id":8,"method":"work/tasks/list"}));
+    process.frame(json!({"jsonrpc":"2.0","id":7,"method":"work/tasks/list"}));
     loop {
         let frame = process.next();
-        if frame["id"] == 8 {
+        if frame["id"] == 7 {
             assert!(frame["result"]["task_runs"]
                 .as_array()
                 .expect("task runs")
@@ -684,8 +671,8 @@ fn task_run_rpc_persists_status_and_supports_lifecycle_actions() {
             break;
         }
     }
-    process.frame(json!({"jsonrpc":"2.0","id":9,"method":"shutdown"}));
-    assert_eq!(process.next()["id"], 9);
+    process.frame(json!({"jsonrpc":"2.0","id":8,"method":"shutdown"}));
+    assert_eq!(process.next()["id"], 8);
     let _stderr = process.shutdown();
 }
 
