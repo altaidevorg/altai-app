@@ -211,6 +211,38 @@ impl StdioHost {
             .map_err(|_| "session_memory_unavailable".to_string())?
     }
 
+    pub async fn list_notifications(&self, unseen_only: bool) -> Result<Vec<isanagent::memory::NotificationRecord>, String> {
+        let services = self.session_workspace_services().await?;
+        let (reply_tx, reply_rx) = oneshot::channel();
+        services.memory_node.send_packet(MemoryMessage::ListNotifications {
+            chat_id: None,
+            channel: Some("stdio".to_string()),
+            limit: 200,
+            unseen_only,
+            reply: SharedReply::new(reply_tx),
+        }).await.map_err(|error| format!("inbox_memory_unavailable: {error}"))?;
+        reply_rx.await.map_err(|_| "inbox_memory_unavailable".to_string())?
+    }
+
+    pub async fn mark_notification_seen(&self, notification_id: &str) -> Result<(), String> {
+        self.mutate_notification(notification_id, false).await
+    }
+
+    pub async fn resolve_notification(&self, notification_id: &str) -> Result<(), String> {
+        self.mutate_notification(notification_id, true).await
+    }
+
+    async fn mutate_notification(&self, notification_id: &str, resolve: bool) -> Result<(), String> {
+        if notification_id.trim().is_empty() || notification_id.len() > 512 { return Err("invalid_notification_id".to_string()); }
+        let services = self.session_workspace_services().await?;
+        let records = self.list_notifications(false).await?;
+        if !records.iter().any(|record| record.notification_id == notification_id && record.channel == "stdio") { return Err("notification_not_found".to_string()); }
+        let (reply_tx, reply_rx) = oneshot::channel();
+        let message = if resolve { MemoryMessage::ResolveNotification { notification_id: notification_id.to_string(), reply: SharedReply::new(reply_tx) } } else { MemoryMessage::MarkNotificationSeen { notification_id: notification_id.to_string(), reply: SharedReply::new(reply_tx) } };
+        services.memory_node.send_packet(message).await.map_err(|error| format!("inbox_memory_unavailable: {error}"))?;
+        reply_rx.await.map_err(|_| "inbox_memory_unavailable".to_string())?
+    }
+
     fn session_workspace_root(&self) -> String {
         format!(
             "{}/.isanagent",
