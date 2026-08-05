@@ -171,6 +171,7 @@ fn request_method(method: &str) -> bool {
             | "config/get"
             | "config/update"
             | "models/list"
+            | "providers/status"
             | "agents/list"
             | "sessions/list"
             | "sessions/get"
