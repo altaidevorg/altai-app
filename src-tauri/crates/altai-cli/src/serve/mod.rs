@@ -440,12 +440,18 @@ pub async fn run(workspace: WorkspacePaths) -> Result<(), String> {
                         .and_then(|value| value.as_object().cloned())
                         .unwrap_or_default();
                     let chat_id = params.get("chat_id").and_then(Value::as_str).unwrap_or("");
+                    let action = params.get("action").and_then(Value::as_str).unwrap_or("reply");
                     let text = params.get("text").and_then(Value::as_str).unwrap_or("");
-                    if chat_id.trim().is_empty() || chat_id.len() > 256 || text.trim().is_empty() || text.len() > 16_384 {
+                    if chat_id.trim().is_empty() || chat_id.len() > 256 || !matches!(action, "reply" | "dismiss") || (action == "reply" && (text.trim().is_empty() || text.len() > 16_384)) {
                         respond(&writer, id, None, Some(error_value(-32602, "invalid_clarification_response"))).await?;
                         continue;
                     }
-                    match host.deliver_clarification_reply(chat_id, text.to_string()).await {
+                    let result = if action == "dismiss" {
+                        host.dismiss_clarification(chat_id).await
+                    } else {
+                        host.deliver_clarification_reply(chat_id, text.to_string()).await
+                    };
+                    match result {
                         Ok(()) => respond(&writer, id, Some(json!({"accepted": true})), None).await?,
                         Err(error) => respond(&writer, id, None, Some(error_value(-32002, &error))).await?,
                     }
