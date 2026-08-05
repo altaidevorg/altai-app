@@ -521,6 +521,11 @@ export {
 } from "./components/ComposerTextArea.js";
 
 export {
+  ComposerShell,
+  type ComposerShellProps,
+} from "./components/ComposerShell.js";
+
+export {
   TaskRunConfigSection,
   type TaskRunConfigSectionProps,
 } from "./components/TaskRunConfigSection.js";
