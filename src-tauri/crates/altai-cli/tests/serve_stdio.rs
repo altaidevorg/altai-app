@@ -133,7 +133,10 @@ fn config_update_persists_a_non_secret_model_setting() {
 
     process.frame(json!({"jsonrpc":"2.0","id":2,"method":"config/update","params":{"model":"openai/gpt-test"}}));
     let updated = process.next();
-    assert_eq!(updated["result"]["model"], "openai/gpt-test", "response: {updated}");
+    assert_eq!(
+        updated["result"]["model"], "openai/gpt-test",
+        "response: {updated}"
+    );
     process.frame(json!({"jsonrpc":"2.0","id":3,"method":"config/get"}));
     assert_eq!(process.next()["result"]["model"], "openai/gpt-test");
     process.frame(json!({"jsonrpc":"2.0","id":4,"method":"config/update","params":{"permission":"auto-edit"}}));
@@ -143,7 +146,9 @@ fn config_update_persists_a_non_secret_model_setting() {
     process.frame(json!({"jsonrpc":"2.0","id":6,"method":"providers/status"}));
     let provider_status = process.next();
     assert!(provider_status["result"]["providers"][0]["connected"].is_boolean());
-    assert!(provider_status["result"]["providers"][0].get("api_key").is_none());
+    assert!(provider_status["result"]["providers"][0]
+        .get("api_key")
+        .is_none());
     assert!(workspace.path().join(".altai/config.toml").exists());
 
     process.frame(json!({"jsonrpc":"2.0","id":7,"method":"shutdown"}));
@@ -157,11 +162,17 @@ fn session_metadata_is_durable_and_can_be_archived_or_deleted() {
     let mut process = ServeProcess::spawn(workspace.path(), false);
     process.frame(initialize(json!(1)));
     let initialized = process.next();
-    assert!(initialized["result"]["capabilities"].as_array().expect("capabilities").contains(&json!("sessions/rename")));
+    assert!(initialized["result"]["capabilities"]
+        .as_array()
+        .expect("capabilities")
+        .contains(&json!("sessions/rename")));
 
     process.frame(json!({"jsonrpc":"2.0","id":2,"method":"sessions/create","params":{"chat_id":"session-meta","title":"Original"}}));
     let created = process.next();
-    assert_eq!(created["result"]["title"], "Original", "response: {created}");
+    assert_eq!(
+        created["result"]["title"], "Original",
+        "response: {created}"
+    );
     process.frame(json!({"jsonrpc":"2.0","id":3,"method":"sessions/rename","params":{"chat_id":"session-meta","title":"Renamed"}}));
     assert_eq!(process.next()["result"]["title"], "Renamed");
     process.frame(json!({"jsonrpc":"2.0","id":4,"method":"sessions/archive","params":{"chat_id":"session-meta"}}));
@@ -170,7 +181,9 @@ fn session_metadata_is_durable_and_can_be_archived_or_deleted() {
     assert_eq!(process.next()["result"]["sessions"][0]["title"], "Renamed");
     process.frame(json!({"jsonrpc":"2.0","id":6,"method":"sessions/delete","params":{"chat_id":"session-meta"}}));
     assert_eq!(process.next()["result"]["deleted"], true);
-    process.frame(json!({"jsonrpc":"2.0","id":7,"method":"sessions/get","params":{"chat_id":"session-meta"}}));
+    process.frame(
+        json!({"jsonrpc":"2.0","id":7,"method":"sessions/get","params":{"chat_id":"session-meta"}}),
+    );
     assert_eq!(process.next()["error"]["message"], "session_not_found");
     process.frame(json!({"jsonrpc":"2.0","id":8,"method":"shutdown"}));
     assert_eq!(process.next()["id"], 8);
@@ -184,9 +197,15 @@ fn clarification_response_rejects_a_non_pending_ticket() {
     process.frame(initialize(json!(1)));
     assert_eq!(process.next()["id"], 1);
     process.frame(json!({"jsonrpc":"2.0","id":2,"method":"clarification/respond","params":{"chat_id":"chat-test","text":"yes"}}));
-    assert_eq!(process.next()["error"]["message"], "clarification_not_pending");
+    assert_eq!(
+        process.next()["error"]["message"],
+        "clarification_not_pending"
+    );
     process.frame(json!({"jsonrpc":"2.0","id":3,"method":"clarification/respond","params":{"chat_id":"chat-test","action":"dismiss"}}));
-    assert_eq!(process.next()["error"]["message"], "clarification_not_pending");
+    assert_eq!(
+        process.next()["error"]["message"],
+        "clarification_not_pending"
+    );
     process.frame(json!({"jsonrpc":"2.0","id":4,"method":"shutdown"}));
     assert_eq!(process.next()["id"], 4);
     let _stderr = process.shutdown();
@@ -522,6 +541,155 @@ fn retry_rewinds_the_latest_terminal_run_and_starts_a_new_one() {
 }
 
 #[test]
+fn task_run_rpc_persists_status_and_supports_lifecycle_actions() {
+    let workspace = tempfile::tempdir().expect("workspace");
+    let mut process = ServeProcess::spawn(workspace.path(), true);
+    process.frame(initialize(json!(1)));
+    let initialized = process.next();
+    let capabilities = initialized["result"]["capabilities"]
+        .as_array()
+        .expect("capabilities");
+    for capability in [
+        "work/tasks/list",
+        "work/tasks/create",
+        "work/tasks/cancel",
+        "work/tasks/retry",
+        "work/tasks/remove",
+    ] {
+        assert!(
+            capabilities.contains(&json!(capability)),
+            "missing {capability}"
+        );
+    }
+
+    process.frame(json!({
+        "jsonrpc":"2.0",
+        "id":2,
+        "method":"work/tasks/create",
+        "params":{"chat_id":"task-rpc","task_title":"Review pull request","prompt":"say hello"}
+    }));
+    let mut create_ack = false;
+    let first_run_id = loop {
+        let frame = process.next();
+        if frame["id"] == 2 {
+            assert!(frame.get("error").is_none(), "create response: {frame}");
+            create_ack = frame["result"]["accepted"].as_bool() == Some(true);
+        }
+        if event_type(&frame) == Some("run_started") {
+            break frame["params"]["run_id"]
+                .as_str()
+                .expect("first task run id")
+                .to_string();
+        }
+    };
+    assert!(create_ack);
+
+    process.frame(json!({"jsonrpc":"2.0","id":3,"method":"work/tasks/list"}));
+    let listed = loop {
+        let frame = process.next();
+        if frame["id"] == 3 {
+            break frame;
+        }
+    };
+    assert_eq!(listed["result"]["task_runs"][0]["id"], "task-rpc");
+    assert_eq!(
+        listed["result"]["task_runs"][0]["title"],
+        "Review pull request"
+    );
+    assert_eq!(listed["result"]["task_runs"][0]["status"], "running");
+
+    process.frame(json!({
+        "jsonrpc":"2.0", "id":4, "method":"work/tasks/cancel", "params":{"task_id":"task-rpc"}
+    }));
+    let mut cancel_ack = false;
+    loop {
+        let frame = process.next();
+        if frame["id"] == 4 {
+            cancel_ack = frame["result"]["accepted"].as_bool() == Some(true);
+        }
+        if event_type(&frame) == Some("run_terminated") {
+            assert_eq!(frame["params"]["run_id"], first_run_id);
+            assert_eq!(frame["params"]["event"]["outcome"]["kind"], "cancelled");
+            break;
+        }
+    }
+    while !cancel_ack {
+        let frame = process.next();
+        if frame["id"] == 4 {
+            cancel_ack = frame["result"]["accepted"].as_bool() == Some(true);
+        }
+    }
+    assert!(cancel_ack);
+
+    process.frame(json!({
+        "jsonrpc":"2.0", "id":5, "method":"work/tasks/retry", "params":{"task_id":"task-rpc"}
+    }));
+    let mut retry_ack = false;
+    let second_run_id = loop {
+        let frame = process.next();
+        if frame["id"] == 5 {
+            assert!(frame.get("error").is_none(), "retry response: {frame}");
+            retry_ack = frame["result"]["accepted"].as_bool() == Some(true);
+        }
+        if event_type(&frame) == Some("run_started") {
+            break frame["params"]["run_id"]
+                .as_str()
+                .expect("second task run id")
+                .to_string();
+        }
+    };
+    assert!(retry_ack);
+    assert_ne!(first_run_id, second_run_id);
+
+    process.frame(json!({
+        "jsonrpc":"2.0", "id":6, "method":"work/tasks/cancel", "params":{"task_id":"task-rpc"}
+    }));
+    let mut second_cancel_ack = false;
+    loop {
+        let frame = process.next();
+        if frame["id"] == 6 {
+            second_cancel_ack = frame["result"]["accepted"].as_bool() == Some(true);
+        }
+        if event_type(&frame) == Some("run_terminated") {
+            assert_eq!(frame["params"]["run_id"], second_run_id);
+            break;
+        }
+    }
+    while !second_cancel_ack {
+        let frame = process.next();
+        if frame["id"] == 6 {
+            second_cancel_ack = frame["result"]["accepted"].as_bool() == Some(true);
+        }
+    }
+    assert!(second_cancel_ack);
+
+    process.frame(json!({
+        "jsonrpc":"2.0", "id":7, "method":"work/tasks/remove", "params":{"task_id":"task-rpc"}
+    }));
+    loop {
+        let frame = process.next();
+        if frame["id"] == 7 {
+            assert_eq!(frame["result"]["removed"], true);
+            break;
+        }
+    }
+    process.frame(json!({"jsonrpc":"2.0","id":8,"method":"work/tasks/list"}));
+    loop {
+        let frame = process.next();
+        if frame["id"] == 8 {
+            assert!(frame["result"]["task_runs"]
+                .as_array()
+                .expect("task runs")
+                .is_empty());
+            break;
+        }
+    }
+    process.frame(json!({"jsonrpc":"2.0","id":9,"method":"shutdown"}));
+    assert_eq!(process.next()["id"], 9);
+    let _stderr = process.shutdown();
+}
+
+#[test]
 fn second_chat_can_start_while_first_is_active() {
     let workspace = tempfile::tempdir().expect("workspace");
     let mut process = ServeProcess::spawn(workspace.path(), true);
@@ -538,7 +706,10 @@ fn second_chat_can_start_while_first_is_active() {
     while !first_started {
         let frame = process.next();
         if frame["id"] == 2 {
-            assert!(frame.get("result").is_some(), "first start should be accepted: {frame}");
+            assert!(
+                frame.get("result").is_some(),
+                "first start should be accepted: {frame}"
+            );
             continue;
         }
         if event_type(&frame) == Some("run_started") {
