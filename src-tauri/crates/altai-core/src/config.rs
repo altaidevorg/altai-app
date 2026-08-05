@@ -62,6 +62,7 @@ pub fn resolve_config<T>(
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct AgentConfigLayer {
     pub model: Option<String>,
+    pub permission_mode: Option<String>,
     pub fallback_model: Option<String>,
     pub provider: Option<String>,
     pub base_url: Option<String>,
@@ -71,6 +72,7 @@ pub struct AgentConfigLayer {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ResolvedAgentConfig {
     pub model: Option<ResolvedConfig<String>>,
+    pub permission_mode: Option<ResolvedConfig<String>>,
     pub fallback_model: Option<ResolvedConfig<String>>,
     pub provider: Option<ResolvedConfig<String>>,
     pub base_url: Option<ResolvedConfig<String>>,
@@ -127,6 +129,7 @@ pub fn resolve_agent_config_layers(
 
     ResolvedAgentConfig {
         model: resolve(|layer| layer.model.clone()),
+        permission_mode: resolve(|layer| layer.permission_mode.clone()),
         fallback_model: resolve(|layer| layer.fallback_model.clone()),
         provider: resolve(|layer| layer.provider.clone()),
         base_url: resolve(|layer| layer.base_url.clone()),
@@ -146,6 +149,7 @@ pub fn load_agent_config(
     let project = read_layer(project_config, ConfigFormat::AltaiProject)?;
     let environment = AgentConfigLayer {
         model: std::env::var("ALTAI_MODEL").ok(),
+        permission_mode: std::env::var("ALTAI_PERMISSION_MODE").ok(),
         fallback_model: std::env::var("ALTAI_FALLBACK_MODEL").ok(),
         provider: std::env::var("ALTAI_PROVIDER").ok(),
         base_url: std::env::var("ALTAI_BASE_URL").ok(),
@@ -186,6 +190,10 @@ fn read_layer(path: &Path, format: ConfigFormat) -> Result<AgentConfigLayer, Age
     Ok(AgentConfigLayer {
         model: table
             .and_then(|table| table.get(model_key))
+            .and_then(toml::Value::as_str)
+            .map(str::to_string),
+        permission_mode: table
+            .and_then(|table| table.get("permission_mode").or_else(|| table.get("permission")))
             .and_then(toml::Value::as_str)
             .map(str::to_string),
         fallback_model: table
