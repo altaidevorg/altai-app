@@ -421,6 +421,13 @@ export {
 } from "./components/WorkHubNavigation.js";
 
 export {
+  OperationsNavigationShell,
+  OPERATIONS_VIEWS,
+  type OperationsNavigationShellProps,
+  type OperationsView,
+} from "./components/OperationsNavigationShell.js";
+
+export {
   AutomationCard,
   automationLastRunLabel,
   automationNextRunLabel,

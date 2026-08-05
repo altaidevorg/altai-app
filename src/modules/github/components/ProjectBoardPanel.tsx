@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { OperationsNavigationShell } from "@altai/agent-ui";
 import { CommandCenter } from "./CommandCenter";
 
 type Props = {
@@ -30,11 +31,13 @@ export function ProjectBoardPanel({ repoRoot, navigation }: Props) {
   };
 
   return (
-    <CommandCenter
+    <OperationsNavigationShell view="overview" onViewChange={() => {}} availableViews={["overview"]}>
+      <CommandCenter
       repoRoot={repoRoot}
       workspaceName={workspaceName}
       onCreateWork={createWork}
       newWorkRequestKey={newWorkKey}
-    />
+      />
+    </OperationsNavigationShell>
   );
 }
