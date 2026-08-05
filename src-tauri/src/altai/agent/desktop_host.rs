@@ -23,7 +23,7 @@ use isanagent::tools::ToolRegistry;
 use std::path::Path;
 
 use super::runtime::{
-    now_epoch_ms, recover_background_jobs_after_owner_bind, trusted_tauri_inbound,
+    recover_background_jobs_after_owner_bind, trusted_tauri_inbound,
     validate_tauri_chat_id, WorkspaceDispatcher,
 };
 use super::tauri_sink::TauriEventSink;
@@ -295,85 +295,8 @@ impl HostAdapter for DesktopHost {
         sandbox_dir: &Path,
         tools: &mut ToolRegistry,
     ) -> Result<(), String> {
-        let mcp_statuses = self.app.state::<mcp::McpStatusRegistry>();
-        if let Ok(servers) = mcp::load_servers(sandbox_dir) {
-            let enabled: Vec<mcp::McpServerConfig> =
-                servers.into_iter().filter(|s| s.enabled).collect();
-            if !enabled.is_empty() {
-                let mut connect_set = tokio::task::JoinSet::new();
-                for server in enabled {
-                    let sandbox = sandbox_dir.to_path_buf();
-                    let statuses = mcp_statuses.inner().clone();
-                    connect_set.spawn(async move {
-                        let now_ms_start = now_epoch_ms();
-                        statuses
-                            .set(
-                                &sandbox,
-                                mcp::McpServerStatus {
-                                    server_id: server.id.clone(),
-                                    state: mcp::McpState::Starting,
-                                    tool_count: None,
-                                    last_error: None,
-                                    updated_at_ms: now_ms_start,
-                                },
-                                now_ms_start,
-                            )
-                            .await;
-                        let outcome = mcp::connect_server(&server, &sandbox).await;
-                        (server, outcome)
-                    });
-                }
-                while let Some(joined) = connect_set.join_next().await {
-                    let Ok((server, outcome)) = joined else {
-                        continue;
-                    };
-                    match outcome {
-                        Ok(mcp_tools) => {
-                            let count = mcp_tools.len();
-                            log::info!("MCP '{}' connected with {} tools", server.name, count);
-                            let now_ms = now_epoch_ms();
-                            mcp_statuses
-                                .set(
-                                    sandbox_dir,
-                                    mcp::McpServerStatus {
-                                        server_id: server.id.clone(),
-                                        state: mcp::McpState::Connected,
-                                        tool_count: Some(count),
-                                        last_error: None,
-                                        updated_at_ms: now_ms,
-                                    },
-                                    now_ms,
-                                )
-                                .await;
-                            for tool in mcp_tools {
-                                tools.register(Box::new(tool));
-                            }
-                        }
-                        Err(error) => {
-                            let msg = error.to_string();
-                            log::warn!("MCP '{}' unavailable: {msg}", server.name);
-                            let now_ms = now_epoch_ms();
-                            mcp_statuses
-                                .set(
-                                    sandbox_dir,
-                                    mcp::McpServerStatus {
-                                        server_id: server.id.clone(),
-                                        state: mcp::McpState::Error,
-                                        tool_count: None,
-                                        last_error: Some(msg),
-                                        updated_at_ms: now_ms,
-                                    },
-                                    now_ms,
-                                )
-                                .await;
-                        }
-                    }
-                }
-            }
-        } else {
-            log::warn!("MCP configuration skipped");
-        }
-        Ok(())
+        let statuses = self.app.state::<mcp::McpStatusRegistry>();
+        altai_agent_service::mcp::register_enabled_tools(sandbox_dir, tools, statuses.inner()).await
     }
 
     async fn clear_mcp_workspaces(&self, workspace_roots: &[String]) {

@@ -15,6 +15,7 @@ pub mod host;
 pub mod instance;
 pub mod instance_builder;
 pub mod instance_registry;
+pub mod mcp;
 pub mod permission;
 pub mod replay;
 pub mod routing;

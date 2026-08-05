@@ -11,6 +11,7 @@ use isanagent::bus::BusMessage;
 use isanagent::clarification::ClarificationHub;
 use isanagent::memory::{MemoryMessage, SharedReply};
 use isanagent::scheduler::{CronActor, CronCommand, CronSchedulingMode, CronStore, ScheduleKind};
+use isanagent::tools::ToolRegistry;
 use isanagent::utils::ChatMessage;
 use isanagent::workspace::resolve_workspace_root;
 use isanagent::{NodeHandle, Supervisor, SupervisorPolicy};
@@ -75,6 +76,7 @@ pub struct StdioHost {
     event_sink: Arc<dyn AgentEventSink>,
     workspace_services_by_root: tokio::sync::Mutex<HashMap<String, Arc<StdioWorkspaceServices>>>,
     cron_routes: Arc<tokio::sync::Mutex<HashMap<String, mpsc::Sender<BusMessage>>>>,
+    mcp_statuses: altai_agent_service::mcp::McpStatusRegistry,
 }
 
 impl StdioHost {
@@ -88,6 +90,7 @@ impl StdioHost {
             event_sink,
             workspace_services_by_root: tokio::sync::Mutex::new(HashMap::new()),
             cron_routes: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
+            mcp_statuses: altai_agent_service::mcp::McpStatusRegistry::new(),
         }
     }
 
@@ -271,6 +274,42 @@ impl StdioHost {
 
     pub async fn resolve_notification(&self, notification_id: &str) -> Result<(), String> {
         self.mutate_notification(notification_id, true).await
+    }
+
+    pub async fn list_mcp_servers(&self) -> Result<(Vec<altai_agent_service::mcp::McpServerConfig>, Vec<altai_agent_service::mcp::McpServerStatus>), String> {
+        let workspace = PathBuf::from(self.session_workspace_root());
+        Ok((altai_agent_service::mcp::load_servers(&workspace)?, self.mcp_statuses.snapshot(&workspace).await))
+    }
+
+    pub async fn configure_mcp_server(&self, server: altai_agent_service::mcp::McpServerConfig) -> Result<(), String> {
+        altai_agent_service::mcp::validate_server(&server)?;
+        let workspace = PathBuf::from(self.session_workspace_root());
+        let mut servers = altai_agent_service::mcp::load_servers(&workspace)?;
+        if let Some(existing) = servers.iter_mut().find(|existing| existing.id == server.id) { *existing = server.clone(); } else { servers.push(server.clone()); }
+        altai_agent_service::mcp::save_servers(&workspace, &servers)?;
+        self.mcp_statuses.clear_server(&workspace, &server.id).await;
+        Ok(())
+    }
+
+    pub async fn set_mcp_server_enabled(&self, id: &str, enabled: bool) -> Result<(), String> {
+        let workspace = PathBuf::from(self.session_workspace_root());
+        let mut servers = altai_agent_service::mcp::load_servers(&workspace)?;
+        let server = servers.iter_mut().find(|server| server.id == id).ok_or_else(|| "mcp_server_not_found".to_string())?;
+        server.enabled = enabled;
+        altai_agent_service::mcp::save_servers(&workspace, &servers)?;
+        self.mcp_statuses.clear_server(&workspace, id).await;
+        Ok(())
+    }
+
+    pub async fn restart_mcp_server(&self, id: &str) -> Result<altai_agent_service::mcp::McpProbeResult, String> {
+        let workspace = PathBuf::from(self.session_workspace_root());
+        let server = altai_agent_service::mcp::load_servers(&workspace)?.into_iter().find(|server| server.id == id).ok_or_else(|| "mcp_server_not_found".to_string())?;
+        if !server.enabled { return Err("mcp_server_disabled".to_string()); }
+        self.mcp_statuses.clear_server(&workspace, id).await;
+        match altai_agent_service::mcp::probe_server(&server, &workspace).await {
+            Ok(result) => { self.mcp_statuses.set(&workspace, altai_agent_service::mcp::McpServerStatus { server_id: server.id, state: altai_agent_service::mcp::McpState::Connected, tool_count: Some(result.tools.len()), last_error: None, updated_at_ms: 0 }).await; Ok(result) }
+            Err(error) => { self.mcp_statuses.set(&workspace, altai_agent_service::mcp::McpServerStatus { server_id: server.id, state: altai_agent_service::mcp::McpState::Error, tool_count: None, last_error: Some(error.clone()), updated_at_ms: 0 }).await; Err(error) }
+        }
     }
 
     async fn mutate_notification(&self, notification_id: &str, resolve: bool) -> Result<(), String> {
@@ -714,7 +753,9 @@ impl HostAdapter for StdioHost {
         .await
     }
 
-    async fn clear_mcp_workspaces(&self, _workspace_roots: &[String]) {}
+    async fn clear_mcp_workspaces(&self, workspace_roots: &[String]) { for root in workspace_roots { if !root.is_empty() { self.mcp_statuses.clear_workspace(Path::new(root)).await; } } }
+
+    async fn augment_tools(&self, sandbox_dir: &Path, tools: &mut ToolRegistry) -> Result<(), String> { altai_agent_service::mcp::register_enabled_tools(sandbox_dir, tools, &self.mcp_statuses).await }
 }
 
 fn dirs_checkpoint_root() -> Option<PathBuf> {

@@ -198,6 +198,28 @@ fn provider_credentials_are_host_owned_and_never_returned_over_stdio() {
 }
 
 #[test]
+fn mcp_server_configuration_uses_the_native_lifecycle_protocol() {
+    let workspace = tempfile::tempdir().expect("workspace");
+    let mut process = ServeProcess::spawn(workspace.path(), false);
+    process.frame(initialize(json!(1)));
+    let initialized = process.next();
+    for capability in ["mcp/servers/list", "mcp/servers/configure", "mcp/servers/enable", "mcp/servers/restart"] {
+        assert!(initialized["result"]["capabilities"].as_array().expect("capabilities").contains(&json!(capability)));
+    }
+    process.frame(json!({"jsonrpc":"2.0", "id":2, "method":"mcp/servers/configure", "params":{"id":"files","config":{"name":"Files","command":"echo","args":[],"env":{},"enabled":true}}}));
+    assert_eq!(process.next()["result"]["id"], "files");
+    process.frame(json!({"jsonrpc":"2.0","id":3,"method":"mcp/servers/list"}));
+    assert_eq!(process.next()["result"]["servers"][0]["enabled"], true);
+    process.frame(json!({"jsonrpc":"2.0","id":4,"method":"mcp/servers/enable","params":{"id":"files","enabled":false}}));
+    assert_eq!(process.next()["result"]["enabled"], false);
+    process.frame(json!({"jsonrpc":"2.0","id":5,"method":"mcp/servers/list"}));
+    assert_eq!(process.next()["result"]["servers"][0]["enabled"], false);
+    process.frame(json!({"jsonrpc":"2.0","id":6,"method":"shutdown"}));
+    assert_eq!(process.next()["id"], 6);
+    let _stderr = process.shutdown();
+}
+
+#[test]
 fn automation_rpc_persists_a_prompt_and_full_lifecycle() {
     let workspace = tempfile::tempdir().expect("workspace");
     let mut process = ServeProcess::spawn(workspace.path(), false);
