@@ -29,6 +29,9 @@ impl ServeProcess {
                 "ALTAI_CLI_TEST_SCRIPTED_RESPONSE",
                 "scripted assistant reply",
             )
+            .env("ALTAI_CLI_CREDENTIALS_DIR", workspace.join("credentials"))
+            .env_remove("ALTAI_API_KEY")
+            .env_remove("OPENAI_API_KEY")
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
@@ -153,6 +156,44 @@ fn config_update_persists_a_non_secret_model_setting() {
 
     process.frame(json!({"jsonrpc":"2.0","id":7,"method":"shutdown"}));
     assert_eq!(process.next()["id"], 7);
+    let _stderr = process.shutdown();
+}
+
+#[test]
+fn provider_credentials_are_host_owned_and_never_returned_over_stdio() {
+    let workspace = tempfile::tempdir().expect("workspace");
+    let mut process = ServeProcess::spawn(workspace.path(), false);
+    process.frame(initialize(json!(1)));
+    let initialized = process.next();
+    for capability in ["providers/status", "providers/connect", "providers/clear"] {
+        assert!(initialized["result"]["capabilities"]
+            .as_array()
+            .expect("capabilities")
+            .contains(&json!(capability)));
+    }
+
+    process.frame(json!({
+        "jsonrpc":"2.0", "id":2, "method":"providers/connect",
+        "params":{"provider_id":"anthropic","credential":"sk-ant-test-secret","base_url":"https://api.anthropic.test"}
+    }));
+    let connected = process.next();
+    assert_eq!(connected["result"]["provider_id"], "anthropic", "response: {connected}");
+    assert_eq!(connected["result"]["connected"], true);
+    assert!(connected.to_string().contains("sk-ant-test-secret") == false);
+
+    process.frame(json!({"jsonrpc":"2.0","id":3,"method":"providers/status"}));
+    let status = process.next();
+    assert_eq!(status["result"]["providers"][0]["provider_id"], "anthropic");
+    assert_eq!(status["result"]["providers"][0]["connected"], true);
+    assert!(status.get("credential").is_none());
+
+    process.frame(json!({"jsonrpc":"2.0","id":4,"method":"providers/clear","params":{"provider_id":"anthropic"}}));
+    assert_eq!(process.next()["result"]["cleared"], true);
+    process.frame(json!({"jsonrpc":"2.0","id":5,"method":"providers/status"}));
+    assert_eq!(process.next()["result"]["providers"][0]["connected"], false);
+
+    process.frame(json!({"jsonrpc":"2.0","id":6,"method":"shutdown"}));
+    assert_eq!(process.next()["id"], 6);
     let _stderr = process.shutdown();
 }
 

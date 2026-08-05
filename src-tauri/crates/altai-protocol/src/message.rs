@@ -172,6 +172,8 @@ fn request_method(method: &str) -> bool {
             | "config/update"
             | "models/list"
             | "providers/status"
+            | "providers/connect"
+            | "providers/clear"
             | "work/tasks/list"
             | "work/tasks/create"
             | "work/tasks/cancel"
