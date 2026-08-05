@@ -19,6 +19,7 @@ import {
   ComposerAttachChips,
   ComposerConfigRow,
   ComposerFollowupBar,
+  ComposerPrimaryRow,
   ComposerToolbarIcon,
   ContextAction,
   ProviderConnectBanner,
@@ -520,8 +521,9 @@ export function AiInputBar() {
           }
         />
 
-        <div className="altai-ai-composer-primary flex w-full min-w-0 items-center gap-1 border-t border-border-subtle px-2.5 py-1.5">
-          <div className="altai-ai-composer-tools flex min-w-0 shrink-0 items-center gap-0.5 rounded-md bg-foreground/[0.035] p-0.5">
+        <ComposerPrimaryRow
+          tools={
+            <>
             <ComposerToolbarIcon
               title="Attach file or image"
               onClick={() => fileInputRef.current?.click()}
@@ -597,17 +599,15 @@ export function AiInputBar() {
                 )}
               </ComposerToolbarIcon>
             )}
-          </div>
-
-          <div className="altai-ai-composer-actions ml-auto flex min-w-0 shrink-0 items-center gap-1">
-            <div className="altai-ai-composer-permission-bottom flex shrink-0 items-center">
-              <HoverTooltip label="Permission mode">
-                <PermissionModeSwitcher variant="toolbar-icon" />
-              </HoverTooltip>
-            </div>
-
-            <div className="altai-ai-composer-submit flex shrink-0 items-center">
-              {c.isBusy ? (
+            </>
+          }
+          permission={
+            <HoverTooltip label="Permission mode">
+              <PermissionModeSwitcher variant="toolbar-icon" />
+            </HoverTooltip>
+          }
+          submit={
+            c.isBusy ? (
                 <Button
                   type="button"
                   size="sm"
@@ -639,10 +639,9 @@ export function AiInputBar() {
                     <HugeiconsIcon icon={ArrowUpIcon} size={13} strokeWidth={2.25} />
                   </Button>
                 </HoverTooltip>
-              )}
-            </div>
-          </div>
-        </div>
+            )
+          }
+        />
       </div>
 
       <AnimatePresence initial={false}>
