@@ -70,9 +70,6 @@ jobs:
           workspaces: src-tauri -> target
           key: ${{ matrix.os }}
 
-      - name: Sync latest İsanAgent main
-        run: cargo update --manifest-path src-tauri/Cargo.toml -p isanagent
-
       # Tauri validates platform externalBin paths during cargo check. The
       # cli-smoke job builds and validates the real sidecar on every platform;
       # this lightweight placeholder keeps the compile matrix focused on Rust.
@@ -122,7 +119,9 @@ jobs:
       - run: pnpm exec tsc --noEmit
       - run: pnpm lint
       - run: pnpm test
-      - run: pnpm build
+      # TypeScript was checked above; call Vite directly so `pnpm build`
+      # (`tsc && vite build`) does not type-check the whole app a second time.
+      - run: pnpm exec vite build
 
   cli-smoke:
     name: altai-cli smoke (${{ matrix.label }})
@@ -156,9 +155,6 @@ jobs:
         with:
           workspaces: src-tauri -> target
           key: cli-smoke-${{ matrix.rust_target }}
-
-      - name: Sync latest İsanAgent main
-        run: cargo update --manifest-path src-tauri/Cargo.toml -p isanagent
 
       - name: Build altai-cli
         run: cargo build --manifest-path src-tauri/Cargo.toml -p altai-cli --release --target ${{ matrix.rust_target }}

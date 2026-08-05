@@ -67,10 +67,10 @@ base64 = "0.22"
 pdf-extract = "0.12"
 
 # İsanAgent — embedded as Rust crate (direct API, no sidecar).
-# Track upstream `main`. Dev (`beforeDevCommand`), CI, and release all run
-# `cargo update -p isanagent` before compile so builds pick up the tip.
-# Cargo.lock still records the last resolved commit for reproducibility;
-# `.github/workflows/isanagent-bump.yml` opens a sync PR when that tip moves.
+# Track upstream `main`. Dev (`beforeDevCommand`) and release refresh the
+# dependency before compile; normal CI builds the committed lockfile so a PR
+# is tested reproducibly. `.github/workflows/isanagent-bump.yml` opens a sync
+# PR when the upstream tip moves.
 isanagent = { git = "https://github.com/altaidevorg/isanagent.git", branch = "main" }
 tauri-plugin-single-instance = "2"
 tauri-plugin-cli = "2"
