@@ -1,4 +1,3 @@
-import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -13,7 +12,6 @@ import { cn } from "@/lib/utils";
 import { openSettingsWindow } from "@/modules/settings/openSettingsWindow";
 import {
   AbsoluteIcon,
-  ArrowDown01Icon,
   AtomicPowerIcon,
   BookSearchIcon,
   CodeIcon,
@@ -28,7 +26,7 @@ import {
 import { HugeiconsIcon } from "@hugeicons/react";
 import { ISANAGENT_AGENT_IDS, type AgentIconId } from "../lib/agents";
 import { useAgentsStore } from "../store/agentsStore";
-import { AgentOptionRow, ComposerConfigTrigger } from "@altai/agent-ui";
+import { AgentOptionRow, AgentSwitcherTrigger } from "@altai/agent-ui";
 
 const ICONS: Record<AgentIconId, typeof CodeIcon> = {
   coder: CodeIcon,
@@ -83,61 +81,16 @@ export function AgentSwitcher({
   const resolved: AgentSwitcherVariant =
     variant ?? (isMiniWindow ? "mini" : "default");
   const isToolbar = resolved === "toolbar" || resolved === "toolbar-icon";
-  const isIconOnly = resolved === "toolbar-icon";
   const dropdownSide = isToolbar ? "top" : undefined;
 
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        {isToolbar && !isIconOnly ? (
-          <ComposerConfigTrigger
-            icon={
-              <HugeiconsIcon
-                icon={ActiveIcon}
-                size={13}
-                strokeWidth={1.75}
-                className="shrink-0 opacity-80"
-              />
-            }
-            label={active.name}
-            className="max-w-[9rem]"
-            aria-label={`Switch agent — current: ${active.name}`}
-            title={`Agent: ${active.name}`}
-          />
-        ) : (
-          <Button
-            size="xs"
-            variant="ghost"
-            className={cn(
-              "group",
-              resolved === "default"
-                ? "flex h-6 items-center gap-1 rounded-md border border-border/60 bg-card px-1.5 text-[10.5px] text-muted-foreground transition-colors hover:border-border hover:bg-foreground/[0.055]"
-                : resolved === "mini"
-                  ? "mr-1 text-xs"
-                  : "flex size-7 items-center justify-center rounded-md p-0 text-muted-foreground transition-colors hover:bg-foreground/[0.055]",
-            )}
-            aria-label={`Switch agent — current: ${active.name}`}
-            title={`Agent: ${active.name}`}
-          >
-            <HugeiconsIcon
-              icon={ActiveIcon}
-              size={11}
-              strokeWidth={1.75}
-              className="shrink-0"
-            />
-            {!isIconOnly && (
-              <>
-                <span className="max-w-[7rem] truncate">{active.name}</span>
-                <HugeiconsIcon
-                  icon={ArrowDown01Icon}
-                  size={10}
-                  strokeWidth={2}
-                  className="shrink-0 opacity-70"
-                />
-              </>
-            )}
-          </Button>
-        )}
+        <AgentSwitcherTrigger
+          name={active.name}
+          icon={ActiveIcon}
+          variant={resolved}
+        />
       </DropdownMenuTrigger>
       <DropdownMenuContent
         side={dropdownSide}
