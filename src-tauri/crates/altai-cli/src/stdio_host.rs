@@ -65,6 +65,27 @@ impl StdioHost {
         }
     }
 
+    /// Deliver a reply only when this stdio chat has a live clarification wait.
+    /// The hub removes the pending slot before delivery, making repeated replies
+    /// fail rather than resuming the same tool twice.
+    pub async fn deliver_clarification_reply(
+        &self,
+        chat_id: &str,
+        text: String,
+    ) -> Result<(), String> {
+        let workspace_root = self.workspace.root.to_string_lossy().to_string();
+        let services = self.workspace_bundle_inner(&workspace_root).await?;
+        let session_key = isanagent::bus::clarification_session_key("stdio", chat_id, None);
+        if services
+            .clarification_hub
+            .try_deliver_reply(&session_key, text)
+        {
+            Ok(())
+        } else {
+            Err("clarification_not_pending".to_string())
+        }
+    }
+
     async fn workspace_bundle_inner(
         &self,
         workspace_root: &str,

@@ -144,6 +144,19 @@ fn config_update_persists_a_non_secret_model_setting() {
 }
 
 #[test]
+fn clarification_response_rejects_a_non_pending_ticket() {
+    let workspace = tempfile::tempdir().expect("workspace");
+    let mut process = ServeProcess::spawn(workspace.path(), false);
+    process.frame(initialize(json!(1)));
+    assert_eq!(process.next()["id"], 1);
+    process.frame(json!({"jsonrpc":"2.0","id":2,"method":"clarification/respond","params":{"chat_id":"chat-test","text":"yes"}}));
+    assert_eq!(process.next()["error"]["message"], "clarification_not_pending");
+    process.frame(json!({"jsonrpc":"2.0","id":3,"method":"shutdown"}));
+    assert_eq!(process.next()["id"], 3);
+    let _stderr = process.shutdown();
+}
+
+#[test]
 fn compiled_stdio_handles_split_and_multiple_frames_with_ordered_terminal_stream() {
     let workspace = tempfile::tempdir().expect("workspace");
     let mut process = ServeProcess::spawn(workspace.path(), false);
