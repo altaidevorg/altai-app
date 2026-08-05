@@ -92,6 +92,9 @@ pub async fn run(workspace: WorkspacePaths) -> Result<(), String> {
                                 "sessions/list",
                                 "sessions/get",
                                 "sessions/create",
+                                "sessions/rename",
+                                "sessions/archive",
+                                "sessions/delete",
                                 "sessions/messages",
                                 "sessions/truncate",
                                 "inbox/list",
@@ -147,7 +150,23 @@ pub async fn run(workspace: WorkspacePaths) -> Result<(), String> {
                         .await?;
                         continue;
                     }
-                    respond(&writer, id, Some(json!({"chat_id": chat_id})), None).await?;
+                    let title = params.get("title").and_then(Value::as_str).unwrap_or("New chat");
+                    if title.trim().is_empty() || title.len() > 256 {
+                        respond(&writer, id, None, Some(error_value(-32602, "invalid_session_title"))).await?;
+                        continue;
+                    }
+                    let journal = match EventJournal::open(workspace.agent_event_journal_db()) {
+                        Ok(journal) => journal,
+                        Err(error) => {
+                            eprintln!("altai-cli serve: could not open session journal: {error}");
+                            respond(&writer, id, None, Some(error_value(-32603, "journal_unavailable"))).await?;
+                            continue;
+                        }
+                    };
+                    match journal.create_session(chat_id, title.trim()) {
+                        Ok(session) => respond(&writer, id, Some(session_metadata_value(session)), None).await?,
+                        Err(_) => respond(&writer, id, None, Some(error_value(-32602, "session_already_exists"))).await?,
+                    }
                 }
                 "sessions/list" if initialized => {
                     let params = params
@@ -178,18 +197,21 @@ pub async fn run(workspace: WorkspacePaths) -> Result<(), String> {
                             continue;
                         }
                     };
-                    match journal.list_chat_summaries(limit as usize) {
+                    match journal.list_session_metadata(limit as usize) {
                         Ok(sessions) => {
                             let sessions = sessions
                                 .into_iter()
                                 .map(|session| {
-                                    json!({
-                                        "chat_id": session.chat_id,
-                                        "latest_run_id": session.latest_run_id,
-                                        "last_seq": session.last_seq,
-                                        "terminal_seq": session.terminal_seq,
-                                        "updated_at_ms": session.updated_at_ms,
-                                    })
+                                    let chat_id = session.chat_id.clone();
+                                    let mut response = session_metadata_value(session);
+                                    if let Ok(Some(summary)) = journal.latest_run_summary_for_chat(&chat_id) {
+                                        if let Some(record) = response.as_object_mut() {
+                                            record.insert("latest_run_id".to_string(), json!(summary.run_id));
+                                            record.insert("last_seq".to_string(), json!(summary.last_seq));
+                                            record.insert("terminal_seq".to_string(), json!(summary.terminal_seq));
+                                        }
+                                    }
+                                    response
                                 })
                                 .collect::<Vec<_>>();
                             respond(&writer, id, Some(json!({"sessions": sessions})), None)
@@ -236,20 +258,17 @@ pub async fn run(workspace: WorkspacePaths) -> Result<(), String> {
                             continue;
                         }
                     };
-                    match journal.latest_run_summary_for_chat(chat_id) {
-                        Ok(Some(summary)) => {
-                            respond(
-                                &writer,
-                                id,
-                                Some(json!({
-                                    "chat_id": summary.chat_id,
-                                    "latest_run_id": summary.run_id,
-                                    "last_seq": summary.last_seq,
-                                    "terminal_seq": summary.terminal_seq,
-                                })),
-                                None,
-                            )
-                            .await?;
+                    match journal.session_metadata(chat_id) {
+                        Ok(Some(session)) => {
+                            let mut response = session_metadata_value(session);
+                            if let Ok(Some(summary)) = journal.latest_run_summary_for_chat(chat_id) {
+                                if let Some(record) = response.as_object_mut() {
+                                    record.insert("latest_run_id".to_string(), json!(summary.run_id));
+                                    record.insert("last_seq".to_string(), json!(summary.last_seq));
+                                    record.insert("terminal_seq".to_string(), json!(summary.terminal_seq));
+                                }
+                            }
+                            respond(&writer, id, Some(response), None).await?;
                         }
                         Ok(None) => {
                             respond(
@@ -271,6 +290,9 @@ pub async fn run(workspace: WorkspacePaths) -> Result<(), String> {
                             .await?;
                         }
                     }
+                }
+                "sessions/rename" | "sessions/archive" | "sessions/delete" if initialized => {
+                    handle_session_mutation(&host, &workspace, &run_coordinator, &writer, id, method.as_str(), params).await?;
                 }
                 "sessions/messages" if initialized => {
                     handle_session_messages(&host, &writer, id, params).await?;
@@ -623,6 +645,71 @@ pub async fn run(workspace: WorkspacePaths) -> Result<(), String> {
     }
     cancel_all_active(&service).await;
     Ok(())
+}
+
+fn session_metadata_value(session: altai_core::SessionJournalMetadata) -> Value {
+    json!({
+        "chat_id": session.chat_id,
+        "title": session.title,
+        "archived": session.archived,
+        "updated_at_ms": session.updated_at_ms,
+    })
+}
+
+async fn handle_session_mutation(
+    host: &Arc<StdioHost>,
+    workspace: &WorkspacePaths,
+    run_coordinator: &SharedRunCoordinator,
+    writer: &Writer,
+    id: Value,
+    method: &str,
+    params: Option<Value>,
+) -> Result<(), String> {
+    let params = params.and_then(|value| value.as_object().cloned()).unwrap_or_default();
+    let chat_id = params.get("chat_id").and_then(Value::as_str).unwrap_or("");
+    if chat_id.trim().is_empty() || chat_id.len() > 256 {
+        return respond(writer, id, None, Some(error_value(-32602, "invalid_chat_id"))).await;
+    }
+    let journal = match EventJournal::open(workspace.agent_event_journal_db()) {
+        Ok(journal) => journal,
+        Err(error) => {
+            eprintln!("altai-cli serve: could not open session journal: {error}");
+            return respond(writer, id, None, Some(error_value(-32603, "journal_unavailable"))).await;
+        }
+    };
+    match method {
+        "sessions/rename" => {
+            let title = params.get("title").and_then(Value::as_str).unwrap_or("");
+            match journal.rename_session(chat_id, title.trim()) {
+                Ok(Some(session)) => respond(writer, id, Some(session_metadata_value(session)), None).await,
+                Ok(None) => respond(writer, id, None, Some(error_value(-32002, "session_not_found"))).await,
+                Err(_) => respond(writer, id, None, Some(error_value(-32602, "invalid_session_title"))).await,
+            }
+        }
+        "sessions/archive" => match journal.archive_session(chat_id) {
+            Ok(Some(session)) => respond(writer, id, Some(session_metadata_value(session)), None).await,
+            Ok(None) => respond(writer, id, None, Some(error_value(-32002, "session_not_found"))).await,
+            Err(_) => respond(writer, id, None, Some(error_value(-32602, "invalid_chat_id"))).await,
+        },
+        "sessions/delete" => {
+            if coordinator_guard(run_coordinator).active_runs().into_iter().any(|(active_chat_id, _, _)| active_chat_id == chat_id) {
+                return respond(writer, id, None, Some(error_value(-32002, "session_run_active"))).await;
+            }
+            if journal.session_metadata(chat_id).map_err(|error| error.to_string())?.is_none() {
+                return respond(writer, id, None, Some(error_value(-32002, "session_not_found"))).await;
+            }
+            host.delete_session_memory(chat_id).await?;
+            match journal.delete_session(chat_id) {
+                Ok(true) => respond(writer, id, Some(json!({"deleted": true})), None).await,
+                Ok(false) => respond(writer, id, None, Some(error_value(-32002, "session_not_found"))).await,
+                Err(error) => {
+                    eprintln!("altai-cli serve: could not delete session: {error}");
+                    respond(writer, id, None, Some(error_value(-32603, "journal_unavailable"))).await
+                }
+            }
+        }
+        _ => respond(writer, id, None, Some(error_value(-32004, "capability_unavailable"))).await,
+    }
 }
 
 async fn handle_run_start(

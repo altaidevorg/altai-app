@@ -148,6 +148,32 @@ fn config_update_persists_a_non_secret_model_setting() {
 }
 
 #[test]
+fn session_metadata_is_durable_and_can_be_archived_or_deleted() {
+    let workspace = tempfile::tempdir().expect("workspace");
+    let mut process = ServeProcess::spawn(workspace.path(), false);
+    process.frame(initialize(json!(1)));
+    let initialized = process.next();
+    assert!(initialized["result"]["capabilities"].as_array().expect("capabilities").contains(&json!("sessions/rename")));
+
+    process.frame(json!({"jsonrpc":"2.0","id":2,"method":"sessions/create","params":{"chat_id":"session-meta","title":"Original"}}));
+    let created = process.next();
+    assert_eq!(created["result"]["title"], "Original", "response: {created}");
+    process.frame(json!({"jsonrpc":"2.0","id":3,"method":"sessions/rename","params":{"chat_id":"session-meta","title":"Renamed"}}));
+    assert_eq!(process.next()["result"]["title"], "Renamed");
+    process.frame(json!({"jsonrpc":"2.0","id":4,"method":"sessions/archive","params":{"chat_id":"session-meta"}}));
+    assert_eq!(process.next()["result"]["archived"], true);
+    process.frame(json!({"jsonrpc":"2.0","id":5,"method":"sessions/list","params":{"limit":10}}));
+    assert_eq!(process.next()["result"]["sessions"][0]["title"], "Renamed");
+    process.frame(json!({"jsonrpc":"2.0","id":6,"method":"sessions/delete","params":{"chat_id":"session-meta"}}));
+    assert_eq!(process.next()["result"]["deleted"], true);
+    process.frame(json!({"jsonrpc":"2.0","id":7,"method":"sessions/get","params":{"chat_id":"session-meta"}}));
+    assert_eq!(process.next()["error"]["message"], "session_not_found");
+    process.frame(json!({"jsonrpc":"2.0","id":8,"method":"shutdown"}));
+    assert_eq!(process.next()["id"], 8);
+    let _stderr = process.shutdown();
+}
+
+#[test]
 fn clarification_response_rejects_a_non_pending_ticket() {
     let workspace = tempfile::tempdir().expect("workspace");
     let mut process = ServeProcess::spawn(workspace.path(), false);
