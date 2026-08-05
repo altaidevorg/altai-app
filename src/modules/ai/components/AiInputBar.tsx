@@ -20,6 +20,7 @@ import {
   ComposerConfigRow,
   ComposerFollowupBar,
   ComposerPrimaryRow,
+  ComposerShell,
   ComposerTextArea,
   ComposerToolbarIcon,
   ContextAction,
@@ -352,15 +353,10 @@ export function AiInputBar() {
         />
       )}
 
-      <div
-        className={cn(
-          "altai-ai-composer flex w-full min-w-0 max-w-full flex-col overflow-hidden rounded-xl border border-border-subtle bg-transparent",
-          "transition-[border-color,box-shadow] hover:border-border",
-          c.isBusy && "opacity-95",
-        )}
-      >
-        {hasChips && (
-          <div className="border-b border-border-subtle px-2.5 py-2">
+      <ComposerShell
+        busy={c.isBusy}
+        attachments={
+          hasChips ? (
             <ComposerAttachChips
               files={c.files}
               onRemoveFile={c.removeFile}
@@ -391,8 +387,9 @@ export function AiInputBar() {
               onRemoveCommand={(name) => c.removeCommand(name)}
               contextTokenEstimate={c.contextTokenEstimate}
             />
-          </div>
-        )}
+          ) : undefined
+        }
+      >
 
         <Popover open={pickerOpen}>
           <PopoverAnchor asChild>
@@ -636,7 +633,7 @@ export function AiInputBar() {
             )
           }
         />
-      </div>
+      </ComposerShell>
 
       <AnimatePresence initial={false}>
         {voiceLabel && (
