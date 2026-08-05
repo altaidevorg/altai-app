@@ -44,6 +44,7 @@ import {
   SurfaceFilteredEmpty,
   SurfaceFilterToolbar,
   SurfaceIconAction,
+  SurfaceInlineError,
   SurfacePrimaryAction,
   SurfaceSecondaryAction,
   SurfaceSectionHeader,
@@ -349,12 +350,11 @@ export function AutomationsPanel({
       ) : null}
 
       {error && viewMode === "list" ? (
-        <div role="alert" className="mx-3 mt-3 border border-destructive/30 bg-destructive/[0.06] px-2 py-1.5 text-[10px] text-destructive">
-          {error}
-          <button type="button" onClick={clearError} aria-label="Dismiss automation error" className="ml-2 underline">
-            Dismiss
-          </button>
-        </div>
+        <SurfaceInlineError
+          message={error}
+          onDismiss={clearError}
+          dismissAriaLabel="Dismiss automation error"
+        />
       ) : null}
 
       {viewMode === "list" ? (

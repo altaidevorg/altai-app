@@ -533,6 +533,11 @@ export {
 } from "./components/ConversationOwnerSection.js";
 
 export {
+  SurfaceInlineError,
+  type SurfaceInlineErrorProps,
+} from "./components/SurfaceInlineError.js";
+
+export {
   formatRelativeTime,
   humanize,
 } from "./lib/inboxFormat.js";

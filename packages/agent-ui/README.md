@@ -103,6 +103,7 @@ consumption of shared panel shells:
 | A5.21 | `RunBlockedBanner` (run inspector error banner) |
 | A5.22 | `SurfacePrimaryAction` / `SurfaceSecondaryAction` |
 | A5.23 | `ConversationOwnerSection` (automation owner chat) |
+| A5.24 | `SurfaceInlineError` (dismissible list error strip) |
 
 Desktop must import shared components from this package; local duplicates are
 deleted as each slice lands.
