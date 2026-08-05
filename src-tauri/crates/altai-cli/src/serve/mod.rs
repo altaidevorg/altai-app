@@ -14,6 +14,8 @@ use tokio::io::AsyncReadExt;
 use crate::stdio_host::StdioHost;
 use crate::stdio_sink::{write_framed, SharedStdout, StdioEventSink};
 
+mod provider_credentials;
+
 type Writer = SharedStdout;
 
 const MAX_RUN_ATTACHMENTS: usize = 4;
@@ -95,6 +97,8 @@ pub async fn run(workspace: WorkspacePaths) -> Result<(), String> {
                                 "config/update",
                                 "models/list",
                                 "providers/status",
+                                "providers/connect",
+                                "providers/clear",
                                 "work/tasks/list",
                                 "work/tasks/create",
                                 "work/tasks/cancel",
@@ -457,9 +461,9 @@ pub async fn run(workspace: WorkspacePaths) -> Result<(), String> {
                             .unwrap_or_else(|| "openai".to_string());
                         // The native host exposes only the boolean outcome of
                         // credential resolution; raw keys never cross stdio.
-                        let connected = std::env::var("ALTAI_API_KEY")
-                            .or_else(|_| std::env::var("OPENAI_API_KEY"))
-                            .is_ok_and(|value| !value.trim().is_empty());
+                        let connected = resolve_provider_credential(&provider_id)
+                            .map(|credential| !credential.trim().is_empty())
+                            .unwrap_or(false);
                         respond(
                             &writer,
                             id,
@@ -487,6 +491,103 @@ pub async fn run(workspace: WorkspacePaths) -> Result<(), String> {
                         .await?;
                     }
                 },
+                "providers/connect" if initialized => {
+                    let params = params
+                        .and_then(|value| value.as_object().cloned())
+                        .unwrap_or_default();
+                    let provider_id = params
+                        .get("provider_id")
+                        .and_then(Value::as_str)
+                        .unwrap_or("");
+                    let credential = params
+                        .get("credential")
+                        .and_then(Value::as_str)
+                        .unwrap_or("");
+                    let base_url = params.get("base_url").and_then(Value::as_str);
+                    if provider_credentials::validate_provider_id(provider_id).is_err()
+                        || credential.trim().is_empty()
+                        || credential.len() > 16 * 1024
+                        || base_url.is_some_and(|value| !valid_base_url(value))
+                    {
+                        respond(
+                            &writer,
+                            id,
+                            None,
+                            Some(error_value(-32602, "invalid_provider_connection")),
+                        )
+                        .await?;
+                        continue;
+                    }
+                    let previous_credential = match provider_credentials::get(provider_id) {
+                        Ok(credential) => credential,
+                        Err(error) => {
+                            respond(&writer, id, None, Some(error_value(-32603, &error))).await?;
+                            continue;
+                        }
+                    };
+                    if let Err(error) = provider_credentials::set(provider_id, credential) {
+                        respond(&writer, id, None, Some(error_value(-32603, &error))).await?;
+                        continue;
+                    }
+                    let mut patch = serde_json::Map::new();
+                    patch.insert("provider".to_string(), Value::String(provider_id.trim().to_string()));
+                    if let Some(base_url) = base_url {
+                        patch.insert("base_url".to_string(), Value::String(base_url.trim().to_string()));
+                    }
+                    match update_workspace_config(&workspace, &patch) {
+                        Ok(()) => {
+                            respond(
+                                &writer,
+                                id,
+                                Some(json!({"provider_id": provider_id.trim(), "connected": true})),
+                                None,
+                            )
+                            .await?;
+                        }
+                        Err(error) => {
+                            // Do not leave a newly entered credential active
+                            // when the associated non-secret provider config
+                            // could not be persisted.
+                            let _ = match previous_credential {
+                                Some(previous) => provider_credentials::set(provider_id, &previous),
+                                None => provider_credentials::delete(provider_id),
+                            };
+                            respond(&writer, id, None, Some(error_value(-32603, &error))).await?;
+                        }
+                    }
+                }
+                "providers/clear" if initialized => {
+                    let provider_id = params
+                        .as_ref()
+                        .and_then(Value::as_object)
+                        .and_then(|params| params.get("provider_id"))
+                        .and_then(Value::as_str)
+                        .unwrap_or("");
+                    if provider_credentials::validate_provider_id(provider_id).is_err() {
+                        respond(
+                            &writer,
+                            id,
+                            None,
+                            Some(error_value(-32602, "invalid_provider_id")),
+                        )
+                        .await?;
+                        continue;
+                    }
+                    match provider_credentials::delete(provider_id) {
+                        Ok(()) => {
+                            respond(
+                                &writer,
+                                id,
+                                Some(json!({"provider_id": provider_id.trim(), "cleared": true})),
+                                None,
+                            )
+                            .await?;
+                        }
+                        Err(error) => {
+                            respond(&writer, id, None, Some(error_value(-32603, &error))).await?;
+                        }
+                    }
+                }
                 "work/tasks/list" if initialized => {
                     handle_task_list(&workspace, &writer, id).await?;
                 }
@@ -530,6 +631,8 @@ pub async fn run(workspace: WorkspacePaths) -> Result<(), String> {
                                 "agent": "altai",
                                 "model": configuration.model.map(|value| value.value).unwrap_or_else(|| "auto".to_string()),
                                 "permission": configuration.permission_mode.map(|value| value.value).unwrap_or_else(|| "plan".to_string()),
+                                "provider": configuration.provider.map(|value| value.value).unwrap_or_else(|| "openai".to_string()),
+                                "base_url": configuration.base_url.map(|value| value.value),
                                 "permissions": [
                                     {"id":"ask","label":"Ask","description":"Approve shell and edits"},
                                     {"id":"auto-edit","label":"Auto-edit","description":"Auto-apply edits; ask for shell"},
@@ -563,8 +666,10 @@ pub async fn run(workspace: WorkspacePaths) -> Result<(), String> {
                                     &writer,
                                     id,
                                     Some(json!({
-                                        "model": configuration.model.map(|value| value.value).unwrap_or_else(|| "auto".to_string()),
-                                        "permission": configuration.permission_mode.map(|value| value.value).unwrap_or_else(|| "plan".to_string()),
+                                    "model": configuration.model.map(|value| value.value).unwrap_or_else(|| "auto".to_string()),
+                                    "permission": configuration.permission_mode.map(|value| value.value).unwrap_or_else(|| "plan".to_string()),
+                                    "provider": configuration.provider.map(|value| value.value).unwrap_or_else(|| "openai".to_string()),
+                                    "base_url": configuration.base_url.map(|value| value.value),
                                     })),
                                     None,
                                 )
@@ -1593,9 +1698,7 @@ async fn handle_run_start(
         .map(str::to_string)
         .or_else(|| configuration.model.map(|value| value.value))
         .unwrap_or_else(|| "gpt-4o-mini".to_string());
-    let api_key = std::env::var("ALTAI_API_KEY")
-        .or_else(|_| std::env::var("OPENAI_API_KEY"))
-        .unwrap_or_default();
+    let api_key = resolve_provider_credential(&provider_name).unwrap_or_default();
     // Scripted CI/test runs intentionally omit provider credentials.
     let scripted =
         cfg!(debug_assertions) && std::env::var_os("ALTAI_CLI_TEST_SCRIPTED_RESPONSE").is_some();
@@ -2217,7 +2320,11 @@ fn update_workspace_config(
     workspace: &WorkspacePaths,
     params: &serde_json::Map<String, Value>,
 ) -> Result<(), String> {
-    if params.len() != 1 || !(params.contains_key("model") || params.contains_key("permission")) {
+    if params.is_empty()
+        || !params.keys().all(|key| {
+            matches!(key.as_str(), "model" | "permission" | "provider" | "base_url")
+        })
+    {
         return Err("unsupported_config_patch".to_string());
     }
     let model = params.get("model").and_then(Value::as_str).map(str::trim);
@@ -2225,11 +2332,19 @@ fn update_workspace_config(
         .get("permission")
         .and_then(Value::as_str)
         .map(str::trim);
+    let provider = params.get("provider").and_then(Value::as_str).map(str::trim);
+    let base_url = params.get("base_url").and_then(Value::as_str).map(str::trim);
     if model.is_some_and(|value| value.len() > 512) {
         return Err("invalid_model".to_string());
     }
     if permission.is_some_and(|value| !matches!(value, "ask" | "auto-edit" | "plan")) {
         return Err("invalid_permission".to_string());
+    }
+    if provider.is_some_and(|value| provider_credentials::validate_provider_id(value).is_err()) {
+        return Err("invalid_provider_id".to_string());
+    }
+    if base_url.is_some_and(|value| !valid_base_url(value)) {
+        return Err("invalid_base_url".to_string());
     }
 
     let path = workspace.root.join(".altai/config.toml");
@@ -2266,6 +2381,12 @@ fn update_workspace_config(
             toml::Value::String(permission.to_string()),
         );
     }
+    if let Some(provider) = provider {
+        agent.insert("provider".to_string(), toml::Value::String(provider.to_string()));
+    }
+    if let Some(base_url) = base_url {
+        agent.insert("base_url".to_string(), toml::Value::String(base_url.to_string()));
+    }
     let parent = path
         .parent()
         .ok_or_else(|| "configuration_unavailable".to_string())?;
@@ -2276,4 +2397,18 @@ fn update_workspace_config(
     std::fs::write(&temporary, serialized).map_err(|_| "configuration_unavailable".to_string())?;
     std::fs::rename(&temporary, &path).map_err(|_| "configuration_unavailable".to_string())?;
     Ok(())
+}
+
+fn valid_base_url(value: &str) -> bool {
+    let value = value.trim();
+    value.len() <= 2_048 && (value.starts_with("https://") || value.starts_with("http://"))
+}
+
+fn resolve_provider_credential(provider_id: &str) -> Result<String, String> {
+    std::env::var("ALTAI_API_KEY")
+        .or_else(|_| std::env::var("OPENAI_API_KEY"))
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .map(Ok)
+        .unwrap_or_else(|| provider_credentials::get(provider_id)?.ok_or_else(|| "api_key_not_configured".to_string()))
 }

@@ -26,6 +26,7 @@ log = "0.4"
 tokio = { version = "1", features = ["rt-multi-thread", "signal", "sync", "time", "macros", "io-util", "io-std"] }
 chrono = "0.4"
 uuid = { version = "1", features = ["v4"] }
+dirs = "5"
 
 [dev-dependencies]
 tempfile = "3"
