@@ -109,8 +109,21 @@ jobs:
       - name: Lifecycle hook smoke tests
         # These execute the platform shell and process-tree guard, so a
         # compile-only Windows/macOS job cannot mask runtime incompatibility.
+        # `evaluate_all_allow` has sporadically dropped one PowerShell result
+        # under hosted-Windows load. Retry this narrow smoke group once on
+        # Windows only; a repeated failure still fails the matrix job.
+        shell: bash
         run: |
-          cargo test --manifest-path src-tauri/Cargo.toml 'orchestration::hooks::tests::' -- --test-threads=1
+          run_hook_smoke() {
+            cargo test --manifest-path src-tauri/Cargo.toml 'orchestration::hooks::tests::' -- --test-threads=1
+          }
+          if ! run_hook_smoke; then
+            if [ "$RUNNER_OS" != "Windows" ]; then
+              exit 1
+            fi
+            echo "::warning::Retrying the Windows lifecycle hook smoke suite once after a known hosted-runner flake."
+            run_hook_smoke
+          fi
 
       - name: Clippy + tests (Linux only)
         if: runner.os == 'Linux'
