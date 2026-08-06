@@ -178,6 +178,7 @@ fn request_method(method: &str) -> bool {
             | "mcp/servers/configure"
             | "mcp/servers/enable"
             | "mcp/servers/restart"
+            | "skills/list"
             | "work/tasks/list"
             | "work/tasks/create"
             | "work/tasks/cancel"

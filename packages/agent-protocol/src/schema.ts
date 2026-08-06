@@ -26,6 +26,7 @@ const REQUEST_METHODS = new Set([
   "mcp/servers/configure",
   "mcp/servers/enable",
   "mcp/servers/restart",
+  "skills/list",
   "work/tasks/list",
   "work/tasks/create",
   "work/tasks/cancel",
