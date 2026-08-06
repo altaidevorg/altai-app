@@ -229,10 +229,10 @@ export function CommandCenter({
           />
           <div className="min-w-0 flex-1">
             <h1 className="truncate text-[14px] font-semibold text-foreground">
-              Project Operations
+              Operations
             </h1>
             <p className="truncate text-[10.5px] text-muted-foreground">
-              {workspaceName} · command center
+              {workspaceName} · attention and progress
             </p>
           </div>
           <Button

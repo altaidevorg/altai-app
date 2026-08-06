@@ -790,7 +790,7 @@ export function useTabs(initial?: Partial<TerminalTab>) {
       {
         id,
         kind: "project-board",
-        title: "Project Operations",
+        title: "Operations",
         repoRoot: input.repoRoot,
         navigation,
       } satisfies ProjectBoardTab,

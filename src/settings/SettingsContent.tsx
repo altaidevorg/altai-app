@@ -62,7 +62,7 @@ export function normalizeSettingsTab(
   if (input === "ai" || input === "connections") return "models";
   if (input === "plugins" || input === "marketplace") return "general";
   if (input === "compaction" || input === "isanagentignore") return "context";
-  // "project" moved to the Project Management sidebar; redirect to context
+  // "project" moved to the Operations sidebar; redirect to context
   // for any persisted/legacy references to the old settings tab.
   if (input === "project") return "context";
   if (input && (VALID_SETTINGS_TABS as string[]).includes(input)) {

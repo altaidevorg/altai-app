@@ -1746,7 +1746,7 @@ export default function App() {
         workHubView: options?.workHubView,
       });
     } catch {
-      // Project Management is local-first and remains usable when Git
+      // Operations is local-first and remains usable when Git
       // discovery fails or the workspace is not a repository.
       setSidebarRailItem("projects");
       openProjectBoardTab({
