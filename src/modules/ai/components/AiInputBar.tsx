@@ -24,7 +24,11 @@ import {
   ComposerTextArea,
   ComposerToolbarIcon,
   ContextAction,
+  detectAtMention,
+  detectSlashOrSnippetTrigger,
   ProviderConnectBanner,
+  type AtMentionRange,
+  type ComposerTokenTrigger,
 } from "@altai/agent-ui";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import {
@@ -47,63 +51,8 @@ import { PaperImport } from "./PaperImport";
 import { PermissionModeSwitcher } from "./PermissionModeSwitcher";
 import { SnippetPickerContent, type PickerItem } from "./SnippetPicker";
 
-type SnippetTrigger = {
-  start: number;
-  end: number;
-  query: string;
-  prefix: "#" | "/";
-};
-
-type FileTrigger = {
-  start: number;
-  end: number;
-  query: string;
-};
-
-function detectSnippetTrigger(
-  value: string,
-  caret: number,
-): SnippetTrigger | null {
-  for (let i = caret - 1; i >= 0; i--) {
-    const ch = value[i];
-    if (ch === "#" || ch === "/") {
-      // Slash commands are executable only as the first token in a message.
-      // Keep the picker aligned with that behavior instead of offering a
-      // command which would subsequently be sent as plain text.
-      if (ch === "/" && value.slice(0, i).trim()) return null;
-      const prev = i === 0 ? " " : value[i - 1];
-      if (!/\s/.test(prev)) return null;
-      const slice = value.slice(i + 1, caret);
-      if (!/^[a-z0-9-]*$/i.test(slice)) return null;
-      return {
-        start: i,
-        end: caret,
-        query: slice.toLowerCase(),
-        prefix: ch,
-      };
-    }
-    if (/\s/.test(ch)) return null;
-    if (!/[a-z0-9-]/i.test(ch)) return null;
-  }
-  return null;
-}
-
-function detectFileTrigger(
-  value: string,
-  caret: number,
-): FileTrigger | null {
-  for (let i = caret - 1; i >= 0; i--) {
-    const ch = value[i];
-    if (ch === "@") {
-      const prev = i === 0 ? " " : value[i - 1];
-      if (!/\s/.test(prev)) return null;
-      const slice = value.slice(i + 1, caret);
-      return { start: i, end: caret, query: slice };
-    }
-    if (/\s/.test(ch)) return null;
-  }
-  return null;
-}
+type SnippetTrigger = ComposerTokenTrigger;
+type FileTrigger = AtMentionRange;
 
 export function AiInputBar() {
   const c = useComposer();
@@ -165,8 +114,8 @@ export function AiInputBar() {
       return;
     }
     const caret = el.selectionStart ?? 0;
-    setTrigger(detectSnippetTrigger(c.value, caret));
-    setFileTrigger(detectFileTrigger(c.value, caret));
+    setTrigger(detectSlashOrSnippetTrigger(c.value, caret));
+    setFileTrigger(detectAtMention(c.value, caret));
   };
 
   useEffect(updateTrigger, [c.value, c.textareaRef]);

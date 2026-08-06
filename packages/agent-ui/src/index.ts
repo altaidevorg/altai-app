@@ -602,6 +602,25 @@ export {
 export { stripUserContextBlocks } from "./lib/userContextBlocks.js";
 
 export {
+  AT_MENTION_MIN_QUERY,
+  detectAtMention,
+  detectSlashOrSnippetTrigger,
+  nextAtMentionIndex,
+  pathForSuggestionList,
+  removeAtMentionToken,
+  shouldSearchAtMention,
+  type AtMentionRange,
+  type ComposerTokenTrigger,
+} from "./lib/composerTriggers.js";
+
+export {
+  remainingTextAfterAcceptedDispatch,
+  resolveComposerEnterAction,
+  type ComposerAction,
+  type ComposerActionAvailability,
+} from "./lib/composerEnterAction.js";
+
+export {
   buildTranscriptPartGroups,
   cmdSummaryForToolPart,
   formatGroupPreview,
