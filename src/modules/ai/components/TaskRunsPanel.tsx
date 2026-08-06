@@ -106,10 +106,15 @@ export function TaskRunsPanel({
   onClose,
   navigation,
   presentation = "overlay",
+  surfaceTitle = "Work",
+  surfaceEyebrow = "Workspace work",
 }: {
   onClose?: () => void;
   navigation?: ReactNode;
   presentation?: "overlay" | "embedded";
+  /** Header title when not using overlay chrome defaults. */
+  surfaceTitle?: string;
+  surfaceEyebrow?: string;
 }) {
   const assignments = useAssignmentsStore((s) => s.assignments);
   const hydrated = useAssignmentsStore((s) => s.hydrated);
@@ -344,8 +349,8 @@ export function TaskRunsPanel({
 
   return (
     <AuxiliarySurface
-      title="Work"
-      eyebrow="Workspace work"
+      title={surfaceTitle}
+      eyebrow={surfaceEyebrow}
       icon={Notebook01Icon}
       presentation={presentation}
       subtitle={
