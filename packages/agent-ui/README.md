@@ -132,6 +132,7 @@ consumption of shared panel shells:
 | A6.13 | `isWebHref` / `hrefToFilePath` / `resolveWorkspacePath` |
 | A6.14 | Run lifecycle chrome (`runBlockedMessageFromEvent`, recovery copy) |
 | A6.15 | `segmentChatContent` / link token helpers (streamdown-light) |
+| A6.16 | `looksLikePath` / `pathToFileUri` / `toolBubbleContent` |
 
 ### A5 complete enough
 
