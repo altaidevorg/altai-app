@@ -569,6 +569,13 @@ export {
 } from "./components/SurfacePrimaryAction.js";
 
 export {
+  TranscriptToolGroup,
+  type TranscriptToolGroupProps,
+} from "./components/TranscriptToolGroup.js";
+
+export { stripUserContextBlocks } from "./lib/userContextBlocks.js";
+
+export {
   ConversationOwnerSection,
   type ConversationOwnerSectionProps,
 } from "./components/ConversationOwnerSection.js";
