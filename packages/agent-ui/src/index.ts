@@ -52,6 +52,14 @@ export {
 } from "./lib/todoParse.js";
 
 export {
+  canEditUserMessage,
+  parseUserTurnId,
+  renumberUserTurnIds,
+  truncateBoundaryForEdit,
+  truncateDisplayAfterUserTurn,
+} from "./lib/chatMessageEdit.js";
+
+export {
   ChatPathLink,
   ChatExternalLink,
   type ChatPathLinkProps,

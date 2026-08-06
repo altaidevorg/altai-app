@@ -135,6 +135,7 @@ consumption of shared panel shells:
 | A6.16 | `looksLikePath` / `pathToFileUri` / `toolBubbleContent` |
 | A6.17 | Interactive prompt parse (`normalizeAgentEventType`, apply helpers) |
 | A6.18 | Pure `todoParse` (`isTodoToolName`, `parseTodoItems`, summarize) |
+| A6.19 | User-turn edit helpers (`parseUserTurnId`, truncate, renumber) |
 
 ### A5 complete enough
 
