@@ -214,7 +214,12 @@ export const DEFAULT_CAPABILITY_MATRIX: readonly CapabilityEntry[] = [
   { id: "workspace.terminalContext", availability: "deferred", note: "Requires TASK-010" },
   { id: "review.checkpoints", availability: "deferred", note: "Requires TASK-011" },
   { id: "review.restoreCheckpoint", availability: "deferred", note: "Requires TASK-011" },
-  { id: "review.editProposal", availability: "deferred", note: "Requires TASK-011" },
+  {
+    id: "review.editProposal",
+    availability: "deferred",
+    note:
+      "Native hosts advertise available when review/proposals/apply+deny exist (Wave 1)",
+  },
 
   { id: "work.taskRuns", availability: "deferred", note: "Requires TASK-012 / protocol Work domain" },
   { id: "work.automations", availability: "deferred", note: "Requires TASK-012 / protocol Automations domain" },
