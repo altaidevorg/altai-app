@@ -44,12 +44,10 @@ export function WorkspaceTopbarActions({
   onToggleInspector,
   renderTooltip = defaultTooltip,
 }: WorkspaceTopbarActionsProps) {
-  const workLabel = workOpen ? "Close work" : "Open work";
-  const inboxLabel = inboxOpen
-    ? "Close inbox"
-    : inboxAttentionCount
-      ? `Open inbox, ${inboxAttentionCount} need attention`
-      : "Open inbox";
+  const workLabel = "Open work in Operations";
+  const inboxLabel = inboxAttentionCount
+    ? `Open Operations inbox, ${inboxAttentionCount} need attention`
+    : "Open Operations inbox";
   const inspectorLabel = inspectorOpen
     ? "Close run details"
     : "Open run details";

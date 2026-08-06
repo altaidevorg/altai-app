@@ -69,9 +69,7 @@ import { AiInputBar, AiInputBarConnect } from "./AiInputBar";
 import { AgentStatusPill } from "./AgentStatusPill";
 import { ChatHistoryPanel } from "./ChatHistoryPanel";
 import { PlanDiffReview } from "./PlanDiffReview";
-import { NotificationInboxPanel } from "./NotificationInboxPanel";
 import { TodoSummaryChip } from "./TodoStrip";
-import { WorkHubPanel, type WorkHubView } from "./WorkHubPanel";
 import {
   selectNotificationAttentionCount,
   useNotificationStore,
@@ -81,7 +79,7 @@ import {
 // todos yet; allocating `[]` inside the selector triggers React's external
 // store loop detector and can blank the whole renderer.
 const EMPTY_TODOS: Array<{ id: string; title: string; status: string }> = [];
-type PanelSurface = "history" | "inspector" | "work" | "inbox" | null;
+type PanelSurface = "history" | "inspector" | null;
 const HISTORY_PANEL_WIDTH_KEY = "altai.ai.historyPanel.width";
 const INSPECTOR_PANEL_WIDTH_KEY = "altai.ai.inspectorPanel.width";
 const HISTORY_PANEL_MIN_WIDTH = 176;
@@ -115,6 +113,19 @@ function persistPanelWidth(key: string, width: number, min: number, max: number)
   } catch {
     // Storage can be unavailable in restricted webviews; resizing still works.
   }
+}
+
+/** Canonical Work / Inbox destinations live under Operations, not AI overlays. */
+function openOperationsSurface(
+  view: "work" | "inbox" | "runs" | "overview",
+  workHubView?: "runs" | "scheduled",
+): void {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(
+    new CustomEvent("altai:open-operations", {
+      detail: { view, workHubView },
+    }),
+  );
 }
 
 export type AiSidePanelProps = {
@@ -175,7 +186,6 @@ export function AiSidePanel({
   }, [onClose]);
 
   const [activeSurface, setActiveSurface] = useState<PanelSurface>(null);
-  const [workView, setWorkView] = useState<WorkHubView>("runs");
   const [openChatIds, setOpenChatIds] = useState<string[]>([]);
   const [reviewOpen, setReviewOpen] = useState(false);
   const [targetDialogOpen, setTargetDialogOpen] = useState(false);
@@ -183,8 +193,9 @@ export function AiSidePanel({
   const [panelWidth, setPanelWidth] = useState(0);
   const historyOpen = activeSurface === "history";
   const inspectorOpen = activeSurface === "inspector";
-  const workOpen = activeSurface === "work";
-  const inboxOpen = activeSurface === "inbox";
+  // Work / Inbox open Operations; chrome never shows a pressed state for them.
+  const workOpen = false;
+  const inboxOpen = false;
   // Run details is a stable destination for the active chat. Keep its control
   // visible while History, Work, Inbox, or Review is open so switching surfaces
   // never causes the toolbar geometry to jump.
@@ -217,7 +228,7 @@ export function AiSidePanel({
     const openSurface = (event: Event) => {
       const detail = (event as CustomEvent<{
         surface?: string;
-        view?: WorkHubView;
+        view?: "runs" | "scheduled";
       }>).detail;
       const surface = detail?.surface;
       if (surface === "review") {
@@ -225,23 +236,27 @@ export function AiSidePanel({
         setReviewOpen(true);
         return;
       }
-      if (
-        surface === "history" ||
-        surface === "inspector" ||
-        surface === "inbox" ||
-        surface === "work"
-      ) {
+      if (surface === "history" || surface === "inspector") {
         setReviewOpen(false);
         setActiveSurface(surface);
-        if (surface === "work") setWorkView(detail?.view ?? "runs");
         return;
       }
-      // Keep deep links from older slash-command and extension surfaces
-      // working while the public destination is consolidated under Work.
-      if (surface === "tasks" || surface === "automations") {
-        setReviewOpen(false);
-        setWorkView(surface === "automations" ? "scheduled" : "runs");
-        setActiveSurface("work");
+      // Work/Inbox/scheduled deep links formerly opened AI overlays. Canonical
+      // destinations are Operations secondary routes.
+      if (surface === "inbox") {
+        setActiveSurface(null);
+        openOperationsSurface("inbox");
+        return;
+      }
+      if (
+        surface === "work" ||
+        surface === "tasks" ||
+        surface === "automations"
+      ) {
+        setActiveSurface(null);
+        const scheduled =
+          surface === "automations" || detail?.view === "scheduled";
+        openOperationsSurface("work", scheduled ? "scheduled" : "runs");
       }
     };
     window.addEventListener("altai:open-ai-surface", openSurface);
@@ -313,9 +328,9 @@ export function AiSidePanel({
           inspectorAvailable={inspectorAvailable}
           onToggleInspector={() => toggleSurface("inspector")}
           workOpen={workOpen}
-          onToggleWork={() => toggleSurface("work")}
+          onToggleWork={() => openOperationsSurface("work", "runs")}
           inboxOpen={inboxOpen}
-          onToggleInbox={() => toggleSurface("inbox")}
+          onToggleInbox={() => openOperationsSurface("inbox")}
           onOpenSettings={onOpenSettings}
         />
         <ResizablePanelGroup
@@ -395,15 +410,6 @@ export function AiSidePanel({
                         : undefined
                     }
                   />
-                  {workOpen ? (
-                    <WorkHubPanel
-                      initialView={workView}
-                      onClose={() => setActiveSurface(null)}
-                    />
-                  ) : null}
-                  {inboxOpen ? (
-                    <NotificationInboxPanel onClose={() => setActiveSurface(null)} />
-                  ) : null}
                   {inspectorOpen &&
                   inspectorAvailable &&
                   !showInspectorSidebar ? (

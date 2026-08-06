@@ -16,12 +16,12 @@ const baseProps = {
 };
 
 describe("WorkspaceTopbarActions", () => {
-  it("renders work, inbox, and run-details controls", () => {
+  it("renders work, inbox, and run-details controls for Operations destinations", () => {
     const html = renderToStaticMarkup(
       createElement(WorkspaceTopbarActions, baseProps),
     );
-    expect(html).toContain("Open work");
-    expect(html).toContain("Open inbox");
+    expect(html).toContain("Open work in Operations");
+    expect(html).toContain("Open Operations inbox");
     expect(html).toContain("Open run details");
     expect(html).toContain("Work");
     expect(html).toContain("Inbox");
@@ -40,7 +40,7 @@ describe("WorkspaceTopbarActions", () => {
     );
     expect(html).toContain("99+");
     expect(html).toContain("120 need attention");
-    expect(html).toContain("Close work");
+    expect(html).toContain("Open work in Operations");
     expect(html).not.toContain("Open run details");
     expect(html).not.toContain(">Work<");
   });
