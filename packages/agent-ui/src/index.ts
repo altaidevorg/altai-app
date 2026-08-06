@@ -637,6 +637,15 @@ export {
 } from "./lib/chatHref.js";
 
 export {
+  recoveryCopy,
+  runBlockedMessageFromEvent,
+  runWarningMessageFromEvent,
+  shouldShowChangeReviewBanner,
+  shouldShowRunRecovery,
+  type RecoveryChromeFlags,
+} from "./lib/runLifecycleChrome.js";
+
+export {
   buildTranscriptPartGroups,
   cmdSummaryForToolPart,
   formatGroupPreview,

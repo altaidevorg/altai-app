@@ -130,6 +130,7 @@ consumption of shared panel shells:
 | A6.11 | `composerFollowupVisibility` / `resolveComposerSubmitMode` |
 | A6.12 | `autoresizeTextarea` (composer growth helper) |
 | A6.13 | `isWebHref` / `hrefToFilePath` / `resolveWorkspacePath` |
+| A6.14 | Run lifecycle chrome (`runBlockedMessageFromEvent`, recovery copy) |
 
 ### A5 complete enough
 
