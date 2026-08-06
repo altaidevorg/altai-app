@@ -47,9 +47,9 @@ The top of the left sidebar contains three entries:
 - **Files** opens the file explorer.
 - **GitHub** opens the repository hub: local changes/commits plus pull
   requests and issues when connected.
-- **Project Management** opens the project-management board.
+- **Operations** opens the agent operations workspace (overview, work, runs, inbox).
 
-The badge on **Project Management** is an attention count for active agent work
+The badge on **Operations** is an attention count for active agent work
 and work that is ready for review.
 
 ## Use the GitHub Hub
@@ -109,9 +109,9 @@ Choose **Assign** on an issue or pull request, then:
 Each assignment receives its own ALTAI chat session. Starting it does not replace
 or interrupt the conversation currently open in the main chat.
 
-## Use the Project Board
+## Use Operations
 
-Select **Project Management** in the sidebar. The board initially opens in **Overview**
+Select **Operations** in the sidebar. The workspace initially opens in **Overview**
 mode and combines:
 
 - Local ALTAI todos

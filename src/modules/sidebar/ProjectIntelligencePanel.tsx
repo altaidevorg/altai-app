@@ -37,7 +37,7 @@ type LoadState = "loading" | "ready" | "missing" | "unavailable" | "error";
 
 /**
  * Collapsible panel that exposes the human-written project contract
- * (project instructions file) directly inside the Project Management
+ * (project instructions file) directly inside the Operations
  * sidebar, so project-scoped context is kept alongside project work.
  */
 export function ProjectIntelligencePanel({
