@@ -10,16 +10,10 @@ import {
   ReasoningTrigger,
 } from "@/components/ai-elements/reasoning";
 import { Tool } from "@/components/ai-elements/tool";
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@/components/ui/collapsible";
 import { cn } from "@/lib/utils";
 import { motion } from "motion/react";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
-  ArrowRight01Icon,
   Cancel01Icon,
   File01Icon,
   GlobalSearchIcon,
@@ -49,7 +43,8 @@ import {
   CommandSnippet,
   ContextChips,
   HoverActionButton,
-  type ContextChip,
+  stripUserContextBlocks,
+  TranscriptToolGroup,
 } from "@altai/agent-ui";
 import { AgentStatusPill } from "./AgentStatusPill";
 import { openWorkspaceFile } from "../lib/openChatHref";
@@ -86,64 +81,6 @@ function ResolvedCommandSnippet({ name }: { name: string }) {
 }
 
 type AnyToolPart = ToolUIPart | DynamicToolUIPart;
-
-const SELECTION_RE =
-  /<selection\s+source="(terminal|editor)">\n?([\s\S]*?)\n?<\/selection>/g;
-const FILE_RE =
-  /<file\s+name="([^"]+)"[^>]*>\n?([\s\S]*?)\n?<\/file>/g;
-const TERMINAL_CONTEXT_RE =
-  /<terminal-context(?:\s+name="([^"]+)")?>\n?([\s\S]*?)\n?<\/terminal-context>/g;
-const GIT_DIFF_RE =
-  /<git-diff(?:\s+name="([^"]+)")?>\n?([\s\S]*?)\n?<\/git-diff>/g;
-const FOLDER_RE = /<folder\s+name="([^"]+)">\n?([\s\S]*?)\n?<\/folder>/g;
-const SNIPPET_RE = /<snippet\s+name="([^"]+)">\n?[\s\S]*?\n?<\/snippet>/g;
-
-function countLines(s: string): number {
-  if (!s) return 0;
-  const trimmed = s.replace(/\n+$/, "");
-  if (!trimmed) return 0;
-  return trimmed.split("\n").length;
-}
-
-function stripUserContextBlocks(text: string): {
-  text: string;
-  chips: ContextChip[];
-} {
-  const chips: ContextChip[] = [];
-  let out = text;
-  out = out.replace(SELECTION_RE, (_m, source: string, body: string) => {
-    chips.push({
-      kind: "selection",
-      source: source === "editor" ? "editor" : "terminal",
-      lines: countLines(body),
-    });
-    return "";
-  });
-  out = out.replace(FILE_RE, (_m, name: string, body: string) => {
-    chips.push({ kind: "file", name, lines: countLines(body) });
-    return "";
-  });
-  out = out.replace(
-    TERMINAL_CONTEXT_RE,
-    (_m, name: string | undefined, body: string) => {
-      chips.push({ kind: "terminal", name: name || "Active terminal", lines: countLines(body) });
-      return "";
-    },
-  );
-  out = out.replace(GIT_DIFF_RE, (_m, name: string | undefined, body: string) => {
-    chips.push({ kind: "diff", name: name || "Working tree diff", lines: countLines(body) });
-    return "";
-  });
-  out = out.replace(FOLDER_RE, (_m, name: string, body: string) => {
-    chips.push({ kind: "folder", name, lines: countLines(body) });
-    return "";
-  });
-  out = out.replace(SNIPPET_RE, (_m, name: string) => {
-    chips.push({ kind: "snippet", name });
-    return "";
-  });
-  return { text: out.trim(), chips };
-}
 
 type AnyPart = UIMessagePart<Record<string, never>, Record<string, never>>;
 
@@ -540,72 +477,45 @@ const ReadGroup = memo(function ReadGroup({ parts }: { parts: AnyPart[] }) {
   const preview = paths.map(basename).join(", ");
 
   return (
-    <Collapsible className="group/read min-w-0 max-w-full overflow-hidden rounded-md border border-border/50 bg-card/50">
-      <CollapsibleTrigger
-        className={cn(
-          "flex w-full min-w-0 items-center gap-2 px-2 py-1.5 text-left text-[12px]",
-          "transition-colors hover:bg-muted/50",
-          "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
-        )}
-      >
-        <HugeiconsIcon
-          icon={ArrowRight01Icon}
-          size={11}
-          strokeWidth={2}
-          className={cn(
-            "shrink-0 text-muted-foreground transition-transform",
-            "group-data-[state=open]/read:rotate-90",
-          )}
-        />
-        <HugeiconsIcon
-          icon={File01Icon}
-          size={13}
-          strokeWidth={1.75}
-          className="shrink-0 text-muted-foreground"
-        />
-        <span className="shrink-0 font-medium text-foreground">Read</span>
-        <span className="shrink-0 text-[11px] text-muted-foreground">
-          {count} file{count === 1 ? "" : "s"}
-        </span>
-        {paths.length > 0 ? (
-          <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-muted-foreground/80 group-data-[state=open]/read:invisible">
-            · {preview}
-          </span>
-        ) : null}
-      </CollapsibleTrigger>
-      <CollapsibleContent className="altai-collapsible-content border-t border-border/30">
-        <ul className="flex flex-col gap-0.5 px-2 py-1.5">
-          {paths.map((path) => (
-            <li
-              key={path}
-              className="flex items-center gap-1.5 font-mono text-[11px] text-muted-foreground"
+    <TranscriptToolGroup
+      label="Read"
+      countLabel={`${count} file${count === 1 ? "" : "s"}`}
+      preview={paths.length > 0 ? preview : undefined}
+      previewMono
+      icon={
+        <HugeiconsIcon icon={File01Icon} size={13} strokeWidth={1.75} />
+      }
+    >
+      <ul className="flex flex-col gap-0.5 px-2 py-1.5">
+        {paths.map((path) => (
+          <li
+            key={path}
+            className="flex items-center gap-1.5 font-mono text-[11px] text-muted-foreground"
+          >
+            <HugeiconsIcon
+              icon={File01Icon}
+              size={10}
+              strokeWidth={1.75}
+              className="shrink-0 opacity-60"
+            />
+            <ChatPathLink
+              path={path}
+              onOpen={openWorkspaceFile}
+              className="truncate text-foreground hover:text-foreground"
             >
-              <HugeiconsIcon
-                icon={File01Icon}
-                size={10}
-                strokeWidth={1.75}
-                className="shrink-0 opacity-60"
-              />
-              {/* Basename (primary) + full path (secondary); both open the file. */}
-              <ChatPathLink
-                path={path}
-                onOpen={openWorkspaceFile}
-                className="truncate text-foreground hover:text-foreground"
-              >
-                {basename(path)}
-              </ChatPathLink>
-              <ChatPathLink
-                path={path}
-                onOpen={openWorkspaceFile}
-                className="truncate opacity-60 hover:opacity-100"
-              >
-                {path}
-              </ChatPathLink>
-            </li>
-          ))}
-        </ul>
-      </CollapsibleContent>
-    </Collapsible>
+              {basename(path)}
+            </ChatPathLink>
+            <ChatPathLink
+              path={path}
+              onOpen={openWorkspaceFile}
+              className="truncate opacity-60 hover:opacity-100"
+            >
+              {path}
+            </ChatPathLink>
+          </li>
+        ))}
+      </ul>
+    </TranscriptToolGroup>
   );
 });
 
@@ -661,57 +571,29 @@ const WebGroup = memo(function WebGroup({
   }, [parts]);
   const count = parts.length;
   const preview = summaries.slice(0, 3).join(", ");
+  const previewExtra =
+    summaries.length > 3 ? `, +${summaries.length - 3} more` : "";
 
   return (
-    <Collapsible className="group/web min-w-0 max-w-full overflow-hidden rounded-md border border-border/50 bg-card/50">
-      <CollapsibleTrigger
-        className={cn(
-          "flex w-full min-w-0 items-center gap-2 px-2 py-1.5 text-left text-[12px]",
-          "transition-colors hover:bg-muted/50",
-          "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
-        )}
-      >
-        <HugeiconsIcon
-          icon={ArrowRight01Icon}
-          size={11}
-          strokeWidth={2}
-          className={cn(
-            "shrink-0 text-muted-foreground transition-transform",
-            "group-data-[state=open]/web:rotate-90",
-          )}
-        />
-        <HugeiconsIcon
-          icon={GlobalSearchIcon}
-          size={13}
-          strokeWidth={1.75}
-          className="shrink-0 text-muted-foreground"
-        />
-        <span className="shrink-0 font-medium text-foreground">Web</span>
-        <span className="shrink-0 text-[11px] text-muted-foreground">
-          {count} call{count === 1 ? "" : "s"}
-        </span>
-        {preview ? (
-          <span className="min-w-0 flex-1 truncate text-[11px] text-muted-foreground/80 group-data-[state=open]/web:invisible">
-            · {preview}
-            {summaries.length > 3
-              ? `, +${summaries.length - 3} more`
-              : ""}
-          </span>
-        ) : null}
-      </CollapsibleTrigger>
-      <CollapsibleContent className="altai-collapsible-content border-t border-border/30">
-        <div className="flex flex-col gap-1 px-2 py-1.5">
-          {parts.map((p, i) => (
-            <RenderedPart
-              key={partKey(p, i)}
-              part={p}
-              onApproval={onApproval}
-              streaming={false}
-            />
-          ))}
-        </div>
-      </CollapsibleContent>
-    </Collapsible>
+    <TranscriptToolGroup
+      label="Web"
+      countLabel={`${count} call${count === 1 ? "" : "s"}`}
+      preview={preview ? `${preview}${previewExtra}` : undefined}
+      icon={
+        <HugeiconsIcon icon={GlobalSearchIcon} size={13} strokeWidth={1.75} />
+      }
+    >
+      <div className="flex flex-col gap-1 px-2 py-1.5">
+        {parts.map((p, i) => (
+          <RenderedPart
+            key={partKey(p, i)}
+            part={p}
+            onApproval={onApproval}
+            streaming={false}
+          />
+        ))}
+      </div>
+    </TranscriptToolGroup>
   );
 });
 
@@ -755,55 +637,30 @@ const CommandGroup = memo(function CommandGroup({
   }, [parts]);
   const count = parts.length;
   const preview = summaries.slice(0, 3).join(" · ");
+  const previewExtra =
+    summaries.length > 3 ? `, +${summaries.length - 3} more` : "";
 
   return (
-    <Collapsible className="group/cmd min-w-0 max-w-full overflow-hidden rounded-md border border-border/50 bg-card/50">
-      <CollapsibleTrigger
-        className={cn(
-          "flex w-full min-w-0 items-center gap-2 px-2 py-1.5 text-left text-[12px]",
-          "transition-colors hover:bg-muted/50",
-          "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
-        )}
-      >
-        <HugeiconsIcon
-          icon={ArrowRight01Icon}
-          size={11}
-          strokeWidth={2}
-          className={cn(
-            "shrink-0 text-muted-foreground transition-transform",
-            "group-data-[state=open]/cmd:rotate-90",
-          )}
-        />
-        <HugeiconsIcon
-          icon={TerminalIcon}
-          size={13}
-          strokeWidth={1.75}
-          className="shrink-0 text-muted-foreground"
-        />
-        <span className="shrink-0 font-medium text-foreground">Ran</span>
-        <span className="shrink-0 text-[11px] text-muted-foreground">
-          {count} command{count === 1 ? "" : "s"}
-        </span>
-        {preview ? (
-          <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-muted-foreground/80 group-data-[state=open]/cmd:invisible">
-            · {preview}
-            {summaries.length > 3 ? `, +${summaries.length - 3} more` : ""}
-          </span>
-        ) : null}
-      </CollapsibleTrigger>
-      <CollapsibleContent className="altai-collapsible-content border-t border-border/30">
-        <div className="flex flex-col gap-1 px-2 py-1.5">
-          {parts.map((p, i) => (
-            <RenderedPart
-              key={partKey(p, i)}
-              part={p}
-              onApproval={onApproval}
-              streaming={false}
-            />
-          ))}
-        </div>
-      </CollapsibleContent>
-    </Collapsible>
+    <TranscriptToolGroup
+      label="Ran"
+      countLabel={`${count} command${count === 1 ? "" : "s"}`}
+      preview={preview ? `${preview}${previewExtra}` : undefined}
+      previewMono
+      icon={
+        <HugeiconsIcon icon={TerminalIcon} size={13} strokeWidth={1.75} />
+      }
+    >
+      <div className="flex flex-col gap-1 px-2 py-1.5">
+        {parts.map((p, i) => (
+          <RenderedPart
+            key={partKey(p, i)}
+            part={p}
+            onApproval={onApproval}
+            streaming={false}
+          />
+        ))}
+      </div>
+    </TranscriptToolGroup>
   );
 });
 

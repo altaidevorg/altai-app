@@ -113,6 +113,13 @@ consumption of shared panel shells:
 | A5.31 | `ComposerTextArea` (composer text-entry chrome) |
 | A5.32 | `ComposerShell` (composer card + attachment chrome) |
 
+### A6 / Transcript path (Wave 4)
+
+| Slice | Contents |
+|---|---|
+| A6.1 | `stripUserContextBlocks` (shared user-message context parsing → chips) |
+| A6.2 | `TranscriptToolGroup` (collapsible file/web/shell tool bursts) |
+
 ### A5 complete enough
 
 The TASK-007 / A5 stop condition is met. Desktop Work and Scheduled lists,

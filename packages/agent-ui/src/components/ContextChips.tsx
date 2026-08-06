@@ -22,7 +22,8 @@ export type ContextChipsProps = {
 
 /**
  * Compact transcript chips for editor/terminal/file/diff context attached to
- * a user message. Parsing stays in the host; this only renders typed chips.
+ * a user message. Prefer `stripUserContextBlocks` from this package to parse
+ * host-injected markup into typed chips, then render here.
  */
 export const ContextChips = memo(function ContextChips({
   chips,
