@@ -133,6 +133,7 @@ consumption of shared panel shells:
 | A6.14 | Run lifecycle chrome (`runBlockedMessageFromEvent`, recovery copy) |
 | A6.15 | `segmentChatContent` / link token helpers (streamdown-light) |
 | A6.16 | `looksLikePath` / `pathToFileUri` / `toolBubbleContent` |
+| A6.17 | Interactive prompt parse (`normalizeAgentEventType`, apply helpers) |
 
 ### A5 complete enough
 

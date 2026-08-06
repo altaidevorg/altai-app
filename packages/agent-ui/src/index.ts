@@ -657,6 +657,16 @@ export {
 } from "./lib/chatContentSegments.js";
 
 export {
+  applyInteractivePrompt,
+  interactivePromptFromAgentEvent,
+  normalizeAgentEventType,
+  type InteractivePrompt,
+  type PendingClarificationPrompt,
+  type PendingEditDiff,
+  type PendingToolApproval,
+} from "./lib/interactivePrompt.js";
+
+export {
   buildTranscriptPartGroups,
   cmdSummaryForToolPart,
   formatGroupPreview,
