@@ -633,7 +633,10 @@ export { autoresizeTextarea } from "./lib/autoresizeTextarea.js";
 export {
   hrefToFilePath,
   isWebHref,
+  looksLikePath,
+  pathToFileUri,
   resolveWorkspacePath,
+  toolBubbleContent,
 } from "./lib/chatHref.js";
 
 export {

@@ -2,7 +2,10 @@ import { describe, expect, it } from "vitest";
 import {
   hrefToFilePath,
   isWebHref,
+  looksLikePath,
+  pathToFileUri,
   resolveWorkspacePath,
+  toolBubbleContent,
 } from "../lib/chatHref.js";
 
 describe("isWebHref", () => {
@@ -59,6 +62,41 @@ describe("hrefToFilePath", () => {
   it("strips Windows drive slash for file:// paths", () => {
     expect(hrefToFilePath("file:///C:/Users/me/a.ts", null)).toBe(
       "C:/Users/me/a.ts",
+    );
+  });
+});
+
+describe("looksLikePath", () => {
+  it("accepts absolute and relative file forms", () => {
+    expect(looksLikePath("/tmp/x.ts")).toBe(true);
+    expect(looksLikePath("./rel.ts")).toBe(true);
+    expect(looksLikePath("../up.ts")).toBe(true);
+    expect(looksLikePath("file:///tmp/x.ts")).toBe(true);
+    expect(looksLikePath("C:\\Users\\a\\b.ts")).toBe(true);
+  });
+
+  it("rejects plain text and newlines", () => {
+    expect(looksLikePath("hello world")).toBe(false);
+    expect(looksLikePath("a\nb")).toBe(false);
+    expect(looksLikePath("")).toBe(false);
+  });
+});
+
+describe("pathToFileUri", () => {
+  it("normalizes posix and windows paths", () => {
+    expect(pathToFileUri("/tmp/x.ts")).toBe("file:///tmp/x.ts");
+    expect(pathToFileUri("C:\\Users\\a\\b.ts")).toBe(
+      "file:///C:/Users/a/b.ts",
+    );
+    expect(pathToFileUri("file:///already")).toBe("file:///already");
+  });
+});
+
+describe("toolBubbleContent", () => {
+  it("labels tools with optional basenames", () => {
+    expect(toolBubbleContent("Read")).toBe("Using Read…");
+    expect(toolBubbleContent("Read", "/ws/src/App.tsx")).toBe(
+      "Using Read · App.tsx",
     );
   });
 });
