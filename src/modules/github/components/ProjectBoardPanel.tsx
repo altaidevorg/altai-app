@@ -3,6 +3,9 @@ import {
   OperationsNavigationShell,
   type OperationsView,
 } from "@altai/agent-ui";
+import { NotificationInboxPanel } from "@/modules/ai/components/NotificationInboxPanel";
+import { TaskRunsPanel } from "@/modules/ai/components/TaskRunsPanel";
+import { WorkHubPanel } from "@/modules/ai/components/WorkHubPanel";
 import { CommandCenter } from "./CommandCenter";
 
 type Props = {
@@ -13,10 +16,16 @@ type Props = {
   };
 };
 
+const AVAILABLE_VIEWS: readonly OperationsView[] = [
+  "overview",
+  "work",
+  "runs",
+  "inbox",
+];
+
 /**
- * Local-first operations tab. Work is created, observed, reviewed, and
- * delivered from the command center without a second planning surface.
- * Secondary nav advertises available A7 slices; only Overview is live today.
+ * Local-first operations tab. Secondary nav mounts live domain slices when a
+ * host body exists; remaining routes stay disabled until backends land.
  */
 export function ProjectBoardPanel({ repoRoot, navigation }: Props) {
   const [view, setView] = useState<OperationsView>("overview");
@@ -39,7 +48,7 @@ export function ProjectBoardPanel({ repoRoot, navigation }: Props) {
     <OperationsNavigationShell
       view={view}
       onViewChange={setView}
-      availableViews={["overview"]}
+      availableViews={AVAILABLE_VIEWS}
     >
       {view === "overview" ? (
         <CommandCenter
@@ -48,6 +57,13 @@ export function ProjectBoardPanel({ repoRoot, navigation }: Props) {
           onCreateWork={createWork}
           newWorkRequestKey={newWorkKey}
         />
+      ) : null}
+      {view === "work" ? (
+        <WorkHubPanel initialView="runs" presentation="embedded" />
+      ) : null}
+      {view === "runs" ? <TaskRunsPanel presentation="embedded" /> : null}
+      {view === "inbox" ? (
+        <NotificationInboxPanel presentation="embedded" />
       ) : null}
     </OperationsNavigationShell>
   );
