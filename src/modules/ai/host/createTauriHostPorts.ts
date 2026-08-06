@@ -14,6 +14,7 @@ import {
   type HostPorts,
   type InitializeInput,
   type PermissionMode,
+  type SkillInfo,
 } from "@altai/host-contract";
 import { withUnsupportedDefaults } from "@altai/agent-ui";
 import { native } from "../lib/native";
@@ -21,6 +22,7 @@ import {
   applyPlanEditMutation,
   type PlanEditFs,
 } from "../lib/planEditFs";
+import { parseSkillInstallSource } from "../lib/skillInstallSource";
 
 const HOST_NAME = "altai-desktop";
 
@@ -71,6 +73,8 @@ export function createTauriHostPorts(
               "review.restoreCheckpoint": "available",
               "review.editProposal": "available",
               "workspace.info": "available",
+              "skills.list": "available",
+              "skills.install": "available",
             },
           });
         },
@@ -239,7 +243,46 @@ export function createTauriHostPorts(
         "installSkill",
         "setSkillEnabled",
       ],
-      {},
+      {
+        async listSkills(): Promise<SkillInfo[]> {
+          let workspace: string | undefined;
+          try {
+            workspace = await native.workspaceCurrentDir();
+          } catch {
+            workspace = undefined;
+          }
+          const rows = await native.agentListSkills(workspace);
+          return rows.map((row) => ({
+            name: row.name,
+            description: row.description,
+            enabled: true,
+          }));
+        },
+        async installSkill(source: string): Promise<SkillInfo> {
+          const { repo, skill } = parseSkillInstallSource(source);
+          if (!repo) {
+            throw new Error("A repository URL or owner/repo is required.");
+          }
+          let workspace: string | undefined;
+          try {
+            workspace = await native.workspaceCurrentDir();
+          } catch {
+            workspace = undefined;
+          }
+          const names = await native.agentInstallSkill(repo, workspace, skill);
+          if (names.length === 0) {
+            throw new Error("No skills found in that repository.");
+          }
+          const installed = await native.agentListSkills(workspace);
+          const first = names[0]!;
+          const match = installed.find((row) => row.name === first);
+          return {
+            name: first,
+            description: match?.description ?? null,
+            enabled: true,
+          };
+        },
+      },
     ),
     events: {
       subscribe(listener: (event: AgentEvent) => void): () => void {

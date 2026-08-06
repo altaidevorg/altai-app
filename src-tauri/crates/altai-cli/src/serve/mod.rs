@@ -111,6 +111,7 @@ pub async fn run(workspace: WorkspacePaths) -> Result<(), String> {
                                 "providers/clear",
                                 "mcp/servers/list", "mcp/servers/configure", "mcp/servers/enable", "mcp/servers/restart",
                                 "skills/list",
+                                "skills/install",
                                 "work/tasks/list",
                                 "work/tasks/create",
                                 "work/tasks/cancel",
@@ -635,6 +636,25 @@ pub async fn run(workspace: WorkspacePaths) -> Result<(), String> {
                     Ok(result) => respond(&writer, id, Some(result), None).await?,
                     Err(error) => respond(&writer, id, None, Some(error_value(-32603, &error))).await?,
                 },
+                "skills/install" if initialized => {
+                    let object = params.as_ref().and_then(Value::as_object);
+                    let source = object
+                        .and_then(|obj| obj.get("source").or_else(|| obj.get("repo")))
+                        .and_then(Value::as_str)
+                        .unwrap_or("")
+                        .trim();
+                    let skill = object
+                        .and_then(|obj| obj.get("skill"))
+                        .and_then(Value::as_str)
+                        .map(str::trim)
+                        .filter(|s| !s.is_empty());
+                    match skills::install_workspace_skills(&workspace.root, source, skill).await {
+                        Ok(result) => respond(&writer, id, Some(result), None).await?,
+                        Err(error) => {
+                            respond(&writer, id, None, Some(error_value(-32603, &error))).await?
+                        }
+                    }
+                }
                 "work/tasks/list" if initialized => {
                     handle_task_list(&workspace, &writer, id).await?;
                 }
