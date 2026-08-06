@@ -646,6 +646,14 @@ export {
 } from "./lib/runLifecycleChrome.js";
 
 export {
+  fileUriToPath,
+  isHttpUrl,
+  segmentChatContent,
+  segmentTextWithLinks,
+  type ChatContentSegment,
+} from "./lib/chatContentSegments.js";
+
+export {
   buildTranscriptPartGroups,
   cmdSummaryForToolPart,
   formatGroupPreview,
