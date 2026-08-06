@@ -5,6 +5,11 @@ import {
   useRef,
   useState,
 } from "react";
+import {
+  remainingTextAfterAcceptedDispatch,
+  resolveComposerEnterAction,
+  type ComposerAction,
+} from "@altai/agent-ui";
 import { useWhisperRecording } from "../hooks/useWhisperRecording";
 import { expandSnippetTokens, type Snippet } from "../lib/snippets";
 import { tryRunSlashCommand, type SlashCommandMeta } from "./slashCommands";
@@ -31,7 +36,8 @@ export const ACCEPTED_FILES =
 
 type Voice = ReturnType<typeof useWhisperRecording>;
 
-export type ComposerAction = "send" | "steer" | "queue";
+export type { ComposerAction };
+export { remainingTextAfterAcceptedDispatch, resolveComposerEnterAction };
 
 export type ComposerActionAvailability = {
   isBusy: boolean;
@@ -68,33 +74,6 @@ export function getComposerActionAvailability(input: {
       !input.hasNativeAttachment,
     canQueue: ready && isBusy,
   };
-}
-
-export function resolveComposerEnterAction(input: {
-  availability: ComposerActionAvailability;
-  shiftKey: boolean;
-  modifierKey: boolean;
-}): ComposerAction | null {
-  if (input.shiftKey) return null;
-  if (input.modifierKey && input.availability.isRunning) {
-    return input.availability.canSteer ? "steer" : null;
-  }
-  if (input.availability.isBusy) {
-    return input.availability.canQueue ? "queue" : null;
-  }
-  return input.availability.canSend ? "send" : null;
-}
-
-export function remainingTextAfterAcceptedDispatch(
-  current: string,
-  submitted: string,
-  draftWasUnchanged: boolean,
-): string {
-  if (draftWasUnchanged) return "";
-  if (submitted && current.startsWith(submitted)) {
-    return current.slice(submitted.length).replace(/^\s+/, "");
-  }
-  return current;
 }
 
 type ComposerCtx = {
