@@ -73,6 +73,42 @@ describe("manual compaction slash command", () => {
     await Promise.resolve();
   });
 
+  it("opens Operations deep-links for work/inbox/scheduled slash actions", () => {
+    const target = new EventTarget();
+    const events: CustomEvent[] = [];
+    const handler = (event: Event) => {
+      events.push(event as CustomEvent);
+    };
+    target.addEventListener("altai:open-operations", handler);
+    vi.stubGlobal("window", {
+      addEventListener: target.addEventListener.bind(target),
+      removeEventListener: target.removeEventListener.bind(target),
+      dispatchEvent: target.dispatchEvent.bind(target),
+    });
+
+    expect(tryRunSlashCommand("/tasks")).toMatchObject({
+      kind: "handled",
+      toast: "Opened Operations work",
+    });
+    expect(tryRunSlashCommand("/inbox")).toMatchObject({
+      kind: "handled",
+      toast: "Opened Operations inbox",
+    });
+    expect(tryRunSlashCommand("/automations")).toMatchObject({
+      kind: "handled",
+      toast: "Opened Operations scheduled work",
+    });
+
+    target.removeEventListener("altai:open-operations", handler);
+    vi.unstubAllGlobals();
+
+    expect(events.map((event) => event.detail)).toEqual([
+      { view: "work", workHubView: "runs" },
+      { view: "inbox", workHubView: undefined },
+      { view: "work", workHubView: "scheduled" },
+    ]);
+  });
+
   it("indexes ALTAI workspace workflows without allowing built-in overrides", async () => {
     const list = vi.spyOn(native, "listWorkspaceFiles").mockResolvedValue({
       files: [

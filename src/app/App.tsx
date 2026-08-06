@@ -1717,7 +1717,11 @@ export default function App() {
   ]);
 
   const openProjectBoardFromContext = useCallback(async (
-    options?: { newWork?: boolean },
+    options?: {
+      newWork?: boolean;
+      view?: "overview" | "work" | "runs" | "inbox";
+      workHubView?: "runs" | "scheduled";
+    },
   ) => {
     const known = sourceControl.hasRepo ? sourceControl.repo : null;
     if (known) {
@@ -1725,6 +1729,8 @@ export default function App() {
       openProjectBoardTab({
         repoRoot: known.repoRoot,
         newWork: options?.newWork,
+        view: options?.view,
+        workHubView: options?.workHubView,
       });
       return;
     }
@@ -1736,6 +1742,8 @@ export default function App() {
       openProjectBoardTab({
         repoRoot: repo?.repoRoot ?? localRoot,
         newWork: options?.newWork,
+        view: options?.view,
+        workHubView: options?.workHubView,
       });
     } catch {
       // Project Management is local-first and remains usable when Git
@@ -1744,6 +1752,8 @@ export default function App() {
       openProjectBoardTab({
         repoRoot: localRoot,
         newWork: options?.newWork,
+        view: options?.view,
+        workHubView: options?.workHubView,
       });
     }
   }, [
@@ -1753,6 +1763,23 @@ export default function App() {
     sourceControl.repo,
     sourceControlContextPath,
   ]);
+
+  useEffect(() => {
+    const openOperations = (event: Event) => {
+      const detail = (event as CustomEvent<{
+        view?: "overview" | "work" | "runs" | "inbox";
+        workHubView?: "runs" | "scheduled";
+      }>).detail;
+      if (!detail?.view) return;
+      void openProjectBoardFromContext({
+        view: detail.view,
+        workHubView: detail.workHubView,
+      });
+    };
+    window.addEventListener("altai:open-operations", openOperations);
+    return () =>
+      window.removeEventListener("altai:open-operations", openOperations);
+  }, [openProjectBoardFromContext]);
 
   const handleSidebarRailSelect = useCallback(
     (item: SidebarRailItemId) => {

@@ -98,9 +98,9 @@ const BUILTIN_COMMANDS: readonly SlashCommandMeta[] = [
   builtin({ name: "workflow", invocation: "/workflow", label: "Create workflow", description: "Design or update a reusable WORKFLOW.md automation process.", category: "project", behavior: "prompt", icon: CalendarSyncIcon }),
   builtin({ name: "research", invocation: "/research", label: "Research", description: "Research the question with primary sources and return cited findings.", category: "project", behavior: "prompt", icon: Search01Icon }),
   builtin({ name: "paper", invocation: "/paper", label: "Import arXiv paper", description: "Attach an arXiv paper as task context.", category: "project", behavior: "action", icon: File01Icon }),
-  builtin({ name: "tasks", invocation: "/tasks", label: "Work", description: "Open active, completed, and review-ready agent work.", aliases: ["work"], category: "project", behavior: "action", icon: CheckListIcon }),
-  builtin({ name: "inbox", invocation: "/inbox", label: "Notifications", description: "Open agent notifications and attention items.", category: "project", behavior: "action", icon: Notification01Icon }),
-  builtin({ name: "automations", invocation: "/automations", label: "Scheduled", description: "Open one-time and recurring agent work.", aliases: ["schedule"], category: "project", behavior: "action", icon: CalendarSyncIcon }),
+  builtin({ name: "tasks", invocation: "/tasks", label: "Work", description: "Open Operations work (active, completed, and review-ready runs).", aliases: ["work"], category: "project", behavior: "action", icon: CheckListIcon }),
+  builtin({ name: "inbox", invocation: "/inbox", label: "Notifications", description: "Open the Operations inbox for agent attention items.", category: "project", behavior: "action", icon: Notification01Icon }),
+  builtin({ name: "automations", invocation: "/automations", label: "Scheduled", description: "Open Operations scheduled agent work.", aliases: ["schedule"], category: "project", behavior: "action", icon: CalendarSyncIcon }),
   builtin({ name: "agents", invocation: "/agents", label: "Agent settings", description: "Open agent selection and custom-agent settings. Add an agent name to switch directly.", aliases: ["agent"], category: "settings", behavior: "action", icon: SparklesIcon }),
   builtin({ name: "models", invocation: "/models", label: "Model settings", description: "Open model selection and provider settings.", aliases: ["model"], category: "settings", behavior: "action", icon: SparklesIcon }),
   builtin({ name: "permissions", invocation: "/permissions", label: "Permissions", description: "Open agent permission controls and safety settings.", aliases: ["permission"], category: "settings", behavior: "action", icon: ShieldUserIcon }),
@@ -330,14 +330,14 @@ function runLocalCommand(name: string, tail: string): SlashOutcome {
       openAiSurface("review");
       return { kind: "handled", toast: "Opened change review" };
     case "tasks":
-      openAiSurface("work", "runs");
-      return { kind: "handled", toast: "Opened work" };
+      openOperationsSurface("work", "runs");
+      return { kind: "handled", toast: "Opened Operations work" };
     case "inbox":
-      openAiSurface("inbox");
-      return { kind: "handled", toast: "Opened inbox" };
+      openOperationsSurface("inbox");
+      return { kind: "handled", toast: "Opened Operations inbox" };
     case "automations":
-      openAiSurface("work", "scheduled");
-      return { kind: "handled", toast: "Opened scheduled work" };
+      openOperationsSurface("work", "scheduled");
+      return { kind: "handled", toast: "Opened Operations scheduled work" };
     case "agents": {
       if (tail) {
         const normalized = tail.toLowerCase();
@@ -378,6 +378,19 @@ function openAiSurface(
 ): void {
   if (typeof window === "undefined") return;
   window.dispatchEvent(new CustomEvent("altai:open-ai-surface", { detail: { surface, view } }));
+}
+
+/** Open the canonical Operations tab on a live secondary route. */
+function openOperationsSurface(
+  view: "overview" | "work" | "runs" | "inbox",
+  workHubView?: "runs" | "scheduled",
+): void {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(
+    new CustomEvent("altai:open-operations", {
+      detail: { view, workHubView },
+    }),
+  );
 }
 
 function promptFor(name: string, tail: string): string {
