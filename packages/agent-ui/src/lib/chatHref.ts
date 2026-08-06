@@ -50,6 +50,8 @@ export function hrefToFilePath(
       if (/^\/[a-zA-Z]:[\\/]/.test(path)) path = path.slice(1);
     } catch {
       path = path.replace(/^file:\/\//i, "");
+      // Same Windows drive-letter strip when `new URL` throws.
+      if (/^\/[a-zA-Z]:[\\/]/.test(path)) path = path.slice(1);
     }
   }
 

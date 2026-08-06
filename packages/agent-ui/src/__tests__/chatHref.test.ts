@@ -55,4 +55,10 @@ describe("hrefToFilePath", () => {
       "/Users/me/a.ts",
     );
   });
+
+  it("strips Windows drive slash for file:// paths", () => {
+    expect(hrefToFilePath("file:///C:/Users/me/a.ts", null)).toBe(
+      "C:/Users/me/a.ts",
+    );
+  });
 });
