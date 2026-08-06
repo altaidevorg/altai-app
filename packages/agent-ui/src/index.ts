@@ -621,6 +621,16 @@ export {
 } from "./lib/composerEnterAction.js";
 
 export {
+  composerFollowupVisibility,
+  resolveComposerSubmitMode,
+  type ComposerFollowupMode,
+  type ComposerFollowupPolicyInput,
+  type ComposerFollowupVisibility,
+} from "./lib/composerFollowup.js";
+
+export { autoresizeTextarea } from "./lib/autoresizeTextarea.js";
+
+export {
   buildTranscriptPartGroups,
   cmdSummaryForToolPart,
   formatGroupPreview,
