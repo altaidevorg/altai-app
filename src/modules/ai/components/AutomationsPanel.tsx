@@ -407,7 +407,7 @@ export function AutomationsPanel({
                 pendingRemove: pending,
                 onOpenChat: () => {
                   switchSession(item.chatId);
-                  onClose();
+                  onClose?.();
                 },
                 onDuplicate: () => reuseAutomation(item),
                 onRemove: () => setRemoveTarget(item),

@@ -93,7 +93,7 @@ export function NotificationInboxPanel({
   const openChat = (chatId: string) => {
     if (!sessionIds.has(chatId)) return;
     switchSession(chatId);
-    onClose();
+    onClose?.();
   };
 
   const openNotificationChat = (notification: AgentNotificationInfo) => {

@@ -591,7 +591,7 @@ export function TaskRunsPanel({
                   busyRetry={dispatching}
                   onOpen={() => {
                     switchSession(task.sessionId);
-                    onClose();
+                    onClose?.();
                   }}
                   onReuse={() => reuseTask(task)}
                   onRetry={
