@@ -138,6 +138,7 @@ required by that workstream.
 | A7.4 | Operations work/runs/inbox domain views + embedded `AuxiliarySurface` |
 | A7.5 | Operations view semantics (new-work → overview, Runs title, shell tests) |
 | A7.6 | Operations deep-links from slash `/tasks`, `/inbox`, `/automations` |
+| A7.7 | AI Work/Inbox topbar + legacy AI surface events → Operations |
 
 Desktop must import shared components from this package; local duplicates are
 deleted as each slice lands.
