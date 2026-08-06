@@ -123,10 +123,17 @@ popover/dialog shells, resizable window layout, secrets, and capability
 decisions. A VS Code Webview host can mount the shared package without copying
 the Desktop JSX for these surfaces.
 
-The next workstream is A6 / VS Code V5 host integration and parity. Remaining
+The next workstream is A7 / canonical Operations surfaces. Remaining
 Desktop-local message-pipeline and window-shell code is intentionally outside
 this extraction boundary; it should move only when a host-neutral contract is
 required by that workstream.
+
+### A7 / Operations surfaces
+
+| Slice | Contents |
+|---|---|
+| A7.1 | `OperationsNavigationShell` (shared operations navigation chrome) |
+| A7.2 | `OperationsOverview` (attention/progress summary; hosts aggregate data) |
 
 Desktop must import shared components from this package; local duplicates are
 deleted as each slice lands.
