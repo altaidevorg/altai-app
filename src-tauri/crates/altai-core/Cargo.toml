@@ -1,6 +1,6 @@
 [package]
 name = "altai-core"
-version = "0.6.9-rc.3"
+version = "0.7.0"
 description = "Shared, Tauri-independent primitives for the ALTAI terminal product"
 edition = "2021"
 license = "Apache-2.0"
