@@ -631,6 +631,12 @@ export {
 export { autoresizeTextarea } from "./lib/autoresizeTextarea.js";
 
 export {
+  hrefToFilePath,
+  isWebHref,
+  resolveWorkspacePath,
+} from "./lib/chatHref.js";
+
+export {
   buildTranscriptPartGroups,
   cmdSummaryForToolPart,
   formatGroupPreview,
