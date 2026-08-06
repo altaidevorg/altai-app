@@ -1,7 +1,18 @@
 import { useEffect, useState } from "react";
-import { PlanDiffReviewPanel, ReviewHistory, type ReviewHistoryItem } from "@altai/agent-ui";
+import {
+  PlanDiffReviewPanel,
+  ReviewHistory,
+  useHostPorts,
+  type ReviewHistoryItem,
+} from "@altai/agent-ui";
 import { native, type CheckpointInfo } from "../lib/native";
-import { usePlanStore, type AppliedPlanEdit } from "../store/planStore";
+import {
+  editProposalInputFromQueued,
+  usePlanStore,
+  type AppliedPlanEdit,
+  type PlanApplyResult,
+  type QueuedEdit,
+} from "../store/planStore";
 import { useChatStore } from "../store/chatStore";
 
 export function PlanDiffReview({
@@ -15,12 +26,12 @@ export function PlanDiffReview({
   autoOpen?: boolean;
   onClose?: () => void;
 }) {
+  const ports = useHostPorts();
   const queue = usePlanStore((s) => s.queue);
   const applied = usePlanStore((s) => s.applied);
   const removeOne = usePlanStore((s) => s.removeOne);
   const clear = usePlanStore((s) => s.clear);
-  const applyOne = usePlanStore((s) => s.applyOne);
-  const applyAll = usePlanStore((s) => s.applyAll);
+  const recordApplied = usePlanStore((s) => s.recordApplied);
   const addActivity = useChatStore((s) => s.addActivity);
   const [busy, setBusy] = useState(false);
   const [applyingId, setApplyingId] = useState<string | null>(null);
@@ -41,10 +52,29 @@ export function PlanDiffReview({
   if (!open && (!autoOpen || queue.length === 0)) return null;
   const historyCount = applied.length + checkpoints.length;
 
+  const applyViaReviewPort = async (
+    item: QueuedEdit,
+  ): Promise<PlanApplyResult> => {
+    try {
+      await ports.review.applyEditProposal(
+        item.id,
+        editProposalInputFromQueued(item),
+      );
+      const recorded = recordApplied(item.id);
+      return recorded ?? { id: item.id, ok: true };
+    } catch (error) {
+      return { id: item.id, ok: false, error: String(error) };
+    }
+  };
+
   const onApply = async () => {
     setBusy(true);
     try {
-      const results = await applyAll();
+      const pending = usePlanStore.getState().queue.slice();
+      const results: PlanApplyResult[] = [];
+      for (const item of pending) {
+        results.push(await applyViaReviewPort(item));
+      }
       const failed = results.filter((r) => !r.ok);
       if (failed.length) {
         console.error("plan apply failures:", failed);
@@ -75,8 +105,9 @@ export function PlanDiffReview({
     setApplyingId(id);
     setFeedback(null);
     try {
-      const result = await applyOne(id);
-      if (!result) return;
+      const item = usePlanStore.getState().queue.find((q) => q.id === id);
+      if (!item) return;
+      const result = await applyViaReviewPort(item);
       if (result.ok) {
         setFeedback("Change applied. A restore point is available in Undo.");
         addActivity({
@@ -97,6 +128,27 @@ export function PlanDiffReview({
     }
   };
 
+  const onRejectOne = async (id: string) => {
+    try {
+      await ports.review.denyEditProposal(id);
+    } catch {
+      // Local discard still proceeds if host deny is a no-op failure.
+    }
+    removeOne(id);
+  };
+
+  const onDiscardAll = async () => {
+    const ids = usePlanStore.getState().queue.map((q) => q.id);
+    for (const id of ids) {
+      try {
+        await ports.review.denyEditProposal(id);
+      } catch {
+        /* continue */
+      }
+    }
+    clear();
+  };
+
   return (
     <PlanDiffReviewPanel
       queue={queue}
@@ -105,10 +157,10 @@ export function PlanDiffReview({
       busy={busy}
       applyingId={applyingId}
       onClose={onClose}
-      onDiscardAll={() => clear()}
+      onDiscardAll={() => void onDiscardAll()}
       onApplyAll={() => void onApply()}
       onApplyOne={(id) => void onApplyOne(id)}
-      onRejectOne={(id) => removeOne(id)}
+      onRejectOne={(id) => void onRejectOne(id)}
       onOpenDiff={(id) => {
         const item = queue.find((q) => q.id === id);
         if (!item || item.kind === "create_directory") return;
@@ -136,6 +188,7 @@ function ReviewHistoryBridge({
   applied: AppliedPlanEdit[];
   onCheckpointsChange: (items: CheckpointInfo[]) => void;
 }) {
+  const ports = useHostPorts();
   const restoreApplied = usePlanStore((s) => s.restoreApplied);
   const [restoring, setRestoring] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -167,7 +220,7 @@ function ReviewHistoryBridge({
           setError(result.error ?? "Could not restore change.");
         }
       } else {
-        await native.checkpointRestore(rowId);
+        await ports.review.restoreCheckpoint(rowId);
         onCheckpointsChange(await native.checkpointList());
       }
     } catch (cause) {

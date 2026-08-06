@@ -2,8 +2,7 @@
  * Desktop Tauri adapter for `@altai/host-contract` HostPorts.
  *
  * TASK-007 / A4 first slice: inject a real HostPorts aggregate into shared UI.
- * Chat stores still call `native.ts` directly until store DI lands; methods that
- * are not yet mapped throw `HostPortUnsupportedError`.
+ * Wave 1.3: ReviewPort apply/deny mutates via shared planEditFs (not UI-direct writes).
  */
 
 import { listenAppEvent, type UnlistenFn } from "@/lib/appEvent";
@@ -11,14 +10,28 @@ import {
   createCapabilities,
   type AgentEvent,
   type Capabilities,
+  type EditProposalInput,
   type HostPorts,
   type InitializeInput,
   type PermissionMode,
 } from "@altai/host-contract";
 import { withUnsupportedDefaults } from "@altai/agent-ui";
 import { native } from "../lib/native";
+import {
+  applyPlanEditMutation,
+  type PlanEditFs,
+} from "../lib/planEditFs";
 
 const HOST_NAME = "altai-desktop";
+
+const tauriPlanFs: PlanEditFs = {
+  writeFile: (path, content, opts) =>
+    native.writeFile(path, content, {
+      source: opts?.source ?? "ai-plan-review",
+    }),
+  createDir: (path) => native.createDir(path),
+  delete: (path) => native.delete(path),
+};
 
 export type TauriHostPortsOptions = {
   hostVersion?: string;
@@ -53,6 +66,12 @@ export function createTauriHostPorts(
             protocolVersion: 1,
             hostName: HOST_NAME,
             hostVersion,
+            overrides: {
+              "review.checkpoints": "available",
+              "review.restoreCheckpoint": "available",
+              "review.editProposal": "available",
+              "workspace.info": "available",
+            },
           });
         },
         async steerRun(input) {
@@ -147,6 +166,38 @@ export function createTauriHostPorts(
         },
         async restoreCheckpoint(checkpointId: string) {
           await native.checkpointRestore(checkpointId);
+        },
+        async applyEditProposal(
+          proposalId: string,
+          input?: EditProposalInput,
+        ) {
+          const id = proposalId.trim();
+          if (!id) {
+            throw new Error("invalid_proposal_id");
+          }
+          if (!input?.path?.trim()) {
+            throw new Error("edit_proposal_requires_input");
+          }
+          const kind = input.kind ?? "edit_file";
+          await applyPlanEditMutation(
+            tauriPlanFs,
+            {
+              kind,
+              path: input.path,
+              proposedContent: input.proposedContent ?? "",
+              originalContent: input.originalContent ?? "",
+              isNewFile: kind === "create_file",
+            },
+            "ai-plan-review",
+          );
+        },
+        async denyEditProposal(proposalId: string) {
+          const id = proposalId.trim();
+          if (!id) {
+            throw new Error("invalid_proposal_id");
+          }
+          // Desktop queue is UI-owned; deny is a host ACK so callers can
+          // drop local rows after a successful response.
         },
       },
     ),
