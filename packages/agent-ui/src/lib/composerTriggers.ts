@@ -26,6 +26,7 @@ export function detectAtMention(
   let at = -1;
   for (let i = cursor - 1; i >= 0; i -= 1) {
     const ch = text[i];
+    if (ch === undefined) continue;
     if (ch === "@") {
       at = i;
       break;
@@ -132,10 +133,11 @@ export function detectSlashOrSnippetTrigger(
 ): ComposerTokenTrigger | null {
   for (let i = caret - 1; i >= 0; i--) {
     const ch = value[i];
+    if (ch === undefined) continue;
     if (ch === "#" || ch === "/") {
       // Slash commands are executable only as the first token in a message.
       if (ch === "/" && value.slice(0, i).trim()) return null;
-      const prev = i === 0 ? " " : value[i - 1];
+      const prev = i === 0 ? " " : (value[i - 1] ?? " ");
       if (!/\s/.test(prev)) return null;
       const slice = value.slice(i + 1, caret);
       if (!/^[a-z0-9-]*$/i.test(slice)) return null;
