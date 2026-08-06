@@ -18,7 +18,6 @@ import {
   File01Icon,
   GlobalSearchIcon,
   Refresh01Icon,
-  SparklesIcon,
   TerminalIcon,
 } from "@hugeicons/core-free-icons";
 import { ALTAI_CMD_RE, resolveSlashCommand } from "../lib/slashCommands";
@@ -39,12 +38,24 @@ import type {
 import { memo, useCallback, useMemo } from "react";
 import {
   AiToolApproval,
-  ChatPathLink,
+  AssistantBrandLabel,
+  buildTranscriptPartGroups,
+  cmdSummaryForToolPart,
   CommandSnippet,
   ContextChips,
+  formatGroupPreview,
   HoverActionButton,
+  pathBasename,
   stripUserContextBlocks,
+  toolNameOf,
+  transcriptPartKey,
+  TranscriptReadPaths,
+  TranscriptReadRow,
   TranscriptToolGroup,
+  uniqueReadPaths,
+  uniqueSummaries,
+  webSummaryForToolPart,
+  type ToolLikePart,
 } from "@altai/agent-ui";
 import { AgentStatusPill } from "./AgentStatusPill";
 import { openWorkspaceFile } from "../lib/openChatHref";
@@ -258,26 +269,17 @@ const RenderedMessage = memo(function RenderedMessage({
     );
   }
 
-  const groups = useMemo(() => buildPartGroups(message.parts as AnyPart[]), [
-    message.parts,
-  ]);
+  const groups = useMemo(
+    () => buildTranscriptPartGroups(message.parts as AnyPart[]),
+    [message.parts],
+  );
 
   const showRunActions = streaming || Boolean(canRetry);
 
   return (
     <Message from={message.role} className="altai-ai-message">
       <MessageContent>
-        <div className="altai-ai-assistant-label mb-0.5 flex items-center gap-1.5 text-[9.5px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">
-          <span className="flex size-5 items-center justify-center rounded-md bg-primary/10 text-primary">
-            <HugeiconsIcon icon={SparklesIcon} size={11} strokeWidth={1.8} />
-          </span>
-          ALTAI
-          {streaming ? (
-            <span className="ml-0.5 font-normal normal-case tracking-normal text-muted-foreground/75">
-              working
-            </span>
-          ) : null}
-        </div>
+        <AssistantBrandLabel streaming={streaming} streamingLabel="working" />
         <div className="flex min-w-0 flex-col gap-3">
           {groups.map((g) => {
             if (g.kind === "reads") {
@@ -301,21 +303,23 @@ const RenderedMessage = memo(function RenderedMessage({
                 </PartAppear>
               );
             }
+            // g.kind === "single"
+            const part = g.part;
             const isReadSingle =
-              toolNameOf(g.part) === "read_file" &&
-              ((g.part as { state?: string }).state ?? "") !==
+              toolNameOf(part as ToolLikePart) === "read_file" &&
+              ((part as { state?: string }).state ?? "") !==
                 "approval-requested";
             if (isReadSingle) {
               return (
                 <PartAppear key={`${message.id}-${g.key}`}>
-                  <ReadRow part={g.part} />
+                  <TranscriptReadRow part={part as ToolLikePart} />
                 </PartAppear>
               );
             }
             return (
               <PartAppear key={`${message.id}-${g.key}`}>
                 <RenderedPart
-                  part={g.part}
+                  part={part}
                   onApproval={onApproval}
                   streaming={streaming && g.idx === lastTextIdx}
                 />
@@ -343,213 +347,37 @@ const RenderedMessage = memo(function RenderedMessage({
   );
 });
 
-type GroupKind = "reads" | "web" | "cmd";
-
-type Group =
-  | { kind: "single"; part: AnyPart; idx: number; key: string }
-  | { kind: "reads"; parts: AnyPart[]; key: string }
-  | { kind: "web"; parts: AnyPart[]; key: string }
-  | { kind: "cmd"; parts: AnyPart[]; key: string };
-
-function partType(p: AnyPart): string {
-  return (p as { type?: string }).type ?? "";
-}
-
-// Vercel AI SDK transports statically-known tools as `type: "tool-<name>"`;
-// IsanAgent (the production transport) ships every tool as
-// `type: "dynamic-tool"` with the name on `toolName`. Both need to flow
-// through the same grouping/summary logic, so we normalize the name once.
-function toolNameOf(p: AnyPart): string | null {
-  const type = partType(p);
-  if (!type) return null;
-  if (type === "dynamic-tool") {
-    return (p as { toolName?: string }).toolName ?? null;
-  }
-  if (type.startsWith("tool-")) {
-    return type.slice("tool-".length);
-  }
-  return null;
-}
-
-const READ_GROUP_TOOLS = new Set(["read_file"]);
-const WEB_GROUP_TOOLS = new Set([
-  "web_search",
-  "web_fetch",
-  "arxiv_search",
-  "arxiv_fetch",
-  "hf_hub_file_fetch",
-]);
-// Shell/command runs. A task that chains `cd`, `ls`, `git status`, … would
-// otherwise stack a dozen identical-looking rows; collapse consecutive ones
-// into a single "Ran N commands" group (expandable to the per-call cards).
-const CMD_GROUP_TOOLS = new Set([
-  "exec",
-  "execution_run",
-  "execution_run_background",
-]);
-
-// What collapsible run, if any, this part participates in. Approval
-// cards always render as their own card so we never sweep them into
-// a group — the approval UI is the one place where the user is
-// expected to read and act.
-function groupKindFor(p: AnyPart): GroupKind | null {
-  const state = (p as { state?: string }).state ?? "";
-  if (state === "approval-requested") return null;
-  const name = toolNameOf(p);
-  if (!name) return null;
-  if (READ_GROUP_TOOLS.has(name)) return "reads";
-  if (WEB_GROUP_TOOLS.has(name)) return "web";
-  if (CMD_GROUP_TOOLS.has(name)) return "cmd";
-  return null;
-}
-
-function partKey(p: AnyPart, idx: number): string {
-  const tc = (p as { toolCallId?: string }).toolCallId;
-  if (tc) return tc;
-  const id = (p as { approval?: { id?: string } }).approval?.id;
-  if (id) return id;
-  return `i-${idx}`;
-}
-
-function buildPartGroups(parts: AnyPart[]): Group[] {
-  const out: Group[] = [];
-  let run: { kind: GroupKind; parts: AnyPart[]; startIdx: number } | null =
-    null;
-  const flushRun = () => {
-    if (!run) return;
-    if (run.parts.length >= 2) {
-      out.push({
-        kind: run.kind,
-        parts: run.parts,
-        key: `${run.kind}-${partKey(run.parts[0], run.startIdx)}`,
-      });
-    } else {
-      run.parts.forEach((p, k) => {
-        const idx = run!.startIdx + k;
-        out.push({ kind: "single", part: p, idx, key: partKey(p, idx) });
-      });
-    }
-    run = null;
-  };
-  parts.forEach((p, i) => {
-    const kind = groupKindFor(p);
-    if (kind) {
-      if (run && run.kind === kind) {
-        run.parts.push(p);
-      } else {
-        flushRun();
-        run = { kind, parts: [p], startIdx: i };
-      }
-      return;
-    }
-    flushRun();
-    out.push({ kind: "single", part: p, idx: i, key: partKey(p, i) });
-  });
-  flushRun();
-  return out;
-}
-
-function readPathFromPart(p: AnyPart): string | null {
-  const input = (p as { input?: { path?: unknown } }).input;
-  const path = input?.path;
-  return typeof path === "string" && path.length > 0 ? path : null;
-}
-
-function basename(p: string): string {
-  const i = Math.max(p.lastIndexOf("/"), p.lastIndexOf("\\"));
-  return i >= 0 ? p.slice(i + 1) : p;
-}
-
 const ReadGroup = memo(function ReadGroup({ parts }: { parts: AnyPart[] }) {
-  const paths = useMemo(() => {
-    const seen = new Set<string>();
-    const out: string[] = [];
-    for (const p of parts) {
-      const path = readPathFromPart(p);
-      if (!path) continue;
-      if (seen.has(path)) continue;
-      seen.add(path);
-      out.push(path);
-    }
-    return out;
-  }, [parts]);
+  const paths = useMemo(
+    () => uniqueReadPaths(parts as ToolLikePart[]),
+    [parts],
+  );
   const count = paths.length || parts.length;
-  const preview = paths.map(basename).join(", ");
 
   return (
     <TranscriptToolGroup
       label="Read"
       countLabel={`${count} file${count === 1 ? "" : "s"}`}
-      preview={paths.length > 0 ? preview : undefined}
+      preview={
+        paths.length > 0
+          ? formatGroupPreview(paths.map((p) => pathBasename(p)))
+          : undefined
+      }
       previewMono
       icon={
         <HugeiconsIcon icon={File01Icon} size={13} strokeWidth={1.75} />
       }
     >
-      <ul className="flex flex-col gap-0.5 px-2 py-1.5">
-        {paths.map((path) => (
-          <li
-            key={path}
-            className="flex items-center gap-1.5 font-mono text-[11px] text-muted-foreground"
-          >
-            <HugeiconsIcon
-              icon={File01Icon}
-              size={10}
-              strokeWidth={1.75}
-              className="shrink-0 opacity-60"
-            />
-            <ChatPathLink
-              path={path}
-              onOpen={openWorkspaceFile}
-              className="truncate text-foreground hover:text-foreground"
-            >
-              {basename(path)}
-            </ChatPathLink>
-            <ChatPathLink
-              path={path}
-              onOpen={openWorkspaceFile}
-              className="truncate opacity-60 hover:opacity-100"
-            >
-              {path}
-            </ChatPathLink>
-          </li>
-        ))}
-      </ul>
+      <TranscriptReadPaths
+        paths={paths}
+        onOpen={(path) => {
+          void openWorkspaceFile(path);
+        }}
+      />
     </TranscriptToolGroup>
   );
 });
 
-function webSummaryForPart(p: AnyPart): string | null {
-  const name = toolNameOf(p);
-  const input = (p as { input?: Record<string, unknown> }).input;
-  if (!input || typeof input !== "object") return null;
-  const str = (k: string) =>
-    typeof input[k] === "string" ? (input[k] as string) : null;
-  if (name === "web_search" || name === "arxiv_search") {
-    const q = str("query");
-    return q ? `"${q}"` : null;
-  }
-  if (name === "web_fetch") {
-    const url = str("url");
-    if (!url) return null;
-    try {
-      return new URL(url).hostname;
-    } catch {
-      return url;
-    }
-  }
-  if (name === "arxiv_fetch") return str("arxiv_id");
-  if (name === "hf_hub_file_fetch") {
-    return str("repo_id") ?? str("repo") ?? str("path") ?? null;
-  }
-  return null;
-}
-
-// Two or more consecutive web/arxiv/hf research calls collapse into one
-// row so a five-call research chain doesn't push the whole transcript
-// off-screen. Expanded view inlines each call as a full `<Tool>` so the
-// per-call output cards (parsed search hits, fetched doc previews) stay
-// reachable.
 const WebGroup = memo(function WebGroup({
   parts,
   onApproval,
@@ -557,28 +385,18 @@ const WebGroup = memo(function WebGroup({
   parts: AnyPart[];
   onApproval: (id: string, approved: boolean) => void;
 }) {
-  const summaries = useMemo(() => {
-    const seen = new Set<string>();
-    const out: string[] = [];
-    for (const p of parts) {
-      const s = webSummaryForPart(p);
-      if (!s) continue;
-      if (seen.has(s)) continue;
-      seen.add(s);
-      out.push(s);
-    }
-    return out;
-  }, [parts]);
+  const summaries = useMemo(
+    () => uniqueSummaries(parts as ToolLikePart[], webSummaryForToolPart),
+    [parts],
+  );
   const count = parts.length;
-  const preview = summaries.slice(0, 3).join(", ");
-  const previewExtra =
-    summaries.length > 3 ? `, +${summaries.length - 3} more` : "";
+  const preview = formatGroupPreview(summaries);
 
   return (
     <TranscriptToolGroup
       label="Web"
       countLabel={`${count} call${count === 1 ? "" : "s"}`}
-      preview={preview ? `${preview}${previewExtra}` : undefined}
+      preview={preview}
       icon={
         <HugeiconsIcon icon={GlobalSearchIcon} size={13} strokeWidth={1.75} />
       }
@@ -586,7 +404,7 @@ const WebGroup = memo(function WebGroup({
       <div className="flex flex-col gap-1 px-2 py-1.5">
         {parts.map((p, i) => (
           <RenderedPart
-            key={partKey(p, i)}
+            key={transcriptPartKey(p as ToolLikePart, i)}
             part={p}
             onApproval={onApproval}
             streaming={false}
@@ -597,26 +415,6 @@ const WebGroup = memo(function WebGroup({
   );
 });
 
-// First line of the command a run-tool executed, for the collapsed preview.
-function cmdSummaryForPart(p: AnyPart): string | null {
-  const name = toolNameOf(p);
-  const input = (p as { input?: Record<string, unknown> }).input;
-  if (!input || typeof input !== "object") return null;
-  const str = (k: string) =>
-    typeof input[k] === "string" ? (input[k] as string) : null;
-  let raw: string | null = null;
-  if (name === "exec") raw = str("description") ?? str("command");
-  else if (name === "execution_run" || name === "execution_run_background")
-    raw = str("description") ?? str("code");
-  if (!raw) return null;
-  const firstLine = raw.split("\n")[0].trim();
-  return firstLine.length > 80 ? `${firstLine.slice(0, 79)}…` : firstLine;
-}
-
-// Two or more consecutive shell runs collapse into one row so a chain of
-// `cd`/`ls`/`git` calls doesn't push the transcript off-screen. Expanded
-// view inlines each call as a full `<Tool>` so its stdout/exit card stays
-// reachable — same pattern as WebGroup.
 const CommandGroup = memo(function CommandGroup({
   parts,
   onApproval,
@@ -624,27 +422,18 @@ const CommandGroup = memo(function CommandGroup({
   parts: AnyPart[];
   onApproval: (id: string, approved: boolean) => void;
 }) {
-  const summaries = useMemo(() => {
-    const seen = new Set<string>();
-    const out: string[] = [];
-    for (const p of parts) {
-      const s = cmdSummaryForPart(p);
-      if (!s || seen.has(s)) continue;
-      seen.add(s);
-      out.push(s);
-    }
-    return out;
-  }, [parts]);
+  const summaries = useMemo(
+    () => uniqueSummaries(parts as ToolLikePart[], cmdSummaryForToolPart),
+    [parts],
+  );
   const count = parts.length;
-  const preview = summaries.slice(0, 3).join(" · ");
-  const previewExtra =
-    summaries.length > 3 ? `, +${summaries.length - 3} more` : "";
+  const preview = formatGroupPreview(summaries, { separator: " · " });
 
   return (
     <TranscriptToolGroup
       label="Ran"
       countLabel={`${count} command${count === 1 ? "" : "s"}`}
-      preview={preview ? `${preview}${previewExtra}` : undefined}
+      preview={preview}
       previewMono
       icon={
         <HugeiconsIcon icon={TerminalIcon} size={13} strokeWidth={1.75} />
@@ -653,7 +442,7 @@ const CommandGroup = memo(function CommandGroup({
       <div className="flex flex-col gap-1 px-2 py-1.5">
         {parts.map((p, i) => (
           <RenderedPart
-            key={partKey(p, i)}
+            key={transcriptPartKey(p as ToolLikePart, i)}
             part={p}
             onApproval={onApproval}
             streaming={false}
@@ -678,34 +467,6 @@ const PartAppear = memo(function PartAppear({
     >
       {children}
     </motion.div>
-  );
-});
-
-const ReadRow = memo(function ReadRow({ part }: { part: AnyPart }) {
-  const path = readPathFromPart(part);
-  const state = (part as { state?: string }).state ?? "";
-  const isError = state === "output-error";
-  return (
-    <div className="flex items-center gap-2 rounded-md px-2 py-1.5 text-[12px]">
-      <span
-        className={cn(
-          "size-1.5 shrink-0 rounded-full",
-          isError
-            ? "bg-destructive"
-            : "border border-muted-foreground/40 bg-transparent",
-        )}
-      />
-      <HugeiconsIcon
-        icon={File01Icon}
-        size={13}
-        strokeWidth={1.75}
-        className="shrink-0 text-muted-foreground"
-      />
-      <span className="shrink-0 font-medium text-foreground">Read</span>
-      <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-muted-foreground">
-        {path ?? ""}
-      </span>
-    </div>
   );
 });
 

@@ -119,6 +119,10 @@ consumption of shared panel shells:
 |---|---|
 | A6.1 | `stripUserContextBlocks` (shared user-message context parsing → chips) |
 | A6.2 | `TranscriptToolGroup` (collapsible file/web/shell tool bursts) |
+| A6.3 | `buildTranscriptPartGroups` + tool summaries (read/web/cmd collapse rules) |
+| A6.4 | `TranscriptReadPaths` (expanded multi-file read list) |
+| A6.5 | `AssistantBrandLabel` (assistant message brand + streaming hint) |
+| A6.6 | `TranscriptReadRow` (single-file read row) |
 
 ### A5 complete enough
 

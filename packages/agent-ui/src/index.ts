@@ -573,7 +573,39 @@ export {
   type TranscriptToolGroupProps,
 } from "./components/TranscriptToolGroup.js";
 
+export {
+  TranscriptReadPaths,
+  type TranscriptReadPathsProps,
+} from "./components/TranscriptReadPaths.js";
+
+export {
+  TranscriptReadRow,
+  type TranscriptReadRowProps,
+} from "./components/TranscriptReadRow.js";
+
+export {
+  AssistantBrandLabel,
+  type AssistantBrandLabelProps,
+} from "./components/AssistantBrandLabel.js";
+
 export { stripUserContextBlocks } from "./lib/userContextBlocks.js";
+
+export {
+  buildTranscriptPartGroups,
+  cmdSummaryForToolPart,
+  formatGroupPreview,
+  groupKindFor,
+  pathBasename,
+  readPathFromToolPart,
+  toolNameOf,
+  transcriptPartKey,
+  uniqueReadPaths,
+  uniqueSummaries,
+  webSummaryForToolPart,
+  type ToolLikePart,
+  type TranscriptGroupKind,
+  type TranscriptPartGroup,
+} from "./lib/transcriptToolGroups.js";
 
 export {
   ConversationOwnerSection,
