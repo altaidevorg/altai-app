@@ -32,5 +32,18 @@
     "react-dom": "^19.1.0",
     "typescript": "~5.8.3",
     "vitest": "^2.1.9"
-  }
+  },
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/altaidevorg/altai-app.git",
+    "directory": "packages/agent-ui"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "src",
+    "README.md"
+  ]
 }
