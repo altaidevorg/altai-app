@@ -19,6 +19,8 @@ export type OperationsOverviewRow = {
   /** Attention rows render with destructive emphasis. */
   tone?: "default" | "attention";
   onOpen?: () => void;
+  /** Optional host control (cancel run, open review, …) rendered at row end. */
+  actions?: ReactNode;
 };
 
 export type OperationsOverviewProps = {
@@ -145,44 +147,55 @@ function OverviewRow({
   row: OperationsOverviewRow;
   bordered: boolean;
 }): ReactNode {
-  const body = (
-    <>
-      <span className="min-w-0 flex-1">
-        <span className="block truncate text-[11px] font-medium text-foreground">
-          {row.title}
-        </span>
-        {row.detail ? (
-          <span className="mt-0.5 block truncate text-[9.5px] text-muted-foreground">
-            {row.detail}
-          </span>
-        ) : null}
-      </span>
-      <span
-        className={cn(
-          "shrink-0 text-[9px] font-medium uppercase tracking-wide",
-          row.tone === "attention"
-            ? "text-destructive"
-            : "text-muted-foreground",
-        )}
-      >
-        {row.statusLabel}
-      </span>
-    </>
+  const status = (
+    <span
+      className={cn(
+        "shrink-0 text-[9px] font-medium uppercase tracking-wide",
+        row.tone === "attention"
+          ? "text-destructive"
+          : "text-muted-foreground",
+      )}
+    >
+      {row.statusLabel}
+    </span>
   );
-  const rowClassName = cn(
-    "flex w-full items-center gap-2 px-3 py-2 text-left",
-    bordered && "border-t border-border-subtle",
+  const text = (
+    <span className="min-w-0 flex-1">
+      <span className="block truncate text-[11px] font-medium text-foreground">
+        {row.title}
+      </span>
+      {row.detail ? (
+        <span className="mt-0.5 block truncate text-[9.5px] text-muted-foreground">
+          {row.detail}
+        </span>
+      ) : null}
+    </span>
+  );
+  const mainClassName = cn(
+    "flex min-w-0 flex-1 items-center gap-2 px-3 py-2 text-left",
     row.onOpen && "transition-colors hover:bg-muted/60",
   );
   return (
-    <li>
+    <li
+      className={cn(
+        "flex items-center",
+        bordered && "border-t border-border-subtle",
+      )}
+    >
       {row.onOpen ? (
-        <button type="button" onClick={row.onOpen} className={rowClassName}>
-          {body}
+        <button type="button" onClick={row.onOpen} className={mainClassName}>
+          {text}
+          {status}
         </button>
       ) : (
-        <div className={rowClassName}>{body}</div>
+        <div className={mainClassName}>
+          {text}
+          {status}
+        </div>
       )}
+      {row.actions ? (
+        <span className="flex shrink-0 items-center gap-1 pr-2">{row.actions}</span>
+      ) : null}
     </li>
   );
 }

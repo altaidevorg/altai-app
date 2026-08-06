@@ -2,7 +2,10 @@ import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { cn } from "@/lib/utils";
 import { useChatStore } from "@/modules/ai/store/chatStore";
-import { useAgentRunsStore, type RunState } from "@/modules/ai/store/agentRunsStore";
+import {
+  useAgentRunsStore,
+  type RunState,
+} from "@/modules/ai/store/agentRunsStore";
 import { describeTerminalOutcomeAttention } from "@/modules/ai/lib/agentEventBridge";
 import { useTodosStore } from "@/modules/ai/store/todoStore";
 import type { Todo } from "@/modules/ai/lib/todos";
@@ -14,17 +17,19 @@ import {
 import { OrchestrationControlCenter } from "@/modules/orchestration/OrchestrationControlCenter";
 import { useOrchestrationStore } from "@/modules/orchestration";
 import {
-  Alert02Icon,
+  OperationsOverview,
+  type OperationsOverviewRow,
+} from "@altai/agent-ui";
+import {
   ArrowRight01Icon,
   CheckmarkCircle01Icon,
-  Clock01Icon,
   PlayIcon,
   Robot01Icon,
   StopCircleIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useEffect, useMemo } from "react";
-import { useState } from "react";
+import { useState, type ReactElement } from "react";
 import { NewWorkComposer } from "./NewWorkComposer";
 
 type Props = {
@@ -53,14 +58,26 @@ const STATUS_META: Record<
   AssignmentStatus,
   { label: string; dot: string; text: string }
 > = {
-  dispatching: { label: "Dispatching", dot: "bg-amber-500", text: "text-amber-500" },
-  running: { label: "Running", dot: "bg-emerald-500", text: "text-emerald-500" },
+  dispatching: {
+    label: "Dispatching",
+    dot: "bg-amber-500",
+    text: "text-amber-500",
+  },
+  running: {
+    label: "Running",
+    dot: "bg-emerald-500",
+    text: "text-emerald-500",
+  },
   "awaiting-approval": {
     label: "Awaiting approval",
     dot: "bg-amber-500",
     text: "text-amber-500",
   },
-  done: { label: "Ready for delivery", dot: "bg-sky-500", text: "text-sky-500" },
+  done: {
+    label: "Ready for delivery",
+    dot: "bg-sky-500",
+    text: "text-sky-500",
+  },
   failed: { label: "Failed", dot: "bg-red-500", text: "text-red-500" },
   cancelled: {
     label: "Cancelled",
@@ -69,6 +86,11 @@ const STATUS_META: Record<
   },
 };
 
+/**
+ * Desktop Operations Overview host. Aggregates assignments + runs into
+ * shared `OperationsOverview` props and keeps host-only chrome:
+ * orchestration strip, new-work composer, delivery actions, local todos.
+ */
 export function CommandCenter({
   repoRoot,
   workspaceName,
@@ -94,7 +116,7 @@ export function CommandCenter({
   );
   const taskSessionId =
     orchestrationSnapshot?.status !== "stopped"
-      ? orchestrationSnapshot?.taskSessionId ?? activeSessionId
+      ? (orchestrationSnapshot?.taskSessionId ?? activeSessionId)
       : activeSessionId;
   const todos = useTodosStore((state) =>
     taskSessionId ? state.bySession[taskSessionId] : undefined,
@@ -129,9 +151,14 @@ export function CommandCenter({
   const attention = useMemo(() => buildAttention(resolved), [resolved]);
   const delivery = resolved.filter(isReadyForDelivery);
   const recent = [...resolved]
-    .sort((left, right) => right.assignment.updatedAt - left.assignment.updatedAt)
+    .sort(
+      (left, right) =>
+        right.assignment.updatedAt - left.assignment.updatedAt,
+    )
     .slice(0, 5);
-  const pendingTodos = (todos ?? []).filter((todo) => todo.status !== "completed");
+  const pendingTodos = (todos ?? []).filter(
+    (todo) => todo.status !== "completed",
+  );
   const failedChecks = resolved.filter((item) =>
     item.run?.verifications.some((check) => check.status === "failed"),
   ).length;
@@ -145,6 +172,50 @@ export function CommandCenter({
     switchSession(item.assignment.sessionId);
     openMini();
   };
+
+  const overviewAttention: OperationsOverviewRow[] = attention
+    .slice(0, 8)
+    .map((item) => ({
+      id: item.key,
+      title: item.title,
+      detail: item.detail,
+      statusLabel: item.action,
+      tone: item.tone === "error" || item.tone === "warning" ? "attention" : "default",
+      onOpen: () => openAssignment(item.assignment),
+    }));
+
+  const overviewProgressing: OperationsOverviewRow[] = activeRuns
+    .slice(0, 8)
+    .map((item) => {
+      const run = item.run;
+      const tokens = run ? run.tokens.input + run.tokens.output : 0;
+      const meta = STATUS_META[item.status];
+      return {
+        id: item.assignment.id,
+        title: item.assignment.title,
+        detail: [
+          sourceLabel(item.assignment),
+          run?.step ?? meta.label,
+          tokens > 0 ? `${formatTokens(tokens)} tok` : null,
+          item.assignment.sessionId === activeSessionId ? "Focused" : null,
+        ]
+          .filter(Boolean)
+          .join(" · "),
+        statusLabel: meta.label,
+        onOpen: () => openAssignment(item),
+        actions: (
+          <button
+            type="button"
+            aria-label={`Cancel ${item.assignment.title}`}
+            title="Cancel run"
+            onClick={() => void cancel(item.assignment.id)}
+            className="flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground/55 transition-colors hover:bg-destructive/10 hover:text-destructive"
+          >
+            <HugeiconsIcon icon={StopCircleIcon} size={13} strokeWidth={1.8} />
+          </button>
+        ),
+      };
+    });
 
   return (
     <div className="flex h-full min-h-0 w-full flex-col overflow-hidden">
@@ -183,70 +254,51 @@ export function CommandCenter({
           />
         </div>
         {composerOpen ? (
-          <NewWorkComposer taskSessionId={taskSessionId} onClose={() => setComposerOpen(false)} />
+          <NewWorkComposer
+            taskSessionId={taskSessionId}
+            onClose={() => setComposerOpen(false)}
+          />
         ) : null}
         {!composerOpen ? (
           <div className="mb-3 flex items-center justify-between rounded-lg border border-dashed border-border/55 bg-background/30 px-3 py-2">
-            <p className="text-[10px] text-muted-foreground/70">Turn an idea into a run or a queued work item.</p>
-            <Button size="xs" variant="outline" className="h-7 text-[10px]" onClick={() => { setComposerOpen(true); onCreateWork(); }}>Create work</Button>
+            <p className="text-[10px] text-muted-foreground/70">
+              Turn an idea into a run or a queued work item.
+            </p>
+            <Button
+              size="xs"
+              variant="outline"
+              className="h-7 text-[10px]"
+              onClick={() => {
+                setComposerOpen(true);
+                onCreateWork();
+              }}
+            >
+              Create work
+            </Button>
           </div>
         ) : null}
-        <div className="grid grid-cols-4 gap-1.5">
-          <MetricCard label="Attention" value={attention.length} tone="warning" />
-          <MetricCard label="Running" value={activeRuns.length} tone="success" />
-          <MetricCard label="Queued" value={queuedCount} tone="neutral" />
-          <MetricCard label="Delivery" value={delivery.length} tone="info" />
-        </div>
 
-        <SectionHeader
-          label="Needs attention"
-          count={attention.length}
-          action={attention.length > 0 ? undefined : "All clear"}
+        <OperationsOverview
+          status="ready"
+          className="px-0 py-0"
+          metrics={[
+            { label: "Attention", value: String(attention.length) },
+            { label: "Running", value: String(activeRuns.length) },
+            { label: "Queued", value: String(queuedCount) },
+            { label: "Delivery", value: String(delivery.length) },
+          ]}
+          attention={overviewAttention}
+          progressing={overviewProgressing}
+          attentionEmptyLabel="Approvals, failed checks, and blocked runs will appear here."
+          progressingEmptyLabel="Create a task and dispatch it directly to an agent."
         />
-        {attention.length > 0 ? (
-          <div className="space-y-1.5">
-            {attention.slice(0, 5).map((item) => (
-              <AttentionRow
-                key={item.key}
-                item={item}
-                onOpen={() => openAssignment(item.assignment)}
-              />
-            ))}
-          </div>
-        ) : (
-          <EmptySection
-            icon={CheckmarkCircle01Icon}
-            title="Nothing needs your attention"
-            description="Approvals, failed checks, and blocked runs will appear here."
-          />
-        )}
-
-        <SectionHeader label="Live execution" count={activeRuns.length} />
-        {activeRuns.length > 0 ? (
-          <div className="overflow-hidden rounded-lg border border-border/50">
-            {activeRuns.slice(0, 8).map((item) => (
-              <ExecutionRow
-                key={item.assignment.id}
-                item={item}
-                active={item.assignment.sessionId === activeSessionId}
-                onOpen={() => openAssignment(item)}
-                onCancel={() => void cancel(item.assignment.id)}
-              />
-            ))}
-          </div>
-        ) : (
-          <EmptySection
-            icon={Clock01Icon}
-            title="No active runs"
-            description="Create a task and dispatch it directly to an agent."
-            action={onCreateWork}
-          />
-        )}
 
         <SectionHeader
           label="Ready for delivery"
           count={delivery.length}
-          action={failedChecks > 0 ? `${failedChecks} checks failed` : undefined}
+          action={
+            failedChecks > 0 ? `${failedChecks} checks failed` : undefined
+          }
         />
         {delivery.length > 0 ? (
           <div className="space-y-1.5">
@@ -268,7 +320,11 @@ export function CommandCenter({
           />
         )}
 
-        <SectionHeader label="Up next" count={pendingTodos.length} action="Work list" />
+        <SectionHeader
+          label="Up next"
+          count={pendingTodos.length}
+          action="Work list"
+        />
         {pendingTodos.length > 0 ? (
           <div className="space-y-1.5">
             {pendingTodos.slice(0, 5).map((todo) => (
@@ -295,7 +351,10 @@ export function CommandCenter({
                 className="flex w-full items-center gap-2 px-2.5 py-2 text-left transition-colors hover:bg-foreground/[0.035]"
               >
                 <span
-                  className={cn("size-1.5 shrink-0 rounded-full", STATUS_META[item.status].dot)}
+                  className={cn(
+                    "size-1.5 shrink-0 rounded-full",
+                    STATUS_META[item.status].dot,
+                  )}
                 />
                 <span className="min-w-0 flex-1 truncate text-[10.5px] text-foreground/85">
                   {item.assignment.title}
@@ -316,8 +375,16 @@ export function CommandCenter({
   );
 }
 
-function resolveStatus(fallback: AssignmentStatus, run?: RunState): AssignmentStatus {
-  if (fallback === "done" || fallback === "failed" || fallback === "cancelled" || !run) {
+function resolveStatus(
+  fallback: AssignmentStatus,
+  run?: RunState,
+): AssignmentStatus {
+  if (
+    fallback === "done" ||
+    fallback === "failed" ||
+    fallback === "cancelled" ||
+    !run
+  ) {
     return fallback;
   }
   if (run.completed) {
@@ -344,7 +411,9 @@ function buildAttention(items: ResolvedAssignment[]): AttentionItem[] {
         assignment: item,
       });
     }
-    const failed = item.run?.verifications.find((check) => check.status === "failed");
+    const failed = item.run?.verifications.find(
+      (check) => check.status === "failed",
+    );
     if (failed) {
       out.push({
         key: `${item.assignment.id}:check:${failed.id}`,
@@ -378,44 +447,18 @@ function toneRank(tone: AttentionItem["tone"]): number {
 
 function isReadyForDelivery(item: ResolvedAssignment): boolean {
   if (item.status !== "done" || !item.assignment.delivery) return false;
-  return item.assignment.delivery.status !== "applied" &&
-    item.assignment.delivery.status !== "draft-pr";
+  return (
+    item.assignment.delivery.status !== "applied" &&
+    item.assignment.delivery.status !== "draft-pr"
+  );
 }
 
 function sourceLabel(assignment: Assignment): string {
-  if (assignment.source.kind === "issue") return `Issue #${assignment.source.number}`;
+  if (assignment.source.kind === "issue")
+    return `Issue #${assignment.source.number}`;
   if (assignment.source.kind === "pr") return `PR #${assignment.source.number}`;
   if (assignment.source.kind === "task") return "Background task";
   return "Local todo";
-}
-
-function MetricCard({
-  label,
-  value,
-  tone,
-}: {
-  label: string;
-  value: number;
-  tone: "warning" | "success" | "neutral" | "info";
-}) {
-  return (
-    <div className="rounded-lg border border-border/50 bg-card/35 px-2.5 py-2">
-      <p className="truncate text-[9.5px] uppercase tracking-wide text-muted-foreground/65">
-        {label}
-      </p>
-      <p
-        className={cn(
-          "mt-0.5 text-[16px] font-semibold tabular-nums",
-          tone === "warning" && "text-amber-500",
-          tone === "success" && "text-emerald-500",
-          tone === "info" && "text-sky-500",
-          tone === "neutral" && "text-foreground",
-        )}
-      >
-        {value}
-      </p>
-    </div>
-  );
 }
 
 function SectionHeader({
@@ -436,85 +479,10 @@ function SectionHeader({
         {count}
       </span>
       {action ? (
-        <span className="ml-auto text-[9.5px] text-muted-foreground/55">{action}</span>
+        <span className="ml-auto text-[9.5px] text-muted-foreground/55">
+          {action}
+        </span>
       ) : null}
-    </div>
-  );
-}
-
-function AttentionRow({
-  item,
-  onOpen,
-}: {
-  item: AttentionItem;
-  onOpen: () => void;
-}) {
-  const error = item.tone === "error";
-  return (
-    <button
-      type="button"
-      onClick={onOpen}
-      className="group flex w-full items-center gap-2 rounded-lg border border-border/50 bg-card/35 px-2.5 py-2 text-left transition-colors hover:border-border hover:bg-card/70"
-    >
-      <HugeiconsIcon
-        icon={error ? Alert02Icon : Clock01Icon}
-        size={14}
-        strokeWidth={1.8}
-        className={error ? "shrink-0 text-red-500" : "shrink-0 text-amber-500"}
-      />
-      <span className="min-w-0 flex-1">
-        <span className="block truncate text-[11px] font-medium text-foreground">
-          {item.title}
-        </span>
-        <span className="block truncate text-[9.5px] text-muted-foreground">
-          {item.detail}
-        </span>
-      </span>
-      <span className="shrink-0 text-[9.5px] font-medium text-muted-foreground transition-colors group-hover:text-foreground">
-        {item.action}
-      </span>
-    </button>
-  );
-}
-
-function ExecutionRow({
-  item,
-  active,
-  onOpen,
-  onCancel,
-}: {
-  item: ResolvedAssignment;
-  active: boolean;
-  onOpen: () => void;
-  onCancel: () => void;
-}) {
-  const run = item.run;
-  const meta = STATUS_META[item.status];
-  const tokens = run ? run.tokens.input + run.tokens.output : 0;
-  return (
-    <div className="flex items-center gap-2 border-b border-border/40 px-2.5 py-2 last:border-b-0">
-      <span className={cn("size-2 shrink-0 rounded-full", meta.dot, "animate-pulse")} />
-      <button type="button" onClick={onOpen} className="min-w-0 flex-1 text-left">
-        <span className="block truncate text-[11px] font-medium text-foreground">
-          {item.assignment.title}
-        </span>
-        <span className="block truncate text-[9.5px] text-muted-foreground">
-          {sourceLabel(item.assignment)} · {run?.step ?? meta.label}
-          {tokens > 0 ? ` · ${formatTokens(tokens)} tok` : ""}
-        </span>
-      </button>
-      {active ? (
-        <span className="rounded bg-primary/10 px-1.5 py-0.5 text-[9px] text-primary">Focused</span>
-      ) : null}
-      <button
-        type="button"
-        aria-label={`Cancel ${item.assignment.title}`}
-        title="Cancel run"
-        onClick={onCancel}
-        className="flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground/55 transition-colors hover:bg-red-500/10 hover:text-red-500"
-      >
-        <HugeiconsIcon icon={StopCircleIcon} size={13} strokeWidth={1.8} />
-      </button>
     </div>
   );
 }
@@ -542,7 +510,8 @@ function DeliveryRow({
     : retry
       ? "Retry apply"
       : "Apply";
-  const busy = delivery.status === "publishing" || delivery.status === "applying";
+  const busy =
+    delivery.status === "publishing" || delivery.status === "applying";
   return (
     <div className="flex items-center gap-2 rounded-lg border border-border/50 bg-card/35 px-2.5 py-2">
       <HugeiconsIcon
@@ -578,7 +547,9 @@ function TodoRow({ todo }: { todo: Todo }) {
       <span
         className={cn(
           "size-1.5 shrink-0 rounded-full",
-          todo.status === "in_progress" ? "bg-amber-500" : "bg-muted-foreground/45",
+          todo.status === "in_progress"
+            ? "bg-amber-500"
+            : "bg-muted-foreground/45",
         )}
       />
       <span className="min-w-0 flex-1 truncate text-[10.5px] text-foreground/85">
@@ -601,13 +572,20 @@ function EmptySection({
   title: string;
   description: string;
   action?: () => void;
-}) {
+}): ReactElement {
   return (
     <div className="flex items-center gap-2 rounded-lg border border-dashed border-border/55 px-2.5 py-2.5">
-      <HugeiconsIcon icon={icon} size={14} strokeWidth={1.7} className="shrink-0 text-muted-foreground/60" />
+      <HugeiconsIcon
+        icon={icon}
+        size={14}
+        strokeWidth={1.7}
+        className="shrink-0 text-muted-foreground/60"
+      />
       <div className="min-w-0 flex-1">
         <p className="text-[10.5px] font-medium text-foreground/80">{title}</p>
-        <p className="truncate text-[9.5px] text-muted-foreground">{description}</p>
+        <p className="truncate text-[9.5px] text-muted-foreground">
+          {description}
+        </p>
       </div>
       {action ? (
         <button

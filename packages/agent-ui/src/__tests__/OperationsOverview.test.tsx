@@ -22,7 +22,13 @@ describe("OperationsOverview", () => {
           },
         ],
         progressing: [
-          { id: "t1", title: "Refactor parser", statusLabel: "Working", detail: "step 3" },
+          {
+            id: "t1",
+            title: "Refactor parser",
+            statusLabel: "Working",
+            detail: "step 3",
+            actions: createElement("button", { type: "button" }, "Stop"),
+          },
         ],
       }),
     );
@@ -32,6 +38,7 @@ describe("OperationsOverview", () => {
     expect(html).toContain("Approval requested");
     expect(html).toContain("In progress");
     expect(html).toContain("Refactor parser");
+    expect(html).toContain("Stop");
     // Row with onOpen renders as a button.
     expect(html).toContain("<button");
   });

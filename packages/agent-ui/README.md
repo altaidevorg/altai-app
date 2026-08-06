@@ -134,6 +134,7 @@ required by that workstream.
 |---|---|
 | A7.1 | `OperationsNavigationShell` (shared operations navigation chrome) |
 | A7.2 | `OperationsOverview` (attention/progress summary; hosts aggregate data) |
+| A7.3 | Desktop overview bridge (`CommandCenter` → `OperationsOverview` + row actions) |
 
 Desktop must import shared components from this package; local duplicates are
 deleted as each slice lands.
