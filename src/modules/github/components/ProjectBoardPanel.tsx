@@ -16,6 +16,7 @@ type Props = {
   };
 };
 
+/** Live Operations routes. Agents/governance stay gated until host bodies ship. */
 const AVAILABLE_VIEWS: readonly OperationsView[] = [
   "overview",
   "work",
@@ -24,8 +25,11 @@ const AVAILABLE_VIEWS: readonly OperationsView[] = [
 ];
 
 /**
- * Local-first operations tab. Secondary nav mounts live domain slices when a
- * host body exists; remaining routes stay disabled until backends land.
+ * Local-first operations tab.
+ * - Overview: attention + progress (host aggregation).
+ * - Work: runs + scheduled via Work hub secondary strip.
+ * - Runs: background task queue alone (no scheduled strip).
+ * - Inbox: agent attention queue.
  */
 export function ProjectBoardPanel({ repoRoot, navigation }: Props) {
   const [view, setView] = useState<OperationsView>("overview");
@@ -37,10 +41,14 @@ export function ProjectBoardPanel({ repoRoot, navigation }: Props) {
     repoRoot.split(/[\\/]/).filter(Boolean).pop() ?? "Local workspace";
 
   useEffect(() => {
-    if (navigation) setNewWorkKey(navigation.key);
+    if (!navigation) return;
+    // New work must land on Overview (composer host lives there).
+    setView("overview");
+    setNewWorkKey(navigation.key);
   }, [navigation]);
 
   const createWork = () => {
+    setView("overview");
     setNewWorkKey(Date.now());
   };
 
@@ -61,7 +69,13 @@ export function ProjectBoardPanel({ repoRoot, navigation }: Props) {
       {view === "work" ? (
         <WorkHubPanel initialView="runs" presentation="embedded" />
       ) : null}
-      {view === "runs" ? <TaskRunsPanel presentation="embedded" /> : null}
+      {view === "runs" ? (
+        <TaskRunsPanel
+          presentation="embedded"
+          surfaceTitle="Runs"
+          surfaceEyebrow="Background executions"
+        />
+      ) : null}
       {view === "inbox" ? (
         <NotificationInboxPanel presentation="embedded" />
       ) : null}

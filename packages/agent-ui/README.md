@@ -136,6 +136,7 @@ required by that workstream.
 | A7.2 | `OperationsOverview` (attention/progress summary; hosts aggregate data) |
 | A7.3 | Desktop overview bridge (`CommandCenter` → `OperationsOverview` + row actions) |
 | A7.4 | Operations work/runs/inbox domain views + embedded `AuxiliarySurface` |
+| A7.5 | Operations view semantics (new-work → overview, Runs title, shell tests) |
 
 Desktop must import shared components from this package; local duplicates are
 deleted as each slice lands.
