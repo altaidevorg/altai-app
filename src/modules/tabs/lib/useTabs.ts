@@ -100,15 +100,22 @@ export type GitHubItemsTab = {
   };
 };
 
+/** Deep-link payload into the Operations (project-board) tab. */
+export type ProjectBoardNavigation = {
+  key: number;
+  action?: "new-work";
+  /** Canonical Operations secondary route. */
+  view?: "overview" | "work" | "runs" | "inbox";
+  /** When `view` is `work`, optional Work hub secondary strip selection. */
+  workHubView?: "runs" | "scheduled";
+};
+
 export type ProjectBoardTab = {
   id: number;
   kind: "project-board";
   title: string;
   repoRoot: string;
-  navigation?: {
-    action: "new-work";
-    key: number;
-  };
+  navigation?: ProjectBoardNavigation;
 };
 
 export type GitCommitFileDiffTab = {
@@ -745,13 +752,24 @@ export function useTabs(initial?: Partial<TerminalTab>) {
   const openProjectBoardTab = useCallback((input: {
     repoRoot: string;
     newWork?: boolean;
+    view?: ProjectBoardNavigation["view"];
+    workHubView?: ProjectBoardNavigation["workHubView"];
   }) => {
     const curr = tabsRef.current;
     const existing = curr.find(
       (t) => t.kind === "project-board" && t.repoRoot === input.repoRoot,
     );
-    const navigation = input.newWork
-      ? { action: "new-work" as const, key: Date.now() }
+    const wantsNav =
+      Boolean(input.newWork) ||
+      input.view !== undefined ||
+      input.workHubView !== undefined;
+    const navigation: ProjectBoardNavigation | undefined = wantsNav
+      ? {
+          key: Date.now(),
+          ...(input.newWork ? { action: "new-work" as const } : {}),
+          ...(input.view ? { view: input.view } : {}),
+          ...(input.workHubView ? { workHubView: input.workHubView } : {}),
+        }
       : undefined;
     if (existing) {
       if (navigation) {
