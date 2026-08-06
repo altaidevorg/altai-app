@@ -15,6 +15,8 @@ vi.mock("../lib/native", () => ({
     writeFile: vi.fn(async () => undefined),
     createDir: vi.fn(async () => undefined),
     delete: vi.fn(async () => undefined),
+    agentListSkills: vi.fn(async () => []),
+    agentInstallSkill: vi.fn(async () => []),
   },
 }));
 
@@ -82,5 +84,40 @@ describe("createTauriHostPorts", () => {
       expect.objectContaining({ source: "ai-plan-review" }),
     );
     await expect(ports.review.denyEditProposal("p1")).resolves.toBeUndefined();
+  });
+
+  it("lists and installs skills through native skill APIs", async () => {
+    vi.mocked(native.agentListSkills).mockResolvedValue([
+      { name: "demo", description: "Demo skill" },
+    ]);
+    vi.mocked(native.agentInstallSkill).mockResolvedValue(["demo"]);
+    const ports = createTauriHostPorts();
+    const caps = await ports.runtime.initialize({
+      protocolMin: 1,
+      protocolMax: 1,
+      clientName: "test",
+      clientVersion: "0.0.0",
+    });
+    expect(
+      caps.capabilities.some(
+        (entry) =>
+          entry.id === "skills.install" && entry.availability === "available",
+      ),
+    ).toBe(true);
+    await expect(ports.mcpSkills.listSkills()).resolves.toEqual([
+      { name: "demo", description: "Demo skill", enabled: true },
+    ]);
+    await expect(
+      ports.mcpSkills.installSkill("owner/repo#demo"),
+    ).resolves.toEqual({
+      name: "demo",
+      description: "Demo skill",
+      enabled: true,
+    });
+    expect(native.agentInstallSkill).toHaveBeenCalledWith(
+      "owner/repo",
+      "/tmp/ws",
+      "demo",
+    );
   });
 });

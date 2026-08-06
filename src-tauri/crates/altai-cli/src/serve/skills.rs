@@ -1,4 +1,4 @@
-//! List installed workspace skills for the stdio host (read-only catalogue).
+//! Workspace skills catalogue + install for the stdio host.
 
 use std::path::Path;
 
@@ -44,6 +44,67 @@ pub fn list_workspace_skills(workspace_root: &Path) -> Result<Value, String> {
     Ok(json!({ "skills": skills }))
 }
 
+/// Install skill(s) from a GitHub repo into `<workspace>/.isanagent/skills`.
+///
+/// Params mirror the Desktop Tauri command: `source` is owner/repo or a full
+/// URL; optional `skill` installs a single named skill from that repo.
+pub async fn install_workspace_skills(
+    workspace_root: &Path,
+    source: &str,
+    skill: Option<&str>,
+) -> Result<Value, String> {
+    let repo = source.trim();
+    if repo.is_empty() {
+        return Err("A repository URL or owner/repo is required.".to_string());
+    }
+    let root = workspace_root
+        .to_str()
+        .ok_or_else(|| "workspace path is not valid UTF-8".to_string())?
+        .trim_end_matches('/')
+        .to_string();
+    let workspace_isan = format!("{root}/.isanagent");
+    let workspace =
+        isanagent::workspace::IsanagentWorkspace::new(Some(workspace_isan.as_str()), None)?;
+    let mut registry = isanagent::skills::SkillRegistry::new(workspace.skills_path());
+    let skill = skill.map(str::trim).filter(|s| !s.is_empty());
+    let installed = registry.install_skills_from_repo(repo, skill).await?;
+    if installed.is_empty() {
+        return Err("No skills found in that repository.".to_string());
+    }
+
+    let listed = list_workspace_skills(workspace_root)?;
+    let catalog = listed
+        .get("skills")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let mut skills = installed
+        .iter()
+        .map(|name| {
+            catalog
+                .iter()
+                .find(|row| row.get("name").and_then(Value::as_str) == Some(name.as_str()))
+                .cloned()
+                .unwrap_or_else(|| {
+                    json!({
+                        "name": name,
+                        "description": Value::Null,
+                        "enabled": true,
+                    })
+                })
+        })
+        .collect::<Vec<_>>();
+    skills.sort_by(|a, b| {
+        let an = a.get("name").and_then(Value::as_str).unwrap_or("");
+        let bn = b.get("name").and_then(Value::as_str).unwrap_or("");
+        an.to_lowercase().cmp(&bn.to_lowercase())
+    });
+    Ok(json!({
+        "skills": skills,
+        "installed": installed,
+    }))
+}
+
 fn skill_description(text: &str) -> Option<String> {
     for line in text.lines().take(40) {
         let trimmed = line.trim();
@@ -85,5 +146,14 @@ mod tests {
         let dir = tempdir().unwrap();
         let result = list_workspace_skills(dir.path()).unwrap();
         assert_eq!(result["skills"].as_array().unwrap().len(), 0);
+    }
+
+    #[tokio::test]
+    async fn install_rejects_empty_source() {
+        let dir = tempdir().unwrap();
+        let err = install_workspace_skills(dir.path(), "  ", None)
+            .await
+            .unwrap_err();
+        assert!(err.contains("repository"), "{err}");
     }
 }
