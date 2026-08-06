@@ -1,7 +1,6 @@
 import {
   Conversation,
   ConversationContent,
-  ConversationEmptyState,
   ConversationScrollButton,
 } from "@/components/ai-elements/conversation";
 import {
@@ -10,7 +9,6 @@ import {
   ReasoningTrigger,
 } from "@/components/ai-elements/reasoning";
 import { Tool } from "@/components/ai-elements/tool";
-import { cn } from "@/lib/utils";
 import { motion } from "motion/react";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
@@ -49,8 +47,10 @@ import {
   stripUserContextBlocks,
   toolNameOf,
   transcriptPartKey,
+  TranscriptConversationEmpty,
   TranscriptReadPaths,
   TranscriptReadRow,
+  TranscriptRunError,
   TranscriptToolGroup,
   uniqueReadPaths,
   uniqueSummaries,
@@ -149,12 +149,10 @@ export function AiChatView({
     return (
       <Conversation className="altai-ai-conversation overflow-x-hidden" aria-live={ariaLiveProp}>
         <ConversationContent className="min-w-0">
-          <ConversationEmptyState
-            title="Ask ALTAI anything"
-            description="Explain command output, fix errors, generate snippets, or run a task."
-          />
-          {/* Live status stays inside the transcript viewport, not above the composer. */}
-          <AgentStatusPill hideError />
+          <TranscriptConversationEmpty>
+            {/* Live status stays inside the transcript viewport, not above the composer. */}
+            <AgentStatusPill hideError />
+          </TranscriptConversationEmpty>
         </ConversationContent>
       </Conversation>
     );
@@ -181,38 +179,17 @@ export function AiChatView({
         ))}
         {/* Agent working indicator — end of transcript, inside the chat scroll. */}
         <AgentStatusPill hideError />
-        {error && (
-          // role="alert" => assertive live region. Without this the chat
-          // failure was silent to screen readers and the agent appeared
-          // to hang. JAWS/NVDA/VoiceOver will interrupt and announce the
-          // error message + "Dismiss" affordance.
-          <div
-            role="alert"
-            aria-atomic="true"
-            className={cn(
-              "rounded-md border px-3 py-2 text-xs",
+        {error ? (
+          <TranscriptRunError
+            message={error.message}
+            variant={
               isRecoverableAttentionMessage(error.message)
-                ? "border-warning/40 bg-warning/10 text-foreground"
-                : "border-destructive/40 bg-destructive/10 text-destructive",
-            )}
-          >
-            <div className="font-medium">
-              {isRecoverableAttentionMessage(error.message)
-                ? "Run needs attention"
-                : "Something went wrong."}
-            </div>
-            <div className="mt-0.5 leading-relaxed opacity-90">
-              {error.message}
-            </div>
-            <button
-              type="button"
-              onClick={clearError}
-              className="mt-1 underline opacity-80 hover:opacity-100"
-            >
-              Dismiss
-            </button>
-          </div>
-        )}
+                ? "attention"
+                : "error"
+            }
+            onDismiss={clearError}
+          />
+        ) : null}
       </ConversationContent>
       <ConversationScrollButton />
     </Conversation>

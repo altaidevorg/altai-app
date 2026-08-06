@@ -123,6 +123,8 @@ consumption of shared panel shells:
 | A6.4 | `TranscriptReadPaths` (expanded multi-file read list) |
 | A6.5 | `AssistantBrandLabel` (assistant message brand + streaming hint) |
 | A6.6 | `TranscriptReadRow` (single-file read row) |
+| A6.7 | `TranscriptConversationEmpty` (empty transcript chrome + status slot) |
+| A6.8 | `TranscriptRunError` (assertive run failure / attention banner) |
 
 ### A5 complete enough
 
