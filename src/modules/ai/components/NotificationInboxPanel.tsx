@@ -36,7 +36,13 @@ type DismissTarget =
       label: string;
     };
 
-export function NotificationInboxPanel({ onClose }: { onClose: () => void }) {
+export function NotificationInboxPanel({
+  onClose,
+  presentation = "overlay",
+}: {
+  onClose?: () => void;
+  presentation?: "overlay" | "embedded";
+}) {
   const workspacePath = useWorkspaceFolderStore((state) => state.folder);
   const sessions = useChatStore((state) => state.sessions);
   const switchSession = useChatStore((state) => state.switchSession);
@@ -87,7 +93,7 @@ export function NotificationInboxPanel({ onClose }: { onClose: () => void }) {
   const openChat = (chatId: string) => {
     if (!sessionIds.has(chatId)) return;
     switchSession(chatId);
-    onClose();
+    onClose?.();
   };
 
   const openNotificationChat = (notification: AgentNotificationInfo) => {
@@ -230,6 +236,7 @@ export function NotificationInboxPanel({ onClose }: { onClose: () => void }) {
         onMarkAllRead={() => void markAllRead()}
         onRefresh={() => void refresh(workspacePath)}
         onClose={onClose}
+        presentation={presentation}
         onRetry={() => void refresh(workspacePath)}
         tickets={visibleTickets.map((ticket) => ({
           id: ticket.id,

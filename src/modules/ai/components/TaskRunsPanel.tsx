@@ -105,9 +105,11 @@ const TASK_TEMPLATES = [
 export function TaskRunsPanel({
   onClose,
   navigation,
+  presentation = "overlay",
 }: {
-  onClose: () => void;
+  onClose?: () => void;
   navigation?: ReactNode;
+  presentation?: "overlay" | "embedded";
 }) {
   const assignments = useAssignmentsStore((s) => s.assignments);
   const hydrated = useAssignmentsStore((s) => s.hydrated);
@@ -345,6 +347,7 @@ export function TaskRunsPanel({
       title="Work"
       eyebrow="Workspace work"
       icon={Notebook01Icon}
+      presentation={presentation}
       subtitle={
         viewMode === "queue"
           ? `${filterCounts.active} working · ${filterCounts.attention} need attention`
@@ -588,7 +591,7 @@ export function TaskRunsPanel({
                   busyRetry={dispatching}
                   onOpen={() => {
                     switchSession(task.sessionId);
-                    onClose();
+                    onClose?.();
                   }}
                   onReuse={() => reuseTask(task)}
                   onRetry={

@@ -77,6 +77,8 @@ export type NotificationInboxPanelProps = {
   onRefresh?: () => void;
   onClose?: () => void;
   onRetry?: () => void;
+  /** Fill parent shell (Operations) instead of absolute AI overlay. */
+  presentation?: "overlay" | "embedded";
   tickets?: NotificationInboxTicketRow[];
   jobs?: NotificationInboxJobRow[];
   unreadNotifications?: NotificationInboxNotificationRow[];
@@ -125,6 +127,7 @@ export function NotificationInboxPanel({
   onRefresh,
   onClose,
   onRetry,
+  presentation = "overlay",
   tickets = [],
   jobs = [],
   unreadNotifications = [],
@@ -151,6 +154,7 @@ export function NotificationInboxPanel({
       title="Inbox"
       eyebrow="Agent attention"
       icon={Notification01Icon}
+      presentation={presentation}
       subtitle={
         attentionCount
           ? `${attentionCount} item${attentionCount === 1 ? "" : "s"} need your attention`

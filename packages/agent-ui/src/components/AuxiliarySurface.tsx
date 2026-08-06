@@ -89,6 +89,7 @@ export function AuxiliarySurface({
   children,
   className,
   bodyClassName,
+  presentation = "overlay",
 }: {
   title: string;
   subtitle?: ReactNode;
@@ -101,12 +102,19 @@ export function AuxiliarySurface({
   children: ReactNode;
   className?: string;
   bodyClassName?: string;
+  /**
+   * `overlay` — absolute full-bleed panel (AI side drawer).
+   * `embedded` — in-flow fill for host shells like Operations.
+   */
+  presentation?: "overlay" | "embedded";
 }) {
   return (
     <section
       aria-label={title}
       className={cn(
-        "absolute inset-0 z-30 flex flex-col bg-card",
+        presentation === "overlay"
+          ? "absolute inset-0 z-30 flex flex-col bg-card"
+          : "flex h-full min-h-0 flex-col overflow-hidden bg-card",
         className,
       )}
     >

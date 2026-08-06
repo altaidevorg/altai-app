@@ -16,9 +16,11 @@ export type { WorkHubView };
 export function WorkHubPanel({
   initialView,
   onClose,
+  presentation = "overlay",
 }: {
   initialView: WorkHubView;
-  onClose: () => void;
+  onClose?: () => void;
+  presentation?: "overlay" | "embedded";
 }) {
   const [view, setView] = useState<WorkHubView>(initialView);
 
@@ -31,8 +33,16 @@ export function WorkHubPanel({
   );
 
   return view === "runs" ? (
-    <TaskRunsPanel onClose={onClose} navigation={navigation} />
+    <TaskRunsPanel
+      onClose={onClose}
+      navigation={navigation}
+      presentation={presentation}
+    />
   ) : (
-    <AutomationsPanel onClose={onClose} navigation={navigation} />
+    <AutomationsPanel
+      onClose={onClose}
+      navigation={navigation}
+      presentation={presentation}
+    />
   );
 }

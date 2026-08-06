@@ -80,9 +80,11 @@ function defaultAtValue(): string {
 export function AutomationsPanel({
   onClose,
   navigation,
+  presentation = "overlay",
 }: {
-  onClose: () => void;
+  onClose?: () => void;
   navigation?: ReactNode;
+  presentation?: "overlay" | "embedded";
 }) {
   const workspacePath = useWorkspaceFolderStore((state) => state.folder);
   const activeChatId = useChatStore((state) => state.activeSessionId);
@@ -221,6 +223,7 @@ export function AutomationsPanel({
       title="Work"
       eyebrow="Workspace work"
       icon={Notebook01Icon}
+      presentation={presentation}
       subtitle={
         viewMode === "list"
           ? `${filterCounts.repeat} recurring · ${filterCounts.once} one-time`
@@ -404,7 +407,7 @@ export function AutomationsPanel({
                 pendingRemove: pending,
                 onOpenChat: () => {
                   switchSession(item.chatId);
-                  onClose();
+                  onClose?.();
                 },
                 onDuplicate: () => reuseAutomation(item),
                 onRemove: () => setRemoveTarget(item),
