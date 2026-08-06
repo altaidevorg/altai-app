@@ -46,6 +46,12 @@ export {
 } from "./components/TodoChecklist.js";
 
 export {
+  isTodoToolName,
+  parseTodoItemsFromInput,
+  summarizeTodoItems,
+} from "./lib/todoParse.js";
+
+export {
   ChatPathLink,
   ChatExternalLink,
   type ChatPathLinkProps,
