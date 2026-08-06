@@ -12,9 +12,13 @@ vi.mock("../lib/native", () => ({
     checkpointList: vi.fn(async () => []),
     checkpointRestore: vi.fn(),
     workspaceCurrentDir: vi.fn(async () => "/tmp/ws"),
+    writeFile: vi.fn(async () => undefined),
+    createDir: vi.fn(async () => undefined),
+    delete: vi.fn(async () => undefined),
   },
 }));
 
+import { native } from "../lib/native";
 import { createTauriHostPorts } from "./createTauriHostPorts";
 
 describe("createTauriHostPorts", () => {
@@ -39,6 +43,13 @@ describe("createTauriHostPorts", () => {
           entry.id === "runtime.startRun" && entry.availability === "available",
       ),
     ).toBe(true);
+    expect(
+      capabilities.capabilities.some(
+        (entry) =>
+          entry.id === "review.editProposal" &&
+          entry.availability === "available",
+      ),
+    ).toBe(true);
   });
 
   it("throws for deferred startRun until store DI lands", async () => {
@@ -55,5 +66,21 @@ describe("createTauriHostPorts", () => {
       trusted: true,
       currentDir: "/tmp/ws",
     });
+  });
+
+  it("applies edit proposals through planEditFs / native write", async () => {
+    const ports = createTauriHostPorts();
+    await ports.review.applyEditProposal("p1", {
+      path: "src/a.ts",
+      kind: "edit_file",
+      proposedContent: "hello",
+      originalContent: "",
+    });
+    expect(native.writeFile).toHaveBeenCalledWith(
+      "src/a.ts",
+      "hello",
+      expect.objectContaining({ source: "ai-plan-review" }),
+    );
+    await expect(ports.review.denyEditProposal("p1")).resolves.toBeUndefined();
   });
 });

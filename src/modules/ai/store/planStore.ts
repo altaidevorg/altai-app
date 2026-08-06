@@ -1,5 +1,16 @@
+/**
+ * Desktop plan-review queue. Disk mutates only through `planEditFs` so
+ * ReviewPort and this store share one apply/restore path (Wave 1.3).
+ */
+
 import { create } from "zustand";
 import { native } from "../lib/native";
+import {
+  applyPlanEditMutation,
+  proposalKindFromPlanEdit,
+  restorePlanEditMutation,
+  type PlanEditFs,
+} from "../lib/planEditFs";
 
 export type QueuedEdit = {
   id: string;
@@ -23,6 +34,37 @@ export type AppliedPlanEdit = QueuedEdit & {
 
 export type PlanApplyResult = { id: string; ok: boolean; error?: string };
 
+const defaultFs: PlanEditFs = {
+  writeFile: (path, content, opts) =>
+    native.writeFile(path, content, {
+      source: opts?.source ?? "ai-plan-review",
+    }),
+  createDir: (path) => native.createDir(path),
+  delete: (path) => native.delete(path),
+};
+
+/** Test/host seam: override FS used by plan apply/restore. */
+let planFs: PlanEditFs = defaultFs;
+
+export function setPlanEditFs(next: PlanEditFs | null): void {
+  planFs = next ?? defaultFs;
+}
+
+export function editProposalInputFromQueued(item: QueuedEdit) {
+  return {
+    path: item.path,
+    kind: proposalKindFromPlanEdit(item.kind, item.isNewFile) as
+      | "edit_file"
+      | "create_file"
+      | "create_directory"
+      | "write_file"
+      | "edit"
+      | "multi_edit",
+    originalContent: item.originalContent,
+    proposedContent: item.proposedContent,
+  };
+}
+
 type PlanState = {
   active: boolean;
   queue: QueuedEdit[];
@@ -34,13 +76,31 @@ type PlanState = {
   enqueue: (q: QueuedEdit) => void;
   removeOne: (id: string) => void;
   clear: () => void;
-  /** Apply exactly one reviewed edit and keep a local rollback snapshot when safe. */
+  /**
+   * Record a successful external apply (e.g. ReviewPort) without writing again.
+   */
+  recordApplied: (id: string) => PlanApplyResult | null;
+  /** Apply exactly one reviewed edit via planEditFs and keep a local rollback snapshot when safe. */
   applyOne: (id: string) => Promise<PlanApplyResult | null>;
   /** Apply queued edits in order. Returns per-edit results. */
   applyAll: () => Promise<PlanApplyResult[]>;
   /** Restore the pre-review content for one locally applied edit. */
   restoreApplied: (id: string) => Promise<PlanApplyResult | null>;
 };
+
+function markAppliedState(
+  queue: QueuedEdit[],
+  applied: AppliedPlanEdit[],
+  item: QueuedEdit,
+): { queue: QueuedEdit[]; applied: AppliedPlanEdit[] } {
+  return {
+    queue: queue.filter((q) => q.id !== item.id),
+    applied:
+      item.kind === "create_directory"
+        ? applied
+        : [...applied, { ...item, appliedAt: Date.now() }].slice(-40),
+  };
+}
 
 export const usePlanStore = create<PlanState>((set, get) => ({
   active: false,
@@ -54,27 +114,18 @@ export const usePlanStore = create<PlanState>((set, get) => ({
   removeOne: (id) =>
     set((s) => ({ queue: s.queue.filter((q) => q.id !== id) })),
   clear: () => set({ queue: [] }),
+  recordApplied(id) {
+    const item = get().queue.find((q) => q.id === id);
+    if (!item) return null;
+    set((s) => markAppliedState(s.queue, s.applied, item));
+    return { id, ok: true };
+  },
   async applyOne(id) {
     const item = get().queue.find((q) => q.id === id);
     if (!item) return null;
     try {
-      if (item.kind === "create_directory") {
-        await native.createDir(item.path);
-      } else {
-        await native.writeFile(item.path, item.proposedContent, {
-          source: "ai-plan-review",
-        });
-      }
-      set((s) => ({
-        queue: s.queue.filter((q) => q.id !== id),
-        // A directory may have gained files immediately after creation, so
-        // deleting it during undo would be unsafe. File edits/new files are
-        // deterministic to restore from the content already in this record.
-        applied:
-          item.kind === "create_directory"
-            ? s.applied
-            : [...s.applied, { ...item, appliedAt: Date.now() }].slice(-40),
-      }));
+      await applyPlanEditMutation(planFs, item, "ai-plan-review");
+      set((s) => markAppliedState(s.queue, s.applied, item));
       return { id, ok: true };
     } catch (error) {
       return { id, ok: false, error: String(error) };
@@ -83,8 +134,8 @@ export const usePlanStore = create<PlanState>((set, get) => ({
   async applyAll() {
     const ids = get().queue.map((q) => q.id);
     const results: PlanApplyResult[] = [];
-    for (const id of ids) {
-      const result = await get().applyOne(id);
+    for (const nextId of ids) {
+      const result = await get().applyOne(nextId);
       if (result) results.push(result);
     }
     return results;
@@ -93,13 +144,7 @@ export const usePlanStore = create<PlanState>((set, get) => ({
     const item = get().applied.find((q) => q.id === id);
     if (!item) return null;
     try {
-      if (item.isNewFile) {
-        await native.delete(item.path);
-      } else {
-        await native.writeFile(item.path, item.originalContent, {
-          source: "ai-plan-restore",
-        });
-      }
+      await restorePlanEditMutation(planFs, item, "ai-plan-restore");
       set((s) => ({ applied: s.applied.filter((q) => q.id !== id) }));
       return { id, ok: true };
     } catch (error) {
