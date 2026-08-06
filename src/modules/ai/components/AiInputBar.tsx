@@ -24,6 +24,7 @@ import {
   ComposerTextArea,
   ComposerToolbarIcon,
   ContextAction,
+  autoresizeTextarea,
   detectAtMention,
   detectSlashOrSnippetTrigger,
   ProviderConnectBanner,
@@ -91,7 +92,7 @@ export function AiInputBar() {
   }, [fileTrigger]);
 
   useEffect(() => {
-    autoresize(c.textareaRef.current);
+    autoresizeTextarea(c.textareaRef.current);
   }, [c.value, c.textareaRef]);
 
   // Re-run autoresize when the textarea's container width changes (e.g. the
@@ -101,7 +102,7 @@ export function AiInputBar() {
   useEffect(() => {
     const el = c.textareaRef.current;
     if (!el || typeof ResizeObserver === "undefined") return;
-    const ro = new ResizeObserver(() => autoresize(el));
+    const ro = new ResizeObserver(() => autoresizeTextarea(el));
     ro.observe(el);
     return () => ro.disconnect();
   }, [c.textareaRef]);
@@ -630,15 +631,6 @@ function HoverTooltip({ label, children }: { label: string; children: React.Reac
       </TooltipContent>
     </Tooltip>
   );
-}
-
-function autoresize(el: HTMLTextAreaElement | null) {
-  if (!el) return;
-  // Always clear first so a stale inline height from prior content can't keep
-  // the box tall after the value shrinks back to empty.
-  el.style.height = "";
-  if (el.value.length === 0) return;
-  el.style.height = `${Math.min(el.scrollHeight, 176)}px`;
 }
 
 export type AiInputBarProps = { tabId: number };

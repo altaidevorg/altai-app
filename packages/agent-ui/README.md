@@ -127,6 +127,8 @@ consumption of shared panel shells:
 | A6.8 | `TranscriptRunError` (assertive run failure / attention banner) |
 | A6.9 | Composer `@` / `#` / `/` caret triggers (`composerTriggers`) |
 | A6.10 | `resolveComposerEnterAction` + post-send draft residual helpers |
+| A6.11 | `composerFollowupVisibility` / `resolveComposerSubmitMode` |
+| A6.12 | `autoresizeTextarea` (composer growth helper) |
 
 ### A5 complete enough
 
