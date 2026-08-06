@@ -17,6 +17,7 @@ use crate::stdio_sink::{write_framed, SharedStdout, StdioEventSink};
 
 mod edit_proposals;
 mod provider_credentials;
+mod skills;
 
 use edit_proposals::{
     handle_apply as handle_proposal_apply, handle_deny as handle_proposal_deny,
@@ -109,6 +110,7 @@ pub async fn run(workspace: WorkspacePaths) -> Result<(), String> {
                                 "providers/connect",
                                 "providers/clear",
                                 "mcp/servers/list", "mcp/servers/configure", "mcp/servers/enable", "mcp/servers/restart",
+                                "skills/list",
                                 "work/tasks/list",
                                 "work/tasks/create",
                                 "work/tasks/cancel",
@@ -628,6 +630,10 @@ pub async fn run(workspace: WorkspacePaths) -> Result<(), String> {
                 "mcp/servers/restart" if initialized => {
                     let server_id = params.as_ref().and_then(Value::as_object).and_then(|object| object.get("id")).and_then(Value::as_str).unwrap_or("");
                     match host.restart_mcp_server(server_id).await { Ok(result) => respond(&writer, id, Some(json!({"id": server_id, "connected": true, "tool_count": result.tools.len()})), None).await?, Err(error) => respond(&writer, id, None, Some(error_value(-32603, &error))).await? }
+                },
+                "skills/list" if initialized => match skills::list_workspace_skills(&workspace.root) {
+                    Ok(result) => respond(&writer, id, Some(result), None).await?,
+                    Err(error) => respond(&writer, id, None, Some(error_value(-32603, &error))).await?,
                 },
                 "work/tasks/list" if initialized => {
                     handle_task_list(&workspace, &writer, id).await?;
