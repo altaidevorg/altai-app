@@ -210,6 +210,10 @@ fn request_method(method: &str) -> bool {
             | "context/compact"
             | "checkpoints/list"
             | "checkpoints/restore"
+            | "review/proposals/list"
+            | "review/proposals/upsert"
+            | "review/proposals/apply"
+            | "review/proposals/deny"
             | "shutdown"
     )
 }

@@ -208,6 +208,37 @@ export type CheckpointInfo = {
   label?: string;
 };
 
+/** Planned file mutation awaiting Apply/Deny on the native review host. */
+export type EditProposalKind =
+  | "edit_file"
+  | "create_file"
+  | "create_directory"
+  | "write_file"
+  | "edit"
+  | "multi_edit";
+
+export type EditProposalInput = {
+  path: string;
+  kind?: EditProposalKind;
+  /** Full content before the edit (empty for new files / directories). */
+  originalContent?: string;
+  /** Full content after the edit (empty for create_directory). */
+  proposedContent?: string;
+  chatId?: string;
+  runId?: string;
+};
+
+export type EditProposalInfo = {
+  id: string;
+  path: string;
+  kind: string;
+  originalContent?: string;
+  proposedContent?: string;
+  chatId?: string;
+  runId?: string;
+  isNewFile?: boolean;
+};
+
 export type TaskRunInfo = {
   id: string;
   chatId?: string;

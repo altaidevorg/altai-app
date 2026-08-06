@@ -11,6 +11,7 @@ import type {
   CancelRunInput,
   CheckpointInfo,
   ClarificationResponse,
+  EditProposalInput,
   CompactContextInput,
   DiffInput,
   FileContent,
@@ -91,7 +92,15 @@ export interface SettingsPort {
 export interface ReviewPort {
   listCheckpoints(chatId: string): Promise<CheckpointInfo[]>;
   restoreCheckpoint(checkpointId: string): Promise<void>;
-  applyEditProposal(proposalId: string): Promise<void>;
+  /**
+   * Apply a pending edit proposal on the host. When `input` includes path and
+   * content, the host may upsert then apply in one call (stdio supports this).
+   * Prefer id-only apply after a host-stored proposal event.
+   */
+  applyEditProposal(
+    proposalId: string,
+    input?: EditProposalInput,
+  ): Promise<void>;
   denyEditProposal(proposalId: string): Promise<void>;
 }
 

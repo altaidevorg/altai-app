@@ -48,8 +48,26 @@ models/list                agents/list             sessions/list
 sessions/get               sessions/create         run/start
 run/steer                  run/cancel              run/replay
 clarification/respond      context/compact         checkpoints/list
-checkpoints/restore        shutdown
+checkpoints/restore        review/proposals/*      shutdown
 ```
+
+Amendment 2026-08-06: **edit proposals (review Apply/Deny)**
+
+Hosts that own planned file writes advertise:
+
+```text
+review/proposals/list
+review/proposals/upsert
+review/proposals/apply
+review/proposals/deny
+```
+
+`review/proposals/apply` accepts either a previously upserted `id` or a
+one-shot body `{ id, path, kind?, proposed_content?, original_content? }` and
+writes under the workspace root only. Duplicate apply of the same `id`
+returns `already_applied`. Path escape returns `path_outside_workspace`.
+Clients map this surface to `ReviewPort.applyEditProposal` /
+`denyEditProposal` and capability `review.editProposal`.
 
 The initial notifications are `run/event`, `workspace/changed`, `host/log`,
 and `host/status`. A host advertises only capabilities it implements; before

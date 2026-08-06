@@ -15,7 +15,14 @@ use tokio::io::AsyncReadExt;
 use crate::stdio_host::StdioHost;
 use crate::stdio_sink::{write_framed, SharedStdout, StdioEventSink};
 
+mod edit_proposals;
 mod provider_credentials;
+
+use edit_proposals::{
+    handle_apply as handle_proposal_apply, handle_deny as handle_proposal_deny,
+    handle_list as handle_proposal_list, handle_upsert as handle_proposal_upsert,
+    new_shared_store as new_edit_proposal_store, SharedEditProposalStore,
+};
 
 type Writer = SharedStdout;
 
@@ -37,6 +44,7 @@ pub async fn run(workspace: WorkspacePaths) -> Result<(), String> {
         host.clone(),
         run_coordinator.clone(),
     ));
+    let edit_proposals: SharedEditProposalStore = new_edit_proposal_store();
 
     let mut stdin = tokio::io::stdin();
     let mut decoder = FrameDecoder::new(FrameLimits::default());
@@ -133,6 +141,10 @@ pub async fn run(workspace: WorkspacePaths) -> Result<(), String> {
                                 "context/compact",
                                 "checkpoints/list",
                                 "checkpoints/restore",
+                                "review/proposals/list",
+                                "review/proposals/upsert",
+                                "review/proposals/apply",
+                                "review/proposals/deny",
                                 "shutdown"
                             ]
                         })),
@@ -943,6 +955,74 @@ pub async fn run(workspace: WorkspacePaths) -> Result<(), String> {
                                 Some(error_value(-32002, "checkpoint_restore_failed")),
                             )
                             .await?;
+                        }
+                    }
+                }
+                "review/proposals/list" if initialized => {
+                    let params = params
+                        .and_then(|value| value.as_object().cloned())
+                        .unwrap_or_default();
+                    match handle_proposal_list(&edit_proposals, &params) {
+                        Ok(result) => respond(&writer, id, Some(result), None).await?,
+                        Err(reason) => {
+                            respond(&writer, id, None, Some(error_value(-32004, reason))).await?;
+                        }
+                    }
+                }
+                "review/proposals/upsert" if initialized => {
+                    let params = params
+                        .and_then(|value| value.as_object().cloned())
+                        .unwrap_or_default();
+                    match handle_proposal_upsert(&edit_proposals, &workspace.root, &params) {
+                        Ok(result) => respond(&writer, id, Some(result), None).await?,
+                        Err(reason) => {
+                            let code = match reason {
+                                "invalid_proposal_id"
+                                | "invalid_proposal_path"
+                                | "invalid_proposal_kind"
+                                | "proposal_content_too_large"
+                                | "path_outside_workspace" => -32602,
+                                "already_applied" => -32002,
+                                _ => -32004,
+                            };
+                            respond(&writer, id, None, Some(error_value(code, reason))).await?;
+                        }
+                    }
+                }
+                "review/proposals/apply" if initialized => {
+                    let params = params
+                        .and_then(|value| value.as_object().cloned())
+                        .unwrap_or_default();
+                    match handle_proposal_apply(&edit_proposals, &workspace.root, &params) {
+                        Ok(result) => respond(&writer, id, Some(result), None).await?,
+                        Err(reason) => {
+                            let code = match reason.as_str() {
+                                "invalid_proposal_id"
+                                | "invalid_proposal_path"
+                                | "invalid_proposal_kind"
+                                | "proposal_content_too_large"
+                                | "path_outside_workspace" => -32602,
+                                "unknown_proposal" | "already_applied" => -32002,
+                                _ if reason.starts_with("proposal_apply_failed") => -32002,
+                                _ => -32004,
+                            };
+                            respond(&writer, id, None, Some(error_value(code, &reason))).await?;
+                        }
+                    }
+                }
+                "review/proposals/deny" if initialized => {
+                    let params = params
+                        .and_then(|value| value.as_object().cloned())
+                        .unwrap_or_default();
+                    match handle_proposal_deny(&edit_proposals, &params) {
+                        Ok(result) => respond(&writer, id, Some(result), None).await?,
+                        Err(reason) => {
+                            let code = if reason == "invalid_proposal_id" {
+                                -32602
+                            } else {
+                                -32004
+                            };
+                            respond(&writer, id, None, Some(error_value(code, reason))).await?;
                         }
                     }
                 }

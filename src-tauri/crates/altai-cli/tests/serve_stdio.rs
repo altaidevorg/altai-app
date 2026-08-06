@@ -926,3 +926,89 @@ fn run_start_accepts_ask_permission_mode() {
     assert_eq!(process.next()["id"], 3);
     let _stderr = process.shutdown();
 }
+
+#[test]
+fn edit_proposal_apply_writes_file_and_rejects_escape() {
+    let workspace = tempfile::tempdir().expect("workspace");
+    let mut process = ServeProcess::spawn(workspace.path(), false);
+    process.frame(initialize(json!(1)));
+    let init = process.next();
+    assert_eq!(init["id"], 1);
+    let caps = init["result"]["capabilities"]
+        .as_array()
+        .expect("capabilities array");
+    assert!(
+        caps.iter().any(|c| c.as_str() == Some("review/proposals/apply")),
+        "initialize must advertise review/proposals/apply: {init}"
+    );
+
+    process.frame(json!({
+        "jsonrpc":"2.0",
+        "id":2,
+        "method":"review/proposals/apply",
+        "params":{
+            "id":"prop-1",
+            "path":"src/hello.txt",
+            "kind":"create_file",
+            "proposed_content":"hello from review"
+        }
+    }));
+    let apply = process.next();
+    assert_eq!(apply["id"], 2);
+    assert!(
+        apply.get("result").is_some(),
+        "apply should succeed: {apply}"
+    );
+    let written = std::fs::read_to_string(workspace.path().join("src/hello.txt"))
+        .expect("applied file");
+    assert_eq!(written, "hello from review");
+
+    process.frame(json!({
+        "jsonrpc":"2.0",
+        "id":3,
+        "method":"review/proposals/apply",
+        "params":{
+            "id":"prop-1",
+            "path":"src/hello.txt",
+            "kind":"create_file",
+            "proposed_content":"again"
+        }
+    }));
+    let reapply = process.next();
+    assert_eq!(reapply["id"], 3);
+    assert_eq!(
+        reapply.pointer("/error/message").and_then(Value::as_str),
+        Some("already_applied")
+    );
+
+    process.frame(json!({
+        "jsonrpc":"2.0",
+        "id":4,
+        "method":"review/proposals/apply",
+        "params":{
+            "id":"escape-1",
+            "path":"../outside.txt",
+            "proposed_content":"nope"
+        }
+    }));
+    let escape = process.next();
+    assert_eq!(escape["id"], 4);
+    assert_eq!(
+        escape.pointer("/error/message").and_then(Value::as_str),
+        Some("path_outside_workspace")
+    );
+
+    process.frame(json!({
+        "jsonrpc":"2.0",
+        "id":5,
+        "method":"review/proposals/deny",
+        "params":{"id":"missing-ok"}
+    }));
+    let deny = process.next();
+    assert_eq!(deny["id"], 5);
+    assert_eq!(deny["result"]["denied"], true);
+
+    process.frame(json!({"jsonrpc":"2.0","id":6,"method":"shutdown"}));
+    assert_eq!(process.next()["id"], 6);
+    let _stderr = process.shutdown();
+}
