@@ -8,6 +8,7 @@ describe("resolveComposerEnterAction", () => {
   const idle = {
     isRunning: false,
     isBusy: false,
+    isCancelling: false,
     canSend: true,
     canSteer: false,
     canQueue: false,
@@ -39,6 +40,7 @@ describe("resolveComposerEnterAction", () => {
         availability: {
           isRunning: true,
           isBusy: true,
+          isCancelling: false,
           canSend: false,
           canSteer: true,
           canQueue: true,
@@ -55,6 +57,7 @@ describe("resolveComposerEnterAction", () => {
         availability: {
           isRunning: true,
           isBusy: true,
+          isCancelling: false,
           canSend: false,
           canSteer: true,
           canQueue: true,

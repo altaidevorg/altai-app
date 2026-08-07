@@ -6,9 +6,11 @@ import {
   useState,
 } from "react";
 import {
+  getComposerActionAvailability,
   remainingTextAfterAcceptedDispatch,
   resolveComposerEnterAction,
   type ComposerAction,
+  type ComposerActionAvailability,
 } from "@altai/agent-ui";
 import { useWhisperRecording } from "../hooks/useWhisperRecording";
 import { expandSnippetTokens, type Snippet } from "../lib/snippets";
@@ -36,45 +38,12 @@ export const ACCEPTED_FILES =
 
 type Voice = ReturnType<typeof useWhisperRecording>;
 
-export type { ComposerAction };
-export { remainingTextAfterAcceptedDispatch, resolveComposerEnterAction };
-
-export type ComposerActionAvailability = {
-  isBusy: boolean;
-  isRunning: boolean;
-  isCancelling: boolean;
-  canSend: boolean;
-  canSteer: boolean;
-  canQueue: boolean;
+export type { ComposerAction, ComposerActionAvailability };
+export {
+  getComposerActionAvailability,
+  remainingTextAfterAcceptedDispatch,
+  resolveComposerEnterAction,
 };
-
-export function getComposerActionAvailability(input: {
-  status: string;
-  hasDraft: boolean;
-  hasNativeAttachment: boolean;
-  runId: string | null;
-  submitting: boolean;
-}): ComposerActionAvailability {
-  const isRunning = input.status === "thinking" || input.status === "streaming";
-  const isAwaiting = input.status === "awaiting-approval";
-  const isCancelling = input.status === "cancelling";
-  // Treat approval waits as busy so typed input queues/steers instead of
-  // looking like a fresh idle send.
-  const isBusy = isRunning || isCancelling || isAwaiting;
-  const ready = input.hasDraft && !input.submitting;
-  return {
-    isBusy,
-    isRunning,
-    isCancelling,
-    canSend: ready && !isBusy,
-    canSteer:
-      ready &&
-      isRunning &&
-      input.runId !== null &&
-      !input.hasNativeAttachment,
-    canQueue: ready && isBusy,
-  };
-}
 
 type ComposerCtx = {
   textareaRef: React.RefObject<HTMLTextAreaElement | null>;

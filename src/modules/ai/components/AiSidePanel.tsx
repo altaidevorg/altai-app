@@ -21,6 +21,7 @@ import { type ReactElement, useEffect, useRef, useState } from "react";
 import {
   ActivityInspector,
   AgentsInspector,
+  AiSidePanelFrame,
   ApprovalsInspector,
   ArtifactsInspector,
   ChangeReviewBanner,
@@ -34,6 +35,7 @@ import {
   McpInspector,
   PlanModeStrip,
   ResearchInspector,
+  resolveSidePanelChromeLayout,
   RunActionRequiredSection,
   RunBlockedBanner,
   RunDetailsHeader,
@@ -198,14 +200,18 @@ export function AiSidePanel({
   const inboxOpen = false;
   // Run details is a stable destination for the active chat. Keep its control
   // visible while History, Work, Inbox, or Review is open so switching surfaces
-  // never causes the toolbar geometry to jump.
-  const inspectorAvailable = Boolean(sessionId);
-  // A persistent history rail belongs only to the standalone Agent Workspace.
-  // Inside the IDE, widening the chat must never introduce a second left
-  // sidebar; history remains an explicit, single-surface destination.
-  const showHistorySidebar = variant === "workspace" && panelWidth >= 768;
-  const showInspectorSidebar =
-    panelWidth >= 1216 && inspectorOpen && inspectorAvailable;
+  // never causes the toolbar geometry to jump. Breakpoints live in agent-ui so
+  // VS Code and Desktop share density decisions.
+  const {
+    inspectorAvailable,
+    showHistorySidebar,
+    showInspectorSidebar,
+  } = resolveSidePanelChromeLayout({
+    variant: variant === "workspace" ? "workspace" : "sidebar",
+    panelWidth,
+    inspectorOpen,
+    hasSession: Boolean(sessionId),
+  });
   const toggleSurface = (surface: Exclude<PanelSurface, null>) => {
     setReviewOpen(false);
     setActiveSurface((current) => (current === surface ? null : surface));
@@ -304,15 +310,10 @@ export function AiSidePanel({
   }, []);
 
   return (
-    <aside
+    <AiSidePanelFrame
       ref={panelRootRef}
-      data-ai-side-panel
-      data-ai-workspace={variant === "workspace" ? "true" : undefined}
-      id="altai-ai-panel"
-      aria-label={variant === "workspace" ? "ALTAI agent workspace" : "AI assistant"}
-      className="altai-ai-panel @container relative flex h-full min-h-0 overflow-hidden bg-card text-[12px]"
-    >
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+      variant={variant === "workspace" ? "workspace" : "sidebar"}
+      topbar={
         <WorkspaceTopbar
           variant={variant}
           workspacePath={workspacePath}
@@ -333,6 +334,8 @@ export function AiSidePanel({
           onToggleInbox={() => openOperationsSurface("inbox")}
           onOpenSettings={onOpenSettings}
         />
+      }
+    >
         <ResizablePanelGroup
           orientation="horizontal"
           className="relative isolate min-h-0 flex-1 overflow-hidden"
@@ -475,7 +478,6 @@ export function AiSidePanel({
             </>
           ) : null}
         </ResizablePanelGroup>
-      </div>
       {variant === "workspace" ? (
         <WorkspaceTargetDialog
           open={targetDialogOpen}
@@ -486,7 +488,7 @@ export function AiSidePanel({
           onClearWorkspace={onClearWorkspace}
         />
       ) : null}
-    </aside>
+    </AiSidePanelFrame>
   );
 }
 

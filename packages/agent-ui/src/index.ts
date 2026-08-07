@@ -639,11 +639,20 @@ export {
 } from "./lib/composerTriggers.js";
 
 export {
+  getComposerActionAvailability,
   remainingTextAfterAcceptedDispatch,
   resolveComposerEnterAction,
   type ComposerAction,
   type ComposerActionAvailability,
+  type ComposerActionAvailabilityInput,
 } from "./lib/composerEnterAction.js";
+
+export {
+  canEnableComposerSend,
+  canEnableComposerStop,
+  composerSubmitChromeMode,
+  type ComposerSubmitChromeMode,
+} from "./lib/composerSubmitChrome.js";
 
 export {
   composerFollowupVisibility,
@@ -652,6 +661,20 @@ export {
   type ComposerFollowupPolicyInput,
   type ComposerFollowupVisibility,
 } from "./lib/composerFollowup.js";
+
+export {
+  resolveSidePanelChromeLayout,
+  SIDE_PANEL_HISTORY_SIDEBAR_MIN_WIDTH,
+  SIDE_PANEL_INSPECTOR_SIDEBAR_MIN_WIDTH,
+  type SidePanelChromeLayout,
+  type SidePanelChromeLayoutInput,
+  type SidePanelVariant,
+} from "./lib/sidePanelLayout.js";
+
+export {
+  AiSidePanelFrame,
+  type AiSidePanelFrameProps,
+} from "./components/AiSidePanelFrame.js";
 
 export { autoresizeTextarea } from "./lib/autoresizeTextarea.js";
 
