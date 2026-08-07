@@ -54,3 +54,17 @@ export function getLaunchDir(): string | undefined {
   }
   return undefined;
 }
+
+/** Folder handed to a freshly opened IDE window via `?folder=`. */
+export function getStudioFolderFromUrl(
+  search = typeof window !== "undefined" ? window.location.search : "",
+): string | null {
+  try {
+    const raw = new URLSearchParams(search).get("folder");
+    if (!raw) return null;
+    const decoded = decodeURIComponent(raw).trim().replace(/\\/g, "/");
+    return decoded.length > 0 ? decoded : null;
+  } catch {
+    return null;
+  }
+}

@@ -293,20 +293,64 @@ fn open_settings_window(app: tauri::AppHandle, tab: Option<String>) -> Result<()
     )
 }
 
-pub(crate) fn show_or_create_studio_window(app: &tauri::AppHandle) -> Result<(), String> {
-    if let Some(window) = app.get_webview_window("studio") {
-        let _ = focus_webview_window(&window);
-        return Ok(());
+/// Percent-encode a filesystem path for use as a query parameter value.
+fn encode_query_component(value: &str) -> String {
+    let mut out = String::with_capacity(value.len().saturating_mul(3));
+    for byte in value.bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                out.push(byte as char);
+            }
+            // Keep path separators readable in logs / DevTools.
+            b'/' => out.push('/'),
+            _ => {
+                out.push('%');
+                out.push_str(&format!("{byte:02X}"));
+            }
+        }
     }
+    out
+}
 
+fn studio_window_url(folder: Option<&str>) -> String {
+    match folder.map(str::trim).filter(|path| !path.is_empty()) {
+        Some(path) => format!(
+            "index.html?mode=studio&folder={}",
+            encode_query_component(path)
+        ),
+        None => "index.html?mode=studio".to_string(),
+    }
+}
+
+fn emit_studio_folder(window: &tauri::WebviewWindow, folder: Option<&str>) {
+    let Some(path) = folder.map(str::trim).filter(|path| !path.is_empty()) else {
+        return;
+    };
+    let _ = window.emit(
+        "altai:launch",
+        &LaunchPayload {
+            kind: "folder".to_string(),
+            paths: vec![path.replace('\\', "/")],
+            action: None,
+        },
+    );
+}
+
+/// Build an IDE webview (`studio` singleton or Dock "New Window").
+pub(crate) fn build_ide_window(
+    app: &tauri::AppHandle,
+    label: &str,
+    folder: Option<&str>,
+) -> Result<tauri::WebviewWindow, String> {
     let builder = WebviewWindowBuilder::new(
         app,
-        "studio",
-        WebviewUrl::App("index.html?mode=studio".into()),
+        label,
+        WebviewUrl::App(studio_window_url(folder).into()),
     )
     .title("ALTAI IDE")
     .inner_size(1280.0, 800.0)
     .min_inner_size(900.0, 600.0)
+    .resizable(true)
     .focused(true)
     .visible(true)
     .background_color(WINDOW_BACKGROUND);
@@ -321,6 +365,8 @@ pub(crate) fn show_or_create_studio_window(app: &tauri::AppHandle) -> Result<(),
         .traffic_light_position(tauri::LogicalPosition::new(16.0, 22.0))
         .with_webview_configuration(modules::macos_webview::config_without_writing_tools());
 
+    // Linux: app-owned chrome. Windows: keep the native frame so close /
+    // minimize remain available even if the renderer fails to paint.
     #[cfg(target_os = "linux")]
     let builder = builder.decorations(false).transparent(true);
     #[cfg(target_os = "windows")]
@@ -330,7 +376,6 @@ pub(crate) fn show_or_create_studio_window(app: &tauri::AppHandle) -> Result<(),
         .additional_browser_args(&windows_webview_args());
 
     let window = builder.build().map_err(|e| e.to_string())?;
-
     #[cfg(target_os = "linux")]
     {
         let _ = window.set_decorations(false);
@@ -339,14 +384,30 @@ pub(crate) fn show_or_create_studio_window(app: &tauri::AppHandle) -> Result<(),
     {
         let _ = window.set_decorations(true);
     }
+    Ok(window)
+}
 
+pub(crate) fn show_or_create_studio_window(
+    app: &tauri::AppHandle,
+    folder: Option<&str>,
+) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window("studio") {
+        let _ = focus_webview_window(&window);
+        emit_studio_folder(&window, folder);
+        return Ok(());
+    }
+
+    let window = build_ide_window(app, "studio", folder)?;
     let _ = focus_webview_window(&window);
+    // The new webview may not have subscribed to events yet; the URL also
+    // carries `folder` so the first mount can apply it without a race.
+    emit_studio_folder(&window, folder);
     Ok(())
 }
 
 #[tauri::command]
-fn open_studio_window(app: tauri::AppHandle) -> Result<(), String> {
-    show_or_create_studio_window(&app)
+fn open_studio_window(app: tauri::AppHandle, folder: Option<String>) -> Result<(), String> {
+    show_or_create_studio_window(&app, folder.as_deref())
 }
 
 /// Renderer-to-native startup checkpoint used by logs and the Windows release
@@ -709,6 +770,20 @@ mod tests {
         assert!(flags.contains(StateFlags::SIZE));
         assert!(flags.contains(StateFlags::POSITION));
         assert!(flags.contains(StateFlags::MAXIMIZED));
+    }
+
+    #[test]
+    fn studio_window_url_encodes_folder_paths() {
+        assert_eq!(studio_window_url(None), "index.html?mode=studio");
+        assert_eq!(studio_window_url(Some("")), "index.html?mode=studio");
+        assert_eq!(
+            studio_window_url(Some("/Users/me/My Project")),
+            "index.html?mode=studio&folder=/Users/me/My%20Project"
+        );
+        assert_eq!(
+            studio_window_url(Some(r"C:\Users\me\repo")),
+            "index.html?mode=studio&folder=C%3A%5CUsers%5Cme%5Crepo"
+        );
     }
 
     #[test]
