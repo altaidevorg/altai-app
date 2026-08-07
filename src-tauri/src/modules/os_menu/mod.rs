@@ -90,7 +90,8 @@ pub fn set_recent_folders(
 
 /// Open a fresh IDE window. Callable from the frontend too.
 #[tauri::command]
-pub fn open_new_window(app: AppHandle) {
+pub async fn open_new_window(app: AppHandle) {
+    // async: WebView2 deadlocks if build() runs in a sync command on Windows.
     spawn_new_window(&app);
 }
 

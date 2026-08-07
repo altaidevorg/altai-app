@@ -263,11 +263,19 @@ fn is_ide_window_label(label: &str) -> bool {
 pub fn handle_event(app: &AppHandle, event: MenuEvent) {
     let id = event.id().as_ref();
     match id {
-        "window.new" => os_menu::spawn_new_window(app),
+        "window.new" => {
+            let handle = app.clone();
+            crate::create_window_off_ipc_thread(move || {
+                os_menu::spawn_new_window(&handle);
+            });
+        }
         "window.openIde" => {
-            if let Err(error) = crate::show_or_create_studio_window(app, None) {
-                log::error!("Could not open ALTAI IDE window: {error}");
-            }
+            let handle = app.clone();
+            crate::create_window_off_ipc_thread(move || {
+                if let Err(error) = crate::show_or_create_studio_window(&handle, None) {
+                    log::error!("Could not open ALTAI IDE window: {error}");
+                }
+            });
         }
         "app.settings" => {
             // Studio settings are a native app-level window. IDE settings
@@ -277,14 +285,19 @@ pub fn handle_event(app: &AppHandle, event: MenuEvent) {
             });
             if ide_is_focused {
                 emit_command(app, id, None);
-            } else if let Err(error) = crate::show_or_create_settings_window(
-                app,
-                "settings",
-                "ALTAI Studio Settings",
-                "app",
-                None,
-            ) {
-                log::error!("Could not open ALTAI Studio settings: {error}");
+            } else {
+                let handle = app.clone();
+                crate::create_window_off_ipc_thread(move || {
+                    if let Err(error) = crate::show_or_create_settings_window(
+                        &handle,
+                        "settings",
+                        "ALTAI Studio Settings",
+                        "app",
+                        None,
+                    ) {
+                        log::error!("Could not open ALTAI Studio settings: {error}");
+                    }
+                });
             }
         }
         "help.github" => {
