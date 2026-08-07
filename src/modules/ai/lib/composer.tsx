@@ -6,11 +6,19 @@ import {
   useState,
 } from "react";
 import {
+  ACCEPTED_FILES,
+  buildTextContextAttachment,
+  estimateComposerContextTokens,
   getComposerActionAvailability,
+  hasComposerDraft,
+  hasNativeBinaryAttachment,
+  MAX_TEXT_INLINE,
   remainingTextAfterAcceptedDispatch,
   resolveComposerEnterAction,
+  upsertComposerAttachment,
   type ComposerAction,
   type ComposerActionAvailability,
+  type ComposerFileAttachment,
 } from "@altai/agent-ui";
 import { useWhisperRecording } from "../hooks/useWhisperRecording";
 import { expandSnippetTokens, type Snippet } from "../lib/snippets";
@@ -20,21 +28,10 @@ import { sendMessage, stop as stopAgent, useChatStore } from "../store/chatStore
 import { useAgentRunsStore } from "../store/agentRunsStore";
 import { useSnippetsStore } from "../store/snippetsStore";
 
-export type FileAttachment = {
-  id: string;
-  name: string;
-  kind: "image" | "pdf" | "text" | "selection" | "terminal" | "diff" | "folder";
-  mediaType: string;
-  url?: string;
-  text?: string;
-  size: number;
-  /** For kind === "selection": which surface it came from. */
-  source?: "terminal" | "editor";
-};
+/** @deprecated Prefer ComposerFileAttachment from @altai/agent-ui. */
+export type FileAttachment = ComposerFileAttachment;
 
-export const MAX_TEXT_INLINE = 200_000;
-export const ACCEPTED_FILES =
-  "image/*,.pdf,.txt,.md,.json,.yaml,.yml,.toml,.sh,.zsh,.bash,.py,.js,.jsx,.ts,.tsx,.rs,.go,.java,.c,.cpp,.h,.hpp,.html,.css,.csv,.log,.env,.config,.conf,.ini,Dockerfile,.dockerfile";
+export { MAX_TEXT_INLINE, ACCEPTED_FILES };
 
 type Voice = ReturnType<typeof useWhisperRecording>;
 
@@ -305,43 +302,23 @@ export function AiComposerProvider({ children }: ProviderProps) {
     name: string;
     text: string;
   }) => {
-    const text = input.text.trim();
-    if (!text) return;
-    // Keep a single context attachment from turning an ordinary chat turn
-    // into an unbounded prompt. The backend already truncates git diffs; this
-    // covers terminal output and external callers too.
-    const bounded = text.length > 60_000 ? `${text.slice(0, 60_000)}\n…[truncated]` : text;
-    const id = `context-${input.kind}-${input.name}`;
-    setFiles((prev) => {
-      const attachment: FileAttachment = {
-        id,
-        name: input.name,
-        kind: input.kind,
-        mediaType: "text/plain",
-        text: bounded,
-        size: bounded.length,
-      };
-      const existing = prev.findIndex((file) => file.id === id);
-      if (existing < 0) return [...prev, attachment];
-      const next = [...prev];
-      next[existing] = attachment;
-      return next;
-    });
+    const attachment = buildTextContextAttachment(input);
+    if (!attachment) return;
+    setFiles((prev) => upsertComposerAttachment(prev, attachment));
     useChatStore.getState().openMini();
     useChatStore.getState().focusInput();
   };
 
-  const hasDraft =
-    value.trim().length > 0 ||
-    files.length > 0 ||
-    pickedSnippets.length > 0 ||
-    pickedCommands.length > 0;
+  const hasDraft = hasComposerDraft({
+    value,
+    files,
+    snippets: pickedSnippets,
+    commands: pickedCommands,
+  });
   const actionAvailability = getComposerActionAvailability({
     status,
     hasDraft,
-    hasNativeAttachment: files.some(
-      (file) => file.kind === "image" || file.kind === "pdf",
-    ),
+    hasNativeAttachment: hasNativeBinaryAttachment(files),
     runId,
     submitting,
   });
@@ -545,11 +522,10 @@ export function AiComposerProvider({ children }: ProviderProps) {
 
   const { isBusy, isRunning, isCancelling, canSend, canSteer, canQueue } =
     actionAvailability;
-  const contextTokenEstimate = Math.ceil(
-    (files.reduce((total, file) => total + (file.kind === "image" ? 0 : (file.text?.length ?? 0)), 0) +
-      pickedSnippets.reduce((total, snippet) => total + snippet.content.length, 0)) /
-      4,
-  );
+  const contextTokenEstimate = estimateComposerContextTokens({
+    files,
+    snippets: pickedSnippets,
+  });
 
   const ctx: ComposerCtx = {
     textareaRef,
