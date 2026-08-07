@@ -21,6 +21,7 @@ import { type ReactElement, useEffect, useRef, useState } from "react";
 import {
   ActivityInspector,
   AgentsInspector,
+  AiChatMainColumn,
   AiSidePanelFrame,
   ApprovalsInspector,
   ArtifactsInspector,
@@ -1095,24 +1096,19 @@ function Body({
       : "ready";
 
   return (
-    <div
-      id="altai-active-chat"
-      role="tabpanel"
-      aria-label="Active chat session"
-      tabIndex={-1}
-      className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
-    >
-      <PlanModeStrip
-        active={planModeActive}
-        queueLen={reviewQueueLen}
-        onReview={() =>
-          window.dispatchEvent(new CustomEvent("altai:open-change-review"))
-        }
-        onExit={() => disablePlanMode()}
-      />
-
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-        {displayMessages.length === 0 ? (
+    <AiChatMainColumn
+      planMode={
+        <PlanModeStrip
+          active={planModeActive}
+          queueLen={reviewQueueLen}
+          onReview={() =>
+            window.dispatchEvent(new CustomEvent("altai:open-change-review"))
+          }
+          onExit={() => disablePlanMode()}
+        />
+      }
+      transcript={
+        displayMessages.length === 0 ? (
           <EmptyState agentName={activeAgentName} />
         ) : (
           <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden [&_.text-sm]:text-[12.5px] [&_p]:leading-relaxed">
@@ -1127,22 +1123,29 @@ function Body({
               stop={stopAgent}
             />
           </div>
-        )}
-      </div>
-
-      <RunRecoveryActionsBridge />
-      <ClarificationChoicesBridge />
-      <ChangeReviewBanner
-        queueLen={reviewQueueLen}
-        onOpen={onOpenReview}
-      />
-      {hasComposer ? (
-        <AiInputBar />
-      ) : (
-        <AiInputBarConnect onAdd={() => void openSettingsWindow("models")} />
-      )}
-      {projectTarget ? <ChatProjectTarget {...projectTarget} /> : null}
-    </div>
+        )
+      }
+      runChrome={
+        <>
+          <RunRecoveryActionsBridge />
+          <ClarificationChoicesBridge />
+          <ChangeReviewBanner
+            queueLen={reviewQueueLen}
+            onOpen={onOpenReview}
+          />
+        </>
+      }
+      composer={
+        hasComposer ? (
+          <AiInputBar />
+        ) : (
+          <AiInputBarConnect onAdd={() => void openSettingsWindow("models")} />
+        )
+      }
+      footer={
+        projectTarget ? <ChatProjectTarget {...projectTarget} /> : undefined
+      }
+    />
   );
 }
 

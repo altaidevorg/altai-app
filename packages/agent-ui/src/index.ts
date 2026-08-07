@@ -676,6 +676,11 @@ export {
   type AiSidePanelFrameProps,
 } from "./components/AiSidePanelFrame.js";
 
+export {
+  AiChatMainColumn,
+  type AiChatMainColumnProps,
+} from "./components/AiChatMainColumn.js";
+
 export { autoresizeTextarea } from "./lib/autoresizeTextarea.js";
 
 export {
