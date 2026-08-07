@@ -33,6 +33,44 @@ pub(crate) fn windows_webview_args() -> String {
     windows_webview_args_for(env_flag("ALTAI_DISABLE_GPU"))
 }
 
+/// WebView2 deadlocks if `WebviewWindowBuilder::build` runs inside a
+/// synchronous Tauri command or menu/event handler on Windows
+/// (see wry#583 / Tauri WebviewWindowBuilder docs). Async commands already
+/// leave that path; sync callers must offload onto a worker thread.
+pub(crate) fn create_window_off_ipc_thread(work: impl FnOnce() + Send + 'static) {
+    #[cfg(target_os = "windows")]
+    {
+        std::thread::spawn(work);
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        work();
+    }
+}
+
+/// Per-window WebView2 profile dir. Windows requires a distinct data directory
+/// when multiple webviews use `additional_browser_args`, otherwise the second
+/// window can hang as a black/blank surface.
+#[cfg(target_os = "windows")]
+fn windows_webview_data_dir(app: &tauri::AppHandle, label: &str) -> Option<std::path::PathBuf> {
+    let root = app.path().app_data_dir().ok()?;
+    Some(root.join("webview-profiles").join(sanitize_webview_profile_label(label)))
+}
+
+#[cfg(any(target_os = "windows", test))]
+fn sanitize_webview_profile_label(label: &str) -> String {
+    label
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect()
+}
+
 const WINDOW_BACKGROUND: tauri::webview::Color = tauri::webview::Color(10, 10, 10, 255);
 
 fn restored_window_state_flags() -> StateFlags {
@@ -263,10 +301,16 @@ pub(crate) fn show_or_create_settings_window(
     #[cfg(target_os = "linux")]
     let builder = builder.decorations(false).transparent(true);
     #[cfg(target_os = "windows")]
-    let builder = builder
-        .decorations(true)
-        .transparent(false)
-        .additional_browser_args(&windows_webview_args());
+    let builder = {
+        let builder = builder
+            .decorations(true)
+            .transparent(false)
+            .additional_browser_args(&windows_webview_args());
+        match windows_webview_data_dir(app, label) {
+            Some(dir) => builder.data_directory(dir),
+            None => builder,
+        }
+    };
 
     let window = builder.build().map_err(|e| e.to_string())?;
     // Some Linux window managers ignore the builder-time decorations flag.
@@ -283,7 +327,8 @@ pub(crate) fn show_or_create_settings_window(
 }
 
 #[tauri::command]
-fn open_settings_window(app: tauri::AppHandle, tab: Option<String>) -> Result<(), String> {
+async fn open_settings_window(app: tauri::AppHandle, tab: Option<String>) -> Result<(), String> {
+    // async: WebView2 deadlocks if build() runs in a sync command on Windows.
     show_or_create_settings_window(
         &app,
         "settings",
@@ -370,10 +415,16 @@ pub(crate) fn build_ide_window(
     #[cfg(target_os = "linux")]
     let builder = builder.decorations(false).transparent(true);
     #[cfg(target_os = "windows")]
-    let builder = builder
-        .decorations(true)
-        .transparent(false)
-        .additional_browser_args(&windows_webview_args());
+    let builder = {
+        let builder = builder
+            .decorations(true)
+            .transparent(false)
+            .additional_browser_args(&windows_webview_args());
+        match windows_webview_data_dir(app, label) {
+            Some(dir) => builder.data_directory(dir),
+            None => builder,
+        }
+    };
 
     let window = builder.build().map_err(|e| e.to_string())?;
     #[cfg(target_os = "linux")]
@@ -406,7 +457,10 @@ pub(crate) fn show_or_create_studio_window(
 }
 
 #[tauri::command]
-fn open_studio_window(app: tauri::AppHandle, folder: Option<String>) -> Result<(), String> {
+async fn open_studio_window(app: tauri::AppHandle, folder: Option<String>) -> Result<(), String> {
+    // async: WebView2 deadlocks if build() runs in a sync command on Windows.
+    // That is the root cause of the black IDE window + app freeze on Windows
+    // (macOS is unaffected). See Tauri WebviewWindowBuilder known issues.
     show_or_create_studio_window(&app, folder.as_deref())
 }
 
@@ -451,7 +505,12 @@ pub fn run() {
             // the existing one. Any folder/file args alongside it are still
             // honored (delivered to the primary window by handle_launch_args).
             if args.iter().any(|a| a == "--new-window") {
-                os_menu::spawn_new_window(app);
+                // Menu / single-instance callbacks are sync event handlers —
+                // creating the WebView inline deadlocks WebView2 on Windows.
+                let handle = app.clone();
+                create_window_off_ipc_thread(move || {
+                    os_menu::spawn_new_window(&handle);
+                });
                 let rest: Vec<String> = args.into_iter().filter(|a| a != "--new-window").collect();
                 handle_launch_args(app, rest, Some(&cwd));
                 return;
@@ -535,17 +594,26 @@ pub fn run() {
             #[cfg(not(target_os = "macos"))]
             let builder = WebviewWindowBuilder::from_config(app.handle(), &window_cfg)?;
 
-            // Keep the Windows HWND opaque and natively decorated. If the
+    // Keep the Windows HWND opaque and natively decorated. If the
             // renderer or GPU process fails during startup, the user must still
             // be able to move, minimize, restore, and close the application.
             // Users with a confirmed GPU-driver issue can opt into software
             // rendering with ALTAI_DISABLE_GPU=1; it is unsafe as a universal
             // default because WebView2 can fail to composite on other systems.
             #[cfg(target_os = "windows")]
-            let builder = builder
-                .decorations(true)
-                .transparent(false)
-                .additional_browser_args(&windows_webview_args());
+            let builder = {
+                let builder = builder
+                    .decorations(true)
+                    .transparent(false)
+                    .additional_browser_args(&windows_webview_args());
+                // Pin the primary window to an explicit profile so secondary
+                // IDE/settings webviews (which also set browser args) never
+                // share WebView2's default user-data folder.
+                match windows_webview_data_dir(app.handle(), "main") {
+                    Some(dir) => builder.data_directory(dir),
+                    None => builder,
+                }
+            };
 
             let window = builder.build()?;
             #[cfg(target_os = "windows")]
@@ -783,6 +851,19 @@ mod tests {
         assert_eq!(
             studio_window_url(Some(r"C:\Users\me\repo")),
             "index.html?mode=studio&folder=C%3A%5CUsers%5Cme%5Crepo"
+        );
+    }
+
+    #[test]
+    fn webview_profile_labels_stay_path_safe() {
+        assert_eq!(sanitize_webview_profile_label("studio"), "studio");
+        assert_eq!(
+            sanitize_webview_profile_label("main-abc123"),
+            "main-abc123"
+        );
+        assert_eq!(
+            sanitize_webview_profile_label(r"evil\..\path"),
+            "evil____path"
         );
     }
 
