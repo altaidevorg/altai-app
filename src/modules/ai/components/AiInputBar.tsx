@@ -16,11 +16,9 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useMemo, useRef, useState, type ReactElement } from "react";
 import {
+  AiComposer,
   ComposerAttachChips,
-  ComposerConfigRow,
   ComposerFollowupBar,
-  ComposerPrimaryRow,
-  ComposerShell,
   ComposerTextArea,
   ComposerToolbarIcon,
   ContextAction,
@@ -303,7 +301,7 @@ export function AiInputBar() {
         />
       )}
 
-      <ComposerShell
+      <AiComposer
         busy={c.isBusy}
         attachments={
           hasChips ? (
@@ -339,132 +337,126 @@ export function AiInputBar() {
             />
           ) : undefined
         }
-      >
-
-        <Popover open={pickerOpen}>
-          <PopoverAnchor asChild>
-            <div className="relative w-full min-w-0 px-3 pb-1 pt-2.5">
-              <ComposerTextArea
-                ref={c.textareaRef}
-                value={c.value}
-                onChange={(e) => c.setValue(e.target.value)}
-                onKeyUp={updateTrigger}
-                onClick={updateTrigger}
-                onSelect={updateTrigger}
-                onKeyDown={(e) => {
-                  if (pickerOpen) {
-                    const items = fileTrigger ? filteredFiles : filteredItems;
-                    if (e.key === "ArrowDown") {
-                      e.preventDefault();
-                      setActiveIndex((i) =>
-                        Math.min(i + 1, Math.max(0, items.length - 1)),
-                      );
-                      return;
-                    }
-                    if (e.key === "ArrowUp") {
-                      e.preventDefault();
-                      setActiveIndex((i) => Math.max(0, i - 1));
-                      return;
-                    }
-                    if (e.key === "Tab" || e.key === "Enter") {
-                      if (items.length > 0) {
+        draft={
+          <Popover open={pickerOpen}>
+            <PopoverAnchor asChild>
+              <div className="altai-ai-composer-input relative w-full min-w-0 px-3 pb-1 pt-2.5">
+                <ComposerTextArea
+                  ref={c.textareaRef}
+                  value={c.value}
+                  onChange={(e) => c.setValue(e.target.value)}
+                  onKeyUp={updateTrigger}
+                  onClick={updateTrigger}
+                  onSelect={updateTrigger}
+                  onKeyDown={(e) => {
+                    if (pickerOpen) {
+                      const items = fileTrigger ? filteredFiles : filteredItems;
+                      if (e.key === "ArrowDown") {
                         e.preventDefault();
-                        pickActive();
+                        setActiveIndex((i) =>
+                          Math.min(i + 1, Math.max(0, items.length - 1)),
+                        );
+                        return;
+                      }
+                      if (e.key === "ArrowUp") {
+                        e.preventDefault();
+                        setActiveIndex((i) => Math.max(0, i - 1));
+                        return;
+                      }
+                      if (e.key === "Tab" || e.key === "Enter") {
+                        if (items.length > 0) {
+                          e.preventDefault();
+                          pickActive();
+                          return;
+                        }
+                      }
+                      if (e.key === "Escape") {
+                        e.preventDefault();
+                        if (fileTrigger) {
+                          const before = c.value.slice(0, fileTrigger.start);
+                          const after = c.value.slice(fileTrigger.end);
+                          c.setValue(`${before}${after}`);
+                          setFileTrigger(null);
+                        } else {
+                          setTrigger(null);
+                        }
                         return;
                       }
                     }
-                    if (e.key === "Escape") {
-                      e.preventDefault();
-                      if (fileTrigger) {
-                        const before = c.value.slice(0, fileTrigger.start);
-                        const after = c.value.slice(fileTrigger.end);
-                        c.setValue(`${before}${after}`);
-                        setFileTrigger(null);
-                      } else {
-                        setTrigger(null);
-                      }
-                      return;
+                    if (e.key === "Enter") {
+                      const action = resolveComposerEnterAction({
+                        availability: c.actionAvailability,
+                        shiftKey: e.shiftKey,
+                        modifierKey: e.metaKey || e.ctrlKey,
+                      });
+                      if (action) e.preventDefault();
+                      if (action === "steer") c.steer();
+                      else if (action === "queue") c.queueNext();
+                      else if (action === "send") c.submit();
                     }
+                  }}
+                  placeholder={
+                    c.isBusy
+                      ? "Add a follow-up, steer the active run, or queue the next task…"
+                      : "Describe a task or ask a follow-up…  @ files  / commands  # snippets"
                   }
-                  if (e.key === "Enter") {
-                    const action = resolveComposerEnterAction({
-                      availability: c.actionAvailability,
-                      shiftKey: e.shiftKey,
-                      modifierKey: e.metaKey || e.ctrlKey,
-                    });
-                    if (action) e.preventDefault();
-                    if (action === "steer") c.steer();
-                    else if (action === "queue") c.queueNext();
-                    else if (action === "send") c.submit();
-                  }
-                }}
-                placeholder={
-                  c.isBusy
-                    ? "Add a follow-up, steer the active run, or queue the next task…"
-                    : "Describe a task or ask a follow-up…  @ files  / commands  # snippets"
-                }
+                />
+              </div>
+            </PopoverAnchor>
+            {fileTrigger ? (
+              <FilePickerContent
+                files={filteredFiles}
+                activeIndex={activeIndex}
+                indexing={workspaceFiles.indexing}
+                truncated={workspaceFiles.truncated}
+                hasWorkspace={workspaceRoot !== null}
+                onPick={(f) => void onPickFile(f)}
+                onHover={setActiveIndex}
               />
-            </div>
-          </PopoverAnchor>
-          {fileTrigger ? (
-            <FilePickerContent
-              files={filteredFiles}
-              activeIndex={activeIndex}
-              indexing={workspaceFiles.indexing}
-              truncated={workspaceFiles.truncated}
-              hasWorkspace={workspaceRoot !== null}
-              onPick={(f) => void onPickFile(f)}
-              onHover={setActiveIndex}
+            ) : (
+              <SnippetPickerContent
+                items={filteredItems}
+                activeIndex={activeIndex}
+                onPick={onPickItem}
+                onHover={setActiveIndex}
+                commandPrefix={trigger?.prefix}
+              />
+            )}
+          </Popover>
+        }
+        followup={
+          c.canSteer || c.canQueue ? (
+            <ComposerFollowupBar
+              hint={
+                c.isCancelling
+                  ? "Cancellation requested — you can queue the next task"
+                  : c.canSteer
+                    ? "Enter queues next · ⌘/Ctrl+Enter steers this run"
+                    : "Enter queues next · starts after the active run ends"
+              }
+              showSteer={c.isRunning}
+              showQueue={c.isBusy}
+              canSteer={c.canSteer}
+              canQueue={c.canQueue}
+              onSteer={c.steer}
+              onQueue={c.queueNext}
+              steerTitle={
+                c.files.some(
+                  (file) => file.kind === "image" || file.kind === "pdf",
+                )
+                  ? "Steering cannot include images or PDFs; use Queue next"
+                  : "Apply at the active run's next safe boundary"
+              }
+              queueTitle="Start after the active run terminates"
             />
-          ) : (
-            <SnippetPickerContent
-              items={filteredItems}
-              activeIndex={activeIndex}
-              onPick={onPickItem}
-              onHover={setActiveIndex}
-              commandPrefix={trigger?.prefix}
-            />
-          )}
-        </Popover>
-
-        {(c.canSteer || c.canQueue) && (
-          <ComposerFollowupBar
-            hint={
-              c.isCancelling
-                ? "Cancellation requested — you can queue the next task"
-                : c.canSteer
-                  ? "Enter queues next · ⌘/Ctrl+Enter steers this run"
-                  : "Enter queues next · starts after the active run ends"
-            }
-            showSteer={c.isRunning}
-            showQueue={c.isBusy}
-            canSteer={c.canSteer}
-            canQueue={c.canQueue}
-            onSteer={c.steer}
-            onQueue={c.queueNext}
-            steerTitle={
-              c.files.some(
-                (file) => file.kind === "image" || file.kind === "pdf",
-              )
-                ? "Steering cannot include images or PDFs; use Queue next"
-                : "Apply at the active run's next safe boundary"
-            }
-            queueTitle="Start after the active run terminates"
-          />
-        )}
-
-        <ComposerConfigRow
-          agentSlot={
-            agentPickerEnabled ? <AgentSwitcher variant="toolbar" /> : undefined
-          }
-          modelSlot={
-            <ModelDropdown allowAuto className="w-full max-w-none" />
-          }
-        />
-
-        <ComposerPrimaryRow
-          tools={
-            <>
+          ) : undefined
+        }
+        agentSlot={
+          agentPickerEnabled ? <AgentSwitcher variant="toolbar" /> : undefined
+        }
+        modelSlot={<ModelDropdown allowAuto className="w-full max-w-none" />}
+        tools={
+          <>
             <ComposerToolbarIcon
               title="Attach file or image"
               onClick={() => fileInputRef.current?.click()}
@@ -540,50 +532,49 @@ export function AiInputBar() {
                 )}
               </ComposerToolbarIcon>
             )}
-            </>
-          }
-          permission={
-            <HoverTooltip label="Permission mode">
-              <PermissionModeSwitcher variant="toolbar-icon" />
-            </HoverTooltip>
-          }
-          submit={
-            c.isBusy ? (
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="secondary"
-                  onClick={c.stop}
-                  disabled={c.isCancelling}
-                  className="h-7 gap-1.5 rounded-md px-2.5 text-[11px]"
-                  aria-label={c.isCancelling ? "Cancelling" : "Stop"}
-                >
-                  {c.isCancelling ? (
-                    <Spinner className="size-3" />
-                  ) : (
-                    <span className="block size-2 rounded-sm bg-foreground" />
-                  )}
-                  <span className="altai-ai-composer-submit-label">
-                    {c.isCancelling ? "Stopping" : "Stop"}
-                  </span>
-                </Button>
+          </>
+        }
+        permission={
+          <HoverTooltip label="Permission mode">
+            <PermissionModeSwitcher variant="toolbar-icon" />
+          </HoverTooltip>
+        }
+        submit={
+          c.isBusy ? (
+            <Button
+              type="button"
+              size="sm"
+              variant="secondary"
+              onClick={c.stop}
+              disabled={c.isCancelling}
+              className="h-7 gap-1.5 rounded-md px-2.5 text-[11px]"
+              aria-label={c.isCancelling ? "Cancelling" : "Stop"}
+            >
+              {c.isCancelling ? (
+                <Spinner className="size-3" />
               ) : (
-                <HoverTooltip label="Send · Enter">
-                  <Button
-                    type="button"
-                    size="icon"
-                    onClick={c.submit}
-                    disabled={!c.canSend}
-                    className="size-7 rounded-md p-0 transition-all active:scale-[0.98]"
-                    aria-label="Send"
-                  >
-                    <HugeiconsIcon icon={ArrowUpIcon} size={13} strokeWidth={2.25} />
-                  </Button>
-                </HoverTooltip>
-            )
-          }
-        />
-      </ComposerShell>
+                <span className="block size-2 rounded-sm bg-foreground" />
+              )}
+              <span className="altai-ai-composer-submit-label">
+                {c.isCancelling ? "Stopping" : "Stop"}
+              </span>
+            </Button>
+          ) : (
+            <HoverTooltip label="Send · Enter">
+              <Button
+                type="button"
+                size="icon"
+                onClick={c.submit}
+                disabled={!c.canSend}
+                className="size-7 rounded-md p-0 transition-all active:scale-[0.98]"
+                aria-label="Send"
+              >
+                <HugeiconsIcon icon={ArrowUpIcon} size={13} strokeWidth={2.25} />
+              </Button>
+            </HoverTooltip>
+          )
+        }
+      />
 
       <AnimatePresence initial={false}>
         {voiceLabel && (
