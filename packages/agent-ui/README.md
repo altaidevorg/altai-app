@@ -136,6 +136,10 @@ consumption of shared panel shells:
 | A6.17 | Interactive prompt parse (`normalizeAgentEventType`, apply helpers) |
 | A6.18 | Pure `todoParse` (`isTodoToolName`, `parseTodoItems`, summarize) |
 | A6.19 | User-turn edit helpers (`parseUserTurnId`, truncate, renumber) |
+| A6.20 | `getComposerActionAvailability` (send/steer/queue from run status) |
+| A6.21 | Composer Send/Stop policy (`composerSubmitChromeMode`, enable helpers) |
+| A6.22 | Side panel chrome layout (`resolveSidePanelChromeLayout` breakpoints) |
+| A6.23 | `AiSidePanelFrame` (outer panel landmark + topbar slot) |
 
 ### A5 complete enough
 
