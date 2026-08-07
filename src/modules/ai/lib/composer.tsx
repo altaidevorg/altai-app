@@ -8,7 +8,9 @@ import {
 import {
   ACCEPTED_FILES,
   buildTextContextAttachment,
+  composeComposerSubmitText,
   estimateComposerContextTokens,
+  extractComposerMultimodalParts,
   getComposerActionAvailability,
   hasComposerDraft,
   hasNativeBinaryAttachment,
@@ -21,7 +23,7 @@ import {
   type ComposerFileAttachment,
 } from "@altai/agent-ui";
 import { useWhisperRecording } from "../hooks/useWhisperRecording";
-import { expandSnippetTokens, type Snippet } from "../lib/snippets";
+import { type Snippet } from "../lib/snippets";
 import { tryRunSlashCommand, type SlashCommandMeta } from "./slashCommands";
 import { native } from "./native";
 import { sendMessage, stop as stopAgent, useChatStore } from "../store/chatStore";
@@ -391,72 +393,18 @@ export function AiComposerProvider({ children }: ProviderProps) {
       }
     }
 
-    const fileBlocks = files
-      .filter((f) => f.kind === "text")
-      .map(
-        (f) =>
-          `<file name="${f.name}" mediaType="${f.mediaType}">\n${f.text ?? ""}\n</file>`,
-      );
-    const selectionBlocks = files
-      .filter((f) => f.kind === "selection")
-      .map(
-        (f) =>
-          `<selection source="${f.source ?? "terminal"}">\n${f.text ?? ""}\n</selection>`,
-      );
-    const terminalBlocks = files
-      .filter((f) => f.kind === "terminal")
-      .map((f) => `<terminal-context name="${f.name}">\n${f.text ?? ""}\n</terminal-context>`);
-    const diffBlocks = files
-      .filter((f) => f.kind === "diff")
-      .map((f) => `<git-diff name="${f.name}">\n${f.text ?? ""}\n</git-diff>`);
-    const folderBlocks = files
-      .filter((f) => f.kind === "folder")
-      .map((f) => `<folder name="${f.name}">\n${f.text ?? ""}\n</folder>`);
-    const { body: bodyAfterTokens, blocks: snippetBlocks } = expandSnippetTokens(
+    const composed = composeComposerSubmitText({
+      commandMarker,
       effectiveText,
-      useSnippetsStore.getState().snippets,
-    );
-    const seenHandles = new Set<string>();
-    const allSnippetBlocks: string[] = [];
-    for (const s of pickedSnippets) {
-      if (seenHandles.has(s.handle)) continue;
-      seenHandles.add(s.handle);
-      allSnippetBlocks.push(
-        `<snippet name="${s.handle}">\n${s.content}\n</snippet>`,
-      );
-    }
-    for (const block of snippetBlocks) {
-      const m = block.match(/^<snippet name="([^"]+)"/);
-      if (m && seenHandles.has(m[1])) continue;
-      if (m) seenHandles.add(m[1]);
-      allSnippetBlocks.push(block);
-    }
-    const composed = [
-      commandMarker ?? "",
-      allSnippetBlocks.join("\n\n"),
-      selectionBlocks.join("\n\n"),
-      terminalBlocks.join("\n\n"),
-      diffBlocks.join("\n\n"),
-      folderBlocks.join("\n\n"),
-      fileBlocks.join("\n\n"),
-      bodyAfterTokens,
-    ]
-      .filter(Boolean)
-      .join("\n\n");
+      catalog: useSnippetsStore.getState().snippets,
+      pickedSnippets,
+      files,
+    });
     if (!sessionId) return;
     const store = useChatStore.getState();
 
     // Images and PDFs ride alongside the text as native multimodal parts.
-    const imageUrls = files
-      .filter((f) => f.kind === "image" && f.url)
-      .map((f) => f.url as string);
-    const documents = files
-      .filter((f) => f.kind === "pdf" && f.url)
-      .map((f) => ({
-        data: f.url!.slice(f.url!.indexOf(",") + 1),
-        mediaType: f.mediaType,
-        name: f.name,
-      }));
+    const { imageUrls, documents } = extractComposerMultimodalParts(files);
 
     submittingRef.current = true;
     setSubmitting(true);

@@ -143,6 +143,7 @@ consumption of shared panel shells:
 | A6.24 | `AiChatMainColumn` (plan → transcript → run chrome → composer) |
 | A6.25 | Composer attachment pure helpers (text context, draft, token estimate) |
 | A6.26 | Composer snippet pure helpers (`expandSnippetTokens`, catalogs, picks) |
+| A6.27 | Composer submit compose (`composeComposerSubmitText`, multimodal parts) |
 
 ### A5 complete enough
 
