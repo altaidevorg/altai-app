@@ -140,6 +140,7 @@ consumption of shared panel shells:
 | A6.21 | Composer Send/Stop policy (`composerSubmitChromeMode`, enable helpers) |
 | A6.22 | Side panel chrome layout (`resolveSidePanelChromeLayout` breakpoints) |
 | A6.23 | `AiSidePanelFrame` (outer panel landmark + topbar slot) |
+| A6.24 | `AiChatMainColumn` (plan → transcript → run chrome → composer) |
 
 ### A5 complete enough
 
