@@ -265,7 +265,7 @@ pub fn handle_event(app: &AppHandle, event: MenuEvent) {
     match id {
         "window.new" => os_menu::spawn_new_window(app),
         "window.openIde" => {
-            if let Err(error) = crate::show_or_create_studio_window(app) {
+            if let Err(error) = crate::show_or_create_studio_window(app, None) {
                 log::error!("Could not open ALTAI IDE window: {error}");
             }
         }

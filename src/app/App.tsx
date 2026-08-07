@@ -58,7 +58,7 @@ import {
 } from "@/modules/git-history";
 import { GitHubItemsStack, ProjectBoardStack } from "@/modules/github";
 import type { ItemKind } from "@/modules/github/lib/items";
-import { getInitialLaunches, getLaunchDir, type LaunchPayload } from "@/lib/launchDir";
+import { getInitialLaunches, getLaunchDir, getStudioFolderFromUrl, type LaunchPayload } from "@/lib/launchDir";
 import { useZoom } from "@/lib/useZoom";
 import {
   FileExplorer,
@@ -655,7 +655,6 @@ export default function App() {
   const [newEditorOpen, setNewEditorOpen] = useState(false);
   const [initialMode] = useState<AppMode>(() => initialAppMode());
   const [isNativeWindow] = useState(() => hasTauriWindowMetadata());
-  const isStudioWindow = isNativeWindow && initialMode === "studio";
   // Agent Workspace and IDE are separate native pages. This mode is fixed for
   // the lifetime of each window; navigation only focuses the other window. A
   // regular browser has no native windows, so it swaps the two surfaces here.
@@ -696,7 +695,15 @@ export default function App() {
       showBrowserSurface("studio");
       return;
     }
-    void invoke("open_studio_window").catch((error) => {
+    const chatState = useChatStore.getState();
+    const activeSession = chatState.sessions.find(
+      (session) => session.id === chatState.activeSessionId,
+    );
+    const folder =
+      useWorkspaceFolderStore.getState().folder ??
+      activeSession?.workspacePath ??
+      null;
+    void invoke("open_studio_window", { folder }).catch((error) => {
       console.warn("Could not open ALTAI IDE", error);
     });
   }, [appMode, isNativeWindow, showBrowserSurface]);
@@ -1087,6 +1094,7 @@ export default function App() {
   }, []);
 
   const workspaceFolder = useWorkspaceFolderStore((s) => s.folder);
+  const workspaceHydrated = useWorkspaceFolderStore((s) => s.hydrated);
   const closeFolder = useWorkspaceFolderStore((s) => s.closeFolder);
   const chooseLocalWorkspace = useCallback(async () => {
     const path = await useWorkspaceFolderStore.getState().pickFolder();
@@ -1124,6 +1132,16 @@ export default function App() {
 
   const activeChatWorkspacePath = activeChatSession?.workspacePath ?? null;
   useEffect(() => {
+    if (appMode !== "studio" || !workspaceHydrated) return;
+    const fromUrl = getStudioFolderFromUrl();
+    if (!fromUrl) return;
+    const folderState = useWorkspaceFolderStore.getState();
+    if (folderState.folder === fromUrl) return;
+    folderState.setFolder(fromUrl);
+    resetWorkspace(fromUrl);
+  }, [appMode, workspaceHydrated, resetWorkspace]);
+
+  useEffect(() => {
     const folderState = useWorkspaceFolderStore.getState();
     if (activeChatWorkspacePath) {
       if (folderState.folder !== activeChatWorkspacePath) {
@@ -1132,11 +1150,15 @@ export default function App() {
       }
       return;
     }
+    // Agent Workspace mirrors chat: no chat target means no folder.
+    // IDE windows keep an explicitly opened / launch folder even when the
+    // active chat is project-free — otherwise Open IDE looks empty/black.
+    if (appMode === "studio") return;
     if (folderState.folder) {
       folderState.closeFolder();
       resetWorkspace();
     }
-  }, [activeChatWorkspacePath, resetWorkspace]);
+  }, [activeChatWorkspacePath, resetWorkspace, appMode]);
 
   // Consume the one-shot "just cloned" flag that steered the initial sidebar
   // view, so a later folder switch falls back to the persisted preference.
@@ -1288,10 +1310,19 @@ export default function App() {
   }, [appMode, miniOpen, openMini]);
 
   useEffect(() => {
-    const studio = studioShellRef.current;
-    const agent = agentSidebarRef.current;
-    if (!studio || !agent) return;
-    const frame = requestAnimationFrame(() => {
+    let attempts = 0;
+    let timer = 0;
+    const syncStudioPanels = () => {
+      const studio = studioShellRef.current;
+      const agent = agentSidebarRef.current;
+      if (!studio || !agent) {
+        // Panel refs mount one frame after first paint. Retry briefly so a
+        // studio window never stays at the 0px collapsed defaults.
+        if (attempts++ < 12) {
+          timer = window.setTimeout(syncStudioPanels, 16);
+        }
+        return;
+      }
       if (appMode === "agent") {
         studio.collapse();
         agent.expand();
@@ -1299,11 +1330,20 @@ export default function App() {
         return;
       }
       studio.expand();
-      agent.expand();
-      agent.resize(`${clampAgentSidebarWidth(agentSidebarWidthRef.current)}px`);
-    });
-    return () => cancelAnimationFrame(frame);
-  }, [appMode]);
+      if (useChatStore.getState().mini.open) {
+        const target = clampAgentSidebarWidth(agentSidebarWidthRef.current);
+        agent.expand();
+        agent.resize(`${target}px`);
+      } else {
+        agent.collapse();
+      }
+    };
+    const frame = requestAnimationFrame(syncStudioPanels);
+    return () => {
+      cancelAnimationFrame(frame);
+      window.clearTimeout(timer);
+    };
+  }, [appMode, miniOpen]);
 
   // Sync the terminal drawer panel to its open state (#61).
   useEffect(() => {
@@ -2499,7 +2539,10 @@ export default function App() {
                 id="studio-shell"
                 panelRef={studioShellRef}
                 defaultSize={
-                  isStudioWindow
+                  // Size from app mode, not Tauri metadata. Gating on
+                  // `hasTauriWindowMetadata()` previously left both panels at
+                  // 0px (black window) when metadata was missing at first paint.
+                  appMode === "studio"
                     ? miniOpen
                       ? "70%"
                       : "100%"
