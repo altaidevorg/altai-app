@@ -21,7 +21,7 @@ export function ComposerShell({
   return (
     <div
       className={cn(
-        "altai-ai-composer flex w-full min-w-0 max-w-full flex-col overflow-hidden rounded-xl border border-border-subtle bg-transparent transition-[border-color,box-shadow] hover:border-border",
+        "altai-ai-composer flex w-full min-w-0 max-w-full flex-col overflow-visible rounded-xl border border-border-subtle bg-transparent transition-[border-color,box-shadow] hover:border-border",
         busy && "opacity-95",
         className,
       )}
