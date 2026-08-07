@@ -1,6 +1,6 @@
 [package]
 name = "altai-cli"
-version = "0.7.1"
+version = "0.7.2"
 description = "ALTAI terminal product and desktop launcher router"
 edition = "2021"
 license = "Apache-2.0"

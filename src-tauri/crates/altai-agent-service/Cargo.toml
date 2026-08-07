@@ -1,6 +1,6 @@
 [package]
 name = "altai-agent-service"
-version = "0.7.1"
+version = "0.7.2"
 description = "Host-neutral ALTAI agent events and workspace services"
 edition = "2021"
 license = "Apache-2.0"
