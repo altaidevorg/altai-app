@@ -681,6 +681,36 @@ export {
   type AiChatMainColumnProps,
 } from "./components/AiChatMainColumn.js";
 
+export {
+  ACCEPTED_COMPOSER_FILES,
+  ACCEPTED_FILES,
+  boundContextText,
+  buildTextContextAttachment,
+  estimateComposerContextTokens,
+  hasComposerDraft,
+  hasNativeBinaryAttachment,
+  MAX_CONTEXT_TEXT_CHARS,
+  MAX_TEXT_INLINE,
+  upsertComposerAttachment,
+  type ComposerFileAttachment,
+  type ComposerFileKind,
+} from "./lib/composerAttachments.js";
+
+export {
+  addPickedSnippet,
+  composePromptWithSnippets,
+  expandSnippetTokens,
+  findSnippets,
+  insertSnippetHandle,
+  isValidHandle,
+  mergeSnippetCatalogs,
+  normalizeHandle,
+  parseWorkspaceSnippetsJson,
+  removePickedSnippet,
+  type ComposerSnippet,
+  type PickedComposerSnippet,
+} from "./lib/composerSnippets.js";
+
 export { autoresizeTextarea } from "./lib/autoresizeTextarea.js";
 
 export {

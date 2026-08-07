@@ -141,6 +141,8 @@ consumption of shared panel shells:
 | A6.22 | Side panel chrome layout (`resolveSidePanelChromeLayout` breakpoints) |
 | A6.23 | `AiSidePanelFrame` (outer panel landmark + topbar slot) |
 | A6.24 | `AiChatMainColumn` (plan → transcript → run chrome → composer) |
+| A6.25 | Composer attachment pure helpers (text context, draft, token estimate) |
+| A6.26 | Composer snippet pure helpers (`expandSnippetTokens`, catalogs, picks) |
 
 ### A5 complete enough
 
