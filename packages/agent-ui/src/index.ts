@@ -711,6 +711,14 @@ export {
   type PickedComposerSnippet,
 } from "./lib/composerSnippets.js";
 
+export {
+  composeComposerSubmitText,
+  extractComposerMultimodalParts,
+  formatComposerFileBlocks,
+  mergeSnippetBlocks,
+  type ComposerMultimodalParts,
+} from "./lib/composerSubmitCompose.js";
+
 export { autoresizeTextarea } from "./lib/autoresizeTextarea.js";
 
 export {
