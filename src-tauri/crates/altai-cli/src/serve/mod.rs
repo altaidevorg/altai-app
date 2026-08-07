@@ -2451,15 +2451,32 @@ fn load_run_configuration(
     )
 }
 
+/// Normalize host/UI config patch keys into CLI wire names.
+/// Accepts camelCase HostPorts patches and ignores unknown keys so a single
+/// extra field (or desktop alias) does not reject the whole update.
+fn normalize_config_patch(
+    params: &serde_json::Map<String, Value>,
+) -> serde_json::Map<String, Value> {
+    let mut out = serde_json::Map::new();
+    for (key, value) in params {
+        let canonical = match key.as_str() {
+            "model" | "defaultModelId" | "default_model_id" | "default_model" => "model",
+            "permission" | "permissionMode" | "permission_mode" => "permission",
+            "provider" | "providerId" | "provider_id" => "provider",
+            "base_url" | "baseUrl" => "base_url",
+            _ => continue,
+        };
+        out.insert(canonical.to_string(), value.clone());
+    }
+    out
+}
+
 fn update_workspace_config(
     workspace: &WorkspacePaths,
     params: &serde_json::Map<String, Value>,
 ) -> Result<(), String> {
-    if params.is_empty()
-        || !params.keys().all(|key| {
-            matches!(key.as_str(), "model" | "permission" | "provider" | "base_url")
-        })
-    {
+    let params = normalize_config_patch(params);
+    if params.is_empty() {
         return Err("unsupported_config_patch".to_string());
     }
     let model = params.get("model").and_then(Value::as_str).map(str::trim);
@@ -2546,4 +2563,37 @@ fn resolve_provider_credential(provider_id: &str) -> Result<String, String> {
         .filter(|value| !value.trim().is_empty())
         .map(Ok)
         .unwrap_or_else(|| provider_credentials::get(provider_id)?.ok_or_else(|| "api_key_not_configured".to_string()))
+}
+
+#[cfg(test)]
+mod config_patch_tests {
+    use super::normalize_config_patch;
+    use serde_json::{json, Map, Value};
+
+    #[test]
+    fn accepts_hostports_camel_case_and_ignores_noise() {
+        let mut params = Map::new();
+        params.insert("permissionMode".into(), Value::String("auto-edit".into()));
+        params.insert("defaultModelId".into(), Value::String("gpt-test".into()));
+        params.insert("unknown_field".into(), Value::Bool(true));
+        let normalized = normalize_config_patch(&params);
+        assert_eq!(
+            normalized.get("permission").and_then(Value::as_str),
+            Some("auto-edit")
+        );
+        assert_eq!(
+            normalized.get("model").and_then(Value::as_str),
+            Some("gpt-test")
+        );
+        assert!(!normalized.contains_key("unknown_field"));
+    }
+
+    #[test]
+    fn empty_after_normalize_still_errors_outside() {
+        let params = Map::new();
+        assert!(normalize_config_patch(&params).is_empty());
+        let mut noise = Map::new();
+        noise.insert("foo".into(), json!(1));
+        assert!(normalize_config_patch(&noise).is_empty());
+    }
 }

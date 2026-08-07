@@ -6,14 +6,11 @@ import { AgentChatLayout } from "../components/AgentChatLayout.js";
 describe("AgentChatLayout", () => {
   it("stacks history above main in sidebar density", () => {
     const html = renderToStaticMarkup(
-      createElement(
-        AgentChatLayout,
-        {
-          density: "sidebar",
-          history: createElement("aside", null, "sessions"),
-          main: createElement("main", null, "chat"),
-        },
-      ),
+      createElement(AgentChatLayout, {
+        density: "sidebar",
+        history: createElement("aside", null, "sessions"),
+        main: createElement("main", null, "chat"),
+      }),
     );
     expect(html).toContain('data-density="sidebar"');
     expect(html).toContain("flex-col");
@@ -23,16 +20,25 @@ describe("AgentChatLayout", () => {
 
   it("places history beside main in desktop density", () => {
     const html = renderToStaticMarkup(
-      createElement(
-        AgentChatLayout,
-        {
-          density: "desktop",
-          history: createElement("aside", null, "rail"),
-          main: createElement("main", null, "pane"),
-        },
-      ),
+      createElement(AgentChatLayout, {
+        density: "desktop",
+        history: createElement("aside", null, "rail"),
+        main: createElement("main", null, "pane"),
+      }),
     );
     expect(html).toContain('data-density="desktop"');
     expect(html).toContain("flex-row");
+  });
+
+  it("defaults auto to sidebar on first SSR paint", () => {
+    const html = renderToStaticMarkup(
+      createElement(AgentChatLayout, {
+        density: "auto",
+        history: createElement("aside", null, "sessions"),
+        main: createElement("main", null, "chat"),
+      }),
+    );
+    expect(html).toContain('data-density-requested="auto"');
+    expect(html).toContain('data-density="sidebar"');
   });
 });
