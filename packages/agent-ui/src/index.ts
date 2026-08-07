@@ -413,6 +413,12 @@ export {
 } from "./components/ChatHistoryPanel.js";
 
 export {
+  AgentChatLayout,
+  type AgentChatLayoutDensity,
+  type AgentChatLayoutProps,
+} from "./components/AgentChatLayout.js";
+
+export {
   groupSessionsByRecency,
   sessionHistoryBucket,
   startOfDay,
