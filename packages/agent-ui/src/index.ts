@@ -560,6 +560,11 @@ export {
 } from "./components/ComposerShell.js";
 
 export {
+  AiComposer,
+  type AiComposerProps,
+} from "./components/AiComposer.js";
+
+export {
   TaskRunConfigSection,
   type TaskRunConfigSectionProps,
 } from "./components/TaskRunConfigSection.js";
