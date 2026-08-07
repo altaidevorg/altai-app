@@ -194,6 +194,10 @@ export type AltaiSettings = {
   permissionMode: PermissionMode;
   bypassEnabled: boolean;
   defaultModelId?: string;
+  /** Prefer when listing/selecting models spans multiple providers. */
+  defaultProviderId?: string;
+  /** Optional secondary model for host-defined fallthrough. */
+  fallbackModelId?: string;
   compactionEnabled?: boolean;
   /** Opaque host-owned settings bag for host-specific keys. */
   extensions?: Record<string, unknown>;
