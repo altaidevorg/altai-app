@@ -14,6 +14,7 @@ describe("ComposerShell", () => {
     );
 
     expect(html).toContain("altai-ai-composer");
+    expect(html).toContain("overflow-visible");
     expect(html).toContain("altai-ai-composer-attachments");
     expect(html).toContain("opacity-95");
     expect(html).toContain("readme.md");
