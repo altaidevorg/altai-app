@@ -924,6 +924,11 @@ export {
   type UseComposerControllerOptions,
 } from "./hooks/useComposerController.js";
 
+export {
+  useDisplayMessageInteractionState,
+  type DisplayMessageInteractionState,
+} from "./hooks/useDisplayMessageInteractionState.js";
+
 export { autoresizeTextarea } from "./lib/autoresizeTextarea.js";
 
 export {
