@@ -230,6 +230,7 @@ consumption of shared panel shells:
 | A6.112 | Host status recovery toast policy |
 | A6.113 | Host error action command policy |
 | A6.114 | Search exclude glob builder |
+| A6.115 | Preferred multi-root host URI retention |
 
 ### A5 complete enough
 

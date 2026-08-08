@@ -1374,6 +1374,12 @@ export {
 } from "./lib/searchExcludeGlobs.js";
 
 export {
+  PREFERRED_HOST_ROOT_STATE_KEY,
+  readPreferredHostRootFromState,
+  retainPreferredHostRootUri,
+} from "./lib/preferredHostRoot.js";
+
+export {
   fileUriToPath,
   isHttpUrl,
   segmentChatContent,
