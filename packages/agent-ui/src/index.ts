@@ -1211,6 +1211,12 @@ export {
 } from "./lib/checkpointChrome.js";
 
 export {
+  isPlanPermissionMode,
+  latestTodoItemsFromDisplayMessages,
+  permissionModeAfterExitPlan,
+} from "./lib/chatPlanChrome.js";
+
+export {
   fileUriToPath,
   isHttpUrl,
   segmentChatContent,
