@@ -1134,6 +1134,11 @@ export {
 } from "./lib/settingsHubChrome.js";
 
 export {
+  filterSettingsNav,
+  settingsSectionSearchScore,
+} from "./lib/settingsSearchChrome.js";
+
+export {
   fileUriToPath,
   isHttpUrl,
   segmentChatContent,

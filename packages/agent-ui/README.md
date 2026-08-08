@@ -199,6 +199,7 @@ consumption of shared panel shells:
 | A6.81 | MCP status chrome (`canMountMcpStatus`, sort, summaries) |
 | A6.82 | Composer caret helpers (`resolveComposerCaret`, advance after draft) |
 | A6.83 | Settings hub nav catalog (`listSettingsHubNav`, normalize section) |
+| A6.84 | Settings hub search filter (`filterSettingsNav`, score) |
 
 ### A5 complete enough
 
