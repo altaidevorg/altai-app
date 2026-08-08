@@ -1203,6 +1203,14 @@ export {
 } from "./lib/settingsSnippetsChrome.js";
 
 export {
+  canMountCheckpointChrome,
+  canRestoreCheckpoint,
+  preferredCheckpointLabel,
+  toCheckpointMenuItems,
+  type CheckpointChromeFlags,
+} from "./lib/checkpointChrome.js";
+
+export {
   fileUriToPath,
   isHttpUrl,
   segmentChatContent,

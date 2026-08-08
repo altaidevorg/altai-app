@@ -207,6 +207,7 @@ consumption of shared panel shells:
 | A6.89 | Model catalog merge/filter (`mergeModelCatalog`, provider id) |
 | A6.90 | Provider status merge/gates (`mergeProviderCatalog`, banner) |
 | A6.91 | Settings snippet prefs → composer catalog merge |
+| A6.92 | Checkpoint mount/map helpers (`toCheckpointMenuItems`) |
 
 ### A5 complete enough
 
