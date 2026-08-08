@@ -1404,6 +1404,12 @@ export {
   includeUriInWorkspaceProblemsAttach,
   isWorkspaceNotTrustedError,
 } from "./lib/workspaceTrustAttach.js";
+
+export type { OpenSettingsPayload } from "./lib/settingsDeepLink.js";
+export {
+  buildOpenSettingsPayload,
+  parseOpenSettingsPayload,
+} from "./lib/settingsDeepLink.js";
 export {
   buildOpenChatWithSelectionPayload,
   parseOpenChatWithSelectionPayload,
