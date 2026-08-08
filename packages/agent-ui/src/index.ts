@@ -1016,6 +1016,23 @@ export {
 } from "./lib/editDiffMessagePolicy.js";
 
 export {
+  activityFromMessages,
+  buildRunInspectorSections,
+  changesFromMessages,
+  hasRunInspectorContent,
+  latestTodosFromMessages,
+  mapApprovalsToInspectorItems,
+  type ActivityInspectorEventView,
+  type ApprovalsInspectorItemView,
+  type ChangesInspectorItemView,
+  type InspectorTodosModelView,
+  type PendingApprovalLike,
+  type RunInspectorMessageLike,
+  type RunInspectorSectionsModelView,
+  type TodosInspectorItemView,
+} from "./lib/runInspectorSections.js";
+
+export {
   fileUriToPath,
   isHttpUrl,
   segmentChatContent,
