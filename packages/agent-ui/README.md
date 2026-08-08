@@ -210,6 +210,7 @@ consumption of shared panel shells:
 | A6.92 | Checkpoint mount/map helpers (`toCheckpointMenuItems`) |
 | A6.93 | Plan-mode strip helpers (`isPlanPermissionMode`, sticky todos) |
 | A6.94 | Attach format helpers (`formatGitDiffSummary`, terminal text) |
+| A6.95 | Workspace topbar mount/pressed helpers |
 
 ### A5 complete enough
 
