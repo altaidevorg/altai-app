@@ -1419,6 +1419,7 @@ export {
 } from "./lib/composerDraftPersist.js";
 
 export { withAssetCacheBust } from "./lib/assetCacheBust.js";
+export { createSecureId, getSecureRandomBytes } from "./lib/secureRandom.js";
 export {
   buildOpenOperationsPayload,
   parseOpenOperationsPayload,

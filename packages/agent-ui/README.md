@@ -242,6 +242,7 @@ consumption of shared panel shells:
 | A6.124 | Operations deep link payloads |
 | A6.125 | Composer draft persist policy |
 | A6.126 | Webview asset cache-bust helper |
+| A6.127 | Secure random / id helpers |
 
 ### A5 complete enough
 
