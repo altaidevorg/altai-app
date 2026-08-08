@@ -1181,6 +1181,22 @@ export {
 } from "./lib/modelCatalogChrome.js";
 
 export {
+  canMountProviderStatus,
+  displayProviderLabel,
+  firstConnectableProvider,
+  hasConnectedProvider,
+  isKeylessProvider,
+  mergeProviderCatalog,
+  providerConsoleUrl,
+  providerRequiresBaseUrl,
+  providerStatusCopy,
+  shouldShowProviderConnectBanner,
+  sortProvidersForDisplay,
+  type KnownProviderEntry,
+  type ProviderStatusFlags,
+} from "./lib/providerStatusChrome.js";
+
+export {
   fileUriToPath,
   isHttpUrl,
   segmentChatContent,
