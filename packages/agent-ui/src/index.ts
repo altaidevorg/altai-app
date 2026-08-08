@@ -755,6 +755,16 @@ export {
 } from "./components/AiChatViewFrame.js";
 
 export {
+  isSdkToolPart,
+  mapSdkToolApprovalPart,
+  mapSdkToolCardPart,
+  sdkToolName,
+  type SdkToolApprovalView,
+  type SdkToolCardView,
+  type SdkToolPartLike,
+} from "./lib/sdkToolPartMap.js";
+
+export {
   chatDisplayBubbleClassName,
   chatDisplayBubbleModifier,
   chatDisplayRoleLabel,

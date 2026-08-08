@@ -42,7 +42,10 @@ import {
   buildTranscriptPartGroups,
   HoverActionButton,
   indexOfLastTextPart,
+  isSdkToolPart,
   joinMessageTextParts,
+  mapSdkToolApprovalPart,
+  mapSdkToolCardPart,
   prepareUserTurnDisplay,
   shouldShowAssistantRunActions,
 } from "@altai/agent-ui";
@@ -306,10 +309,7 @@ const RenderedPart = memo(function RenderedPart({
     );
   }
 
-  if (
-    part.type === "dynamic-tool" ||
-    (typeof part.type === "string" && part.type.startsWith("tool-"))
-  ) {
+  if (isSdkToolPart(part as { type?: string })) {
     return (
       <RenderedTool
         part={part as unknown as AnyToolPart}
@@ -331,34 +331,40 @@ const RenderedTool = memo(function RenderedTool({
   const assertiveAnnounce = usePreferencesStore(
     (s) => s.approvalAnnounceAssertive,
   );
-  const toolName =
-    part.type === "dynamic-tool"
-      ? part.toolName
-      : part.type.replace(/^tool-/, "");
-
-  if (part.state === "approval-requested") {
+  const like = part as {
+    type?: string;
+    toolName?: string;
+    state?: string;
+    input?: unknown;
+    approval?: { id?: string };
+    output?: unknown;
+    errorText?: string;
+  };
+  const approval = mapSdkToolApprovalPart(like);
+  if (approval) {
     return (
       <AiToolApproval
         part={{
           state: "approval-requested",
-          approval: { id: part.approval.id },
-          input: part.input,
+          approval: { id: approval.approvalId },
+          input: approval.input,
         }}
-        toolName={toolName}
+        toolName={approval.toolName}
         assertiveAnnounce={assertiveAnnounce}
-        onRespond={(approved) => onApproval(part.approval.id, approved)}
+        onRespond={(approved) => onApproval(approval.approvalId, approved)}
       />
     );
   }
 
+  const card = mapSdkToolCardPart(like);
   return (
     <Tool
-      toolName={toolName}
-      state={part.state}
-      input={part.input}
-      output={"output" in part ? part.output : undefined}
-      errorText={"errorText" in part ? part.errorText : undefined}
-      defaultOpen={toolName === "list_directory"}
+      toolName={card.toolName}
+      state={card.state as AnyToolPart["state"]}
+      input={card.input}
+      output={card.output}
+      errorText={card.errorText}
+      defaultOpen={card.defaultOpen}
     />
   );
 });
