@@ -1093,17 +1093,16 @@ export { canMountReplayControl } from "./lib/replayChrome.js";
 export { formatDiagnosticClipboardText } from "./lib/waitShellChrome.js";
 
 export {
-<<<<<<< HEAD
   canMountPermissionModeSwitcher,
   type PermissionSwitcherFlags,
 } from "./lib/permissionModeChrome.js";
-=======
+
+export {
   canMountSkillsStatus,
   skillsSummaryCopy,
   sortSkillsForDisplay,
   type SkillView,
 } from "./lib/skillsStatusChrome.js";
->>>>>>> 1125e85 (feat(agent-ui): skills status chrome helpers (A6.79))
 
 export {
   fileUriToPath,
