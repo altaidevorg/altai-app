@@ -1073,6 +1073,12 @@ export {
 } from "./lib/usageMeterChrome.js";
 
 export {
+  ALTAI_SURFACES,
+  nextAltaiSurface,
+  type AltaiSurfaceId,
+} from "./lib/surfaceTabsChrome.js";
+
+export {
   fileUriToPath,
   isHttpUrl,
   segmentChatContent,
