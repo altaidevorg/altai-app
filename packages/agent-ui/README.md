@@ -206,6 +206,7 @@ consumption of shared panel shells:
 | A6.88 | Composer agent profiles (`COMPOSER_AGENT_PROFILES`, prefix) |
 | A6.89 | Model catalog merge/filter (`mergeModelCatalog`, provider id) |
 | A6.90 | Provider status merge/gates (`mergeProviderCatalog`, banner) |
+| A6.91 | Settings snippet prefs → composer catalog merge |
 
 ### A5 complete enough
 

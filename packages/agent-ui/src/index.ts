@@ -1197,6 +1197,12 @@ export {
 } from "./lib/providerStatusChrome.js";
 
 export {
+  mergeSnippetCatalogFromPrefs,
+  prefsToComposerSnippets,
+  type SnippetPrefEntry,
+} from "./lib/settingsSnippetsChrome.js";
+
+export {
   fileUriToPath,
   isHttpUrl,
   segmentChatContent,
