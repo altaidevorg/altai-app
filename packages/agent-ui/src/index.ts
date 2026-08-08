@@ -1231,7 +1231,7 @@ export {
 
 export {
   chatLineKind,
-  shouldShowChatEmptyHome,
+  shouldShowFlatLogEmptyHome,
   type ChatLineKind,
 } from "./lib/chatLineKind.js";
 

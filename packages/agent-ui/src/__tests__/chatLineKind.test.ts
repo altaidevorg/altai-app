@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   chatLineKind,
-  shouldShowChatEmptyHome,
+  shouldShowFlatLogEmptyHome,
 } from "../lib/chatLineKind.js";
 
 describe("chatLineKind", () => {
@@ -13,9 +13,9 @@ describe("chatLineKind", () => {
   });
 });
 
-describe("shouldShowChatEmptyHome", () => {
+describe("shouldShowFlatLogEmptyHome", () => {
   it("is true only for empty transcripts", () => {
-    expect(shouldShowChatEmptyHome([])).toBe(true);
-    expect(shouldShowChatEmptyHome(["You: hi"])).toBe(false);
+    expect(shouldShowFlatLogEmptyHome([])).toBe(true);
+    expect(shouldShowFlatLogEmptyHome(["You: hi"])).toBe(false);
   });
 });

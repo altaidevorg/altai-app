@@ -30,7 +30,7 @@ export function chatLineKind(line: string): ChatLineKind {
   return "agent";
 }
 
-/** True when there is no transcript yet (show shared EmptyState home). */
-export function shouldShowChatEmptyHome(lines: readonly string[]): boolean {
+/** True when there is no flat-log transcript yet (show shared EmptyState home). */
+export function shouldShowFlatLogEmptyHome(lines: readonly string[]): boolean {
   return lines.length === 0;
 }
