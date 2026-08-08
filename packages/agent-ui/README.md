@@ -194,6 +194,7 @@ consumption of shared panel shells:
 | A6.76 | Replay control mount gate (`canMountReplayControl`) |
 | A6.77 | Wait-shell diagnostic clipboard (`formatDiagnosticClipboardText`) |
 | A6.78 | Permission-mode switcher gate (`canMountPermissionModeSwitcher`) |
+| A6.79 | Skills status chrome (`canMountSkillsStatus`, summary) |
 
 ### A5 complete enough
 

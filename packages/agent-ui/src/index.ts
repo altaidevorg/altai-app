@@ -1098,6 +1098,13 @@ export {
 } from "./lib/permissionModeChrome.js";
 
 export {
+  canMountSkillsStatus,
+  skillsSummaryCopy,
+  sortSkillsForDisplay,
+  type SkillView,
+} from "./lib/skillsStatusChrome.js";
+
+export {
   fileUriToPath,
   isHttpUrl,
   segmentChatContent,
