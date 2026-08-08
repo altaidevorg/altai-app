@@ -173,6 +173,7 @@ consumption of shared panel shells:
 | A6.55 | Display list interaction hook (`useDisplayMessageInteractionState`) |
 | A6.56 | Display tool-group icon key (`displayToolGroupIconKey`) |
 | A6.57 | Display message content body (`AiDisplayMessageContent`) |
+| A6.58 | Display message actions cluster (`AiDisplayMessageActions`) |
 
 ### A5 complete enough
 

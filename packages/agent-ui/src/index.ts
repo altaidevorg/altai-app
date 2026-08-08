@@ -750,6 +750,11 @@ export {
 } from "./components/AiDisplayMessageContent.js";
 
 export {
+  AiDisplayMessageActions,
+  type AiDisplayMessageActionsProps,
+} from "./components/AiDisplayMessageActions.js";
+
+export {
   AiUserTurnBody,
   type AiUserTurnBodyProps,
 } from "./components/AiUserTurnBody.js";
