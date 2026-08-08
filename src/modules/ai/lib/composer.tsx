@@ -18,8 +18,7 @@ import {
   hasNativeBinaryAttachment,
   MAX_TEXT_INLINE,
   clearComposerDraftAfterAccept,
-  mapComposerSubmitPlanToHostIntent,
-  planComposerSubmit,
+  executeComposerSubmit,
   remainingTextAfterAcceptedDispatch,
   resolveComposerEnterAction,
   selectionToComposerAttachment,
@@ -392,82 +391,71 @@ export function AiComposerProvider({ children }: ProviderProps) {
       commands: pickedCommands,
     };
 
-    const plan = planComposerSubmit({
-      action,
-      availability: actionAvailability,
-      draft: {
-        value,
-        files,
-        snippets: pickedSnippets,
-        commands: pickedCommands,
-      },
-      catalog: useSnippetsStore.getState().snippets,
-      resolveSlash: tryRunSlashCommand,
-    });
-
-    const intent = mapComposerSubmitPlanToHostIntent(plan, {
-      sessionId,
-      runId,
-    });
-
-    if (intent.kind === "noop") return;
-    if (intent.kind === "handled") {
-      clearAcceptedSnapshot(snapshot);
-      if (intent.toast) console.info(intent.toast);
-      return;
-    }
-
-    const store = useChatStore.getState();
-    const { composed, multimodal } = intent;
-    const { imageUrls, documents } = multimodal;
-
     submittingRef.current = true;
     setSubmitting(true);
     try {
-      let accepted: boolean;
-      if (intent.kind === "steer") {
-        const acknowledgement = await native.agentSteer(
-          intent.sessionId,
-          intent.runId,
-          composed,
-        );
-        if (
-          acknowledgement.chatId !== intent.sessionId ||
-          acknowledgement.runId !== intent.runId
-        ) {
-          throw new Error("The runtime acknowledged a different agent run");
-        }
-        store.appendNativeMessage(composed, "user");
-        store.addActivity({
-          label: "Steering queued for the active run",
-          detail: "It will be applied at the next safe boundary",
-          kind: "agent",
-          tone: "success",
-        });
-        accepted = true;
-      } else {
-        accepted = await sendMessage(
-          composed,
-          imageUrls.length ? imageUrls : undefined,
-          documents.length ? documents : undefined,
-          { queue: intent.queue },
-        );
-      }
+      const store = useChatStore.getState();
+      const result = await executeComposerSubmit({
+        action,
+        availability: actionAvailability,
+        draft: {
+          value,
+          files,
+          snippets: pickedSnippets,
+          commands: pickedCommands,
+        },
+        catalog: useSnippetsStore.getState().snippets,
+        resolveSlash: tryRunSlashCommand,
+        sessionId,
+        runId,
+        host: {
+          onToast: (toast) => console.info(toast),
+          onError: ({ action: failedAction, error }) => {
+            store.addActivity({
+              label:
+                failedAction === "steer"
+                  ? "Could not steer the active run"
+                  : "Task could not be queued",
+              detail: error instanceof Error ? error.message : String(error),
+              kind: "agent",
+              tone: "error",
+            });
+          },
+          steer: async ({ sessionId: sid, runId: rid, composed }) => {
+            const acknowledgement = await native.agentSteer(sid, rid, composed);
+            if (
+              acknowledgement.chatId !== sid ||
+              acknowledgement.runId !== rid
+            ) {
+              throw new Error("The runtime acknowledged a different agent run");
+            }
+            store.appendNativeMessage(composed, "user");
+            store.addActivity({
+              label: "Steering queued for the active run",
+              detail: "It will be applied at the next safe boundary",
+              kind: "agent",
+              tone: "success",
+            });
+            return true;
+          },
+          send: async ({ composed, multimodal, queue }) => {
+            const { imageUrls, documents } = multimodal;
+            return sendMessage(
+              composed,
+              imageUrls.length ? imageUrls : undefined,
+              documents.length ? documents : undefined,
+              { queue },
+            );
+          },
+        },
+      });
 
-      if (accepted) {
-        if (!store.mini.open) store.openMini();
+      if (result.kind === "handled" || result.kind === "accepted") {
+        if (result.kind === "accepted" && !store.mini.open) {
+          store.openMini();
+        }
         clearAcceptedSnapshot(snapshot);
       }
-    } catch (error) {
-      store.addActivity({
-        label:
-          intent.kind === "steer"
-            ? "Could not steer the active run"
-            : "Task could not be queued",
-        detail: error instanceof Error ? error.message : String(error),
-        kind: "agent",
-        tone: "error",
-      });
     } finally {
       submittingRef.current = false;
       setSubmitting(false);

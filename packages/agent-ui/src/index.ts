@@ -793,6 +793,19 @@ export {
   type ComposerSubmitHostIntent,
 } from "./lib/composerSubmitHostIntent.js";
 
+export {
+  executeComposerSubmit,
+  type ComposerSubmitExecuteResult,
+  type ComposerSubmitHostHandlers,
+} from "./lib/composerSubmitExecute.js";
+
+export {
+  useComposerController,
+  type ComposerCommandPick,
+  type ComposerController,
+  type UseComposerControllerOptions,
+} from "./hooks/useComposerController.js";
+
 export { autoresizeTextarea } from "./lib/autoresizeTextarea.js";
 
 export {
