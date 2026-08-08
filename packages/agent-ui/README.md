@@ -209,6 +209,7 @@ consumption of shared panel shells:
 | A6.91 | Settings snippet prefs → composer catalog merge |
 | A6.92 | Checkpoint mount/map helpers (`toCheckpointMenuItems`) |
 | A6.93 | Plan-mode strip helpers (`isPlanPermissionMode`, sticky todos) |
+| A6.94 | Attach format helpers (`formatGitDiffSummary`, terminal text) |
 
 ### A5 complete enough
 
