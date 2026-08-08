@@ -1303,6 +1303,23 @@ export {
 } from "./lib/sessionTranscript.js";
 
 export {
+  EMPTY_OPERATIONS_DATA,
+  buildOperationsOverview,
+  countOperationsAttention,
+  destinationForOverviewMetric,
+  destinationForOverviewRowId,
+  overviewActiveRunId,
+  overviewFailedRunId,
+  overviewUnreadInboxId,
+  withOverviewMetricNavigation,
+  withOverviewRowNavigation,
+  type OperationsOverviewData,
+  type OperationsOverviewViewModel,
+  type OverviewNavFlags,
+  type OverviewRowDestination,
+} from "./lib/operationsOverview.js";
+
+export {
   fileUriToPath,
   isHttpUrl,
   segmentChatContent,
