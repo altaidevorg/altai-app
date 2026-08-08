@@ -1174,6 +1174,13 @@ export {
 } from "./lib/agentPickerChrome.js";
 
 export {
+  filterModelsByProviderKeys,
+  mergeModelCatalog,
+  providerIdForModel,
+  type CatalogModelEntry,
+} from "./lib/modelCatalogChrome.js";
+
+export {
   fileUriToPath,
   isHttpUrl,
   segmentChatContent,
