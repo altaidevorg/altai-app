@@ -1,15 +1,28 @@
 import { SparklesIcon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
+import { formatComposerHintLine } from "../lib/composerHintChrome.js";
 
 export type EmptyStateProps = {
   agentName: string;
+  /**
+   * Optional affordance hint under the footer (A6.63).
+   * Pass `true` for the default / # @ line, a custom string, or omit/null.
+   */
+  affordanceHint?: string | boolean | null;
 };
 
 /**
  * Empty chat home shown when the active session has no messages. Purely
  * presentational; the host supplies the active agent name.
  */
-export function EmptyState({ agentName }: EmptyStateProps) {
+export function EmptyState({ agentName, affordanceHint }: EmptyStateProps) {
+  const hint =
+    affordanceHint === true
+      ? formatComposerHintLine()
+      : typeof affordanceHint === "string"
+        ? affordanceHint
+        : null;
+
   return (
     <div className="altai-ai-task-home flex min-h-0 flex-1 flex-col overflow-y-auto px-4 py-5 @[36rem]:px-6 @[36rem]:py-7">
       <div className="mx-auto flex w-full max-w-[32rem] flex-1 flex-col justify-center">
@@ -32,8 +45,9 @@ export function EmptyState({ agentName }: EmptyStateProps) {
         </div>
       </div>
 
-      <div className="flex shrink-0 items-center justify-center gap-1.5 pt-4 text-[10px] text-muted-foreground/70">
+      <div className="flex shrink-0 flex-col items-center justify-center gap-1 pt-4 text-[10px] text-muted-foreground/70">
         <span>Files, terminal, and previews stay available from Open IDE.</span>
+        {hint ? <span className="altai-empty-affordance-hint">{hint}</span> : null}
       </div>
     </div>
   );

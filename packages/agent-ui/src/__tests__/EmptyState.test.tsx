@@ -13,4 +13,15 @@ describe("EmptyState", () => {
     expect(html).toContain("Open IDE");
     expect(html).toContain("<svg");
   });
+
+  it("renders default affordance hint when enabled", () => {
+    const html = renderToStaticMarkup(
+      createElement(EmptyState, {
+        agentName: "ALTAI",
+        affordanceHint: true,
+      }),
+    );
+    expect(html).toContain("altai-empty-affordance-hint");
+    expect(html).toMatch(/\/ commands/);
+  });
 });
