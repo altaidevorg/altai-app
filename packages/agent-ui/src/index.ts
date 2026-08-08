@@ -744,6 +744,11 @@ export {
 } from "./components/AiSdkUiPartSwitch.js";
 
 export {
+  AiSdkToolPartSwitch,
+  type AiSdkToolPartSwitchProps,
+} from "./components/AiSdkToolPartSwitch.js";
+
+export {
   isStandaloneReadToolPart,
   shouldShowAssistantRunActions,
 } from "./lib/chatSdkAssistantChrome.js";
