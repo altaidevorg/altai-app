@@ -44,9 +44,11 @@ import {
   indexOfLastTextPart,
   isSdkToolPart,
   joinMessageTextParts,
+  classifySdkUiPart,
   mapSdkToolApprovalPart,
   mapSdkToolCardPart,
   prepareUserTurnDisplay,
+  sdkPartText,
   shouldShowAssistantRunActions,
 } from "@altai/agent-ui";
 import { AgentStatusPill } from "./AgentStatusPill";
@@ -293,7 +295,7 @@ const RenderedPart = memo(function RenderedPart({
   if (part.type === "text") {
     return (
       <MessageResponse streaming={streaming}>
-        {(part as unknown as { text: string }).text}
+        {sdkPartText(part as { type?: string; text?: string })}
       </MessageResponse>
     );
   }
@@ -303,13 +305,13 @@ const RenderedPart = memo(function RenderedPart({
       <Reasoning>
         <ReasoningTrigger />
         <ReasoningContent>
-          {(part as unknown as { text: string }).text}
+          {sdkPartText(part as { type?: string; text?: string })}
         </ReasoningContent>
       </Reasoning>
     );
   }
 
-  if (isSdkToolPart(part as { type?: string })) {
+  if (classifySdkUiPart(part as { type?: string }) === "tool") {
     return (
       <RenderedTool
         part={part as unknown as AnyToolPart}

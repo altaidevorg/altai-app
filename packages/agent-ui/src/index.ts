@@ -765,6 +765,13 @@ export {
 } from "./lib/sdkToolPartMap.js";
 
 export {
+  classifySdkUiPart,
+  sdkPartText,
+  type SdkUiPartKind,
+  type SdkUiPartLike,
+} from "./lib/sdkUiPartKind.js";
+
+export {
   chatDisplayBubbleClassName,
   chatDisplayBubbleModifier,
   chatDisplayRoleLabel,
