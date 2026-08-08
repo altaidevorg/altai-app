@@ -1380,6 +1380,12 @@ export {
 } from "./lib/preferredHostRoot.js";
 
 export {
+  MAX_PROVIDER_BASE_URL_CHARS,
+  normalizeProviderBaseUrl,
+  providerRequiresBaseUrl,
+} from "./lib/providerBaseUrl.js";
+
+export {
   fileUriToPath,
   isHttpUrl,
   segmentChatContent,
