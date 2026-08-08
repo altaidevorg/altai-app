@@ -1086,6 +1086,8 @@ export {
   type ShellSurface,
 } from "./lib/shellChrome.js";
 
+export { isEscapeDismissKey } from "./lib/chatKeyboardChrome.js";
+
 export {
   fileUriToPath,
   isHttpUrl,
