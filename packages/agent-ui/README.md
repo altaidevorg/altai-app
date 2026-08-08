@@ -198,6 +198,7 @@ consumption of shared panel shells:
 | A6.80 | Session remove mode (`resolveSessionRemoveMode`, archive prefer) |
 | A6.81 | MCP status chrome (`canMountMcpStatus`, sort, summaries) |
 | A6.82 | Composer caret helpers (`resolveComposerCaret`, advance after draft) |
+| A6.83 | Settings hub nav catalog (`listSettingsHubNav`, normalize section) |
 
 ### A5 complete enough
 
