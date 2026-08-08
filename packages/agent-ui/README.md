@@ -154,6 +154,7 @@ consumption of shared panel shells:
 | A6.35 | Composer submit host intent (`mapComposerSubmitPlanToHostIntent`) |
 | A6.36 | Ports-first submit execute + `useComposerController` headless draft |
 | A6.38 | Display transcript list frame + role/bubble chrome (`AiDisplayTranscriptList`) |
+| A6.39 | Display message action flags (`resolveDisplayMessageActions`, copy gates) |
 
 ### A5 complete enough
 

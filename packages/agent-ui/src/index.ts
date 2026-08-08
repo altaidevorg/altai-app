@@ -735,6 +735,15 @@ export {
 } from "./lib/chatDisplayChrome.js";
 
 export {
+  canCopyDisplayMessage,
+  hasDisplayMessageActions,
+  lastAssistantMessageId,
+  resolveDisplayMessageActions,
+  type DisplayMessageActionFlags,
+  type DisplayMessageActionInput,
+} from "./lib/chatDisplayActions.js";
+
+export {
   ACCEPTED_COMPOSER_FILES,
   ACCEPTED_FILES,
   boundContextText,
