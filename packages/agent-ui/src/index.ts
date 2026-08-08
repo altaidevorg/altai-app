@@ -745,6 +745,11 @@ export {
 } from "./components/AiDisplayMessageBodyExtras.js";
 
 export {
+  AiDisplayMessageContent,
+  type AiDisplayMessageContentProps,
+} from "./components/AiDisplayMessageContent.js";
+
+export {
   AiUserTurnBody,
   type AiUserTurnBodyProps,
 } from "./components/AiUserTurnBody.js";
