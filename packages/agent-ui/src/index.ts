@@ -1164,6 +1164,16 @@ export {
 } from "./lib/modelPickerChrome.js";
 
 export {
+  COMPOSER_AGENT_PROFILES,
+  DEFAULT_COMPOSER_AGENT_ID,
+  applyAgentPromptPrefix,
+  canMountAgentPicker,
+  resolveComposerAgent,
+  type ComposerAgentIconId,
+  type ComposerAgentProfile,
+} from "./lib/agentPickerChrome.js";
+
+export {
   fileUriToPath,
   isHttpUrl,
   segmentChatContent,
