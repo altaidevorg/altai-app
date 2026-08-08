@@ -709,6 +709,21 @@ export {
 } from "./components/AiChatMainColumn.js";
 
 export {
+  canRetryLastAssistantTurn,
+  isRecoverableAttentionMessage,
+  isRetryableRunOutcome,
+  joinMessageTextParts,
+  resolveChatAriaLive,
+  resolveTranscriptRunErrorVariant,
+  type ChatAnnouncePref,
+} from "./lib/chatTranscriptChrome.js";
+
+export {
+  AiChatTranscriptFrame,
+  type AiChatTranscriptFrameProps,
+} from "./components/AiChatTranscriptFrame.js";
+
+export {
   ACCEPTED_COMPOSER_FILES,
   ACCEPTED_FILES,
   boundContextText,
