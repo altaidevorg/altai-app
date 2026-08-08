@@ -1327,6 +1327,14 @@ export {
 } from "./lib/operationsAttentionPoll.js";
 
 export {
+  ALTAI_RECOVERY_COMMANDS,
+  isAltaiRecoveryCommand,
+  listRecoveryActions,
+  type AltaiRecoveryCommand,
+  type RecoveryAction,
+} from "./lib/hostRecoveryCommands.js";
+
+export {
   fileUriToPath,
   isHttpUrl,
   segmentChatContent,
