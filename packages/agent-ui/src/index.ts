@@ -1397,6 +1397,12 @@ export type { HostStatusBarInput, HostStatusBarPresentation } from "./lib/hostSt
 export { hostStatusBarPresentation } from "./lib/hostStatusBar.js";
 
 export type { OpenChatWithFilePayload } from "./lib/fileDeepLink.js";
+
+export type { OpenChatWithSelectionPayload } from "./lib/selectionDeepLink.js";
+export {
+  buildOpenChatWithSelectionPayload,
+  parseOpenChatWithSelectionPayload,
+} from "./lib/selectionDeepLink.js";
 export {
   buildOpenChatWithFilePayload,
   parseOpenChatWithFilePayload,
