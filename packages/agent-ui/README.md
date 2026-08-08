@@ -239,6 +239,7 @@ consumption of shared panel shells:
 | A6.121 | Open-chat-with-selection deep link payloads |
 | A6.122 | Workspace trust attach helpers |
 | A6.123 | Open-settings deep link payloads |
+| A6.124 | Operations deep link payloads |
 
 ### A5 complete enough
 
