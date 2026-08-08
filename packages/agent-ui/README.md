@@ -187,6 +187,7 @@ consumption of shared panel shells:
 | A6.69 | Change-review panel policy (`listChangeReviewItems`, line stats) |
 | A6.70 | Run details summary chrome (`canShowRunDetailsChrome`, metrics) |
 | A6.71 | Agent status pill derive (`deriveAgentStatusMeta`, step labels) |
+| A6.72 | Run usage token meter (`usageDeltaFromPayload`, accumulate) |
 
 ### A5 complete enough
 

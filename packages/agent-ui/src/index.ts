@@ -1063,6 +1063,16 @@ export {
 } from "./lib/agentStatusChrome.js";
 
 export {
+  ZERO_RUN_USAGE,
+  accumulateRunUsage,
+  formatRunTokenLabel,
+  formatTokenCount,
+  usageDeltaFromPayload,
+  type RunUsageTotals,
+  type UsageDelta,
+} from "./lib/usageMeterChrome.js";
+
+export {
   fileUriToPath,
   isHttpUrl,
   segmentChatContent,
