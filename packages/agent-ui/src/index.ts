@@ -1088,6 +1088,8 @@ export {
 
 export { isEscapeDismissKey } from "./lib/chatKeyboardChrome.js";
 
+export { canMountReplayControl } from "./lib/replayChrome.js";
+
 export {
   fileUriToPath,
   isHttpUrl,
