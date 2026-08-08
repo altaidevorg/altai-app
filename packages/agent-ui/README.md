@@ -229,6 +229,7 @@ consumption of shared panel shells:
 | A6.111 | Host user-facing error message map |
 | A6.112 | Host status recovery toast policy |
 | A6.113 | Host error action command policy |
+| A6.114 | Search exclude glob builder |
 
 ### A5 complete enough
 

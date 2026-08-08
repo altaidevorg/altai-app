@@ -1369,6 +1369,11 @@ export {
 } from "./lib/hostErrorActions.js";
 
 export {
+  enabledExcludePatterns,
+  searchExcludeGlobFromSettings,
+} from "./lib/searchExcludeGlobs.js";
+
+export {
   fileUriToPath,
   isHttpUrl,
   segmentChatContent,
