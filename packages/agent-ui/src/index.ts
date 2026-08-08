@@ -1145,6 +1145,15 @@ export {
 } from "./lib/transcriptCopyChrome.js";
 
 export {
+  basenamePath,
+  canMountProjectTarget,
+  projectTargetFromWorkspace,
+  retainPreferredRoot,
+  type ProjectTargetView,
+  type WorkspaceTargetInfo,
+} from "./lib/projectTargetChrome.js";
+
+export {
   fileUriToPath,
   isHttpUrl,
   segmentChatContent,
