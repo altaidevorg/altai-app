@@ -179,6 +179,7 @@ consumption of shared panel shells:
 | A6.61 | Composer compact control (`AiComposerCompactControl` slots) |
 | A6.62 | Composer follow-up control (`AiComposerFollowupControl`) |
 | A6.63 | Empty-state affordance hint slot (`EmptyState.affordanceHint`) |
+| A6.64 | Composer attach menu policy (`canMountComposerAttachMenu`) |
 
 ### A5 complete enough
 

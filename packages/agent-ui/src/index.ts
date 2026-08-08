@@ -393,6 +393,14 @@ export {
 } from "./lib/composerHintChrome.js";
 
 export {
+  canMountComposerAttachMenu,
+  composerAttachSurfaceShowsAttachments,
+  composerAttachSurfaceShowsToolbar,
+  type ComposerAttachCapabilityFlags,
+  type ComposerAttachSurface,
+} from "./lib/composerAttachPolicy.js";
+
+export {
   ProviderConnectBanner,
   type ProviderConnectBannerProps,
 } from "./components/ProviderConnectBanner.js";
