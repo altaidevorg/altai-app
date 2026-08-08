@@ -782,6 +782,11 @@ export {
   type ComposerSubmitSnapshot,
 } from "./lib/composerSubmitPlan.js";
 
+export {
+  clearComposerDraftAfterAccept,
+  type ComposerDraftState,
+} from "./lib/composerDraftClear.js";
+
 export { autoresizeTextarea } from "./lib/autoresizeTextarea.js";
 
 export {

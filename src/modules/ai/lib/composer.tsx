@@ -17,9 +17,9 @@ import {
   hasComposerDraft,
   hasNativeBinaryAttachment,
   MAX_TEXT_INLINE,
+  clearComposerDraftAfterAccept,
   planComposerSubmit,
   remainingTextAfterAcceptedDispatch,
-  removeAcceptedItems,
   resolveComposerEnterAction,
   selectionToComposerAttachment,
   upsertComposerAttachment,
@@ -328,19 +328,55 @@ export function AiComposerProvider({ children }: ProviderProps) {
     snippets: Snippet[];
     commands: SlashCommandMeta[];
   }) => {
+    // Live React state is fed into the pure reducer; only the relevant field
+    // needs to be current in each setter.
     setValueState((current) =>
-      remainingTextAfterAcceptedDispatch(
-        current,
-        snapshot.value,
-        valueRevision.current === snapshot.valueRevision,
-      ),
+      clearComposerDraftAfterAccept(
+        {
+          valueRevision: valueRevision.current,
+          value: current,
+          files: snapshot.files,
+          snippets: snapshot.snippets,
+          commands: snapshot.commands,
+        },
+        snapshot,
+      ).value,
     );
-    setFiles((current) => removeAcceptedItems(current, snapshot.files));
+    setFiles((current) =>
+      clearComposerDraftAfterAccept(
+        {
+          valueRevision: valueRevision.current,
+          value: snapshot.value,
+          files: current,
+          snippets: snapshot.snippets,
+          commands: snapshot.commands,
+        },
+        snapshot,
+      ).files as FileAttachment[],
+    );
     setPickedSnippets((current) =>
-      removeAcceptedItems(current, snapshot.snippets),
+      clearComposerDraftAfterAccept(
+        {
+          valueRevision: valueRevision.current,
+          value: snapshot.value,
+          files: snapshot.files,
+          snippets: current,
+          commands: snapshot.commands,
+        },
+        snapshot,
+      ).snippets as Snippet[],
     );
     setPickedCommands((current) =>
-      removeAcceptedItems(current, snapshot.commands),
+      clearComposerDraftAfterAccept(
+        {
+          valueRevision: valueRevision.current,
+          value: snapshot.value,
+          files: snapshot.files,
+          snippets: snapshot.snippets,
+          commands: current,
+        },
+        snapshot,
+      ).commands as SlashCommandMeta[],
     );
   };
 
