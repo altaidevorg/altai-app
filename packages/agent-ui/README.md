@@ -201,6 +201,7 @@ consumption of shared panel shells:
 | A6.83 | Settings hub nav catalog (`listSettingsHubNav`, normalize section) |
 | A6.84 | Settings hub search filter (`filterSettingsNav`, score) |
 | A6.85 | Transcript clipboard export (`formatTranscriptForCopy`) |
+| A6.86 | Project-target chip chrome (`projectTargetFromWorkspace`) |
 
 ### A5 complete enough
 
