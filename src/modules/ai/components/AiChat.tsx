@@ -18,7 +18,7 @@ import {
   Refresh01Icon,
   TerminalIcon,
 } from "@hugeicons/core-free-icons";
-import { ALTAI_CMD_RE, resolveSlashCommand } from "../lib/slashCommands";
+import { resolveSlashCommand } from "../lib/slashCommands";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import { retryFailedRun, useChatStore } from "../store/chatStore";
 import { useAgentRunsStore } from "../store/agentRunsStore";
@@ -43,8 +43,10 @@ import {
   ContextChips,
   formatGroupPreview,
   HoverActionButton,
+  indexOfLastTextPart,
   pathBasename,
-  stripUserContextBlocks,
+  prepareUserTurnDisplay,
+  resolveStreamingAssistantMessageId,
   toolNameOf,
   transcriptPartKey,
   TranscriptConversationEmpty,
@@ -134,11 +136,10 @@ export function AiChatView({
       : chatAnnounce === "assertive"
         ? "assertive"
         : "polite";
-  const lastMessage = messages[messages.length - 1];
-  const streamingMessageId =
-    status === "streaming" && lastMessage?.role === "assistant"
-      ? lastMessage.id
-      : null;
+  const streamingMessageId = resolveStreamingAssistantMessageId(
+    messages,
+    status,
+  );
 
   const onApproval = useCallback(
     (id: string, approved: boolean) => addToolApprovalResponse({ id, approved }),
@@ -213,28 +214,21 @@ const RenderedMessage = memo(function RenderedMessage({
 }) {
   // Index of the trailing text part — only that one is "live" mid-stream.
   // Earlier text parts (separated by tool calls) are already finalized.
-  let lastTextIdx = -1;
-  for (let i = message.parts.length - 1; i >= 0; i -= 1) {
-    if (message.parts[i]?.type === "text") {
-      lastTextIdx = i;
-      break;
-    }
-  }
+  const lastTextIdx = indexOfLastTextPart(message.parts);
   if (message.role === "user") {
     const rawText = message.parts
       .filter((p): p is { type: "text"; text: string } => p.type === "text")
       .map((p) => p.text)
       .join("\n");
 
-    const cmdMatch = rawText.match(ALTAI_CMD_RE);
-    const commandName = cmdMatch?.[1] ?? null;
-    const withoutCmd = cmdMatch ? rawText.slice(cmdMatch[0].length) : rawText;
-    const stripped = stripUserContextBlocks(withoutCmd);
+    const stripped = prepareUserTurnDisplay(rawText);
 
     return (
       <Message from="user" className="altai-ai-message">
         <MessageContent>
-          {commandName ? <ResolvedCommandSnippet name={commandName} /> : null}
+          {stripped.commandName ? (
+            <ResolvedCommandSnippet name={stripped.commandName} />
+          ) : null}
           {stripped.chips.length > 0 ? (
             <ContextChips chips={stripped.chips} />
           ) : null}

@@ -11,10 +11,13 @@ import {
 import { invoke } from "@tauri-apps/api/core";
 import { openSettingsWindow } from "@/modules/settings/openSettingsWindow";
 import { currentWorkspaceFolder } from "@/modules/workspace/folder";
+import { wrapWithCommandMarker, ALTAI_CMD_RE } from "@altai/agent-ui";
 import { native } from "./native";
 import { useAgentsStore } from "../store/agentsStore";
 import { retryLastMessage, requestStop, useChatStore } from "../store/chatStore";
 import { usePlanStore } from "../store/planStore";
+
+export { wrapWithCommandMarker, ALTAI_CMD_RE };
 
 /**
  * Outcome of intercepting a slash command from the composer.
@@ -248,13 +251,6 @@ function parseAliases(value: string | undefined): string[] {
     .split(",")
     .map((alias) => alias.trim().replace(/^\//, "").toLowerCase())
     .filter(Boolean);
-}
-
-export const ALTAI_CMD_RE =
-  /^<altai-command\s+name="([a-z0-9-]+)"(?:\s+state="([a-z]+)")?\s*\/?>(?:\n+|$)/;
-
-export function wrapWithCommandMarker(prompt: string, name: string): string {
-  return `<altai-command name="${name}" />\n\n${prompt}`;
 }
 
 export function tryRunSlashCommand(input: string): SlashOutcome {
