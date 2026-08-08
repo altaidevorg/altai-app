@@ -174,6 +174,7 @@ consumption of shared panel shells:
 | A6.56 | Display tool-group icon key (`displayToolGroupIconKey`) |
 | A6.57 | Display message content body (`AiDisplayMessageContent`) |
 | A6.58 | Display message actions cluster (`AiDisplayMessageActions`) |
+| A6.59 | Composer compact policy (`canMountCompactControl` / invoke) |
 
 ### A5 complete enough
 
