@@ -223,6 +223,7 @@ consumption of shared panel shells:
 | A6.105 | Operations attention badge poll helpers |
 | A6.106 | Host recovery command allowlist + action list |
 | A6.107 | Attention badge report parse + status-bar command |
+| A6.108 | Multi-cursor selection join for attach context |
 
 ### A5 complete enough
 
