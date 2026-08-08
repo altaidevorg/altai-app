@@ -1119,6 +1119,11 @@ export {
 } from "./lib/sessionMutateChrome.js";
 
 export {
+  advanceCaretAfterDraftChange,
+  resolveComposerCaret,
+} from "./lib/composerCaretChrome.js";
+
+export {
   fileUriToPath,
   isHttpUrl,
   segmentChatContent,
