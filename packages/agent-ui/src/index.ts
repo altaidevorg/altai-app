@@ -376,6 +376,11 @@ export {
 } from "./components/CompactNowControl.js";
 
 export {
+  AiComposerCompactControl,
+  type AiComposerCompactControlProps,
+} from "./components/AiComposerCompactControl.js";
+
+export {
   canInvokeCompact,
   canMountCompactControl,
   type ComposerCompactFlags,
