@@ -23,7 +23,6 @@ import { usePreferencesStore } from "@/modules/settings/preferences";
 import { retryFailedRun, useChatStore } from "../store/chatStore";
 import { useAgentRunsStore } from "../store/agentRunsStore";
 import {
-  isRecoverableAttentionMessage,
   isRetryableRunOutcome,
 } from "../lib/agentEventBridge";
 import type {
@@ -35,18 +34,23 @@ import type {
 } from "ai";
 import { memo, useCallback, useMemo } from "react";
 import {
+  AiChatTranscriptFrame,
   AiToolApproval,
   AssistantBrandLabel,
   buildTranscriptPartGroups,
+  canRetryLastAssistantTurn,
   cmdSummaryForToolPart,
   CommandSnippet,
   ContextChips,
   formatGroupPreview,
   HoverActionButton,
   indexOfLastTextPart,
+  joinMessageTextParts,
   pathBasename,
   prepareUserTurnDisplay,
+  resolveChatAriaLive,
   resolveStreamingAssistantMessageId,
+  resolveTranscriptRunErrorVariant,
   toolNameOf,
   transcriptPartKey,
   TranscriptConversationEmpty,
@@ -130,12 +134,7 @@ export function AiChatView({
     const outcome = s.runs[activeSessionId]?.outcome;
     return isRetryableRunOutcome(outcome);
   });
-  const ariaLiveProp: "off" | "polite" | "assertive" =
-    chatAnnounce === "off"
-      ? "off"
-      : chatAnnounce === "assertive"
-        ? "assertive"
-        : "polite";
+  const ariaLiveProp = resolveChatAriaLive(chatAnnounce);
   const streamingMessageId = resolveStreamingAssistantMessageId(
     messages,
     status,
@@ -150,10 +149,16 @@ export function AiChatView({
     return (
       <Conversation className="altai-ai-conversation overflow-x-hidden" aria-live={ariaLiveProp}>
         <ConversationContent className="min-w-0">
-          <TranscriptConversationEmpty>
-            {/* Live status stays inside the transcript viewport, not above the composer. */}
-            <AgentStatusPill hideError />
-          </TranscriptConversationEmpty>
+          <AiChatTranscriptFrame
+            isEmpty
+            aria-live={ariaLiveProp}
+            empty={
+              <TranscriptConversationEmpty>
+                {/* Live status stays inside the transcript viewport, not above the composer. */}
+                <AgentStatusPill hideError />
+              </TranscriptConversationEmpty>
+            }
+          />
         </ConversationContent>
       </Conversation>
     );
@@ -161,36 +166,42 @@ export function AiChatView({
 
   return (
     <Conversation className="altai-ai-conversation overflow-x-hidden" aria-live={ariaLiveProp}>
-      <ConversationContent className="altai-ai-transcript mx-auto min-w-0 w-full max-w-[52rem] gap-5 px-4 py-5 @[44rem]:px-6">
-        {messages.map((m, i) => (
-          <RenderedMessage
-            key={m.id}
-            message={m}
-            onApproval={onApproval}
-            streaming={m.id === streamingMessageId}
-            canRetry={
-              retryableFailure &&
-              m.role === "assistant" &&
-              i === messages.length - 1 &&
-              status !== "streaming"
-            }
-            onRetry={() => void retryFailedRun()}
-            onStop={() => void stop?.()}
-          />
-        ))}
-        {/* Agent working indicator — end of transcript, inside the chat scroll. */}
-        <AgentStatusPill hideError />
-        {error ? (
-          <TranscriptRunError
-            message={error.message}
-            variant={
-              isRecoverableAttentionMessage(error.message)
-                ? "attention"
-                : "error"
-            }
-            onDismiss={clearError}
-          />
-        ) : null}
+      <ConversationContent className="min-w-0">
+        <AiChatTranscriptFrame
+          isEmpty={false}
+          aria-live={ariaLiveProp}
+          end={
+            <>
+              {/* Agent working indicator — end of transcript, inside the chat scroll. */}
+              <AgentStatusPill hideError />
+              {error ? (
+                <TranscriptRunError
+                  message={error.message}
+                  variant={resolveTranscriptRunErrorVariant(error.message)}
+                  onDismiss={clearError}
+                />
+              ) : null}
+            </>
+          }
+        >
+          {messages.map((m, i) => (
+            <RenderedMessage
+              key={m.id}
+              message={m}
+              onApproval={onApproval}
+              streaming={m.id === streamingMessageId}
+              canRetry={canRetryLastAssistantTurn({
+                retryableFailure,
+                role: m.role,
+                index: i,
+                messageCount: messages.length,
+                status,
+              })}
+              onRetry={() => void retryFailedRun()}
+              onStop={() => void stop?.()}
+            />
+          ))}
+        </AiChatTranscriptFrame>
       </ConversationContent>
       <ConversationScrollButton />
     </Conversation>
@@ -216,10 +227,7 @@ const RenderedMessage = memo(function RenderedMessage({
   // Earlier text parts (separated by tool calls) are already finalized.
   const lastTextIdx = indexOfLastTextPart(message.parts);
   if (message.role === "user") {
-    const rawText = message.parts
-      .filter((p): p is { type: "text"; text: string } => p.type === "text")
-      .map((p) => p.text)
-      .join("\n");
+    const rawText = joinMessageTextParts(message.parts);
 
     const stripped = prepareUserTurnDisplay(rawText);
 

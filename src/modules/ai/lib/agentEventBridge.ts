@@ -1,5 +1,9 @@
 import { listenAppEvent, type UnlistenFn } from "@/lib/appEvent";
 import { plural } from "@/lib/utils";
+import {
+  isRecoverableAttentionMessage as isRecoverableAttentionMessageShared,
+  isRetryableRunOutcome as isRetryableRunOutcomeShared,
+} from "@altai/agent-ui";
 import { useChatStore } from "../store/chatStore";
 import { useAgentRunsStore } from "../store/agentRunsStore";
 import { useTodosStore } from "../store/todoStore";
@@ -202,7 +206,7 @@ export type RunOutcome =
 export function isRetryableRunOutcome(
   outcome: RunOutcome | null | undefined,
 ): boolean {
-  return outcome?.kind === "failed" && outcome.retryable;
+  return isRetryableRunOutcomeShared(outcome);
 }
 
 /** Recoverable terminals — segment/stuck pauses, not provider crashes. */
@@ -214,7 +218,7 @@ export function isRecoverableRunOutcome(
 
 /** Chat alert / pill copy that must never render as “Something went wrong.” */
 export function isRecoverableAttentionMessage(message: string): boolean {
-  return message.startsWith("Run paused");
+  return isRecoverableAttentionMessageShared(message);
 }
 
 /**
