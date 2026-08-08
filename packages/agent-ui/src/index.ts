@@ -750,7 +750,9 @@ export {
 
 export {
   isStandaloneReadToolPart,
+  resolveAssistantRunActionMode,
   shouldShowAssistantRunActions,
+  type AssistantRunActionMode,
 } from "./lib/chatSdkAssistantChrome.js";
 
 export {

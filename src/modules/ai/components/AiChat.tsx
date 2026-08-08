@@ -46,7 +46,7 @@ import {
   indexOfLastTextPart,
   joinMessageTextParts,
   prepareUserTurnDisplay,
-  shouldShowAssistantRunActions,
+  resolveAssistantRunActionMode,
 } from "@altai/agent-ui";
 import { AgentStatusPill } from "./AgentStatusPill";
 import { openWorkspaceFile } from "../lib/openChatHref";
@@ -199,7 +199,7 @@ const RenderedMessage = memo(function RenderedMessage({
     [message.parts],
   );
 
-  const showRunActions = shouldShowAssistantRunActions({
+  const runActionMode = resolveAssistantRunActionMode({
     streaming,
     canRetry,
   });
@@ -244,9 +244,9 @@ const RenderedMessage = memo(function RenderedMessage({
           )}
         />
       </MessageContent>
-      {showRunActions ? (
+      {runActionMode !== "hidden" ? (
         <MessageActions className="opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
-          {streaming ? (
+          {runActionMode === "stop" ? (
             <HoverActionButton title="Stop generating" onClick={() => onStop?.()}>
               <HugeiconsIcon icon={Cancel01Icon} size={11} strokeWidth={1.75} />
               Stop
