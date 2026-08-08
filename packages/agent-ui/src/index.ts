@@ -696,6 +696,13 @@ export {
 } from "./lib/composerTriggers.js";
 
 export {
+  nextSuggestionActiveIndex,
+  resolveComposerSuggestionKeyAction,
+  resolveComposerSuggestionOpen,
+  type ComposerSuggestionKeyAction,
+} from "./lib/composerSuggestionKeyboard.js";
+
+export {
   getComposerActionAvailability,
   remainingTextAfterAcceptedDispatch,
   resolveComposerEnterAction,
