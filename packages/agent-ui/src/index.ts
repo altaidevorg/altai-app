@@ -1357,6 +1357,9 @@ export {
   isJournalUnavailableError,
 } from "./lib/hostUserError.js";
 
+export type { HostLifecycleStatus } from "./lib/hostStatusNotify.js";
+export { shouldNotifyHostRecovered } from "./lib/hostStatusNotify.js";
+
 export {
   fileUriToPath,
   isHttpUrl,
