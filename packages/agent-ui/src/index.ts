@@ -729,6 +729,12 @@ export {
 } from "./components/AiDisplayTranscriptList.js";
 
 export {
+  AiDisplayMessageBubble,
+  displayMessageElementId,
+  type AiDisplayMessageBubbleProps,
+} from "./components/AiDisplayMessageBubble.js";
+
+export {
   AiUserTurnBody,
   type AiUserTurnBodyProps,
 } from "./components/AiUserTurnBody.js";

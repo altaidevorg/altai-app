@@ -166,6 +166,7 @@ consumption of shared panel shells:
 | A6.48 | Assistant run action mode (`resolveAssistantRunActionMode`) |
 | A6.49 | Assistant SDK groups state (`buildAssistantSdkGroupsState`) |
 | A6.50 | Assistant run actions switch (`AiAssistantRunActions` slots) |
+| A6.51 | Display message bubble shell (`AiDisplayMessageBubble`) |
 
 ### A5 complete enough
 
