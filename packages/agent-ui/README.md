@@ -212,6 +212,7 @@ consumption of shared panel shells:
 | A6.94 | Attach format helpers (`formatGitDiffSummary`, terminal text) |
 | A6.95 | Workspace topbar mount/pressed helpers |
 | A6.96 | Flat chat line kind classifier (`chatLineKind`) |
+| A6.97 | Host-neutral composer slash command registry |
 
 ### A5 complete enough
 

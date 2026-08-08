@@ -1236,6 +1236,19 @@ export {
 } from "./lib/chatLineKind.js";
 
 export {
+  SLASH_COMMAND_INDEX,
+  findSlashCommands,
+  formatSlashHelpDigest,
+  resolveSlashCommand,
+  tryRunSlashCommand,
+  type SlashCommandBehavior,
+  type SlashCommandCategory,
+  type SlashCommandMeta,
+  type SlashHostAction,
+  type SlashOutcome,
+} from "./lib/composerSlashCommands.js";
+
+export {
   fileUriToPath,
   isHttpUrl,
   segmentChatContent,
