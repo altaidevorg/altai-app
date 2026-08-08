@@ -1223,6 +1223,13 @@ export {
 } from "./lib/attachFormatChrome.js";
 
 export {
+  canMountWorkspaceTopbar,
+  workspaceTopbarInboxOpen,
+  workspaceTopbarWorkOpen,
+  type WorkspaceTopbarFlags,
+} from "./lib/workspaceTopbarChrome.js";
+
+export {
   fileUriToPath,
   isHttpUrl,
   segmentChatContent,
