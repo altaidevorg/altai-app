@@ -216,6 +216,7 @@ consumption of shared panel shells:
 | A6.98 | Composer context chip helpers (`composeRunPrompt`) |
 | A6.99 | Composer attach builders (`buildFileContextItem`, …) |
 | A6.100 | Operations → Chat deep-link helpers (`buildOpenChatFocus`) |
+| A6.101 | Task-run draft validation and skill prompt composition |
 
 ### A5 complete enough
 
