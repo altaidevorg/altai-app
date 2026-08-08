@@ -1385,6 +1385,12 @@ export {
   providerRequiresBaseUrl,
 } from "./lib/providerBaseUrl.js";
 
+export type { DiagnosticLike, FileDiagnosticsBundle } from "./lib/problemsContext.js";
+export {
+  formatProblemsBundles,
+  formatProblemsContextText,
+} from "./lib/problemsContext.js";
+
 export {
   fileUriToPath,
   isHttpUrl,
