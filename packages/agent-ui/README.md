@@ -161,6 +161,7 @@ consumption of shared panel shells:
 | A6.43 | AI-SDK tool part map (`mapSdkToolApprovalPart` / card) |
 | A6.44 | AI-SDK UI part kind (`classifySdkUiPart` / text extract) |
 | A6.45 | AI-SDK UI part view (`mapSdkUiPartView` host render routing) |
+| A6.46 | AI-SDK UI part switch (`AiSdkUiPartSwitch` host chrome slots) |
 
 ### A5 complete enough
 

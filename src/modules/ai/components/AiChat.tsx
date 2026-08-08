@@ -36,6 +36,7 @@ import { memo, useCallback, useMemo } from "react";
 import {
   AiChatViewFrame,
   AiSdkAssistantGroups,
+  AiSdkUiPartSwitch,
   AiToolApproval,
   AssistantBrandLabel,
   AiUserTurnBody,
@@ -45,7 +46,6 @@ import {
   joinMessageTextParts,
   mapSdkToolApprovalPart,
   mapSdkToolCardPart,
-  mapSdkUiPartView,
   prepareUserTurnDisplay,
   shouldShowAssistantRunActions,
 } from "@altai/agent-ui";
@@ -290,32 +290,28 @@ const RenderedPart = memo(function RenderedPart({
   onApproval: (id: string, approved: boolean) => void;
   streaming: boolean;
 }) {
-  const view = mapSdkUiPartView(part as { type?: string; text?: string });
-  if (view.kind === "text") {
-    return (
-      <MessageResponse streaming={streaming}>{view.text}</MessageResponse>
-    );
-  }
-
-  if (view.kind === "reasoning") {
-    return (
-      <Reasoning>
-        <ReasoningTrigger />
-        <ReasoningContent>{view.text}</ReasoningContent>
-      </Reasoning>
-    );
-  }
-
-  if (view.kind === "tool") {
-    return (
-      <RenderedTool
-        part={part as unknown as AnyToolPart}
-        onApproval={onApproval}
-      />
-    );
-  }
-
-  return null;
+  const viewPart = part as { type?: string; text?: string };
+  return (
+    <AiSdkUiPartSwitch
+      part={viewPart}
+      streaming={streaming}
+      renderText={(text, partStreaming) => (
+        <MessageResponse streaming={partStreaming}>{text}</MessageResponse>
+      )}
+      renderReasoning={(text) => (
+        <Reasoning>
+          <ReasoningTrigger />
+          <ReasoningContent>{text}</ReasoningContent>
+        </Reasoning>
+      )}
+      renderTool={() => (
+        <RenderedTool
+          part={part as unknown as AnyToolPart}
+          onApproval={onApproval}
+        />
+      )}
+    />
+  );
 });
 
 const RenderedTool = memo(function RenderedTool({
