@@ -195,6 +195,7 @@ consumption of shared panel shells:
 | A6.77 | Wait-shell diagnostic clipboard (`formatDiagnosticClipboardText`) |
 | A6.78 | Permission-mode switcher gate (`canMountPermissionModeSwitcher`) |
 | A6.79 | Skills status chrome (`canMountSkillsStatus`, summary) |
+| A6.80 | Session remove mode (`resolveSessionRemoveMode`, archive prefer) |
 | A6.81 | MCP status chrome (`canMountMcpStatus`, sort, summaries) |
 
 ### A5 complete enough

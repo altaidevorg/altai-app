@@ -1113,6 +1113,12 @@ export {
 } from "./lib/mcpStatusChrome.js";
 
 export {
+  resolveSessionRemoveMode,
+  sessionRemoveErrorMessage,
+  type SessionRemoveMode,
+} from "./lib/sessionMutateChrome.js";
+
+export {
   fileUriToPath,
   isHttpUrl,
   segmentChatContent,
