@@ -168,6 +168,7 @@ consumption of shared panel shells:
 | A6.50 | Assistant run actions switch (`AiAssistantRunActions` slots) |
 | A6.51 | Display message bubble shell (`AiDisplayMessageBubble`) |
 | A6.52 | Display message edit form (`AiDisplayMessageEditForm`) |
+| A6.53 | Display action labels (`displayCopyActionLabel`, open/diff titles) |
 
 ### A5 complete enough
 
