@@ -729,6 +729,11 @@ export {
 } from "./components/AiDisplayTranscriptList.js";
 
 export {
+  AiUserTurnBody,
+  type AiUserTurnBodyProps,
+} from "./components/AiUserTurnBody.js";
+
+export {
   chatDisplayBubbleClassName,
   chatDisplayBubbleModifier,
   chatDisplayRoleLabel,
