@@ -205,6 +205,7 @@ consumption of shared panel shells:
 | A6.87 | Model picker mount/filter helpers (`canMountModelPicker`, Auto id) |
 | A6.88 | Composer agent profiles (`COMPOSER_AGENT_PROFILES`, prefix) |
 | A6.89 | Model catalog merge/filter (`mergeModelCatalog`, provider id) |
+| A6.90 | Provider status merge/gates (`mergeProviderCatalog`, banner) |
 
 ### A5 complete enough
 
