@@ -1154,6 +1154,16 @@ export {
 } from "./lib/projectTargetChrome.js";
 
 export {
+  AUTO_MODEL_ID,
+  canMountModelPicker,
+  filterModels,
+  modelIdForStartRun,
+  modelTriggerLabel,
+  resolveSelectedModelId,
+  type ModelPickerFlags,
+} from "./lib/modelPickerChrome.js";
+
+export {
   fileUriToPath,
   isHttpUrl,
   segmentChatContent,
