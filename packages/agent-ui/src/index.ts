@@ -627,6 +627,17 @@ export {
 export { stripUserContextBlocks } from "./lib/userContextBlocks.js";
 
 export {
+  ALTAI_CMD_RE,
+  ALTAI_COMMAND_MARKER_RE,
+  indexOfLastTextPart,
+  parseCommandMarkerPrefix,
+  prepareUserTurnDisplay,
+  resolveStreamingAssistantMessageId,
+  wrapWithCommandMarker,
+  type UserTurnDisplay,
+} from "./lib/userTurnDisplay.js";
+
+export {
   AT_MENTION_MIN_QUERY,
   detectAtMention,
   detectSlashOrSnippetTrigger,
