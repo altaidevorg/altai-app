@@ -1079,6 +1079,14 @@ export {
 } from "./lib/surfaceTabsChrome.js";
 
 export {
+  compactHostStatusLabel,
+  nextSurfaceAfterSettingsToggle,
+  settingsGearPressed,
+  shouldShowSurfaceTextTabs,
+  type ShellSurface,
+} from "./lib/shellChrome.js";
+
+export {
   fileUriToPath,
   isHttpUrl,
   segmentChatContent,
