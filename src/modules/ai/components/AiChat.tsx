@@ -40,8 +40,6 @@ import {
   buildTranscriptPartGroups,
   canRetryLastAssistantTurn,
   cmdSummaryForToolPart,
-  CommandSnippet,
-  ContextChips,
   formatGroupPreview,
   HoverActionButton,
   indexOfLastTextPart,
@@ -61,6 +59,7 @@ import {
   uniqueReadPaths,
   uniqueSummaries,
   webSummaryForToolPart,
+  AiUserTurnBody,
   type ToolLikePart,
 } from "@altai/agent-ui";
 import { AgentStatusPill } from "./AgentStatusPill";
@@ -72,32 +71,8 @@ import {
   MessageResponse,
 } from "@/components/ai-elements/message";
 
-function ResolvedCommandSnippet({ name }: { name: string }) {
-  const meta = resolveSlashCommand(name);
-  return (
-    <CommandSnippet
-      name={name}
-      meta={
-        meta
-          ? {
-              invocation: meta.invocation,
-              label: meta.label,
-              icon: (
-                <HugeiconsIcon
-                  icon={meta.icon}
-                  size={12}
-                  strokeWidth={1.75}
-                  className="shrink-0 text-foreground"
-                />
-              ),
-            }
-          : null
-      }
-    />
-  );
-}
-
 type AnyToolPart = ToolUIPart | DynamicToolUIPart;
+
 
 type AnyPart = UIMessagePart<Record<string, never>, Record<string, never>>;
 
@@ -234,15 +209,32 @@ const RenderedMessage = memo(function RenderedMessage({
     return (
       <Message from="user" className="altai-ai-message">
         <MessageContent>
-          {stripped.commandName ? (
-            <ResolvedCommandSnippet name={stripped.commandName} />
-          ) : null}
-          {stripped.chips.length > 0 ? (
-            <ContextChips chips={stripped.chips} />
-          ) : null}
-          {stripped.text ? (
-            <p className="whitespace-pre-wrap break-words">{stripped.text}</p>
-          ) : null}
+          <AiUserTurnBody
+            commandName={stripped.commandName}
+            commandMeta={
+              stripped.commandName
+                ? (() => {
+                    const meta = resolveSlashCommand(stripped.commandName);
+                    return meta
+                      ? {
+                          invocation: meta.invocation,
+                          label: meta.label,
+                          icon: (
+                            <HugeiconsIcon
+                              icon={meta.icon}
+                              size={12}
+                              strokeWidth={1.75}
+                              className="shrink-0 text-foreground"
+                            />
+                          ),
+                        }
+                      : null;
+                  })()
+                : null
+            }
+            chips={stripped.chips}
+            text={stripped.text}
+          />
         </MessageContent>
       </Message>
     );

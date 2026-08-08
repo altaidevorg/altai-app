@@ -155,6 +155,7 @@ consumption of shared panel shells:
 | A6.36 | Ports-first submit execute + `useComposerController` headless draft |
 | A6.38 | Display transcript list frame + role/bubble chrome (`AiDisplayTranscriptList`) |
 | A6.39 | Display message action flags (`resolveDisplayMessageActions`, copy gates) |
+| A6.40 | User turn body chrome (`AiUserTurnBody` command + chips + text) |
 
 ### A5 complete enough
 
