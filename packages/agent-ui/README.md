@@ -189,6 +189,7 @@ consumption of shared panel shells:
 | A6.71 | Agent status pill derive (`deriveAgentStatusMeta`, step labels) |
 | A6.72 | Run usage token meter (`usageDeltaFromPayload`, accumulate) |
 | A6.73 | Shell surface tab keyboard nav (`nextAltaiSurface`) |
+| A6.74 | Side-chat shell density chrome (`shouldShowSurfaceTextTabs`) |
 
 ### A5 complete enough
 
