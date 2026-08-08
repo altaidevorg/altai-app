@@ -237,6 +237,7 @@ consumption of shared panel shells:
 | A6.119 | Host lifecycle status-bar presentation |
 | A6.120 | Open-chat-with-file deep link payloads |
 | A6.121 | Open-chat-with-selection deep link payloads |
+| A6.122 | Workspace trust attach helpers |
 
 ### A5 complete enough
 
