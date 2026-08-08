@@ -829,6 +829,14 @@ export {
 } from "./lib/chatDisplayActions.js";
 
 export {
+  displayCopyActionLabel,
+  displayDiffReviewTitle,
+  displayOpenDiffActionTitle,
+  displayOpenFileActionTitle,
+  displayOpeningActionLabel,
+} from "./lib/chatDisplayActionCopy.js";
+
+export {
   ACCEPTED_COMPOSER_FILES,
   ACCEPTED_FILES,
   boundContextText,
