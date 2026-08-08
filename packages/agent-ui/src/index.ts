@@ -977,6 +977,12 @@ export {
 } from "./hooks/useComposerController.js";
 
 export {
+  useComposerSuggestionList,
+  type ComposerSuggestionListController,
+  type UseComposerSuggestionListOptions,
+} from "./hooks/useComposerSuggestionList.js";
+
+export {
   useDisplayMessageInteractionState,
   type DisplayMessageInteractionState,
 } from "./hooks/useDisplayMessageInteractionState.js";
