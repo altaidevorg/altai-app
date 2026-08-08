@@ -34,23 +34,17 @@ import type {
 } from "ai";
 import { memo, useCallback, useMemo } from "react";
 import {
-  AiChatTranscriptFrame,
+  AiChatViewFrame,
   AiSdkAssistantGroups,
   AiToolApproval,
   AssistantBrandLabel,
   AiUserTurnBody,
   buildTranscriptPartGroups,
-  canRetryLastAssistantTurn,
   HoverActionButton,
   indexOfLastTextPart,
   joinMessageTextParts,
   prepareUserTurnDisplay,
-  resolveChatAriaLive,
-  resolveStreamingAssistantMessageId,
-  resolveTranscriptRunErrorVariant,
   shouldShowAssistantRunActions,
-  TranscriptConversationEmpty,
-  TranscriptRunError,
 } from "@altai/agent-ui";
 import { AgentStatusPill } from "./AgentStatusPill";
 import { openWorkspaceFile } from "../lib/openChatHref";
@@ -99,77 +93,45 @@ export function AiChatView({
     const outcome = s.runs[activeSessionId]?.outcome;
     return isRetryableRunOutcome(outcome);
   });
-  const ariaLiveProp = resolveChatAriaLive(chatAnnounce);
-  const streamingMessageId = resolveStreamingAssistantMessageId(
-    messages,
-    status,
-  );
 
   const onApproval = useCallback(
     (id: string, approved: boolean) => addToolApprovalResponse({ id, approved }),
     [addToolApprovalResponse],
   );
 
-  if (messages.length === 0) {
-    return (
-      <Conversation className="altai-ai-conversation overflow-x-hidden" aria-live={ariaLiveProp}>
-        <ConversationContent className="min-w-0">
-          <AiChatTranscriptFrame
-            isEmpty
-            aria-live={ariaLiveProp}
-            empty={
-              <TranscriptConversationEmpty>
-                {/* Live status stays inside the transcript viewport, not above the composer. */}
-                <AgentStatusPill hideError />
-              </TranscriptConversationEmpty>
-            }
-          />
-        </ConversationContent>
-      </Conversation>
-    );
-  }
+  const statusPill = <AgentStatusPill hideError />;
 
   return (
-    <Conversation className="altai-ai-conversation overflow-x-hidden" aria-live={ariaLiveProp}>
-      <ConversationContent className="min-w-0">
-        <AiChatTranscriptFrame
-          isEmpty={false}
-          aria-live={ariaLiveProp}
-          end={
-            <>
-              {/* Agent working indicator — end of transcript, inside the chat scroll. */}
-              <AgentStatusPill hideError />
-              {error ? (
-                <TranscriptRunError
-                  message={error.message}
-                  variant={resolveTranscriptRunErrorVariant(error.message)}
-                  onDismiss={clearError}
-                />
-              ) : null}
-            </>
-          }
+    <AiChatViewFrame
+      messages={messages}
+      status={status}
+      announce={chatAnnounce}
+      retryableFailure={retryableFailure}
+      error={error ?? null}
+      onDismissError={clearError}
+      emptyStatus={statusPill}
+      endStatus={statusPill}
+      renderRoot={({ "aria-live": ariaLive, isEmpty, body }) => (
+        <Conversation
+          className="altai-ai-conversation overflow-x-hidden"
+          aria-live={ariaLive}
         >
-          {messages.map((m, i) => (
-            <RenderedMessage
-              key={m.id}
-              message={m}
-              onApproval={onApproval}
-              streaming={m.id === streamingMessageId}
-              canRetry={canRetryLastAssistantTurn({
-                retryableFailure,
-                role: m.role,
-                index: i,
-                messageCount: messages.length,
-                status,
-              })}
-              onRetry={() => void retryFailedRun()}
-              onStop={() => void stop?.()}
-            />
-          ))}
-        </AiChatTranscriptFrame>
-      </ConversationContent>
-      <ConversationScrollButton />
-    </Conversation>
+          <ConversationContent className="min-w-0">{body}</ConversationContent>
+          {!isEmpty ? <ConversationScrollButton /> : null}
+        </Conversation>
+      )}
+      renderMessage={({ message, streaming, canRetry }) => (
+        <RenderedMessage
+          key={message.id}
+          message={message}
+          onApproval={onApproval}
+          streaming={streaming}
+          canRetry={canRetry}
+          onRetry={() => void retryFailedRun()}
+          onStop={() => void stop?.()}
+        />
+      )}
+    />
   );
 }
 
