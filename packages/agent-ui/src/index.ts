@@ -735,6 +735,11 @@ export {
 } from "./components/AiDisplayMessageBubble.js";
 
 export {
+  AiDisplayMessageEditForm,
+  type AiDisplayMessageEditFormProps,
+} from "./components/AiDisplayMessageEditForm.js";
+
+export {
   AiUserTurnBody,
   type AiUserTurnBodyProps,
 } from "./components/AiUserTurnBody.js";
