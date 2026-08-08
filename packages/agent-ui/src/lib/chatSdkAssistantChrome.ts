@@ -1,5 +1,5 @@
 /**
- * Pure helpers for AI-SDK assistant turn run actions (A6.41).
+ * Pure helpers for AI-SDK assistant turn run actions (A6.41 / A6.48).
  */
 
 import type { ToolLikePart } from "./transcriptToolGroups.js";
@@ -10,7 +10,19 @@ export function shouldShowAssistantRunActions(input: {
   streaming: boolean;
   canRetry?: boolean;
 }): boolean {
-  return input.streaming || Boolean(input.canRetry);
+  return resolveAssistantRunActionMode(input) !== "hidden";
+}
+
+/** Footer control mode for stop vs retry vs none (A6.48). */
+export type AssistantRunActionMode = "stop" | "retry" | "hidden";
+
+export function resolveAssistantRunActionMode(input: {
+  streaming: boolean;
+  canRetry?: boolean;
+}): AssistantRunActionMode {
+  if (input.streaming) return "stop";
+  if (input.canRetry) return "retry";
+  return "hidden";
 }
 
 /**

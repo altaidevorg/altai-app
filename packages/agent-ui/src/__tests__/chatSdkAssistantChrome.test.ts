@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   isStandaloneReadToolPart,
+  resolveAssistantRunActionMode,
   shouldShowAssistantRunActions,
 } from "../lib/chatSdkAssistantChrome.js";
 
@@ -11,6 +12,17 @@ describe("chatSdkAssistantChrome", () => {
       shouldShowAssistantRunActions({ streaming: false, canRetry: true }),
     ).toBe(true);
     expect(shouldShowAssistantRunActions({ streaming: false })).toBe(false);
+  });
+
+  it("resolves stop, retry, or hidden mode", () => {
+    expect(resolveAssistantRunActionMode({ streaming: true })).toBe("stop");
+    expect(
+      resolveAssistantRunActionMode({ streaming: true, canRetry: true }),
+    ).toBe("stop");
+    expect(
+      resolveAssistantRunActionMode({ streaming: false, canRetry: true }),
+    ).toBe("retry");
+    expect(resolveAssistantRunActionMode({ streaming: false })).toBe("hidden");
   });
 
   it("detects standalone read rows", () => {
