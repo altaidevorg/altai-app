@@ -1391,6 +1391,8 @@ export {
   formatProblemsContextText,
 } from "./lib/problemsContext.js";
 
+export { isVirtualOnlyWorkspace } from "./lib/virtualWorkspace.js";
+
 export {
   fileUriToPath,
   isHttpUrl,
