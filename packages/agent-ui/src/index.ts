@@ -1288,6 +1288,15 @@ export {
 } from "./lib/taskRunDraft.js";
 
 export {
+  AUTOMATION_INTERVAL_PRESETS,
+  newAutomationOwnerChatId,
+  validateAutomationDraft,
+  type AutomationDraft,
+  type AutomationDraftResult,
+  type AutomationScheduleDraft,
+} from "./lib/automationDraft.js";
+
+export {
   fileUriToPath,
   isHttpUrl,
   segmentChatContent,
