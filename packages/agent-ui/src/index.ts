@@ -1382,8 +1382,9 @@ export {
 export {
   MAX_PROVIDER_BASE_URL_CHARS,
   normalizeProviderBaseUrl,
-  providerRequiresBaseUrl,
 } from "./lib/providerBaseUrl.js";
+// providerRequiresBaseUrl is exported once via providerStatusChrome (A6.90);
+// providerBaseUrl.ts keeps the same pure implementation for host mirrors (A6.116).
 
 export type { DiagnosticLike, FileDiagnosticsBundle } from "./lib/problemsContext.js";
 export {
