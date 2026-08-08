@@ -1335,6 +1335,11 @@ export {
 } from "./lib/hostRecoveryCommands.js";
 
 export {
+  attentionStatusBarCommand,
+  parseAttentionReportParams,
+} from "./lib/attentionReport.js";
+
+export {
   fileUriToPath,
   isHttpUrl,
   segmentChatContent,
