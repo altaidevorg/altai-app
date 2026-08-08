@@ -152,6 +152,7 @@ consumption of shared panel shells:
 | A6.33 | Composer submit plan (`planComposerSubmit` ports-first prelude) |
 | A6.34 | Composer draft clear after accept (`clearComposerDraftAfterAccept`) |
 | A6.35 | Composer submit host intent (`mapComposerSubmitPlanToHostIntent`) |
+| A6.36 | Ports-first submit execute + `useComposerController` headless draft |
 
 ### A5 complete enough
 
