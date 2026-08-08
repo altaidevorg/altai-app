@@ -171,6 +171,7 @@ consumption of shared panel shells:
 | A6.53 | Display action labels (`displayCopyActionLabel`, open/diff titles) |
 | A6.54 | Display body extras (`AiDisplayMessageBodyExtras` diff + todos) |
 | A6.55 | Display list interaction hook (`useDisplayMessageInteractionState`) |
+| A6.56 | Display tool-group icon key (`displayToolGroupIconKey`) |
 
 ### A5 complete enough
 

@@ -842,6 +842,11 @@ export {
 } from "./lib/chatDisplayActionCopy.js";
 
 export {
+  displayToolGroupIconKey,
+  type DisplayToolGroupIconKey,
+} from "./lib/displayToolGroupIcon.js";
+
+export {
   ACCEPTED_COMPOSER_FILES,
   ACCEPTED_FILES,
   boundContextText,
