@@ -1105,6 +1105,14 @@ export {
 } from "./lib/skillsStatusChrome.js";
 
 export {
+  canMountMcpStatus,
+  mcpServerStatusCopy,
+  mcpSummaryCopy,
+  sortMcpServersForDisplay,
+  type McpServerView,
+} from "./lib/mcpStatusChrome.js";
+
+export {
   fileUriToPath,
   isHttpUrl,
   segmentChatContent,
