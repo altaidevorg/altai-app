@@ -219,6 +219,7 @@ consumption of shared panel shells:
 | A6.101 | Task-run draft validation and skill prompt composition |
 | A6.102 | Automation schedule draft validation |
 | A6.103 | Session transcript line formatting for flat chat log |
+| A6.104 | Operations overview aggregation + nav helpers |
 
 ### A5 complete enough
 
