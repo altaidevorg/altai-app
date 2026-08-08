@@ -761,6 +761,11 @@ export {
 } from "./lib/assistantSdkGroupsState.js";
 
 export {
+  AiAssistantRunActions,
+  type AiAssistantRunActionsProps,
+} from "./components/AiAssistantRunActions.js";
+
+export {
   buildAiChatViewRowMeta,
   type AiChatViewMessageLike,
   type AiChatViewRowMeta,
