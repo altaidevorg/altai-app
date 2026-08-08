@@ -1051,8 +1051,7 @@ export {
   runDetailsTokenLabel,
   type RunDetailsChromeInput,
   type RunDetailsMessage,
-  type RunDetailsStatus,
-  type RunOverviewMetric,
+  // RunDetailsStatus / RunOverviewMetric already exported from components.
 } from "./lib/runDetailsChrome.js";
 
 export {
