@@ -159,6 +159,7 @@ consumption of shared panel shells:
 | A6.41 | AI-SDK assistant group list (`AiSdkAssistantGroups` + run-action pure) |
 | A6.42 | Ports-first `AiChatViewFrame` + row meta (store-free chat shell) |
 | A6.43 | AI-SDK tool part map (`mapSdkToolApprovalPart` / card) |
+| A6.44 | AI-SDK UI part kind (`classifySdkUiPart` / text extract) |
 
 ### A5 complete enough
 
