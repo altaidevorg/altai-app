@@ -169,6 +169,7 @@ consumption of shared panel shells:
 | A6.51 | Display message bubble shell (`AiDisplayMessageBubble`) |
 | A6.52 | Display message edit form (`AiDisplayMessageEditForm`) |
 | A6.53 | Display action labels (`displayCopyActionLabel`, open/diff titles) |
+| A6.54 | Display body extras (`AiDisplayMessageBodyExtras` diff + todos) |
 
 ### A5 complete enough
 
