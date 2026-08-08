@@ -775,6 +775,13 @@ export {
   type ComposerSlashOutcome,
 } from "./lib/composerDraft.js";
 
+export {
+  planComposerSubmit,
+  type ComposerSlashResolver,
+  type ComposerSubmitPlan,
+  type ComposerSubmitSnapshot,
+} from "./lib/composerSubmitPlan.js";
+
 export { autoresizeTextarea } from "./lib/autoresizeTextarea.js";
 
 export {

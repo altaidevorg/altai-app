@@ -8,19 +8,16 @@ import {
 import {
   ACCEPTED_FILES,
   appendUniqueByKey,
-  applyComposerSlashOutcome,
   basenameForAttach,
   browserFileToAttachment,
-  buildComposerCommandSource,
   buildTextContextAttachment,
   classifyBrowserFile,
-  composeComposerSubmitText,
   estimateComposerContextTokens,
-  extractComposerMultimodalParts,
   getComposerActionAvailability,
   hasComposerDraft,
   hasNativeBinaryAttachment,
   MAX_TEXT_INLINE,
+  planComposerSubmit,
   remainingTextAfterAcceptedDispatch,
   removeAcceptedItems,
   resolveComposerEnterAction,
@@ -349,17 +346,6 @@ export function AiComposerProvider({ children }: ProviderProps) {
 
   const dispatch = async (action: ComposerAction) => {
     if (submittingRef.current) return;
-    if (action === "send" && !actionAvailability.canSend) return;
-    if (action === "steer" && !actionAvailability.canSteer) return;
-    if (action === "queue" && !actionAvailability.canQueue) return;
-    const trimmed = value.trim();
-    if (
-      !trimmed &&
-      files.length === 0 &&
-      pickedSnippets.length === 0 &&
-      pickedCommands.length === 0
-    )
-      return;
 
     const snapshot = {
       valueRevision: valueRevision.current,
@@ -369,44 +355,36 @@ export function AiComposerProvider({ children }: ProviderProps) {
       commands: pickedCommands,
     };
 
-    // Slash-command interception. `/plan` toggles plan mode; `/init` rewrites
-    // the prompt to the ALTAI.md scan template before sending.
-    let effectiveText = trimmed;
-    let commandMarker: string | null = null;
-    const commandSource = buildComposerCommandSource(
-      trimmed,
-      pickedCommands.map((c) => c.name),
-    );
-    if (commandSource.startsWith("/") || commandSource.startsWith("#")) {
-      const outcome = tryRunSlashCommand(commandSource);
-      const mapped = applyComposerSlashOutcome(outcome, trimmed);
-      if (mapped.abortAsHandled) {
-        clearAcceptedSnapshot(snapshot);
-        if (mapped.toast) console.info(mapped.toast);
-        return;
-      }
-      effectiveText = mapped.effectiveText;
-      commandMarker = mapped.commandMarker;
+    const plan = planComposerSubmit({
+      action,
+      availability: actionAvailability,
+      draft: {
+        value,
+        files,
+        snippets: pickedSnippets,
+        commands: pickedCommands,
+      },
+      catalog: useSnippetsStore.getState().snippets,
+      resolveSlash: tryRunSlashCommand,
+    });
+
+    if (plan.kind === "noop") return;
+    if (plan.kind === "handled") {
+      clearAcceptedSnapshot(snapshot);
+      if (plan.toast) console.info(plan.toast);
+      return;
     }
 
-    const composed = composeComposerSubmitText({
-      commandMarker,
-      effectiveText,
-      catalog: useSnippetsStore.getState().snippets,
-      pickedSnippets,
-      files,
-    });
     if (!sessionId) return;
     const store = useChatStore.getState();
-
-    // Images and PDFs ride alongside the text as native multimodal parts.
-    const { imageUrls, documents } = extractComposerMultimodalParts(files);
+    const { composed, multimodal } = plan;
+    const { imageUrls, documents } = multimodal;
 
     submittingRef.current = true;
     setSubmitting(true);
     try {
       let accepted: boolean;
-      if (action === "steer") {
+      if (plan.action === "steer") {
         if (!runId) return;
         const acknowledgement = await native.agentSteer(
           sessionId,
@@ -432,7 +410,7 @@ export function AiComposerProvider({ children }: ProviderProps) {
           composed,
           imageUrls.length ? imageUrls : undefined,
           documents.length ? documents : undefined,
-          { queue: action === "queue" },
+          { queue: plan.action === "queue" },
         );
       }
 
@@ -443,7 +421,7 @@ export function AiComposerProvider({ children }: ProviderProps) {
     } catch (error) {
       store.addActivity({
         label:
-          action === "steer"
+          plan.action === "steer"
             ? "Could not steer the active run"
             : "Task could not be queued",
         detail: error instanceof Error ? error.message : String(error),
