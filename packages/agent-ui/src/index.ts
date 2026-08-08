@@ -1396,6 +1396,12 @@ export { isVirtualOnlyWorkspace } from "./lib/virtualWorkspace.js";
 export type { HostStatusBarInput, HostStatusBarPresentation } from "./lib/hostStatusBar.js";
 export { hostStatusBarPresentation } from "./lib/hostStatusBar.js";
 
+export type { OpenChatWithFilePayload } from "./lib/fileDeepLink.js";
+export {
+  buildOpenChatWithFilePayload,
+  parseOpenChatWithFilePayload,
+} from "./lib/fileDeepLink.js";
+
 export {
   fileUriToPath,
   isHttpUrl,
