@@ -214,6 +214,7 @@ consumption of shared panel shells:
 | A6.96 | Flat chat line kind classifier (`chatLineKind`) |
 | A6.97 | Host-neutral composer slash command registry |
 | A6.98 | Composer context chip helpers (`composeRunPrompt`) |
+| A6.99 | Composer attach builders (`buildFileContextItem`, …) |
 
 ### A5 complete enough
 

@@ -1266,6 +1266,13 @@ export {
 } from "./lib/composerContextChrome.js";
 
 export {
+  buildDiffContextItem,
+  buildFileContextItem,
+  buildSelectionContextItem,
+  buildTerminalContextItem,
+} from "./lib/composerAttachChrome.js";
+
+export {
   fileUriToPath,
   isHttpUrl,
   segmentChatContent,
