@@ -36,6 +36,7 @@ import { memo, useCallback, useMemo } from "react";
 import {
   AiChatViewFrame,
   AiSdkAssistantGroups,
+  AiSdkToolPartSwitch,
   AiSdkUiPartSwitch,
   AiToolApproval,
   AssistantBrandLabel,
@@ -44,8 +45,6 @@ import {
   HoverActionButton,
   indexOfLastTextPart,
   joinMessageTextParts,
-  mapSdkToolApprovalPart,
-  mapSdkToolCardPart,
   prepareUserTurnDisplay,
   shouldShowAssistantRunActions,
 } from "@altai/agent-ui";
@@ -333,31 +332,31 @@ const RenderedTool = memo(function RenderedTool({
     output?: unknown;
     errorText?: string;
   };
-  const approval = mapSdkToolApprovalPart(like);
-  if (approval) {
-    return (
-      <AiToolApproval
-        part={{
-          state: "approval-requested",
-          approval: { id: approval.approvalId },
-          input: approval.input,
-        }}
-        toolName={approval.toolName}
-        assertiveAnnounce={assertiveAnnounce}
-        onRespond={(approved) => onApproval(approval.approvalId, approved)}
-      />
-    );
-  }
-
-  const card = mapSdkToolCardPart(like);
   return (
-    <Tool
-      toolName={card.toolName}
-      state={card.state as AnyToolPart["state"]}
-      input={card.input}
-      output={card.output}
-      errorText={card.errorText}
-      defaultOpen={card.defaultOpen}
+    <AiSdkToolPartSwitch
+      part={like}
+      renderApproval={(approval) => (
+        <AiToolApproval
+          part={{
+            state: "approval-requested",
+            approval: { id: approval.approvalId },
+            input: approval.input,
+          }}
+          toolName={approval.toolName}
+          assertiveAnnounce={assertiveAnnounce}
+          onRespond={(approved) => onApproval(approval.approvalId, approved)}
+        />
+      )}
+      renderCard={(card) => (
+        <Tool
+          toolName={card.toolName}
+          state={card.state as AnyToolPart["state"]}
+          input={card.input}
+          output={card.output}
+          errorText={card.errorText}
+          defaultOpen={card.defaultOpen}
+        />
+      )}
     />
   );
 });
