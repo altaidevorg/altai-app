@@ -376,6 +376,12 @@ export {
 } from "./components/CompactNowControl.js";
 
 export {
+  canInvokeCompact,
+  canMountCompactControl,
+  type ComposerCompactFlags,
+} from "./lib/composerCompactPolicy.js";
+
+export {
   ProviderConnectBanner,
   type ProviderConnectBannerProps,
 } from "./components/ProviderConnectBanner.js";
