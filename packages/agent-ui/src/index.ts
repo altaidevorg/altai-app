@@ -1412,6 +1412,11 @@ export type {
   OperationsDeepLinkView,
   OperationsDeepLinkWorkHubView,
 } from "./lib/operationsDeepLink.js";
+
+export {
+  COMPOSER_DRAFT_DEBOUNCE_MS,
+  shouldPersistComposerDraftImmediately,
+} from "./lib/composerDraftPersist.js";
 export {
   buildOpenOperationsPayload,
   parseOpenOperationsPayload,
