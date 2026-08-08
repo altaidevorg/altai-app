@@ -1320,6 +1320,13 @@ export {
 } from "./lib/operationsOverview.js";
 
 export {
+  fetchOperationsAttentionCount,
+  shouldRefreshAttentionOnEvent,
+  type AttentionPollFlags,
+  type AttentionPollSources,
+} from "./lib/operationsAttentionPoll.js";
+
+export {
   fileUriToPath,
   isHttpUrl,
   segmentChatContent,
