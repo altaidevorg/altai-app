@@ -158,6 +158,7 @@ consumption of shared panel shells:
 | A6.40 | User turn body chrome (`AiUserTurnBody` command + chips + text) |
 | A6.41 | AI-SDK assistant group list (`AiSdkAssistantGroups` + run-action pure) |
 | A6.42 | Ports-first `AiChatViewFrame` + row meta (store-free chat shell) |
+| A6.43 | AI-SDK tool part map (`mapSdkToolApprovalPart` / card) |
 
 ### A5 complete enough
 
