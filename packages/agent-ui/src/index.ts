@@ -787,6 +787,12 @@ export {
   type ComposerDraftState,
 } from "./lib/composerDraftClear.js";
 
+export {
+  mapComposerSubmitPlanToHostIntent,
+  type ComposerSubmitHostContext,
+  type ComposerSubmitHostIntent,
+} from "./lib/composerSubmitHostIntent.js";
+
 export { autoresizeTextarea } from "./lib/autoresizeTextarea.js";
 
 export {

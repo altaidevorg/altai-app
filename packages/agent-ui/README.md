@@ -151,6 +151,7 @@ consumption of shared panel shells:
 | A6.32 | Chat transcript frame + aria/retry/error pure chrome |
 | A6.33 | Composer submit plan (`planComposerSubmit` ports-first prelude) |
 | A6.34 | Composer draft clear after accept (`clearComposerDraftAfterAccept`) |
+| A6.35 | Composer submit host intent (`mapComposerSubmitPlanToHostIntent`) |
 
 ### A5 complete enough
 
