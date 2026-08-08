@@ -1230,6 +1230,12 @@ export {
 } from "./lib/workspaceTopbarChrome.js";
 
 export {
+  chatLineKind,
+  shouldShowChatEmptyHome,
+  type ChatLineKind,
+} from "./lib/chatLineKind.js";
+
+export {
   fileUriToPath,
   isHttpUrl,
   segmentChatContent,
