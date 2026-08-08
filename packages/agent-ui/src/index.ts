@@ -1249,6 +1249,23 @@ export {
 } from "./lib/composerSlashCommands.js";
 
 export {
+  addContextItem,
+  clipContextText,
+  composeRunPrompt,
+  countLines,
+  formatTextContextBlocks,
+  listOpenableContextItems,
+  newContextItemId,
+  removeContextItem,
+  resolveContextOpenUri,
+  toComposerAttachFiles,
+  toContextChips,
+  toRunAttachments,
+  type ComposerContextItem,
+  type OpenableContextItem,
+} from "./lib/composerContextChrome.js";
+
+export {
   fileUriToPath,
   isHttpUrl,
   segmentChatContent,
