@@ -1217,6 +1217,12 @@ export {
 } from "./lib/chatPlanChrome.js";
 
 export {
+  formatGitDiffSummary,
+  formatTerminalAttachText,
+  type GitDiffFileLine,
+} from "./lib/attachFormatChrome.js";
+
+export {
   fileUriToPath,
   isHttpUrl,
   segmentChatContent,
