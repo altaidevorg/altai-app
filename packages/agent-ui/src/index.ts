@@ -1345,6 +1345,11 @@ export {
 } from "./lib/selectionJoin.js";
 
 export {
+  hostStatusPillLabel,
+  shouldShowHostSubtitle,
+} from "./lib/hostChromeLabels.js";
+
+export {
   fileUriToPath,
   isHttpUrl,
   segmentChatContent,
