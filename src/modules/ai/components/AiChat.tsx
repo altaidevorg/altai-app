@@ -42,7 +42,6 @@ import {
   buildTranscriptPartGroups,
   HoverActionButton,
   indexOfLastTextPart,
-  isSdkToolPart,
   joinMessageTextParts,
   classifySdkUiPart,
   mapSdkToolApprovalPart,
