@@ -197,6 +197,7 @@ consumption of shared panel shells:
 | A6.79 | Skills status chrome (`canMountSkillsStatus`, summary) |
 | A6.80 | Session remove mode (`resolveSessionRemoveMode`, archive prefer) |
 | A6.81 | MCP status chrome (`canMountMcpStatus`, sort, summaries) |
+| A6.82 | Composer caret helpers (`resolveComposerCaret`, advance after draft) |
 
 ### A5 complete enough
 
