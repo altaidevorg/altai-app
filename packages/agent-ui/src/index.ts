@@ -1406,6 +1406,16 @@ export {
 } from "./lib/workspaceTrustAttach.js";
 
 export type { OpenSettingsPayload } from "./lib/settingsDeepLink.js";
+
+export type {
+  OpenOperationsPayload,
+  OperationsDeepLinkView,
+  OperationsDeepLinkWorkHubView,
+} from "./lib/operationsDeepLink.js";
+export {
+  buildOpenOperationsPayload,
+  parseOpenOperationsPayload,
+} from "./lib/operationsDeepLink.js";
 export {
   buildOpenSettingsPayload,
   parseOpenSettingsPayload,
