@@ -1055,6 +1055,14 @@ export {
 } from "./lib/runDetailsChrome.js";
 
 export {
+  deriveAgentStatusMeta,
+  formatAgentStepLabel,
+  isRecoverableRunAttention,
+  type AgentStatusChromeInput,
+  type AgentStatusMessage,
+} from "./lib/agentStatusChrome.js";
+
+export {
   fileUriToPath,
   isHttpUrl,
   segmentChatContent,
