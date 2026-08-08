@@ -1352,6 +1352,12 @@ export {
 export { hostConnectingProgressPresentation } from "./lib/hostConnectingProgress.js";
 
 export {
+  extractHostErrorCode,
+  formatHostUserError,
+  isJournalUnavailableError,
+} from "./lib/hostUserError.js";
+
+export {
   fileUriToPath,
   isHttpUrl,
   segmentChatContent,
