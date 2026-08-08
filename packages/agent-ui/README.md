@@ -146,6 +146,7 @@ consumption of shared panel shells:
 | A6.27 | Composer submit compose (`composeComposerSubmitText`, multimodal parts) |
 | A6.28 | User-turn display (`prepareUserTurnDisplay`, command markers, stream ids) |
 | A6.29 | Flat display tool-group blocks (`buildDisplayTranscriptBlocks`, aliases) |
+| A6.30 | Composer draft/dispatch prelude (`commandSource`, file classify, picks) |
 
 ### A5 complete enough
 
