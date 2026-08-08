@@ -18,6 +18,7 @@ import {
   hasNativeBinaryAttachment,
   MAX_TEXT_INLINE,
   clearComposerDraftAfterAccept,
+  mapComposerSubmitPlanToHostIntent,
   planComposerSubmit,
   remainingTextAfterAcceptedDispatch,
   resolveComposerEnterAction,
@@ -404,32 +405,35 @@ export function AiComposerProvider({ children }: ProviderProps) {
       resolveSlash: tryRunSlashCommand,
     });
 
-    if (plan.kind === "noop") return;
-    if (plan.kind === "handled") {
+    const intent = mapComposerSubmitPlanToHostIntent(plan, {
+      sessionId,
+      runId,
+    });
+
+    if (intent.kind === "noop") return;
+    if (intent.kind === "handled") {
       clearAcceptedSnapshot(snapshot);
-      if (plan.toast) console.info(plan.toast);
+      if (intent.toast) console.info(intent.toast);
       return;
     }
 
-    if (!sessionId) return;
     const store = useChatStore.getState();
-    const { composed, multimodal } = plan;
+    const { composed, multimodal } = intent;
     const { imageUrls, documents } = multimodal;
 
     submittingRef.current = true;
     setSubmitting(true);
     try {
       let accepted: boolean;
-      if (plan.action === "steer") {
-        if (!runId) return;
+      if (intent.kind === "steer") {
         const acknowledgement = await native.agentSteer(
-          sessionId,
-          runId,
+          intent.sessionId,
+          intent.runId,
           composed,
         );
         if (
-          acknowledgement.chatId !== sessionId ||
-          acknowledgement.runId !== runId
+          acknowledgement.chatId !== intent.sessionId ||
+          acknowledgement.runId !== intent.runId
         ) {
           throw new Error("The runtime acknowledged a different agent run");
         }
@@ -446,7 +450,7 @@ export function AiComposerProvider({ children }: ProviderProps) {
           composed,
           imageUrls.length ? imageUrls : undefined,
           documents.length ? documents : undefined,
-          { queue: plan.action === "queue" },
+          { queue: intent.queue },
         );
       }
 
@@ -457,7 +461,7 @@ export function AiComposerProvider({ children }: ProviderProps) {
     } catch (error) {
       store.addActivity({
         label:
-          plan.action === "steer"
+          intent.kind === "steer"
             ? "Could not steer the active run"
             : "Task could not be queued",
         detail: error instanceof Error ? error.message : String(error),
