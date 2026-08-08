@@ -1399,6 +1399,11 @@ export { hostStatusBarPresentation } from "./lib/hostStatusBar.js";
 export type { OpenChatWithFilePayload } from "./lib/fileDeepLink.js";
 
 export type { OpenChatWithSelectionPayload } from "./lib/selectionDeepLink.js";
+
+export {
+  includeUriInWorkspaceProblemsAttach,
+  isWorkspaceNotTrustedError,
+} from "./lib/workspaceTrustAttach.js";
 export {
   buildOpenChatWithSelectionPayload,
   parseOpenChatWithSelectionPayload,
