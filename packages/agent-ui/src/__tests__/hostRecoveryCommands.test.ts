@@ -3,7 +3,7 @@ import {
   ALTAI_RECOVERY_COMMANDS,
   isAltaiRecoveryCommand,
   listRecoveryActions,
-} from "../../src/shared/hostRecoveryCommands.js";
+} from "../lib/hostRecoveryCommands.js";
 
 describe("host recovery actions", () => {
   it("allowlists open logs, diagnostics, restart, and version", () => {
