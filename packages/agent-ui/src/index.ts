@@ -1297,6 +1297,12 @@ export {
 } from "./lib/automationDraft.js";
 
 export {
+  formatSessionMessageLine,
+  transcriptLinesFromMessages,
+  type TranscriptMessage,
+} from "./lib/sessionTranscript.js";
+
+export {
   fileUriToPath,
   isHttpUrl,
   segmentChatContent,
