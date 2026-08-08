@@ -1340,6 +1340,11 @@ export {
 } from "./lib/attentionReport.js";
 
 export {
+  joinSelectionTexts,
+  type SelectionRangeInput,
+} from "./lib/selectionJoin.js";
+
+export {
   fileUriToPath,
   isHttpUrl,
   segmentChatContent,
