@@ -157,6 +157,7 @@ consumption of shared panel shells:
 | A6.39 | Display message action flags (`resolveDisplayMessageActions`, copy gates) |
 | A6.40 | User turn body chrome (`AiUserTurnBody` command + chips + text) |
 | A6.41 | AI-SDK assistant group list (`AiSdkAssistantGroups` + run-action pure) |
+| A6.42 | Ports-first `AiChatViewFrame` + row meta (store-free chat shell) |
 
 ### A5 complete enough
 

@@ -744,6 +744,17 @@ export {
 } from "./lib/chatSdkAssistantChrome.js";
 
 export {
+  buildAiChatViewRowMeta,
+  type AiChatViewMessageLike,
+  type AiChatViewRowMeta,
+} from "./lib/aiChatViewModel.js";
+
+export {
+  AiChatViewFrame,
+  type AiChatViewFrameProps,
+} from "./components/AiChatViewFrame.js";
+
+export {
   chatDisplayBubbleClassName,
   chatDisplayBubbleModifier,
   chatDisplayRoleLabel,
