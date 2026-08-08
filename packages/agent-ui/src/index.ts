@@ -1349,6 +1349,8 @@ export {
   shouldShowHostSubtitle,
 } from "./lib/hostChromeLabels.js";
 
+export { hostConnectingProgressPresentation } from "./lib/hostConnectingProgress.js";
+
 export {
   fileUriToPath,
   isHttpUrl,
