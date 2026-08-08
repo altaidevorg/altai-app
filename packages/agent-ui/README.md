@@ -185,6 +185,7 @@ consumption of shared panel shells:
 | A6.67 | Edit-diff display policy (`countPendingEditDiffs` / last) |
 | A6.68 | Run inspector section mappers (`buildRunInspectorSections`) |
 | A6.69 | Change-review panel policy (`listChangeReviewItems`, line stats) |
+| A6.70 | Run details summary chrome (`canShowRunDetailsChrome`, metrics) |
 
 ### A5 complete enough
 

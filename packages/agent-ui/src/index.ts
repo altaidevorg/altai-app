@@ -1042,6 +1042,20 @@ export {
 } from "./lib/changeReviewPolicy.js";
 
 export {
+  buildRunOverviewMetrics,
+  canShowRunDetailsChrome,
+  countToolMessages,
+  runDetailsStatus,
+  runDetailsStepLabel,
+  runDetailsSubtitle,
+  runDetailsTokenLabel,
+  type RunDetailsChromeInput,
+  type RunDetailsMessage,
+  type RunDetailsStatus,
+  type RunOverviewMetric,
+} from "./lib/runDetailsChrome.js";
+
+export {
   fileUriToPath,
   isHttpUrl,
   segmentChatContent,
