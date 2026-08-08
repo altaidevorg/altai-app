@@ -235,6 +235,7 @@ consumption of shared panel shells:
 | A6.117 | Problems/diagnostics attach formatter |
 | A6.118 | Virtual-only workspace classifier |
 | A6.119 | Host lifecycle status-bar presentation |
+| A6.120 | Open-chat-with-file deep link payloads |
 
 ### A5 complete enough
 
