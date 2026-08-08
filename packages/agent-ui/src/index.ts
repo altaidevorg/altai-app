@@ -1360,6 +1360,14 @@ export {
 export type { HostLifecycleStatus } from "./lib/hostStatusNotify.js";
 export { shouldNotifyHostRecovered } from "./lib/hostStatusNotify.js";
 
+export type { HostErrorAction } from "./lib/hostErrorActions.js";
+export {
+  HOST_ERROR_ACTION_LABELS,
+  hostErrorActionCommands,
+  hostRecoveredActionCommands,
+  shouldPromptHostErrorActions,
+} from "./lib/hostErrorActions.js";
+
 export {
   fileUriToPath,
   isHttpUrl,
