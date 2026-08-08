@@ -541,6 +541,11 @@ export {
 } from "./components/ComposerFollowupBar.js";
 
 export {
+  AiComposerFollowupControl,
+  type AiComposerFollowupControlProps,
+} from "./components/AiComposerFollowupControl.js";
+
+export {
   SurfaceFilterToolbar,
   type SurfaceFilterTab,
   type SurfaceFilterToolbarProps,
