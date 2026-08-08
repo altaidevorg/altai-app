@@ -1280,6 +1280,14 @@ export {
 } from "./lib/openChatDeepLink.js";
 
 export {
+  composeTaskPromptWithSkills,
+  toggleTaskSkillSelection,
+  validateTaskRunDraft,
+  type TaskRunDraft,
+  type TaskRunDraftResult,
+} from "./lib/taskRunDraft.js";
+
+export {
   fileUriToPath,
   isHttpUrl,
   segmentChatContent,
