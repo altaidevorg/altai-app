@@ -232,6 +232,7 @@ consumption of shared panel shells:
 | A6.114 | Search exclude glob builder |
 | A6.115 | Preferred multi-root host URI retention |
 | A6.116 | Provider base URL validation |
+| A6.117 | Problems/diagnostics attach formatter |
 
 ### A5 complete enough
 
