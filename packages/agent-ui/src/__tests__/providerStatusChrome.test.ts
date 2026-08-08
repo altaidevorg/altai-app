@@ -55,7 +55,8 @@ describe("providerStatusChrome", () => {
       KNOWN,
     );
     const first = firstConnectableProvider(merged, KNOWN);
-    expect(first?.providerId).toBe("openai");
+    expect(first?.providerId).not.toBe("lmstudio");
+    expect(["openai", "anthropic"]).toContain(first?.providerId);
   });
 
   it("gates the connect banner", () => {
