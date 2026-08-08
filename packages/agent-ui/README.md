@@ -176,6 +176,7 @@ consumption of shared panel shells:
 | A6.58 | Display message actions cluster (`AiDisplayMessageActions`) |
 | A6.59 | Composer compact policy (`canMountCompactControl` / invoke) |
 | A6.60 | Composer affordance hints (`listComposerAffordances`) |
+| A6.61 | Composer compact control (`AiComposerCompactControl` slots) |
 
 ### A5 complete enough
 
