@@ -193,6 +193,7 @@ consumption of shared panel shells:
 | A6.75 | Chat keyboard Escape dismiss (`isEscapeDismissKey`) |
 | A6.76 | Replay control mount gate (`canMountReplayControl`) |
 | A6.77 | Wait-shell diagnostic clipboard (`formatDiagnosticClipboardText`) |
+| A6.78 | Permission-mode switcher gate (`canMountPermissionModeSwitcher`) |
 
 ### A5 complete enough
 

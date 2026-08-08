@@ -1093,6 +1093,11 @@ export { canMountReplayControl } from "./lib/replayChrome.js";
 export { formatDiagnosticClipboardText } from "./lib/waitShellChrome.js";
 
 export {
+  canMountPermissionModeSwitcher,
+  type PermissionSwitcherFlags,
+} from "./lib/permissionModeChrome.js";
+
+export {
   fileUriToPath,
   isHttpUrl,
   segmentChatContent,
