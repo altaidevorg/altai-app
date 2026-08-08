@@ -177,6 +177,7 @@ consumption of shared panel shells:
 | A6.59 | Composer compact policy (`canMountCompactControl` / invoke) |
 | A6.60 | Composer affordance hints (`listComposerAffordances`) |
 | A6.61 | Composer compact control (`AiComposerCompactControl` slots) |
+| A6.62 | Composer follow-up control (`AiComposerFollowupControl`) |
 
 ### A5 complete enough
 
