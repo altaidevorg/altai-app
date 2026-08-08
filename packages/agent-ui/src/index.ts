@@ -1033,6 +1033,15 @@ export {
 } from "./lib/runInspectorSections.js";
 
 export {
+  dismissAllChangeReviewIds,
+  dismissChangeReviewId,
+  listChangeReviewItems,
+  planLineDiffStats,
+  type ChangeReviewItem,
+  type ChangeReviewSourceMessage,
+} from "./lib/changeReviewPolicy.js";
+
+export {
   fileUriToPath,
   isHttpUrl,
   segmentChatContent,
