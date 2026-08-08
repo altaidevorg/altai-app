@@ -147,6 +147,7 @@ consumption of shared panel shells:
 | A6.28 | User-turn display (`prepareUserTurnDisplay`, command markers, stream ids) |
 | A6.29 | Flat display tool-group blocks (`buildDisplayTranscriptBlocks`, aliases) |
 | A6.30 | Composer draft/dispatch prelude (`commandSource`, file classify, picks) |
+| A6.31 | Chat display transcript (`applyAgentEventToMessages`, session map) |
 
 ### A5 complete enough
 

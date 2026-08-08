@@ -638,6 +638,22 @@ export {
 } from "./lib/userTurnDisplay.js";
 
 export {
+  appendMetaMessage,
+  appendUserMessage,
+  applyAgentEventToMessages,
+  displayMessagesFromSession,
+  extractEditDiff,
+  extractTodoToolItems,
+  extractToolFileTarget,
+  newDisplayMessageId,
+  shouldShowChatEmptyHome,
+  textFromAgentEvent,
+  type ChatDisplayMessage,
+  type ChatDisplayRole,
+  type SessionMessageLike,
+} from "./lib/chatDisplayTranscript.js";
+
+export {
   AT_MENTION_MIN_QUERY,
   detectAtMention,
   detectSlashOrSnippetTrigger,
