@@ -43,11 +43,10 @@ import {
   HoverActionButton,
   indexOfLastTextPart,
   joinMessageTextParts,
-  classifySdkUiPart,
   mapSdkToolApprovalPart,
   mapSdkToolCardPart,
+  mapSdkUiPartView,
   prepareUserTurnDisplay,
-  sdkPartText,
   shouldShowAssistantRunActions,
 } from "@altai/agent-ui";
 import { AgentStatusPill } from "./AgentStatusPill";
@@ -291,26 +290,23 @@ const RenderedPart = memo(function RenderedPart({
   onApproval: (id: string, approved: boolean) => void;
   streaming: boolean;
 }) {
-  if (part.type === "text") {
+  const view = mapSdkUiPartView(part as { type?: string; text?: string });
+  if (view.kind === "text") {
     return (
-      <MessageResponse streaming={streaming}>
-        {sdkPartText(part as { type?: string; text?: string })}
-      </MessageResponse>
+      <MessageResponse streaming={streaming}>{view.text}</MessageResponse>
     );
   }
 
-  if (part.type === "reasoning") {
+  if (view.kind === "reasoning") {
     return (
       <Reasoning>
         <ReasoningTrigger />
-        <ReasoningContent>
-          {sdkPartText(part as { type?: string; text?: string })}
-        </ReasoningContent>
+        <ReasoningContent>{view.text}</ReasoningContent>
       </Reasoning>
     );
   }
 
-  if (classifySdkUiPart(part as { type?: string }) === "tool") {
+  if (view.kind === "tool") {
     return (
       <RenderedTool
         part={part as unknown as AnyToolPart}
