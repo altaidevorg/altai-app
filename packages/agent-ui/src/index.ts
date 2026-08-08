@@ -1393,6 +1393,9 @@ export {
 
 export { isVirtualOnlyWorkspace } from "./lib/virtualWorkspace.js";
 
+export type { HostStatusBarInput, HostStatusBarPresentation } from "./lib/hostStatusBar.js";
+export { hostStatusBarPresentation } from "./lib/hostStatusBar.js";
+
 export {
   fileUriToPath,
   isHttpUrl,
