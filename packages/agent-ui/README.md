@@ -227,6 +227,7 @@ consumption of shared panel shells:
 | A6.109 | Host lifecycle status pill labels |
 | A6.110 | Host connecting progress presentation |
 | A6.111 | Host user-facing error message map |
+| A6.112 | Host status recovery toast policy |
 
 ### A5 complete enough
 
