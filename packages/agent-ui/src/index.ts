@@ -1139,6 +1139,12 @@ export {
 } from "./lib/settingsSearchChrome.js";
 
 export {
+  formatTranscriptForCopy,
+  roleLabelForCopy,
+  type TranscriptCopyLine,
+} from "./lib/transcriptCopyChrome.js";
+
+export {
   fileUriToPath,
   isHttpUrl,
   segmentChatContent,
