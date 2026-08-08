@@ -191,6 +191,7 @@ consumption of shared panel shells:
 | A6.73 | Shell surface tab keyboard nav (`nextAltaiSurface`) |
 | A6.74 | Side-chat shell density chrome (`shouldShowSurfaceTextTabs`) |
 | A6.75 | Chat keyboard Escape dismiss (`isEscapeDismissKey`) |
+| A6.76 | Replay control mount gate (`canMountReplayControl`) |
 
 ### A5 complete enough
 
