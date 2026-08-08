@@ -730,6 +730,20 @@ export {
   type ComposerMultimodalParts,
 } from "./lib/composerSubmitCompose.js";
 
+export {
+  MAX_PDF_INLINE_BYTES,
+  appendUniqueByKey,
+  applyComposerSlashOutcome,
+  basenameForAttach,
+  browserFileToAttachment,
+  buildComposerCommandSource,
+  classifyBrowserFile,
+  removeAcceptedItems,
+  selectionToComposerAttachment,
+  type BrowserFileClass,
+  type ComposerSlashOutcome,
+} from "./lib/composerDraft.js";
+
 export { autoresizeTextarea } from "./lib/autoresizeTextarea.js";
 
 export {

@@ -7,7 +7,13 @@ import {
 } from "react";
 import {
   ACCEPTED_FILES,
+  appendUniqueByKey,
+  applyComposerSlashOutcome,
+  basenameForAttach,
+  browserFileToAttachment,
+  buildComposerCommandSource,
   buildTextContextAttachment,
+  classifyBrowserFile,
   composeComposerSubmitText,
   estimateComposerContextTokens,
   extractComposerMultimodalParts,
@@ -16,7 +22,9 @@ import {
   hasNativeBinaryAttachment,
   MAX_TEXT_INLINE,
   remainingTextAfterAcceptedDispatch,
+  removeAcceptedItems,
   resolveComposerEnterAction,
+  selectionToComposerAttachment,
   upsertComposerAttachment,
   type ComposerAction,
   type ComposerActionAvailability,
@@ -199,18 +207,13 @@ export function AiComposerProvider({ children }: ProviderProps) {
       const next: FileAttachment[] = [];
       for (const sel of drained) {
         if (existing.has(sel.id)) continue;
-        next.push({
-          id: sel.id,
-          name:
-            sel.source === "editor"
-              ? "Editor selection"
-              : "Terminal selection",
-          kind: "selection",
-          mediaType: "text/plain",
-          text: sel.text,
-          size: sel.text.length,
-          source: sel.source,
-        });
+        next.push(
+          selectionToComposerAttachment({
+            id: sel.id,
+            source: sel.source,
+            text: sel.text,
+          }),
+        );
       }
       return next.length ? [...prev, ...next] : prev;
     });
@@ -227,16 +230,12 @@ export function AiComposerProvider({ children }: ProviderProps) {
     setFiles((prev) => prev.filter((f) => f.id !== id));
 
   const addSnippet = (s: Snippet) =>
-    setPickedSnippets((prev) =>
-      prev.some((p) => p.id === s.id) ? prev : [...prev, s],
-    );
+    setPickedSnippets((prev) => appendUniqueByKey(prev, s, (x) => x.id));
   const removeSnippet = (id: string) =>
     setPickedSnippets((prev) => prev.filter((s) => s.id !== id));
 
   const addCommand = (cmd: SlashCommandMeta) =>
-    setPickedCommands((prev) =>
-      prev.some((p) => p.name === cmd.name) ? prev : [...prev, cmd],
-    );
+    setPickedCommands((prev) => appendUniqueByKey(prev, cmd, (x) => x.name));
   const removeCommand = (name: string) =>
     setPickedCommands((prev) => prev.filter((c) => c.name !== name));
 
@@ -247,7 +246,7 @@ export function AiComposerProvider({ children }: ProviderProps) {
         // without a provider-specific file API. Browser-uploaded PDFs below
         // keep their original bytes and go to document-capable models directly.
         const result = await native.extractPdfPath(path);
-        const name = path.split("/").pop() || path;
+        const name = basenameForAttach(path);
         const id = `path-${path}`;
         setFiles((prev) => prev.some((f) => f.id === id) ? prev : [...prev, {
           id, name, kind: "text", mediaType: "application/pdf",
@@ -263,7 +262,7 @@ export function AiComposerProvider({ children }: ProviderProps) {
         console.warn("attachFileByPath: skipped non-text file", path, result);
         return;
       }
-      const name = path.split("/").pop() || path;
+      const name = basenameForAttach(path);
       const id = `path-${path}`;
       setFiles((prev) => {
         if (prev.some((f) => f.id === id)) return prev;
@@ -292,7 +291,7 @@ export function AiComposerProvider({ children }: ProviderProps) {
       const files = result.files.slice(0, 500);
       const manifest = files.length ? files.map((file) => `- ${file}`).join("\n") : "(No files found)";
       const suffix = result.truncated ? "\n…[file list truncated]" : "";
-      const name = path.split(/[\\/]/).filter(Boolean).pop() || path;
+      const name = basenameForAttach(path);
       addTextContext({ kind: "folder", name, text: `${manifest}${suffix}` });
     } catch (error) {
       console.error("attachFolderByPath failed:", error);
@@ -339,12 +338,12 @@ export function AiComposerProvider({ children }: ProviderProps) {
         valueRevision.current === snapshot.valueRevision,
       ),
     );
-    setFiles((current) => current.filter((file) => !snapshot.files.includes(file)));
+    setFiles((current) => removeAcceptedItems(current, snapshot.files));
     setPickedSnippets((current) =>
-      current.filter((snippet) => !snapshot.snippets.includes(snippet)),
+      removeAcceptedItems(current, snapshot.snippets),
     );
     setPickedCommands((current) =>
-      current.filter((command) => !snapshot.commands.includes(command)),
+      removeAcceptedItems(current, snapshot.commands),
     );
   };
 
@@ -374,23 +373,20 @@ export function AiComposerProvider({ children }: ProviderProps) {
     // the prompt to the ALTAI.md scan template before sending.
     let effectiveText = trimmed;
     let commandMarker: string | null = null;
-    let commandSource = trimmed;
-    if (pickedCommands.length > 0 && !trimmed.startsWith("/") && !trimmed.startsWith("#")) {
-      commandSource = `#${pickedCommands[0].name} ${trimmed}`.trim();
-    }
+    const commandSource = buildComposerCommandSource(
+      trimmed,
+      pickedCommands.map((c) => c.name),
+    );
     if (commandSource.startsWith("/") || commandSource.startsWith("#")) {
       const outcome = tryRunSlashCommand(commandSource);
-      if (outcome.kind === "handled") {
+      const mapped = applyComposerSlashOutcome(outcome, trimmed);
+      if (mapped.abortAsHandled) {
         clearAcceptedSnapshot(snapshot);
-        if (outcome.toast) console.info(outcome.toast);
+        if (mapped.toast) console.info(mapped.toast);
         return;
       }
-      if (outcome.kind === "send-prompt") {
-        effectiveText = outcome.prompt;
-        if (outcome.commandName) {
-          commandMarker = `<altai-command name="${outcome.commandName}" />`;
-        }
-      }
+      effectiveText = mapped.effectiveText;
+      commandMarker = mapped.commandMarker;
     }
 
     const composed = composeComposerSubmitText({
@@ -510,39 +506,20 @@ export function AiComposerProvider({ children }: ProviderProps) {
 }
 
 async function readAttachment(file: File): Promise<FileAttachment | null> {
-  const id = `${file.name}-${file.size}-${file.lastModified}`;
-  if (file.type.startsWith("image/")) {
+  const cls = classifyBrowserFile(file);
+  if (!cls.ok) return null;
+  if (cls.kind === "image" || cls.kind === "pdf") {
     const url = await readAsDataURL(file);
-    return {
-      id,
-      name: file.name,
-      kind: "image",
-      mediaType: file.type || "image/png",
+    return browserFileToAttachment(cls, file.name, {
       url,
       size: file.size,
-    };
+    });
   }
-  if (file.type === "application/pdf" || /\.pdf$/i.test(file.name)) {
-    if (file.size > 10 * 1024 * 1024) return null;
-    return {
-      id,
-      name: file.name,
-      kind: "pdf",
-      mediaType: "application/pdf",
-      url: await readAsDataURL(file),
-      size: file.size,
-    };
-  }
-  if (file.size > MAX_TEXT_INLINE) return null;
   const text = await file.text();
-  return {
-    id,
-    name: file.name,
-    kind: "text",
-    mediaType: file.type || "text/plain",
+  return browserFileToAttachment(cls, file.name, {
     text,
     size: file.size,
-  };
+  });
 }
 
 function readAsDataURL(file: Blob): Promise<string> {
