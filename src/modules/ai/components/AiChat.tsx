@@ -38,6 +38,7 @@ import {
   AiSdkAssistantGroups,
   AiSdkToolPartSwitch,
   AiSdkUiPartSwitch,
+  AiAssistantRunActions,
   AiToolApproval,
   AssistantBrandLabel,
   AiUserTurnBody,
@@ -45,7 +46,6 @@ import {
   HoverActionButton,
   joinMessageTextParts,
   prepareUserTurnDisplay,
-  resolveAssistantRunActionMode,
 } from "@altai/agent-ui";
 import { AgentStatusPill } from "./AgentStatusPill";
 import { openWorkspaceFile } from "../lib/openChatHref";
@@ -196,11 +196,6 @@ const RenderedMessage = memo(function RenderedMessage({
     );
   }
 
-  const runActionMode = resolveAssistantRunActionMode({
-    streaming,
-    canRetry,
-  });
-
   return (
     <Message from={message.role} className="altai-ai-message">
       <MessageContent>
@@ -241,21 +236,27 @@ const RenderedMessage = memo(function RenderedMessage({
           )}
         />
       </MessageContent>
-      {runActionMode !== "hidden" ? (
-        <MessageActions className="opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
-          {runActionMode === "stop" ? (
-            <HoverActionButton title="Stop generating" onClick={() => onStop?.()}>
-              <HugeiconsIcon icon={Cancel01Icon} size={11} strokeWidth={1.75} />
-              Stop
-            </HoverActionButton>
-          ) : (
-            <HoverActionButton title="Retry" onClick={() => onRetry?.()}>
-              <HugeiconsIcon icon={Refresh01Icon} size={11} strokeWidth={1.75} />
-              Retry
-            </HoverActionButton>
-          )}
-        </MessageActions>
-      ) : null}
+      <AiAssistantRunActions
+        streaming={streaming}
+        canRetry={canRetry}
+        wrap={(children) => (
+          <MessageActions className="opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
+            {children}
+          </MessageActions>
+        )}
+        renderStop={() => (
+          <HoverActionButton title="Stop generating" onClick={() => onStop?.()}>
+            <HugeiconsIcon icon={Cancel01Icon} size={11} strokeWidth={1.75} />
+            Stop
+          </HoverActionButton>
+        )}
+        renderRetry={() => (
+          <HoverActionButton title="Retry" onClick={() => onRetry?.()}>
+            <HugeiconsIcon icon={Refresh01Icon} size={11} strokeWidth={1.75} />
+            Retry
+          </HoverActionButton>
+        )}
+      />
     </Message>
   );
 });
