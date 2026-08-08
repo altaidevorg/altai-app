@@ -225,6 +225,7 @@ consumption of shared panel shells:
 | A6.107 | Attention badge report parse + status-bar command |
 | A6.108 | Multi-cursor selection join for attach context |
 | A6.109 | Host lifecycle status pill labels |
+| A6.110 | Host connecting progress presentation |
 
 ### A5 complete enough
 
