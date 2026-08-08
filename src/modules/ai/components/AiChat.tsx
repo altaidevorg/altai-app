@@ -41,9 +41,8 @@ import {
   AiToolApproval,
   AssistantBrandLabel,
   AiUserTurnBody,
-  buildTranscriptPartGroups,
+  buildAssistantSdkGroupsState,
   HoverActionButton,
-  indexOfLastTextPart,
   joinMessageTextParts,
   prepareUserTurnDisplay,
   resolveAssistantRunActionMode,
@@ -154,7 +153,10 @@ const RenderedMessage = memo(function RenderedMessage({
 }) {
   // Index of the trailing text part — only that one is "live" mid-stream.
   // Earlier text parts (separated by tool calls) are already finalized.
-  const lastTextIdx = indexOfLastTextPart(message.parts);
+  const { lastTextPartIdx: lastTextIdx, groups } = useMemo(
+    () => buildAssistantSdkGroupsState(message.parts as AnyPart[]),
+    [message.parts],
+  );
   if (message.role === "user") {
     const rawText = joinMessageTextParts(message.parts);
 
@@ -193,11 +195,6 @@ const RenderedMessage = memo(function RenderedMessage({
       </Message>
     );
   }
-
-  const groups = useMemo(
-    () => buildTranscriptPartGroups(message.parts as AnyPart[]),
-    [message.parts],
-  );
 
   const runActionMode = resolveAssistantRunActionMode({
     streaming,

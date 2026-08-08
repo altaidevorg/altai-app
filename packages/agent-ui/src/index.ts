@@ -756,6 +756,11 @@ export {
 } from "./lib/chatSdkAssistantChrome.js";
 
 export {
+  buildAssistantSdkGroupsState,
+  type AssistantSdkGroupsState,
+} from "./lib/assistantSdkGroupsState.js";
+
+export {
   buildAiChatViewRowMeta,
   type AiChatViewMessageLike,
   type AiChatViewRowMeta,
