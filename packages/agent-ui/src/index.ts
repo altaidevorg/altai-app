@@ -1008,6 +1008,14 @@ export {
 } from "./lib/runLifecycleChrome.js";
 
 export {
+  countPendingEditDiffs,
+  isEditDiffMessage,
+  lastEditDiffMessage,
+  lastEditDiffMessageIndex,
+  type EditDiffMessageLike,
+} from "./lib/editDiffMessagePolicy.js";
+
+export {
   fileUriToPath,
   isHttpUrl,
   segmentChatContent,
