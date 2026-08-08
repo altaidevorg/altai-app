@@ -724,6 +724,17 @@ export {
 } from "./components/AiChatTranscriptFrame.js";
 
 export {
+  AiDisplayTranscriptList,
+  type AiDisplayTranscriptListProps,
+} from "./components/AiDisplayTranscriptList.js";
+
+export {
+  chatDisplayBubbleClassName,
+  chatDisplayBubbleModifier,
+  chatDisplayRoleLabel,
+} from "./lib/chatDisplayChrome.js";
+
+export {
   ACCEPTED_COMPOSER_FILES,
   ACCEPTED_FILES,
   boundContextText,

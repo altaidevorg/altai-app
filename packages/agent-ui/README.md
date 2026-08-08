@@ -153,6 +153,7 @@ consumption of shared panel shells:
 | A6.34 | Composer draft clear after accept (`clearComposerDraftAfterAccept`) |
 | A6.35 | Composer submit host intent (`mapComposerSubmitPlanToHostIntent`) |
 | A6.36 | Ports-first submit execute + `useComposerController` headless draft |
+| A6.38 | Display transcript list frame + role/bubble chrome (`AiDisplayTranscriptList`) |
 
 ### A5 complete enough
 
