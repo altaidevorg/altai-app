@@ -215,6 +215,7 @@ consumption of shared panel shells:
 | A6.97 | Host-neutral composer slash command registry |
 | A6.98 | Composer context chip helpers (`composeRunPrompt`) |
 | A6.99 | Composer attach builders (`buildFileContextItem`, …) |
+| A6.100 | Operations → Chat deep-link helpers (`buildOpenChatFocus`) |
 
 ### A5 complete enough
 

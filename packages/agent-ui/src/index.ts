@@ -1273,6 +1273,13 @@ export {
 } from "./lib/composerAttachChrome.js";
 
 export {
+  buildOpenChatFocus,
+  chatFocusStatusLine,
+  type OpenChatFocus,
+  type OpenChatTarget,
+} from "./lib/openChatDeepLink.js";
+
+export {
   fileUriToPath,
   isHttpUrl,
   segmentChatContent,
