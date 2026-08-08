@@ -1417,6 +1417,8 @@ export {
   COMPOSER_DRAFT_DEBOUNCE_MS,
   shouldPersistComposerDraftImmediately,
 } from "./lib/composerDraftPersist.js";
+
+export { withAssetCacheBust } from "./lib/assetCacheBust.js";
 export {
   buildOpenOperationsPayload,
   parseOpenOperationsPayload,
