@@ -203,6 +203,7 @@ consumption of shared panel shells:
 | A6.85 | Transcript clipboard export (`formatTranscriptForCopy`) |
 | A6.86 | Project-target chip chrome (`projectTargetFromWorkspace`) |
 | A6.87 | Model picker mount/filter helpers (`canMountModelPicker`, Auto id) |
+| A6.88 | Composer agent profiles (`COMPOSER_AGENT_PROFILES`, prefix) |
 
 ### A5 complete enough
 
