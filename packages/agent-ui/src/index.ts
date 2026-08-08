@@ -1124,6 +1124,16 @@ export {
 } from "./lib/composerCaretChrome.js";
 
 export {
+  SETTINGS_HUB_SECTION_DEFS,
+  listSettingsHubNav,
+  listSettingsHubSections,
+  normalizeSettingsHubSection,
+  type SettingsHubCapabilityFlags,
+  type SettingsHubNavItem,
+  type SettingsHubSectionId,
+} from "./lib/settingsHubChrome.js";
+
+export {
   fileUriToPath,
   isHttpUrl,
   segmentChatContent,
