@@ -773,6 +773,8 @@ export {
   cmdSummaryForToolPart,
   formatGroupPreview,
   groupKindFor,
+  groupKindFromToolName,
+  normalizeToolName,
   pathBasename,
   readPathFromToolPart,
   toolNameOf,
@@ -784,6 +786,17 @@ export {
   type TranscriptGroupKind,
   type TranscriptPartGroup,
 } from "./lib/transcriptToolGroups.js";
+
+export {
+  buildDisplayTranscriptBlocks,
+  groupCountLabel,
+  groupLabel,
+  groupPreview,
+  toolGroupKindFor,
+  type DisplayToolGroupKind,
+  type DisplayTranscriptBlock,
+  type TranscriptDisplayMessage,
+} from "./lib/displayTranscriptBlocks.js";
 
 export {
   ConversationOwnerSection,

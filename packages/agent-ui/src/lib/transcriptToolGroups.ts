@@ -23,7 +23,8 @@ export type TranscriptPartGroup<T = ToolLikePart> =
   | { kind: "web"; parts: T[]; key: string }
   | { kind: "cmd"; parts: T[]; key: string };
 
-const READ_GROUP_TOOLS = new Set(["read_file"]);
+/** Shared tool-name catalogs (Desktop AI SDK parts + host display rows). */
+const READ_GROUP_TOOLS = new Set(["read_file", "read", "view_file"]);
 const WEB_GROUP_TOOLS = new Set([
   "web_search",
   "web_fetch",
@@ -35,7 +36,29 @@ const CMD_GROUP_TOOLS = new Set([
   "exec",
   "execution_run",
   "execution_run_background",
+  "shell",
+  "bash",
 ]);
+
+/** Normalize tool name for catalog lookup (case / hyphen / space). */
+export function normalizeToolName(name: string | undefined): string {
+  return (name ?? "").toLowerCase().replace(/[\s-]+/g, "_");
+}
+
+/**
+ * Group kind from a raw tool name (null when unknown — not the host "tools"
+ * bucket; flat rows map unknown → "tools" in displayTranscriptBlocks).
+ */
+export function groupKindFromToolName(
+  name: string | undefined,
+): TranscriptGroupKind | null {
+  const normalized = normalizeToolName(name);
+  if (!normalized) return null;
+  if (READ_GROUP_TOOLS.has(normalized)) return "reads";
+  if (WEB_GROUP_TOOLS.has(normalized)) return "web";
+  if (CMD_GROUP_TOOLS.has(normalized)) return "cmd";
+  return null;
+}
 
 function asToolLike(part: unknown): ToolLikePart {
   return (part ?? {}) as ToolLikePart;
@@ -63,10 +86,7 @@ export function groupKindFor(part: ToolLikePart): TranscriptGroupKind | null {
   if (state === "approval-requested") return null;
   const name = toolNameOf(part);
   if (!name) return null;
-  if (READ_GROUP_TOOLS.has(name)) return "reads";
-  if (WEB_GROUP_TOOLS.has(name)) return "web";
-  if (CMD_GROUP_TOOLS.has(name)) return "cmd";
-  return null;
+  return groupKindFromToolName(name);
 }
 
 export function transcriptPartKey(part: ToolLikePart, idx: number): string {
@@ -202,8 +222,9 @@ export function cmdSummaryForToolPart(part: ToolLikePart): string | null {
   if (!name || !input || typeof input !== "object") return null;
   const str = (k: string) => toolInputString(input, k);
   let raw: string | null = null;
-  if (name === "exec") raw = str("description") ?? str("command");
-  else if (name === "execution_run" || name === "execution_run_background") {
+  if (name === "exec" || name === "shell" || name === "bash") {
+    raw = str("description") ?? str("command");
+  } else if (name === "execution_run" || name === "execution_run_background") {
     raw = str("description") ?? str("code");
   }
   if (!raw) return null;
