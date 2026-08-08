@@ -382,6 +382,12 @@ export {
 } from "./lib/composerCompactPolicy.js";
 
 export {
+  formatComposerHintLine,
+  listComposerAffordances,
+  type ComposerHint,
+} from "./lib/composerHintChrome.js";
+
+export {
   ProviderConnectBanner,
   type ProviderConnectBannerProps,
 } from "./components/ProviderConnectBanner.js";
