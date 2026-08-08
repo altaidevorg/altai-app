@@ -734,6 +734,16 @@ export {
 } from "./components/AiUserTurnBody.js";
 
 export {
+  AiSdkAssistantGroups,
+  type AiSdkAssistantGroupsProps,
+} from "./components/AiSdkAssistantGroups.js";
+
+export {
+  isStandaloneReadToolPart,
+  shouldShowAssistantRunActions,
+} from "./lib/chatSdkAssistantChrome.js";
+
+export {
   chatDisplayBubbleClassName,
   chatDisplayBubbleModifier,
   chatDisplayRoleLabel,

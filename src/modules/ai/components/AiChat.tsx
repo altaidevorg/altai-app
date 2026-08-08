@@ -35,32 +35,22 @@ import type {
 import { memo, useCallback, useMemo } from "react";
 import {
   AiChatTranscriptFrame,
+  AiSdkAssistantGroups,
   AiToolApproval,
   AssistantBrandLabel,
+  AiUserTurnBody,
   buildTranscriptPartGroups,
   canRetryLastAssistantTurn,
-  cmdSummaryForToolPart,
-  formatGroupPreview,
   HoverActionButton,
   indexOfLastTextPart,
   joinMessageTextParts,
-  pathBasename,
   prepareUserTurnDisplay,
   resolveChatAriaLive,
   resolveStreamingAssistantMessageId,
   resolveTranscriptRunErrorVariant,
-  toolNameOf,
-  transcriptPartKey,
+  shouldShowAssistantRunActions,
   TranscriptConversationEmpty,
-  TranscriptReadPaths,
-  TranscriptReadRow,
   TranscriptRunError,
-  TranscriptToolGroup,
-  uniqueReadPaths,
-  uniqueSummaries,
-  webSummaryForToolPart,
-  AiUserTurnBody,
-  type ToolLikePart,
 } from "@altai/agent-ui";
 import { AgentStatusPill } from "./AgentStatusPill";
 import { openWorkspaceFile } from "../lib/openChatHref";
@@ -245,59 +235,50 @@ const RenderedMessage = memo(function RenderedMessage({
     [message.parts],
   );
 
-  const showRunActions = streaming || Boolean(canRetry);
+  const showRunActions = shouldShowAssistantRunActions({
+    streaming,
+    canRetry,
+  });
 
   return (
     <Message from={message.role} className="altai-ai-message">
       <MessageContent>
         <AssistantBrandLabel streaming={streaming} streamingLabel="working" />
-        <div className="flex min-w-0 flex-col gap-3">
-          {groups.map((g) => {
-            if (g.kind === "reads") {
-              return (
-                <PartAppear key={`${message.id}-${g.key}`}>
-                  <ReadGroup parts={g.parts} />
-                </PartAppear>
-              );
-            }
-            if (g.kind === "web") {
-              return (
-                <PartAppear key={`${message.id}-${g.key}`}>
-                  <WebGroup parts={g.parts} onApproval={onApproval} />
-                </PartAppear>
-              );
-            }
-            if (g.kind === "cmd") {
-              return (
-                <PartAppear key={`${message.id}-${g.key}`}>
-                  <CommandGroup parts={g.parts} onApproval={onApproval} />
-                </PartAppear>
-              );
-            }
-            // g.kind === "single"
-            const part = g.part;
-            const isReadSingle =
-              toolNameOf(part as ToolLikePart) === "read_file" &&
-              ((part as { state?: string }).state ?? "") !==
-                "approval-requested";
-            if (isReadSingle) {
-              return (
-                <PartAppear key={`${message.id}-${g.key}`}>
-                  <TranscriptReadRow part={part as ToolLikePart} />
-                </PartAppear>
-              );
-            }
-            return (
-              <PartAppear key={`${message.id}-${g.key}`}>
-                <RenderedPart
-                  part={part}
-                  onApproval={onApproval}
-                  streaming={streaming && g.idx === lastTextIdx}
-                />
-              </PartAppear>
-            );
-          })}
-        </div>
+        <AiSdkAssistantGroups
+          messageId={message.id}
+          groups={groups}
+          streaming={streaming}
+          lastTextPartIdx={lastTextIdx}
+          onApproval={onApproval}
+          onOpenPath={(path) => {
+            void openWorkspaceFile(path);
+          }}
+          wrapPart={(node, key) => (
+            <PartAppear key={key}>{node}</PartAppear>
+          )}
+          icons={{
+            file: (
+              <HugeiconsIcon icon={File01Icon} size={13} strokeWidth={1.75} />
+            ),
+            web: (
+              <HugeiconsIcon
+                icon={GlobalSearchIcon}
+                size={13}
+                strokeWidth={1.75}
+              />
+            ),
+            terminal: (
+              <HugeiconsIcon icon={TerminalIcon} size={13} strokeWidth={1.75} />
+            ),
+          }}
+          renderPart={({ part, streaming: partStreaming, onApproval: approve }) => (
+            <RenderedPart
+              part={part as AnyPart}
+              onApproval={approve}
+              streaming={partStreaming}
+            />
+          )}
+        />
       </MessageContent>
       {showRunActions ? (
         <MessageActions className="opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
@@ -315,112 +296,6 @@ const RenderedMessage = memo(function RenderedMessage({
         </MessageActions>
       ) : null}
     </Message>
-  );
-});
-
-const ReadGroup = memo(function ReadGroup({ parts }: { parts: AnyPart[] }) {
-  const paths = useMemo(
-    () => uniqueReadPaths(parts as ToolLikePart[]),
-    [parts],
-  );
-  const count = paths.length || parts.length;
-
-  return (
-    <TranscriptToolGroup
-      label="Read"
-      countLabel={`${count} file${count === 1 ? "" : "s"}`}
-      preview={
-        paths.length > 0
-          ? formatGroupPreview(paths.map((p) => pathBasename(p)))
-          : undefined
-      }
-      previewMono
-      icon={
-        <HugeiconsIcon icon={File01Icon} size={13} strokeWidth={1.75} />
-      }
-    >
-      <TranscriptReadPaths
-        paths={paths}
-        onOpen={(path) => {
-          void openWorkspaceFile(path);
-        }}
-      />
-    </TranscriptToolGroup>
-  );
-});
-
-const WebGroup = memo(function WebGroup({
-  parts,
-  onApproval,
-}: {
-  parts: AnyPart[];
-  onApproval: (id: string, approved: boolean) => void;
-}) {
-  const summaries = useMemo(
-    () => uniqueSummaries(parts as ToolLikePart[], webSummaryForToolPart),
-    [parts],
-  );
-  const count = parts.length;
-  const preview = formatGroupPreview(summaries);
-
-  return (
-    <TranscriptToolGroup
-      label="Web"
-      countLabel={`${count} call${count === 1 ? "" : "s"}`}
-      preview={preview}
-      icon={
-        <HugeiconsIcon icon={GlobalSearchIcon} size={13} strokeWidth={1.75} />
-      }
-    >
-      <div className="flex flex-col gap-1 px-2 py-1.5">
-        {parts.map((p, i) => (
-          <RenderedPart
-            key={transcriptPartKey(p as ToolLikePart, i)}
-            part={p}
-            onApproval={onApproval}
-            streaming={false}
-          />
-        ))}
-      </div>
-    </TranscriptToolGroup>
-  );
-});
-
-const CommandGroup = memo(function CommandGroup({
-  parts,
-  onApproval,
-}: {
-  parts: AnyPart[];
-  onApproval: (id: string, approved: boolean) => void;
-}) {
-  const summaries = useMemo(
-    () => uniqueSummaries(parts as ToolLikePart[], cmdSummaryForToolPart),
-    [parts],
-  );
-  const count = parts.length;
-  const preview = formatGroupPreview(summaries, { separator: " · " });
-
-  return (
-    <TranscriptToolGroup
-      label="Ran"
-      countLabel={`${count} command${count === 1 ? "" : "s"}`}
-      preview={preview}
-      previewMono
-      icon={
-        <HugeiconsIcon icon={TerminalIcon} size={13} strokeWidth={1.75} />
-      }
-    >
-      <div className="flex flex-col gap-1 px-2 py-1.5">
-        {parts.map((p, i) => (
-          <RenderedPart
-            key={transcriptPartKey(p as ToolLikePart, i)}
-            part={p}
-            onApproval={onApproval}
-            streaming={false}
-          />
-        ))}
-      </div>
-    </TranscriptToolGroup>
   );
 });
 
