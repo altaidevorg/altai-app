@@ -164,6 +164,7 @@ consumption of shared panel shells:
 | A6.46 | AI-SDK UI part switch (`AiSdkUiPartSwitch` host chrome slots) |
 | A6.47 | AI-SDK tool part switch (`AiSdkToolPartSwitch` approval vs card) |
 | A6.48 | Assistant run action mode (`resolveAssistantRunActionMode`) |
+| A6.49 | Assistant SDK groups state (`buildAssistantSdkGroupsState`) |
 
 ### A5 complete enough
 
