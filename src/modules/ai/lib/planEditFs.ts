@@ -4,6 +4,8 @@
  * ad-hoc `native.writeFile` in the UI layer alone.
  */
 
+import { proposalKindFromPlanEdit as proposalKindFromPlanEditShared } from "@altai/agent-ui";
+
 export type PlanEditFs = {
   writeFile(
     path: string,
@@ -30,10 +32,7 @@ export type PlanEditMutation = {
 
 /** Map plan-queue / proposal kinds onto host EditProposalKind strings. */
 export function proposalKindFromPlanEdit(kind: string, isNewFile?: boolean): string {
-  if (kind === "create_directory") return "create_directory";
-  if (isNewFile || kind === "create_file") return "create_file";
-  if (kind === "write_file" || kind === "edit" || kind === "multi_edit") return kind;
-  return "edit_file";
+  return proposalKindFromPlanEditShared(kind, isNewFile);
 }
 
 /**
