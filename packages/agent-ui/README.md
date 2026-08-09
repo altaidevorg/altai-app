@@ -259,6 +259,7 @@ consumption of shared panel shells:
 | A6.141 | Native RPC method list parse + availability |
 | A6.142 | MCP tool name parse + activity kind |
 | A6.143 | Skill install source parse |
+| A6.144 | Todo status normalize |
 
 ### A5 complete enough
 

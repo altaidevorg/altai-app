@@ -9,6 +9,8 @@ import {
   continueBudgetSegmentPrompt as continueBudgetSegmentPromptShared,
   describeRunWarning as describeRunWarningShared,
   nextBudgetSegmentAutoContinueCount,
+  normalizeTodoStatus,
+  activityKindForTool as activityKindForToolShared,
 } from "@altai/agent-ui";
 import { useChatStore } from "../store/chatStore";
 import { useAgentRunsStore } from "../store/agentRunsStore";
@@ -18,7 +20,6 @@ import { appendBackgroundMessage } from "./backgroundTranscript";
 import { pruneOldToolOutputs } from "./compaction";
 import type { Todo, TodoStatus } from "./todos";
 import { parseMcpToolName, type McpToolInfo } from "@/modules/mcp/toolName";
-import { activityKindForTool as activityKindForToolShared } from "@altai/agent-ui";
 import { z } from "zod";
 import { native } from "./native";
 
@@ -40,12 +41,7 @@ function activityKindForTool(name: string): "research" | "mcp" | "tool" {
 /** Normalize the agent's free-form todo status into the app's TodoStatus.
  *  Case-insensitive + tolerant of common LLM variants. */
 function toTodoStatus(value: unknown): TodoStatus {
-  const v = typeof value === "string" ? value.trim().toLowerCase().replace(/[\s-]+/g, "_") : "";
-  if (["completed", "complete", "done", "finished"].includes(v)) return "completed";
-  if (["in_progress", "active", "running", "doing", "started", "wip"].includes(v)) {
-    return "in_progress";
-  }
-  return "pending";
+  return normalizeTodoStatus(value);
 }
 
 /**
