@@ -1468,6 +1468,12 @@ export type {
   SidePanelOpenEventDetail,
   SidePanelOpenResolution,
 } from "./lib/sidePanelSurface.js";
+
+export type { StringKeyStorage } from "./lib/sidePanelWidthStorage.js";
+export {
+  readPanelWidthFromStorage,
+  writePanelWidthToStorage,
+} from "./lib/sidePanelWidthStorage.js";
 export {
   closeChatTabSelection,
   openIdsAfterNewChat,
