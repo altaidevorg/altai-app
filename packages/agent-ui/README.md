@@ -297,6 +297,7 @@ consumption of shared panel shells:
 | A6.179 | Slash agent switch toast copy |
 | A6.180 | Slash command non-empty tail |
 | A6.181 | Backend/session default title |
+| A6.183 | Uint8Array body byte pack |
 
 ### A5 complete enough
 

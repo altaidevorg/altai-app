@@ -904,6 +904,7 @@ export type { NamedAgent } from "./lib/findAgentByName.js";
 export { isPlanModeOffTail } from "./lib/planModeTail.js";
 export {
   utf8StringToBytes,
+  uint8ArrayToBytes,
   arrayBufferToBytes,
   arrayBufferViewToBytes,
 } from "./lib/bodyBytes.js";

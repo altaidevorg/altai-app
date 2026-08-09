@@ -5,6 +5,7 @@ import {
   requestMethodFromInit,
   requestUrlToString,
   utf8StringToBytes,
+  uint8ArrayToBytes,
 } from "@altai/agent-ui";
 import { Channel, invoke } from "@tauri-apps/api/core";
 
@@ -27,7 +28,7 @@ async function bodyToBytes(
     return arrayBufferViewToBytes(body as ArrayBufferView);
   }
   if (body instanceof Blob)
-    return Array.from(new Uint8Array(await body.arrayBuffer()));
+    return uint8ArrayToBytes(new Uint8Array(await body.arrayBuffer()));
   // FormData / URLSearchParams / ReadableStream — uncommon for AI SDK calls.
   const text = await new Response(body as BodyInit).text();
   return utf8StringToBytes(text);
