@@ -268,6 +268,7 @@ consumption of shared panel shells:
 | A6.150 | Project instructions path + combine |
 | A6.151 | Session id generator |
 | A6.152 | Agent id / find / override helpers |
+| A6.153 | Snippet id generator |
 
 ### A5 complete enough
 
