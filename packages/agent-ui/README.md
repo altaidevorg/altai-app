@@ -245,6 +245,7 @@ consumption of shared panel shells:
 | A6.127 | Secure random / id helpers |
 | A6.128 | CSP nonce helper |
 | A6.129 | Webview message id helper |
+| A6.130 | Host recovery diagnostic hints |
 
 ### A5 complete enough
 

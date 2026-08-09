@@ -1423,6 +1423,7 @@ export { withAssetCacheBust } from "./lib/assetCacheBust.js";
 export { createSecureId, getSecureRandomBytes } from "./lib/secureRandom.js";
 export { createNonce } from "./lib/cspNonce.js";
 export { createMessageId } from "./lib/messageId.js";
+export { recoveryHintForDiagnosticCode } from "./lib/hostRecovery.js";
 export {
   buildOpenOperationsPayload,
   parseOpenOperationsPayload,
