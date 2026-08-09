@@ -308,6 +308,7 @@ consumption of shared panel shells:
 | A6.190 | Deleted session id blocklist ops |
 | A6.191 | Hydrate active session resolve |
 | A6.192 | Insert session after active tab |
+| A6.193 | Rename session title in list |
 
 ### A5 complete enough
 
