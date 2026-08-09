@@ -870,7 +870,7 @@ export { newNativeMessageId } from "./lib/nativeMessageId.js";
 export { mapBackendMessageToTranscript } from "./lib/backendMessageMap.js";
 export type {
   BackendChatMessage,
-  TranscriptMessage,
+  BackendTranscriptMessage,
   TranscriptPart,
   TranscriptTextPart,
   TranscriptToolPart,

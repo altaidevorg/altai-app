@@ -26,7 +26,7 @@ export type TranscriptToolPart = {
 
 export type TranscriptPart = TranscriptTextPart | TranscriptToolPart;
 
-export type TranscriptMessage = {
+export type BackendTranscriptMessage = {
   id: string;
   role: string;
   parts: TranscriptPart[];
@@ -39,7 +39,7 @@ export type TranscriptMessage = {
 export function mapBackendMessageToTranscript(
   msg: BackendChatMessage,
   index: number,
-): TranscriptMessage {
+): BackendTranscriptMessage {
   const parts: TranscriptPart[] = [];
   const reasoning = msg.reasoning_content?.trim();
   if (reasoning) {
