@@ -791,6 +791,12 @@ export {
   type ToolActivityKind,
 } from "./lib/mcpToolName.js";
 
+export {
+  parseSkillInstallSource,
+  type ParsedSkillInstallSource,
+} from "./lib/skillInstallSource.js";
+
+
 
 export {
   AiChatTranscriptFrame,
