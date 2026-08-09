@@ -767,6 +767,11 @@ export {
   type SharedRunBudgetWarning,
   type SharedRunOutcome,
 } from "./lib/runContinueChrome.js";
+export {
+  parseNativeMethodList,
+  nativeMethodAvailable,
+} from "./lib/nativeMethodList.js";
+
 
 export {
   AiChatTranscriptFrame,
