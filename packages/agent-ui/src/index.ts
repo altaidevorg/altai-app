@@ -772,6 +772,17 @@ export {
   nativeMethodAvailable,
 } from "./lib/nativeMethodList.js";
 
+export {
+  agentRequiresTools,
+  supportsAgentModel,
+  describeModelConstraint,
+  pickAutoModel,
+  type SharedModelRoutingAgent,
+  type SharedModelRoutingCapabilities,
+  type SharedModelRoutingInfo,
+  type PickAutoModelInput,
+} from "./lib/modelRouting.js";
+
 
 export {
   AiChatTranscriptFrame,
