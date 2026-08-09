@@ -5,6 +5,8 @@ import {
   describeRunWarning,
   describeTerminalOutcomeAttention,
   isRecoverableRunOutcome,
+  nextBudgetSegmentAutoContinueCount,
+  MAX_BUDGET_SEGMENT_AUTO_CONTINUES,
 } from "../lib/runContinueChrome.js";
 
 describe("runContinueChrome", () => {
@@ -49,5 +51,18 @@ describe("runContinueChrome", () => {
         reason: { kind: "no_progress", turns: 4 },
       }),
     ).toBe("No measurable progress for 4 turns");
+  });
+});
+
+
+describe("budget auto-continue cap", () => {
+  it("increments until soft max", () => {
+    expect(nextBudgetSegmentAutoContinueCount(0)).toBe(1);
+    expect(
+      nextBudgetSegmentAutoContinueCount(MAX_BUDGET_SEGMENT_AUTO_CONTINUES - 1),
+    ).toBe(MAX_BUDGET_SEGMENT_AUTO_CONTINUES);
+    expect(
+      nextBudgetSegmentAutoContinueCount(MAX_BUDGET_SEGMENT_AUTO_CONTINUES),
+    ).toBe(null);
   });
 });

@@ -8,6 +8,8 @@ import {
   continueStuckPrompt as continueStuckPromptShared,
   continueBudgetSegmentPrompt as continueBudgetSegmentPromptShared,
   describeRunWarning as describeRunWarningShared,
+  MAX_BUDGET_SEGMENT_AUTO_CONTINUES,
+  nextBudgetSegmentAutoContinueCount,
 } from "@altai/agent-ui";
 import { useChatStore } from "../store/chatStore";
 import { useAgentRunsStore } from "../store/agentRunsStore";
@@ -248,8 +250,6 @@ export function describeRunWarning(warning: RunBudgetWarning): string {
   return describeRunWarningShared(warning);
 }
 
-/** Soft cap so an unbounded task cannot auto-burn forever. */
-const MAX_BUDGET_SEGMENT_AUTO_CONTINUES = 20;
 const budgetSegmentAutoContinues = new Map<string, number>();
 
 export function resetBudgetSegmentAutoContinues(chatId: string): void {
@@ -263,10 +263,11 @@ export function resetBudgetSegmentAutoContinues(chatId: string): void {
  */
 function scheduleBudgetSegmentAutoContinue(chatId: string): boolean {
   const used = budgetSegmentAutoContinues.get(chatId) ?? 0;
-  if (used >= MAX_BUDGET_SEGMENT_AUTO_CONTINUES) return false;
+  const next = nextBudgetSegmentAutoContinueCount(used);
+  if (next === null) return false;
   if (useChatStore.getState().activeSessionId !== chatId) return false;
 
-  budgetSegmentAutoContinues.set(chatId, used + 1);
+  budgetSegmentAutoContinues.set(chatId, next);
   queueMicrotask(() => {
     void import("../store/chatStore").then(({ sendMessage }) => {
       const chat = useChatStore.getState();

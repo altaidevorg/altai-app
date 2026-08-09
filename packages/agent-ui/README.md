@@ -254,6 +254,7 @@ consumption of shared panel shells:
 | A6.136 | Operations open-intent builder from AI chrome |
 | A6.137 | Side panel Escape dismiss policy |
 | A6.138 | Run continue prompts + terminal attention copy |
+| A6.139 | Budget-segment auto-continue soft cap |
 
 ### A5 complete enough
 
