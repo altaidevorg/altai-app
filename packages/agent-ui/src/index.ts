@@ -883,6 +883,7 @@ export {
   DEFAULT_SESSION_TITLE,
 } from "./lib/backendSessionTitle.js";
 export { newUntitledSessionMeta } from "./lib/newSessionMeta.js";
+export { isUntitledSessionTitle } from "./lib/isUntitledSessionTitle.js";
 export type {
   UntitledSessionMeta,
   UntitledSessionMetaSeed,
