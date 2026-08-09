@@ -249,6 +249,7 @@ consumption of shared panel shells:
 | A6.131 | Persisted webview presentation state |
 | A6.132 | Extension / Studio preference coerce helpers |
 | A6.133 | Side panel width parse/clamp helpers |
+| A6.134 | Side panel chrome surface + open-chat tabs |
 
 ### A5 complete enough
 

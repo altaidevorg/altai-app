@@ -1462,6 +1462,19 @@ export {
   parsePanelWidth,
   serializePanelWidth,
 } from "./lib/sidePanelWidth.js";
+
+export type {
+  SidePanelChromeSurface,
+  SidePanelOpenEventDetail,
+  SidePanelOpenResolution,
+} from "./lib/sidePanelSurface.js";
+export {
+  closeChatTabSelection,
+  openIdsAfterNewChat,
+  reconcileOpenChatTabIds,
+  resolveSidePanelOpenEvent,
+  toggleSidePanelChromeSurface,
+} from "./lib/sidePanelSurface.js";
 export {
   MAX_COMPOSER_DRAFT_CHARS,
   MAX_PREFERRED_ROOT_URI_CHARS,
