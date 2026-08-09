@@ -1424,6 +1424,22 @@ export { createSecureId, getSecureRandomBytes } from "./lib/secureRandom.js";
 export { createNonce } from "./lib/cspNonce.js";
 export { createMessageId } from "./lib/messageId.js";
 export { recoveryHintForDiagnosticCode } from "./lib/hostRecovery.js";
+
+export type {
+  PersistedAltaiSurface,
+  PersistedHostStatus,
+  PersistedOperationsView,
+  PersistedWebviewState,
+  PersistedWorkHubView,
+} from "./lib/webviewState.js";
+export {
+  MAX_COMPOSER_DRAFT_CHARS,
+  MAX_PREFERRED_ROOT_URI_CHARS,
+  mergePersistedWebviewState,
+  normalizeComposerDraft,
+  normalizePreferredRootUri,
+  parsePersistedWebviewState,
+} from "./lib/webviewState.js";
 export {
   buildOpenOperationsPayload,
   parseOpenOperationsPayload,
