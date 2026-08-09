@@ -264,6 +264,7 @@ consumption of shared panel shells:
 | A6.146 | Composer placeholder rotation |
 | A6.147 | Plan edit proposal kind map |
 | A6.148 | Chat title derive from user messages |
+| A6.149 | Sensitive token redaction |
 
 ### A5 complete enough
 
