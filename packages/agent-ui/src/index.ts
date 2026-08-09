@@ -884,6 +884,10 @@ export {
 } from "./lib/backendSessionTitle.js";
 export { newUntitledSessionMeta } from "./lib/newSessionMeta.js";
 export { isUntitledSessionTitle } from "./lib/isUntitledSessionTitle.js";
+export {
+  filterDeletedSessions,
+  appendDeletedSessionId,
+} from "./lib/filterDeletedSessions.js";
 export type {
   UntitledSessionMeta,
   UntitledSessionMetaSeed,
