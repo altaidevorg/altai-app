@@ -286,6 +286,7 @@ consumption of shared panel shells:
 | A6.168 | Fallback provider spec map |
 | A6.169 | HeadersInit to record |
 | A6.170 | Cloud catalog model target resolve |
+| A6.171 | Model favorite/recent id list ops |
 
 ### A5 complete enough
 

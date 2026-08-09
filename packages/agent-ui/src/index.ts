@@ -886,6 +886,12 @@ export { headersInitToRecord } from "./lib/headersInit.js";
 export type { FlatHeaders } from "./lib/headersInit.js";
 export { resolveCloudModelTarget } from "./lib/cloudModelTarget.js";
 export type { CloudModelCatalogEntry } from "./lib/cloudModelTarget.js";
+export {
+  toggleIdInList,
+  pushRecentId,
+  sameIdSequence,
+} from "./lib/modelListChrome.js";
+
 
 
 export type {
