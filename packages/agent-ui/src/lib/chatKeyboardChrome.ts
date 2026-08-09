@@ -40,3 +40,16 @@ export function shouldDismissSidePanelOnEscape(input: {
   }
   return true;
 }
+
+
+/** DOM facts-only: whether focus is in a text-editing control. */
+export function isTextEditingKeyboardTarget(input: {
+  tagName?: string | null;
+  isContentEditable?: boolean;
+}): boolean {
+  if (input.isContentEditable) {
+    return true;
+  }
+  const tag = (input.tagName ?? "").toUpperCase();
+  return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT";
+}

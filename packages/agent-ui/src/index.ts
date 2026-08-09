@@ -1088,6 +1088,7 @@ export {
 
 export {
   isEscapeDismissKey,
+  isTextEditingKeyboardTarget,
   shouldDismissSidePanelOnEscape,
 } from "./lib/chatKeyboardChrome.js";
 
