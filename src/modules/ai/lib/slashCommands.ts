@@ -17,6 +17,8 @@ import {
   findAgentByIdOrName,
   hasSlashCommandTail,
   isPlanModeOffTail,
+  planModeOffToast,
+  planModeToggleToast,
   agentSettingsToast,
   switchedAgentToast,
   parseComposerSlashLead,
@@ -265,12 +267,12 @@ function runLocalCommand(name: string, tail: string): SlashOutcome {
       const store = usePlanStore.getState();
       if (isPlanModeOffTail(tail)) {
         store.disable();
-        return { kind: "handled", toast: "Plan mode off" };
+        return { kind: "handled", toast: planModeOffToast() };
       }
       store.toggle();
       return {
         kind: "handled",
-        toast: usePlanStore.getState().active ? "Plan mode on" : "Plan mode off",
+        toast: planModeToggleToast(usePlanStore.getState().active),
       };
     }
     case "paper":
