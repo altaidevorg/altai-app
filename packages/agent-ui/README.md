@@ -248,6 +248,7 @@ consumption of shared panel shells:
 | A6.130 | Host recovery diagnostic hints |
 | A6.131 | Persisted webview presentation state |
 | A6.132 | Extension / Studio preference coerce helpers |
+| A6.133 | Side panel width parse/clamp helpers |
 
 ### A5 complete enough
 

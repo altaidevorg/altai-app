@@ -1450,6 +1450,18 @@ export {
   parseSnippetsJson,
   serializeSnippets,
 } from "./lib/extensionPreferences.js";
+
+export {
+  HISTORY_PANEL_MAX_WIDTH,
+  HISTORY_PANEL_MIN_WIDTH,
+  HISTORY_PANEL_WIDTH_KEY,
+  INSPECTOR_PANEL_MAX_WIDTH,
+  INSPECTOR_PANEL_MIN_WIDTH,
+  INSPECTOR_PANEL_WIDTH_KEY,
+  clampPanelWidth,
+  parsePanelWidth,
+  serializePanelWidth,
+} from "./lib/sidePanelWidth.js";
 export {
   MAX_COMPOSER_DRAFT_CHARS,
   MAX_PREFERRED_ROOT_URI_CHARS,
