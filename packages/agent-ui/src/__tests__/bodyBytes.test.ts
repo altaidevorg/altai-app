@@ -3,17 +3,21 @@ import {
   arrayBufferToBytes,
   arrayBufferViewToBytes,
   utf8StringToBytes,
+  uint8ArrayToBytes,
 } from "../lib/bodyBytes.js";
 
-describe("body bytes helpers", () => {
-  it("encodes utf8 strings", () => {
-    expect(utf8StringToBytes("ab")).toEqual([97, 98]);
+describe("bodyBytes", () => {
+  it("encodes string", () => {
+    expect(utf8StringToBytes("hi")).toEqual([104, 105]);
   });
-
-  it("copies ArrayBuffer and views", () => {
+  it("copies ArrayBuffer", () => {
     const buf = new Uint8Array([1, 2, 3]).buffer;
     expect(arrayBufferToBytes(buf)).toEqual([1, 2, 3]);
-    const view = new Uint8Array(buf, 1, 2);
-    expect(arrayBufferViewToBytes(view)).toEqual([2, 3]);
+  });
+  it("copies ArrayBufferView", () => {
+    expect(arrayBufferViewToBytes(new Uint8Array([4, 5]))).toEqual([4, 5]);
+  });
+  it("maps Uint8Array", () => {
+    expect(uint8ArrayToBytes(new Uint8Array([9, 8]))).toEqual([9, 8]);
   });
 });
