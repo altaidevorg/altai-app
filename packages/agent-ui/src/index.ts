@@ -801,6 +801,13 @@ export {
   type SharedTodoStatus,
 } from "./lib/todoStatus.js";
 
+export {
+  CLEARED_OUTPUT,
+  CLEARED_TOOL_OUTPUT_TEXT,
+  isClearedOutput,
+  estimateTokens,
+} from "./lib/tokenEstimate.js";
+
 
 
 export {
