@@ -2,6 +2,7 @@ import {
   describeUnresolvedIsanAgentTarget,
   fallbackSpecFromTarget,
   isConfiguredLocalCatalogId,
+  resolveCloudModelTarget,
   resolveCompactionSpecFromContext,
   resolveConfiguredLocalTargetCandidate,
 } from "@altai/agent-ui";
@@ -21,7 +22,6 @@ import {
   MODELS,
   providerNeedsKey,
   type ModelId,
-  type ModelInfo,
   type ProviderId,
 } from "../config";
 import type { ProviderKeys } from "./keyring";
@@ -133,21 +133,11 @@ function resolveOne(
   if (isConfiguredLocalCatalogId(modelId)) return null;
 
   // Cloud providers: model id must be a known MODELS entry.
-  const model = MODELS.find((m) => m.id === modelId) as ModelInfo | undefined;
-  if (model) {
-    const provider = model.provider;
-    const needsKey = providerNeedsKey(provider);
-    const key = apiKeys[provider] ?? "";
-    if (needsKey && !key) return null;
-    return {
-      providerName: provider,
-      apiKey: key,
-      modelName: model.apiName ?? model.id,
-      baseUrl: PROVIDER_BASE_URLS[provider] ?? "",
-    };
-  }
-
-  return null;
+  return resolveCloudModelTarget(modelId, MODELS, {
+    providerBaseUrls: PROVIDER_BASE_URLS,
+    apiKeys,
+    providerNeedsKey: (provider) => providerNeedsKey(provider as ProviderId),
+  });
 }
 
 /**
