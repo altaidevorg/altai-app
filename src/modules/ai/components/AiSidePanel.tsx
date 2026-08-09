@@ -62,6 +62,8 @@ import {
   openIdsAfterNewChat,
   type SidePanelChromeSurface,
   buildOperationsOpenIntent,
+  isTextEditingKeyboardTarget,
+  shouldDismissSidePanelOnEscape,
 } from "@altai/agent-ui";
 import {
   retryFailedRun,
@@ -159,19 +161,28 @@ export function AiSidePanel({
   useEffect(() => {
     if (!onClose) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "Escape") return;
       const target = e.target as HTMLElement | null;
-      const tag = target?.tagName;
-      if (tag === "INPUT" || tag === "TEXTAREA") return;
       // Don't compete with Radix popovers/menus/dialogs — their own
       // dismiss handlers should run first. Radix sets data-state="open"
       // on triggers and renders portaled overlays with role="menu" /
       // role="listbox" / role="dialog".
-      if (target?.closest('[data-state="open"]')) return;
-      if (
-        document.querySelector(
+      const hasOpenOverlay =
+        !!target?.closest('[data-state="open"]') ||
+        !!document.querySelector(
           '[role="menu"][data-state="open"], [role="listbox"][data-state="open"], [role="dialog"][data-state="open"]',
-        )
+        );
+      if (
+        !shouldDismissSidePanelOnEscape({
+          key: e.key,
+          metaKey: e.metaKey,
+          ctrlKey: e.ctrlKey,
+          altKey: e.altKey,
+          isEditableTarget: isTextEditingKeyboardTarget({
+            tagName: target?.tagName,
+            isContentEditable: target?.isContentEditable,
+          }),
+          hasOpenOverlay,
+        })
       ) {
         return;
       }
