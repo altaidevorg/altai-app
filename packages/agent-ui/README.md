@@ -258,7 +258,7 @@ consumption of shared panel shells:
 | A6.140 | Pure model routing (auto-pick + tools constraint) |
 | A6.141 | Native RPC method list parse + availability |
 | A6.142 | MCP tool name parse + activity kind |
-| A6.143 | Skill install source parse |
+ b5b66a5 (feat(agent-ui): todo status normalize (A6.144))
 
 ### A5 complete enough
 
