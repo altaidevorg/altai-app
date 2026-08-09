@@ -5,6 +5,7 @@ import {
   resolveActiveSessionOnHydrate,
   createUntitledSessionMeta,
   insertSessionAfterActive,
+  renameSessionInList,
 } from "@altai/agent-ui";
 import type { UIMessage } from "ai";
 import { native } from "../lib/native";
@@ -1079,9 +1080,7 @@ export const useChatStore = create<StoreState>((set, get) => ({
   },
 
   renameSession: (id, title) => {
-    const next = get().sessions.map((s) =>
-      s.id === id ? { ...s, title, updatedAt: Date.now() } : s,
-    );
+    const next = renameSessionInList(get().sessions, id, title);
     set({ sessions: next });
     void saveSessionsList(next);
   },
