@@ -4,6 +4,7 @@ import {
   appendDeletedSessionId,
   resolveActiveSessionOnHydrate,
   createUntitledSessionMeta,
+  insertSessionAfterActive,
 } from "@altai/agent-ui";
 import type { UIMessage } from "ai";
 import { native } from "../lib/native";
@@ -900,17 +901,11 @@ export const useChatStore = create<StoreState>((set, get) => ({
       updatedAt: Date.now(),
     };
     const current = get().sessions;
-    const activeIdx = current.findIndex(
-      (s) => s.id === get().activeSessionId,
+    const next = insertSessionAfterActive(
+      current,
+      get().activeSessionId,
+      meta,
     );
-    const next =
-      activeIdx === -1
-        ? [...current, meta]
-        : [
-            ...current.slice(0, activeIdx + 1),
-            meta,
-            ...current.slice(activeIdx + 1),
-          ];
     set({
       sessions: next,
       activeSessionId: id,
