@@ -261,6 +261,8 @@ consumption of shared panel shells:
 | A6.143 | Skill install source parse |
 | A6.144 | Todo status normalize |
 | A6.145 | Cleared-output markers + token estimate |
+| A6.146 | Composer placeholder rotation |
+| A6.147 | Plan edit proposal kind map |
 
 ### A5 complete enough
 
