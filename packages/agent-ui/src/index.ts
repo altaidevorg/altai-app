@@ -908,6 +908,10 @@ export {
 } from "./lib/requestInitChrome.js";
 export { toIsanAgentTargetResolution } from "./lib/isanAgentTargetResult.js";
 export type { IsanAgentTargetResolution } from "./lib/isanAgentTargetResult.js";
+export {
+  switchedAgentToast,
+  agentSettingsToast,
+} from "./lib/slashToastChrome.js";
 
 
 

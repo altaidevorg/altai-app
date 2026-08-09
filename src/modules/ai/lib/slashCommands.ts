@@ -16,6 +16,8 @@ import {
   appendSlashCommandFocus,
   findAgentByIdOrName,
   isPlanModeOffTail,
+  agentSettingsToast,
+  switchedAgentToast,
   parseComposerSlashLead,
   filterSlashCommands as filterSlashCommandsShared,
   isWorkspaceSlashCommandPath,
@@ -294,11 +296,14 @@ function runLocalCommand(name: string, tail: string): SlashOutcome {
         );
         if (agent) {
           useAgentsStore.getState().setActiveId(agent.id);
-          return { kind: "handled", toast: `Switched to ${agent.name}` };
+          return { kind: "handled", toast: switchedAgentToast(agent.name) };
         }
       }
       openSettingsWindow("agents");
-      return { kind: "handled", toast: tail ? "Agent not found; opened agent settings" : "Opened agent settings" };
+      return {
+        kind: "handled",
+        toast: agentSettingsToast(Boolean(tail.trim())),
+      };
     }
     case "models":
       openSettingsWindow("models");
