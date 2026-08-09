@@ -11,7 +11,12 @@ import {
 import { invoke } from "@tauri-apps/api/core";
 import { openSettingsWindow } from "@/modules/settings/openSettingsWindow";
 import { currentWorkspaceFolder } from "@/modules/workspace/folder";
-import { wrapWithCommandMarker, ALTAI_CMD_RE } from "@altai/agent-ui";
+import {
+  ALTAI_CMD_RE,
+  filterSlashCommands as filterSlashCommandsShared,
+  resolveSlashCommandInIndex as resolveSlashCommandInIndexShared,
+  wrapWithCommandMarker,
+} from "@altai/agent-ui";
 import { native } from "./native";
 import { useAgentsStore } from "../store/agentsStore";
 import { retryLastMessage, requestStop, useChatStore } from "../store/chatStore";
@@ -130,27 +135,11 @@ export function getSlashCommandIndex(): readonly SlashCommandMeta[] {
 }
 
 export function findSlashCommands(query = ""): readonly SlashCommandMeta[] {
-  const normalized = query.trim().toLowerCase();
-  const index = getSlashCommandIndex();
-  if (!normalized) return index;
-  return index.filter((command) =>
-    [
-      command.name,
-      command.label,
-      command.description,
-      ...(command.aliases ?? []),
-      command.category,
-      command.source,
-    ].some((value) => value.toLowerCase().includes(normalized)),
-  );
+  return filterSlashCommandsShared(getSlashCommandIndex(), query);
 }
 
 export function resolveSlashCommand(name: string): SlashCommandMeta | undefined {
-  const normalized = name.trim().toLowerCase();
-  return getSlashCommandIndex().find(
-    (command) =>
-      command.name === normalized || command.aliases?.includes(normalized),
-  );
+  return resolveSlashCommandInIndexShared(getSlashCommandIndex(), name);
 }
 
 /** Refresh workspace-defined commands from ALTAI's own command directory.

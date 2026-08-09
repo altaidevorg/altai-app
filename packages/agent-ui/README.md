@@ -270,6 +270,7 @@ consumption of shared panel shells:
 | A6.152 | Agent id / find / override helpers |
 | A6.153 | Snippet id generator |
 | A6.154 | Prune old tool outputs (recency budget) |
+| A6.155 | Slash command index filter/resolve |
 
 ### A5 complete enough
 
