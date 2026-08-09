@@ -1,3 +1,4 @@
+import { newNativeMessageId } from "@altai/agent-ui";
 import type { UIMessage } from "ai";
 import { loadMessages, saveMessages } from "./sessions";
 
@@ -16,7 +17,7 @@ export function appendBackgroundMessage(
   text: string,
 ): void {
   const msg: UIMessage = {
-    id: `native-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    id: newNativeMessageId(),
     role,
     parts: [{ type: "text", text }],
   };
