@@ -8,10 +8,19 @@ export type FlatHeaders = Record<string, string>;
 /**
  * Convert fetch-style headers init into a plain string record.
  * Accepts Headers-like (forEach), array tuples, or plain object.
+ * Arrays are handled before forEach — Array.prototype.forEach is not the Headers API.
  */
 export function headersInitToRecord(init: unknown): FlatHeaders | undefined {
   if (init == null) return undefined;
   const out: FlatHeaders = {};
+
+  if (Array.isArray(init)) {
+    for (const entry of init) {
+      if (!Array.isArray(entry) || entry.length < 2) continue;
+      out[String(entry[0])] = String(entry[1]);
+    }
+    return out;
+  }
 
   if (typeof (init as { forEach?: unknown }).forEach === "function") {
     (init as { forEach: (cb: (value: string, key: string) => void) => void }).forEach(
@@ -19,14 +28,6 @@ export function headersInitToRecord(init: unknown): FlatHeaders | undefined {
         out[key] = value;
       },
     );
-    return out;
-  }
-
-  if (Array.isArray(init)) {
-    for (const entry of init) {
-      if (!Array.isArray(entry) || entry.length < 2) continue;
-      out[String(entry[0])] = String(entry[1]);
-    }
     return out;
   }
 

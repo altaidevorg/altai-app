@@ -8,8 +8,6 @@ type AiStreamEvent =
   | { kind: "end" }
   | { kind: "error"; message: string };
 
-type RequestHeaders = Record<string, string>;
-
 async function bodyToBytes(
   body: BodyInit | null | undefined,
 ): Promise<number[] | undefined> {
