@@ -309,6 +309,7 @@ consumption of shared panel shells:
 | A6.191 | Hydrate active session resolve |
 | A6.192 | Insert session after active tab |
 | A6.193 | Rename session title in list |
+| A6.194 | Apply session workspace target |
 
 ### A5 complete enough
 

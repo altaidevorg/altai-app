@@ -6,6 +6,7 @@ import {
   createUntitledSessionMeta,
   insertSessionAfterActive,
   renameSessionInList,
+  applySessionWorkspaceTarget,
 } from "@altai/agent-ui";
 import type { UIMessage } from "ai";
 import { native } from "../lib/native";
@@ -1086,17 +1087,7 @@ export const useChatStore = create<StoreState>((set, get) => ({
   },
 
   setSessionWorkspace: (id, target) => {
-    const next = get().sessions.map((session) =>
-      session.id === id
-        ? {
-            ...session,
-            workspacePath: target.path,
-            workspaceKind: target.kind,
-            repositoryUrl: target.repositoryUrl ?? null,
-            updatedAt: Date.now(),
-          }
-        : session,
-    );
+    const next = applySessionWorkspaceTarget(get().sessions, id, target);
     set({ sessions: next });
     void saveSessionsList(next);
     // The runtime fingerprint includes workspacePath. Clearing this cache
