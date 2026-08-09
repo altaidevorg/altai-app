@@ -1,3 +1,4 @@
+import { resolveCompactionSpecFromContext } from "@altai/agent-ui";
 /**
  * Resolve the UI's selected model into the concrete (provider, apiKey,
  * modelName, baseUrl) tuple the IsanAgent runtime needs.
@@ -293,16 +294,8 @@ export function resolveCompactionSpec(
   modelId: string,
   compatOverride?: number,
 ): CompactionSpec {
-  const thresholdTokens =
-    prefs.compactionThresholdPercent != null
-      ? Math.round(
-          (prefs.compactionThresholdPercent / 100) *
-            getModelContextLimit(modelId, compatOverride),
-        )
-      : prefs.compactionThresholdTokens;
-  return {
-    auto: prefs.compactionAuto,
-    thresholdTokens,
-    tailTurns: prefs.compactionTailTurns,
-  };
+  return resolveCompactionSpecFromContext(
+    prefs,
+    getModelContextLimit(modelId, compatOverride),
+  );
 }

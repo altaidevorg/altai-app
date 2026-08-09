@@ -851,6 +851,11 @@ export {
 export type { ParsedWorkspaceWorkflow } from "./lib/workspaceWorkflowCommand.js";
 export type { SafetyResult } from "./lib/pathSafety.js";
 export {
+  resolveCompactionSpecFromContext,
+} from "./lib/compactionSpec.js";
+export type { CompactionPrefs, CompactionSpec } from "./lib/compactionSpec.js";
+
+export {
   checkReadable,
   checkWritable,
   checkReadableCanonical,
