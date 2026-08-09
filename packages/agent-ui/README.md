@@ -289,6 +289,7 @@ consumption of shared panel shells:
 | A6.171 | Model favorite/recent id list ops |
 | A6.172 | Slash command focus suffix |
 | A6.173 | Parse composer slash/hash lead |
+| A6.174 | Find agent by id or name |
 
 ### A5 complete enough
 
