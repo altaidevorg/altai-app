@@ -29,6 +29,14 @@ import {
   openedRunDetailsToast,
   openedChangeReviewToast,
 
+  openedOperationsWorkToast,
+  openedOperationsInboxToast,
+  openedOperationsScheduledToast,
+  openedModelSettingsToast,
+  openedPermissionSettingsToast,
+  openedMcpSettingsToast,
+  openedSkillsToast,
+  openedContextSettingsToast,
   agentSettingsToast,
   switchedAgentToast,
   parseComposerSlashLead,
@@ -294,13 +302,13 @@ function runLocalCommand(name: string, tail: string): SlashOutcome {
       return { kind: "handled", toast: openedChangeReviewToast() };
     case "tasks":
       openOperationsSurface("work", "runs");
-      return { kind: "handled", toast: "Opened Operations work" };
+      return { kind: "handled", toast: openedOperationsWorkToast() };
     case "inbox":
       openOperationsSurface("inbox");
-      return { kind: "handled", toast: "Opened Operations inbox" };
+      return { kind: "handled", toast: openedOperationsInboxToast() };
     case "automations":
       openOperationsSurface("work", "scheduled");
-      return { kind: "handled", toast: "Opened Operations scheduled work" };
+      return { kind: "handled", toast: openedOperationsScheduledToast() };
     case "agents": {
       if (tail) {
         const agent = findAgentByIdOrName(
@@ -320,19 +328,19 @@ function runLocalCommand(name: string, tail: string): SlashOutcome {
     }
     case "models":
       openSettingsWindow("models");
-      return { kind: "handled", toast: "Opened model settings" };
+      return { kind: "handled", toast: openedModelSettingsToast() };
     case "permissions":
       openSettingsWindow("general");
-      return { kind: "handled", toast: "Opened permission settings" };
+      return { kind: "handled", toast: openedPermissionSettingsToast() };
     case "mcp":
       openSettingsWindow("mcp");
-      return { kind: "handled", toast: "Opened MCP settings" };
+      return { kind: "handled", toast: openedMcpSettingsToast() };
     case "skills":
       openSettingsWindow("skills");
-      return { kind: "handled", toast: "Opened skills" };
+      return { kind: "handled", toast: openedSkillsToast() };
     case "context":
       openSettingsWindow("context");
-      return { kind: "handled", toast: "Opened context settings" };
+      return { kind: "handled", toast: openedContextSettingsToast() };
     default:
       return { kind: "none" };
   }
