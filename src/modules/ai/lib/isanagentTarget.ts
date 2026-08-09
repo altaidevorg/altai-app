@@ -1,10 +1,10 @@
 import {
-  describeUnresolvedIsanAgentTarget,
   fallbackSpecFromTarget,
   isConfiguredLocalCatalogId,
   resolveCloudModelTarget,
   resolveCompactionSpecFromContext,
   resolveConfiguredLocalTargetCandidate,
+  toIsanAgentTargetResolution,
 } from "@altai/agent-ui";
 /**
  * Resolve the UI's selected model into the concrete (provider, apiKey,
@@ -153,22 +153,17 @@ export function resolveIsanAgentTarget(
   inputs: TargetInputs,
 ): TargetResolution {
   const target = resolveOne(selectedModelId, apiKeys, inputs);
-  if (!target) {
-    // Distinguish "unknown model" from "missing key" for a clearer message.
-    const known = MODELS.find((m) => m.id === selectedModelId) as
-      | (typeof MODELS)[number]
-      | undefined;
-    const knownKeyProvider =
-      known && providerNeedsKey(known.provider) ? known.provider : null;
-    return {
-      ok: false,
-      error: describeUnresolvedIsanAgentTarget(
-        selectedModelId,
-        knownKeyProvider,
-      ),
-    };
-  }
-  return { ok: true, target };
+  // Distinguish "unknown model" from "missing key" for a clearer message.
+  const known = MODELS.find((m) => m.id === selectedModelId) as
+    | (typeof MODELS)[number]
+    | undefined;
+  const knownKeyProvider =
+    known && providerNeedsKey(known.provider) ? known.provider : null;
+  return toIsanAgentTargetResolution(
+    selectedModelId,
+    target,
+    knownKeyProvider,
+  );
 }
 
 /**
