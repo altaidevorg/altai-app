@@ -15,6 +15,7 @@ import {
   ALTAI_CMD_RE,
   filterSlashCommands as filterSlashCommandsShared,
   isWorkspaceSlashCommandPath,
+  joinWorkspaceRelativePath,
   parseWorkspaceWorkflowCommand as parseWorkspaceWorkflowCommandShared,
   resolveSlashCommandInIndex as resolveSlashCommandInIndexShared,
   wrapWithCommandMarker,
@@ -165,7 +166,7 @@ export async function refreshWorkspaceSlashCommands(
     );
     const discovered = await Promise.all(
       files.map(async (relativePath) => {
-        const result = await native.readFile(joinWorkspacePath(workspaceRoot, relativePath), {
+        const result = await native.readFile(joinWorkspaceRelativePath(workspaceRoot, relativePath), {
           enforceIsanagentignore: true,
         });
         return result.kind === "text"
@@ -191,10 +192,6 @@ export async function refreshWorkspaceSlashCommands(
     console.warn("Could not index workspace slash commands", error);
   }
   return workspaceCommands;
-}
-
-function joinWorkspacePath(root: string, relative: string): string {
-  return `${root.replace(/[\\/]+$/, "")}/${relative}`;
 }
 
 function parseWorkflowCommand(path: string, source: string): SlashCommandMeta | null {
