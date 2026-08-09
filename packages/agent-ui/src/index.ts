@@ -913,6 +913,17 @@ export {
   planModeToggleToast,
 } from "./lib/planModeToast.js";
 export {
+  startedNewChatToast,
+  openedChatSessionsToast,
+  renameUsageToast,
+  renamedActiveChatToast,
+  retryingLastRequestToast,
+  cancellationRequestedToast,
+  compactionRequestedToast,
+  openedRunDetailsToast,
+  openedChangeReviewToast,
+} from "./lib/slashSessionToast.js";
+export {
   utf8StringToBytes,
   uint8ArrayToBytes,
   arrayBufferToBytes,
