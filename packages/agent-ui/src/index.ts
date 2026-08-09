@@ -882,6 +882,11 @@ export {
   displaySessionTitle,
   DEFAULT_SESSION_TITLE,
 } from "./lib/backendSessionTitle.js";
+export {
+  sessionListWorkspaceTargets,
+  sessionWorkspacePathForId,
+} from "./lib/sessionWorkspaceTargets.js";
+export type { SessionWorkspacePathLike } from "./lib/sessionWorkspaceTargets.js";
 export { fallbackSpecFromTarget } from "./lib/fallbackSpec.js";
 export type {
   ResolvedProviderTarget,
