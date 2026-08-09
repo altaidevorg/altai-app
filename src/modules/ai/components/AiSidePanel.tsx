@@ -47,6 +47,14 @@ import {
   TodosInspector,
   WorkspaceTargetForm,
   WorkspaceTopbarActions,
+  HISTORY_PANEL_MAX_WIDTH,
+  HISTORY_PANEL_MIN_WIDTH,
+  HISTORY_PANEL_WIDTH_KEY,
+  INSPECTOR_PANEL_MAX_WIDTH,
+  INSPECTOR_PANEL_MIN_WIDTH,
+  INSPECTOR_PANEL_WIDTH_KEY,
+  parsePanelWidth,
+  serializePanelWidth,
 } from "@altai/agent-ui";
 import {
   retryFailedRun,
@@ -83,12 +91,6 @@ import {
 // store loop detector and can blank the whole renderer.
 const EMPTY_TODOS: Array<{ id: string; title: string; status: string }> = [];
 type PanelSurface = "history" | "inspector" | null;
-const HISTORY_PANEL_WIDTH_KEY = "altai.ai.historyPanel.width";
-const INSPECTOR_PANEL_WIDTH_KEY = "altai.ai.inspectorPanel.width";
-const HISTORY_PANEL_MIN_WIDTH = 176;
-const HISTORY_PANEL_MAX_WIDTH = 360;
-const INSPECTOR_PANEL_MIN_WIDTH = 240;
-const INSPECTOR_PANEL_MAX_WIDTH = 480;
 
 function readPanelWidth(
   key: string,
@@ -97,22 +99,17 @@ function readPanelWidth(
   max: number,
 ): number {
   try {
-    const parsed = Number.parseInt(window.localStorage.getItem(key) ?? "", 10);
-    return Number.isFinite(parsed)
-      ? Math.min(max, Math.max(min, parsed))
-      : fallback;
+    return parsePanelWidth(window.localStorage.getItem(key), fallback, min, max);
   } catch {
-    return fallback;
+    return parsePanelWidth(null, fallback, min, max);
   }
 }
 
 function persistPanelWidth(key: string, width: number, min: number, max: number) {
-  if (width <= 0) return;
+  const serialized = serializePanelWidth(width, min, max);
+  if (!serialized) return;
   try {
-    window.localStorage.setItem(
-      key,
-      String(Math.round(Math.min(max, Math.max(min, width)))),
-    );
+    window.localStorage.setItem(key, serialized);
   } catch {
     // Storage can be unavailable in restricted webviews; resizing still works.
   }
