@@ -53,8 +53,14 @@ import {
   INSPECTOR_PANEL_MAX_WIDTH,
   INSPECTOR_PANEL_MIN_WIDTH,
   INSPECTOR_PANEL_WIDTH_KEY,
-  parsePanelWidth,
-  serializePanelWidth,
+  readPanelWidthFromStorage,
+  writePanelWidthToStorage,
+  toggleSidePanelChromeSurface,
+  reconcileOpenChatTabIds,
+  resolveSidePanelOpenEvent,
+  closeChatTabSelection,
+  openIdsAfterNewChat,
+  type SidePanelChromeSurface,
 } from "@altai/agent-ui";
 import {
   retryFailedRun,
@@ -90,7 +96,6 @@ import {
 // todos yet; allocating `[]` inside the selector triggers React's external
 // store loop detector and can blank the whole renderer.
 const EMPTY_TODOS: Array<{ id: string; title: string; status: string }> = [];
-type PanelSurface = "history" | "inspector" | null;
 
 function readPanelWidth(
   key: string,
@@ -98,21 +103,11 @@ function readPanelWidth(
   min: number,
   max: number,
 ): number {
-  try {
-    return parsePanelWidth(window.localStorage.getItem(key), fallback, min, max);
-  } catch {
-    return parsePanelWidth(null, fallback, min, max);
-  }
+  return readPanelWidthFromStorage(window.localStorage, key, fallback, min, max);
 }
 
 function persistPanelWidth(key: string, width: number, min: number, max: number) {
-  const serialized = serializePanelWidth(width, min, max);
-  if (!serialized) return;
-  try {
-    window.localStorage.setItem(key, serialized);
-  } catch {
-    // Storage can be unavailable in restricted webviews; resizing still works.
-  }
+  writePanelWidthToStorage(window.localStorage, key, width, min, max);
 }
 
 /** Canonical Work / Inbox destinations live under Operations, not AI overlays. */
@@ -185,7 +180,7 @@ export function AiSidePanel({
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
 
-  const [activeSurface, setActiveSurface] = useState<PanelSurface>(null);
+  const [activeSurface, setActiveSurface] = useState<SidePanelChromeSurface>(null);
   const [openChatIds, setOpenChatIds] = useState<string[]>([]);
   const [reviewOpen, setReviewOpen] = useState(false);
   const [targetDialogOpen, setTargetDialogOpen] = useState(false);
@@ -210,9 +205,9 @@ export function AiSidePanel({
     inspectorOpen,
     hasSession: Boolean(sessionId),
   });
-  const toggleSurface = (surface: Exclude<PanelSurface, null>) => {
+  const toggleSurface = (surface: Exclude<SidePanelChromeSurface, null>) => {
     setReviewOpen(false);
-    setActiveSurface((current) => (current === surface ? null : surface));
+    setActiveSurface((current) => toggleSidePanelChromeSurface(current, surface));
   };
 
   useEffect(() => {
@@ -234,33 +229,20 @@ export function AiSidePanel({
         surface?: string;
         view?: "runs" | "scheduled";
       }>).detail;
-      const surface = detail?.surface;
-      if (surface === "review") {
+      const resolved = resolveSidePanelOpenEvent(detail);
+      if (resolved.kind === "review") {
         setActiveSurface(null);
         setReviewOpen(true);
         return;
       }
-      if (surface === "history" || surface === "inspector") {
+      if (resolved.kind === "surface") {
         setReviewOpen(false);
-        setActiveSurface(surface);
+        setActiveSurface(resolved.surface);
         return;
       }
-      // Work/Inbox/scheduled deep links formerly opened AI overlays. Canonical
-      // destinations are Operations secondary routes.
-      if (surface === "inbox") {
+      if (resolved.kind === "operations") {
         setActiveSurface(null);
-        openOperationsSurface("inbox");
-        return;
-      }
-      if (
-        surface === "work" ||
-        surface === "tasks" ||
-        surface === "automations"
-      ) {
-        setActiveSurface(null);
-        const scheduled =
-          surface === "automations" || detail?.view === "scheduled";
-        openOperationsSurface("work", scheduled ? "scheduled" : "runs");
+        openOperationsSurface(resolved.view, resolved.workHubView);
       }
     };
     window.addEventListener("altai:open-ai-surface", openSurface);
@@ -271,33 +253,32 @@ export function AiSidePanel({
   // conversation from history opens it in a tab; closing that tab keeps the
   // local conversation available in history instead of deleting it.
   useEffect(() => {
-    setOpenChatIds((current) => {
-      const valid = current.filter((id) => chatSessions.some((session) => session.id === id));
-      if (sessionId && !valid.includes(sessionId)) valid.push(sessionId);
-      return valid;
-    });
+    setOpenChatIds((current) =>
+      reconcileOpenChatTabIds({
+        openIds: current,
+        sessionIds: chatSessions.map((session) => session.id),
+        activeSessionId: sessionId,
+      }),
+    );
   }, [chatSessions, sessionId]);
 
   const createChatTab = () => {
     const id = newSession();
-    setOpenChatIds((current) => (current.includes(id) ? current : [...current, id]));
+    setOpenChatIds((current) => openIdsAfterNewChat(current, id));
     setActiveSurface(null);
   };
 
   const closeChatTab = (chatId: string) => {
-    const index = openChatIds.indexOf(chatId);
-    if (index < 0) return;
-    const remaining = openChatIds.filter((id) => id !== chatId);
-    if (remaining.length === 0) {
-      const id = newSession();
-      setOpenChatIds([id]);
-      setActiveSurface(null);
-      return;
+    const result = closeChatTabSelection({
+      openIds: openChatIds,
+      closingId: chatId,
+      activeSessionId: sessionId,
+      createSessionId: () => newSession(),
+    });
+    if (result.focusSessionId) {
+      switchSession(result.focusSessionId);
     }
-    if (sessionId === chatId) {
-      switchSession(remaining[Math.min(index, remaining.length - 1)]);
-    }
-    setOpenChatIds(remaining);
+    setOpenChatIds(result.openIds);
     setActiveSurface(null);
   };
 
