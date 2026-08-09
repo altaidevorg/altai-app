@@ -11,6 +11,7 @@ import {
   maybeDeriveSessionTitleList,
   cutThroughNthUserMessage,
   joinMessageTextParts,
+  sessionWorkspacePathForId,
 } from "@altai/agent-ui";
 import type { UIMessage } from "ai";
 import { native } from "../lib/native";
@@ -1135,7 +1136,7 @@ function workspacePathForChat(chatId?: string | null): string | undefined {
   const state = useChatStore.getState();
   const id = chatId ?? state.activeSessionId;
   if (!id) return undefined;
-  return state.sessions.find((session) => session.id === id)?.workspacePath ?? undefined;
+  return sessionWorkspacePathForId(state.sessions, id);
 }
 
 export function activeSessionWorkspacePath(): string | null {
