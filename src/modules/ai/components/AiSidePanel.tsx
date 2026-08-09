@@ -61,6 +61,7 @@ import {
   closeChatTabSelection,
   openIdsAfterNewChat,
   type SidePanelChromeSurface,
+  buildOperationsOpenIntent,
 } from "@altai/agent-ui";
 import {
   retryFailedRun,
@@ -118,7 +119,7 @@ function openOperationsSurface(
   if (typeof window === "undefined") return;
   window.dispatchEvent(
     new CustomEvent("altai:open-operations", {
-      detail: { view, workHubView },
+      detail: buildOperationsOpenIntent(view, workHubView),
     }),
   );
 }
