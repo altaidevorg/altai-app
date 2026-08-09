@@ -9,8 +9,8 @@ import {
   continueBudgetSegmentPrompt as continueBudgetSegmentPromptShared,
   describeRunWarning as describeRunWarningShared,
   nextBudgetSegmentAutoContinueCount,
-  normalizeTodoStatus,
   activityKindForTool as activityKindForToolShared,
+  parseTodoWriteItems,
 } from "@altai/agent-ui";
 import { useChatStore } from "../store/chatStore";
 import { useAgentRunsStore } from "../store/agentRunsStore";
@@ -38,12 +38,6 @@ function activityKindForTool(name: string): "research" | "mcp" | "tool" {
   return activityKindForToolShared(name);
 }
 
-/** Normalize the agent's free-form todo status into the app's TodoStatus.
- *  Case-insensitive + tolerant of common LLM variants. */
-function toTodoStatus(value: unknown): TodoStatus {
-  return normalizeTodoStatus(value);
-}
-
 /**
  * Mirror a `todo_write` tool call into the per-session todo store so the agent's
  * plan flows to the Todo strip AND the project board. The runtime never feeds
@@ -54,18 +48,14 @@ function ingestTodoWrite(input: unknown, sessionId: string | null): void {
   if (!sessionId) return;
   const parsed = todoWriteSchema.safeParse(input);
   if (!parsed.success) return;
-  const todos: Todo[] = parsed.data.items.map((it, i) => {
-    const title =
-      (typeof it.content === "string" && it.content) ||
-      (typeof it.title === "string" && it.title) ||
-      (typeof it.task === "string" && it.task) ||
-      (typeof it.text === "string" && it.text) ||
-      "Untitled task";
-    const id = typeof it.id === "string" ? it.id : `${sessionId}:${i}`;
-    const description =
-      typeof it.description === "string" ? it.description : undefined;
-    return { id, title, status: toTodoStatus(it.status), description };
-  });
+  const todos: Todo[] = parseTodoWriteItems(parsed.data.items, sessionId).map(
+    (item) => ({
+      id: item.id,
+      title: item.title,
+      status: item.status as TodoStatus,
+      description: item.description,
+    }),
+  );
   useTodosStore.getState().setTodos(sessionId, todos);
 }
 

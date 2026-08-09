@@ -278,6 +278,7 @@ consumption of shared panel shells:
 | A6.160 | IsanAgent target URL + unresolved errors |
 | A6.161 | Provider key presence helper |
 | A6.162 | Join workspace relative path |
+| A6.163 | Parse todo_write items |
 
 ### A5 complete enough
 
