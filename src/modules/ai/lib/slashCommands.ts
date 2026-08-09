@@ -14,10 +14,9 @@ import { currentWorkspaceFolder } from "@/modules/workspace/folder";
 import {
   ALTAI_CMD_RE,
   filterSlashCommands as filterSlashCommandsShared,
-  isValidSlashCommandName,
   isWorkspaceSlashCommandPath,
+  parseWorkspaceWorkflowCommand as parseWorkspaceWorkflowCommandShared,
   resolveSlashCommandInIndex as resolveSlashCommandInIndexShared,
-  workspaceSlashCommandStem,
   wrapWithCommandMarker,
 } from "@altai/agent-ui";
 import { native } from "./native";
@@ -199,46 +198,12 @@ function joinWorkspacePath(root: string, relative: string): string {
 }
 
 function parseWorkflowCommand(path: string, source: string): SlashCommandMeta | null {
-  const fallbackName = workspaceSlashCommandStem(path);
-  if (!fallbackName) return null;
-  const frontmatter = source.match(/^---\s*\r?\n([\s\S]*?)\r?\n---\s*(?:\r?\n|$)/);
-  const fields = new Map<string, string>();
-  if (frontmatter) {
-    for (const line of frontmatter[1].split(/\r?\n/)) {
-      const entry = line.match(/^([a-zA-Z][\w-]*):\s*(.+?)\s*$/);
-      if (entry) fields.set(entry[1].toLowerCase(), entry[2].replace(/^['"]|['"]$/g, ""));
-    }
-  }
-  const name = (fields.get("name") ?? fallbackName).toLowerCase();
-  if (!isValidSlashCommandName(name)) return null;
-  const body = (frontmatter ? source.slice(frontmatter[0].length) : source).trim();
-  if (!body) return null;
-  const heading = body.match(/^#\s+(.+)$/m)?.[1]?.trim();
-  const description = fields.get("description") ?? heading ?? `Run workspace workflow from ${path}.`;
-  const aliases = parseAliases(fields.get("aliases"));
-  if (aliases.some((alias) => !isValidSlashCommandName(alias))) return null;
+  const parsed = parseWorkspaceWorkflowCommandShared(path, source);
+  if (!parsed) return null;
   return {
-    name,
-    invocation: `/${name}`,
-    label: fields.get("title") ?? heading ?? name,
-    description,
-    aliases: aliases.length ? aliases : undefined,
-    category: "project",
-    behavior: "workflow",
-    source: "workspace",
+    ...parsed,
     icon: CalendarSyncIcon,
-    workflowPath: path,
-    workflowInstructions: body,
   };
-}
-
-function parseAliases(value: string | undefined): string[] {
-  if (!value) return [];
-  return value
-    .replace(/^\[|\]$/g, "")
-    .split(",")
-    .map((alias) => alias.trim().replace(/^\//, "").toLowerCase())
-    .filter(Boolean);
 }
 
 export function tryRunSlashCommand(input: string): SlashOutcome {

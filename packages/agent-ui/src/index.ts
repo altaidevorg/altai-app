@@ -844,6 +844,11 @@ export {
   workspaceSlashCommandStem,
   isValidSlashCommandName,
 } from "./lib/workspaceSlashPath.js";
+export {
+  parseWorkflowAliases,
+  parseWorkspaceWorkflowCommand,
+} from "./lib/workspaceWorkflowCommand.js";
+export type { ParsedWorkspaceWorkflow } from "./lib/workspaceWorkflowCommand.js";
 
 
 export {
