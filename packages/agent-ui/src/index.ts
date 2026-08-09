@@ -830,6 +830,15 @@ export {
 
 export { newSessionId } from "./lib/sessionId.js";
 
+export {
+  newAgentId,
+  findAgentById,
+  applyAgentOverride,
+  diffAgentAgainstBase,
+  type AgentEditableFields,
+} from "./lib/agentChrome.js";
+
+
 
 
 

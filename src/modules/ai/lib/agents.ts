@@ -1,4 +1,10 @@
 import { createAppStore } from "@/lib/appStore";
+import {
+  newAgentId as newAgentIdShared,
+  findAgentById,
+  applyAgentOverride,
+  diffAgentAgainstBase,
+} from "@altai/agent-ui";
 
 /** Agent IDs that route through the IsanAgent runtime instead of Vercel AI SDK. */
 export const ISANAGENT_AGENT_IDS = new Set([
@@ -248,20 +254,19 @@ export async function saveAgentOverrides(
 }
 
 export function newAgentId(): string {
-  return `a-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+  return newAgentIdShared();
 }
 
 export function findAgent(
   agents: readonly Agent[],
   id: string | null | undefined,
 ): Agent {
-  if (!id) return BUILTIN_AGENTS[0];
-  return agents.find((a) => a.id === id) ?? BUILTIN_AGENTS[0];
+  return findAgentById(agents, id, BUILTIN_AGENTS[0]!);
 }
 
 /** Apply a user override on top of the built-in defaults. */
 export function applyOverride(base: Agent, override: AgentOverride | undefined): Agent {
-  return override ? { ...base, ...override } : base;
+  return applyAgentOverride(base, override as Partial<Agent> | undefined);
 }
 
 /** Build the override patch — only fields that differ from the built-in default. */
@@ -269,10 +274,18 @@ export function diffAgainstBuiltin(
   builtin: Agent,
   edited: Pick<Agent, "name" | "description" | "instructions" | "icon">,
 ): AgentOverride {
-  const patch: AgentOverride = {};
-  if (edited.name !== builtin.name) patch.name = edited.name;
-  if (edited.description !== builtin.description) patch.description = edited.description;
-  if (edited.instructions !== builtin.instructions) patch.instructions = edited.instructions;
-  if (edited.icon !== builtin.icon) patch.icon = edited.icon;
-  return patch;
+  return diffAgentAgainstBase(
+    {
+      name: builtin.name,
+      description: builtin.description,
+      instructions: builtin.instructions,
+      icon: builtin.icon,
+    },
+    {
+      name: edited.name,
+      description: edited.description,
+      instructions: edited.instructions,
+      icon: edited.icon,
+    },
+  ) as AgentOverride;
 }

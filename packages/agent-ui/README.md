@@ -267,6 +267,7 @@ consumption of shared panel shells:
 | A6.149 | Sensitive token redaction |
 | A6.150 | Project instructions path + combine |
 | A6.151 | Session id generator |
+| A6.152 | Agent id / find / override helpers |
 
 ### A5 complete enough
 
