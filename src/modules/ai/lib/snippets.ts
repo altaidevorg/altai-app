@@ -1,6 +1,7 @@
 import { createAppStore } from "@/lib/appStore";
 import {
   expandSnippetTokens as expandSnippetTokensShared,
+  newSnippetId as newSnippetIdShared,
   isValidHandle,
   normalizeHandle,
   type ComposerSnippet,
@@ -27,7 +28,7 @@ export async function saveSnippets(list: Snippet[]): Promise<void> {
 }
 
 export function newSnippetId(): string {
-  return `sn-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+  return newSnippetIdShared();
 }
 
 export { isValidHandle, normalizeHandle };

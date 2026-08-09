@@ -829,6 +829,7 @@ export {
 } from "./lib/projectInstructions.js";
 
 export { newSessionId } from "./lib/sessionId.js";
+export { newSnippetId } from "./lib/snippetId.js";
 
 export {
   newAgentId,
