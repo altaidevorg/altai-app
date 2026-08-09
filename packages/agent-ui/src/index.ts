@@ -894,6 +894,9 @@ export {
 export { appendSlashCommandFocus } from "./lib/slashCommandFocus.js";
 export { parseComposerSlashLead } from "./lib/parseComposerSlashLead.js";
 export type { ComposerSlashLead } from "./lib/parseComposerSlashLead.js";
+export { findAgentByIdOrName } from "./lib/findAgentByName.js";
+export type { NamedAgent } from "./lib/findAgentByName.js";
+
 
 
 

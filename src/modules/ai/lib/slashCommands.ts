@@ -14,6 +14,7 @@ import { currentWorkspaceFolder } from "@/modules/workspace/folder";
 import {
   ALTAI_CMD_RE,
   appendSlashCommandFocus,
+  findAgentByIdOrName,
   parseComposerSlashLead,
   filterSlashCommands as filterSlashCommandsShared,
   isWorkspaceSlashCommandPath,
@@ -286,9 +287,9 @@ function runLocalCommand(name: string, tail: string): SlashOutcome {
       return { kind: "handled", toast: "Opened Operations scheduled work" };
     case "agents": {
       if (tail) {
-        const normalized = tail.toLowerCase();
-        const agent = useAgentsStore.getState().enabled().find(
-          (item) => item.id.toLowerCase() === normalized || item.name.toLowerCase() === normalized,
+        const agent = findAgentByIdOrName(
+          useAgentsStore.getState().enabled(),
+          tail,
         );
         if (agent) {
           useAgentsStore.getState().setActiveId(agent.id);
