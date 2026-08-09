@@ -14,6 +14,7 @@ import { currentWorkspaceFolder } from "@/modules/workspace/folder";
 import {
   ALTAI_CMD_RE,
   appendSlashCommandFocus,
+  parseComposerSlashLead,
   filterSlashCommands as filterSlashCommandsShared,
   isWorkspaceSlashCommandPath,
   joinWorkspaceRelativePath,
@@ -205,13 +206,11 @@ function parseWorkflowCommand(path: string, source: string): SlashCommandMeta | 
 }
 
 export function tryRunSlashCommand(input: string): SlashOutcome {
-  const trimmed = input.trim();
-  const lead = trimmed[0];
-  if (lead !== "/" && lead !== "#") return { kind: "none" };
-  const [head, ...rest] = trimmed.slice(1).split(/\s+/);
+  const leadParse = parseComposerSlashLead(input);
+  if (!leadParse) return { kind: "none" };
+  const { head, tail } = leadParse;
   const command = resolveSlashCommand(head);
   if (!command) return { kind: "none" };
-  const tail = rest.join(" ").trim();
 
   if (command.behavior === "workflow") {
     return {
