@@ -756,6 +756,17 @@ export {
 } from "./lib/chatTranscriptChrome.js";
 
 export {
+  isRecoverableRunOutcome,
+  describeTerminalOutcomeAttention,
+  continueStuckPrompt,
+  continueBudgetSegmentPrompt,
+  describeRunWarning,
+  type SharedRunBudgetSnapshot,
+  type SharedRunBudgetWarning,
+  type SharedRunOutcome,
+} from "./lib/runContinueChrome.js";
+
+export {
   AiChatTranscriptFrame,
   type AiChatTranscriptFrameProps,
 } from "./components/AiChatTranscriptFrame.js";
