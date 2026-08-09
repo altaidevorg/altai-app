@@ -768,9 +768,21 @@ export {
   type SharedRunOutcome,
 } from "./lib/runContinueChrome.js";
 export {
+<<<<<<< HEAD
   parseNativeMethodList,
   nativeMethodAvailable,
 } from "./lib/nativeMethodList.js";
+=======
+  agentRequiresTools,
+  supportsAgentModel,
+  describeModelConstraint,
+  pickAutoModel,
+  type SharedModelRoutingAgent,
+  type SharedModelRoutingCapabilities,
+  type SharedModelRoutingInfo,
+  type PickAutoModelInput,
+} from "./lib/modelRouting.js";
+>>>>>>> 9ab78a8 (feat(agent-ui): pure model routing helpers (A6.140))
 
 
 export {
