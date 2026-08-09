@@ -861,6 +861,9 @@ export {
   describeUnresolvedIsanAgentTarget,
 } from "./lib/isanagentTargetChrome.js";
 export type { ConfiguredLocalCatalogId } from "./lib/isanagentTargetChrome.js";
+export { hasAnyProviderKey } from "./lib/providerKeysChrome.js";
+export type { ProviderKeySupport } from "./lib/providerKeysChrome.js";
+
 
 
 export {
