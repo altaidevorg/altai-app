@@ -2,6 +2,8 @@ import {
   arrayBufferToBytes,
   arrayBufferViewToBytes,
   headersInitToRecord as headersInitToRecordShared,
+  requestMethodFromInit,
+  requestUrlToString,
   utf8StringToBytes,
 } from "@altai/agent-ui";
 import { Channel, invoke } from "@tauri-apps/api/core";
@@ -48,8 +50,8 @@ async function proxyFetchImpl(
   init: RequestInit | undefined,
   allowPrivateNetwork: boolean,
 ): Promise<Response> {
-  const url = input instanceof URL ? input.toString() : String(input);
-  const method = (init?.method ?? "GET").toUpperCase();
+  const url = requestUrlToString(input);
+  const method = requestMethodFromInit(init);
   const headers = headersInitToRecordShared(init?.headers);
   const body = await bodyToBytes(init?.body);
 

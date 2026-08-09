@@ -292,6 +292,7 @@ consumption of shared panel shells:
 | A6.174 | Find agent by id or name |
 | A6.175 | Plan mode off slash tail |
 | A6.176 | Sync body → byte array helpers |
+| A6.177 | Request URL + method normalize |
 
 ### A5 complete enough
 
