@@ -307,6 +307,7 @@ consumption of shared panel shells:
 | A6.189 | Desktop New chat uses DEFAULT_SESSION_TITLE |
 | A6.190 | Deleted session id blocklist ops |
 | A6.191 | Hydrate active session resolve |
+| A6.192 | Insert session after active tab |
 
 ### A5 complete enough
 

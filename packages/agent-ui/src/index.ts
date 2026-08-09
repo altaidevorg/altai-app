@@ -892,6 +892,7 @@ export {
   resolveActiveSessionOnHydrate,
   createUntitledSessionMeta,
 } from "./lib/resolveActiveSessionOnHydrate.js";
+export { insertSessionAfterActive } from "./lib/insertSessionAfterActive.js";
 export type { SessionIdTitle } from "./lib/resolveActiveSessionOnHydrate.js";
 export type {
   UntitledSessionMeta,
