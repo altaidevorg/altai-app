@@ -8,7 +8,6 @@ import {
   continueStuckPrompt as continueStuckPromptShared,
   continueBudgetSegmentPrompt as continueBudgetSegmentPromptShared,
   describeRunWarning as describeRunWarningShared,
-  MAX_BUDGET_SEGMENT_AUTO_CONTINUES,
   nextBudgetSegmentAutoContinueCount,
 } from "@altai/agent-ui";
 import { useChatStore } from "../store/chatStore";
