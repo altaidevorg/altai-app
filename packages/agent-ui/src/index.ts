@@ -876,6 +876,12 @@ export type {
   TranscriptToolPart,
 } from "./lib/backendMessageMap.js";
 export { resolveConfiguredLocalTargetCandidate } from "./lib/configuredLocalTarget.js";
+export { mergeRecoveredSessions } from "./lib/mergeRecoveredSessions.js";
+export type {
+  RecoverableSessionMeta,
+  BackendSessionRow,
+} from "./lib/mergeRecoveredSessions.js";
+
 export type {
   ConfiguredLocalTargetCandidate,
   ResolvedConfiguredLocalTarget,

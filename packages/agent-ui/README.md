@@ -282,6 +282,7 @@ consumption of shared panel shells:
 | A6.164 | Native transcript message id |
 | A6.165 | Backend chat message → transcript map |
 | A6.166 | Configured local model target match |
+| A6.167 | Merge recovered backend sessions |
 
 ### A5 complete enough
 
