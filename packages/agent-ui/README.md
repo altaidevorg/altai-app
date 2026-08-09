@@ -266,6 +266,7 @@ consumption of shared panel shells:
 | A6.148 | Chat title derive from user messages |
 | A6.149 | Sensitive token redaction |
 | A6.150 | Project instructions path + combine |
+| A6.151 | Session id generator |
 
 ### A5 complete enough
 

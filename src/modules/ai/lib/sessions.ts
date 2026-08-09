@@ -1,4 +1,7 @@
-import { deriveChatTitleFromMessages } from "@altai/agent-ui";
+import {
+  deriveChatTitleFromMessages,
+  newSessionId as newSessionIdShared,
+} from "@altai/agent-ui";
 import type { UIMessage } from "ai";
 import { createAppStore } from "@/lib/appStore";
 
@@ -167,7 +170,7 @@ export async function deleteSessionData(id: string): Promise<void> {
 }
 
 export function newSessionId(): string {
-  return `s-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+  return newSessionIdShared();
 }
 
 export function deriveTitle(messages: UIMessage[]): string {
