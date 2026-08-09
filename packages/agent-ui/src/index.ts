@@ -807,6 +807,13 @@ export {
   isClearedOutput,
   estimateTokens,
 } from "./lib/tokenEstimate.js";
+export { proposalKindFromPlanEdit } from "./lib/proposalKind.js";
+
+export {
+  COMPOSER_PLACEHOLDERS,
+  pickPlaceholder,
+} from "./lib/composerPlaceholders.js";
+
 
 
 
