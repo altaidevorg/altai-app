@@ -1,3 +1,4 @@
+import { headersInitToRecord as headersInitToRecordShared } from "@altai/agent-ui";
 import { Channel, invoke } from "@tauri-apps/api/core";
 
 /** Streaming events emitted by the Rust `ai_http_stream` command. */
@@ -8,23 +9,6 @@ type AiStreamEvent =
   | { kind: "error"; message: string };
 
 type RequestHeaders = Record<string, string>;
-
-function headerInitToRecord(
-  init: HeadersInit | undefined,
-): RequestHeaders | undefined {
-  if (!init) return undefined;
-  const out: RequestHeaders = {};
-  if (init instanceof Headers) {
-    init.forEach((value, key) => {
-      out[key] = value;
-    });
-  } else if (Array.isArray(init)) {
-    for (const [k, v] of init) out[k] = v;
-  } else {
-    for (const [k, v] of Object.entries(init)) out[k] = String(v);
-  }
-  return out;
-}
 
 async function bodyToBytes(
   body: BodyInit | null | undefined,
@@ -66,7 +50,7 @@ async function proxyFetchImpl(
 ): Promise<Response> {
   const url = input instanceof URL ? input.toString() : String(input);
   const method = (init?.method ?? "GET").toUpperCase();
-  const headers = headerInitToRecord(init?.headers);
+  const headers = headersInitToRecordShared(init?.headers);
   const body = await bodyToBytes(init?.body);
 
   const signal = init?.signal;
