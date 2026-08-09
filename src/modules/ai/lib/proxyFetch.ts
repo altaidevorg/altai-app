@@ -1,4 +1,9 @@
-import { headersInitToRecord as headersInitToRecordShared } from "@altai/agent-ui";
+import {
+  arrayBufferToBytes,
+  arrayBufferViewToBytes,
+  headersInitToRecord as headersInitToRecordShared,
+  utf8StringToBytes,
+} from "@altai/agent-ui";
 import { Channel, invoke } from "@tauri-apps/api/core";
 
 /** Streaming events emitted by the Rust `ai_http_stream` command. */
@@ -13,20 +18,17 @@ async function bodyToBytes(
 ): Promise<number[] | undefined> {
   if (body == null) return undefined;
   if (typeof body === "string") {
-    return Array.from(new TextEncoder().encode(body));
+    return utf8StringToBytes(body);
   }
-  if (body instanceof ArrayBuffer) return Array.from(new Uint8Array(body));
+  if (body instanceof ArrayBuffer) return arrayBufferToBytes(body);
   if (ArrayBuffer.isView(body)) {
-    const view = body as ArrayBufferView;
-    return Array.from(
-      new Uint8Array(view.buffer, view.byteOffset, view.byteLength),
-    );
+    return arrayBufferViewToBytes(body as ArrayBufferView);
   }
   if (body instanceof Blob)
     return Array.from(new Uint8Array(await body.arrayBuffer()));
   // FormData / URLSearchParams / ReadableStream — uncommon for AI SDK calls.
   const text = await new Response(body as BodyInit).text();
-  return Array.from(new TextEncoder().encode(text));
+  return utf8StringToBytes(text);
 }
 
 export function createProxyFetch(
