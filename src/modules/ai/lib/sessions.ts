@@ -1,5 +1,6 @@
 import {
   deriveChatTitleFromMessages,
+  mapBackendMessageToTranscript,
   newSessionId as newSessionIdShared,
 } from "@altai/agent-ui";
 import type { UIMessage } from "ai";
@@ -83,40 +84,11 @@ function backendMessageToUi(
   },
   index: number,
 ): UIMessage {
-  const parts: UIMessage["parts"] = [];
-  // Reasoning (chain-of-thought) — render as a text part if present.
-  const reasoning = msg.reasoning_content?.trim();
-  if (reasoning) {
-    parts.push({ type: "text", text: reasoning });
-  }
-  // Assistant tool calls → dynamic-tool parts (input state; the matching tool
-  // result row is a separate `role: "tool"` message carrying tool_call_id).
-  if (msg.tool_calls && msg.tool_calls.length > 0) {
-    for (const tc of msg.tool_calls) {
-      let input: Record<string, unknown> = {};
-      try {
-        input = JSON.parse(tc.function.arguments || "{}");
-      } catch {
-        input = { raw: tc.function.arguments };
-      }
-      parts.push({
-        type: "dynamic-tool",
-        toolName: tc.function.name,
-        toolCallId: tc.id,
-        input,
-        state: "input-available",
-      });
-    }
-  }
-  // Plain text content (user / assistant / tool result text).
-  const text = typeof msg.content === "string" ? msg.content.trim() : "";
-  if (text) {
-    parts.push({ type: "text", text });
-  }
+  const mapped = mapBackendMessageToTranscript(msg, index);
   return {
-    id: `backend-${index}`,
-    role: (msg.role === "tool" ? "assistant" : msg.role) as UIMessage["role"],
-    parts,
+    id: mapped.id,
+    role: mapped.role as UIMessage["role"],
+    parts: mapped.parts as UIMessage["parts"],
   };
 }
 
