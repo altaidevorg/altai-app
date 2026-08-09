@@ -900,6 +900,8 @@ export {
   removeSessionFromList,
   nextActiveIdAfterDelete,
 } from "./lib/removeSessionFromList.js";
+export { maybeDeriveSessionTitleList } from "./lib/maybeDeriveSessionTitle.js";
+export type { DerivableSession } from "./lib/maybeDeriveSessionTitle.js";
 export type {
   SessionWorkspaceTarget,
   SessionWorkspaceFields,
