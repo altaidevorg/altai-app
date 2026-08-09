@@ -1,4 +1,9 @@
-import { resolveCompactionSpecFromContext } from "@altai/agent-ui";
+import {
+  describeUnresolvedIsanAgentTarget,
+  isConfiguredLocalCatalogId,
+  resolveCompactionSpecFromContext,
+  toChatCompletionsUrl,
+} from "@altai/agent-ui";
 /**
  * Resolve the UI's selected model into the concrete (provider, apiKey,
  * modelName, baseUrl) tuple the IsanAgent runtime needs.
@@ -75,23 +80,6 @@ const PROVIDER_BASE_URLS: Record<ProviderId, string> = {
   mlx: "",
 };
 
-/**
- * Settings store AI-SDK style roots (`…/v1`). Isanagent POSTs to the URL as-is,
- * so append `/chat/completions` when the user hasn't already provided a full path.
- */
-function toChatCompletionsUrl(baseUrl: string): string {
-  const trimmed = baseUrl.trim().replace(/\/+$/, "");
-  if (!trimmed) return "";
-  if (
-    trimmed.endsWith("/chat/completions") ||
-    trimmed.endsWith("/messages") ||
-    trimmed.includes("/chat/completions")
-  ) {
-    return trimmed;
-  }
-  return `${trimmed}/chat/completions`;
-}
-
 type ConfiguredLocalTarget = {
   catalogId: string;
   providerName: ProviderId;
@@ -146,10 +134,6 @@ function resolveConfiguredLocalTarget(
   };
 }
 
-function isConfiguredLocalCatalogId(modelId: string): boolean {
-  return ["lmstudio-local", "mlx-local", "openai-compatible-custom"].includes(modelId);
-}
-
 /**
  * Resolve a single (provider, modelId) pair against keys + local-pref base URLs.
  * Returns `null` when the model id is unknown or a required key/pref is missing.
@@ -202,38 +186,19 @@ export function resolveIsanAgentTarget(
 ): TargetResolution {
   const target = resolveOne(selectedModelId, apiKeys, inputs);
   if (!target) {
-    if (selectedModelId === "openai-compatible-custom") {
-      return {
-        ok: false,
-        error:
-          "OpenAI-compatible endpoint is not configured. Set Base URL and Model ID in Settings → Models.",
-      };
-    }
-    if (selectedModelId === "lmstudio-local") {
-      return {
-        ok: false,
-        error:
-          "LM Studio is not configured. Set Base URL and Model ID in Settings → Models.",
-      };
-    }
-    if (selectedModelId === "mlx-local") {
-      return {
-        ok: false,
-        error:
-          "MLX is not configured. Set Base URL and Model ID in Settings → Models.",
-      };
-    }
     // Distinguish "unknown model" from "missing key" for a clearer message.
     const known = MODELS.find((m) => m.id === selectedModelId) as
       | (typeof MODELS)[number]
       | undefined;
-    if (known && providerNeedsKey(known.provider)) {
-      return {
-        ok: false,
-        error: `No API key set for ${known.provider}. Add it in Settings.`,
-      };
-    }
-    return { ok: false, error: `Unknown model: ${selectedModelId}` };
+    const knownKeyProvider =
+      known && providerNeedsKey(known.provider) ? known.provider : null;
+    return {
+      ok: false,
+      error: describeUnresolvedIsanAgentTarget(
+        selectedModelId,
+        knownKeyProvider,
+      ),
+    };
   }
   return { ok: true, target };
 }
