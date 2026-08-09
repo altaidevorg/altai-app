@@ -908,6 +908,11 @@ export { findAgentByIdOrName } from "./lib/findAgentByName.js";
 export type { NamedAgent } from "./lib/findAgentByName.js";
 export { isPlanModeOffTail } from "./lib/planModeTail.js";
 export {
+  planModeOnToast,
+  planModeOffToast,
+  planModeToggleToast,
+} from "./lib/planModeToast.js";
+export {
   utf8StringToBytes,
   uint8ArrayToBytes,
   arrayBufferToBytes,
