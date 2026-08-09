@@ -260,6 +260,7 @@ consumption of shared panel shells:
 | A6.142 | MCP tool name parse + activity kind |
 | A6.143 | Skill install source parse |
 | A6.144 | Todo status normalize |
+| A6.145 | Cleared-output markers + token estimate |
 
 ### A5 complete enough
 

@@ -11,22 +11,24 @@
  * Pure functions only — no store side effects. Tests live alongside.
  */
 import type { UIMessage } from "ai";
+import {
+  CLEARED_OUTPUT as CLEARED_OUTPUT_SHARED,
+  CLEARED_TOOL_OUTPUT_TEXT as CLEARED_TOOL_OUTPUT_TEXT_SHARED,
+  isClearedOutput as isClearedOutputShared,
+  estimateTokens as estimateTokensShared,
+} from "@altai/agent-ui";
 
 type AnyPart = UIMessage["parts"][number];
 
 /** Marker text rendered in place of a cleared tool output. */
-export const CLEARED_TOOL_OUTPUT_TEXT = "[Old tool result content cleared]";
+export const CLEARED_TOOL_OUTPUT_TEXT = CLEARED_TOOL_OUTPUT_TEXT_SHARED;
 
 /** Marker shape stored in the persisted part's `output` field. */
-export const CLEARED_OUTPUT: { cleared: true } = { cleared: true };
+export const CLEARED_OUTPUT: { cleared: true } = CLEARED_OUTPUT_SHARED;
 
 /** True when a part's output has already been cleared by a prior prune pass. */
 export function isClearedOutput(output: unknown): boolean {
-  return (
-    typeof output === "object" &&
-    output !== null &&
-    (output as { cleared?: unknown }).cleared === true
-  );
+  return isClearedOutputShared(output);
 }
 
 /**
@@ -37,7 +39,7 @@ export function isClearedOutput(output: unknown): boolean {
  * The budget is advisory; a 25% error margin doesn't change the UX outcome.
  */
 export function estimateTokens(s: string): number {
-  return Math.ceil(s.length / 4);
+  return estimateTokensShared(s);
 }
 
 /** Coerce a tool part's output to a string for token estimation. Returns
