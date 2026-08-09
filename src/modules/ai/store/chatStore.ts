@@ -1119,11 +1119,9 @@ useChatStore.subscribe((state, prev) => {
 
 /** Plain-text body of a user message (text parts joined). */
 function userMessageText(m: UIMessage): string {
-  return m.parts
-    .filter((p): p is { type: "text"; text: string } => p.type === "text")
-    .map((p) => p.text)
-    .join("\n")
-    .trim();
+  return joinMessageTextParts(
+    m.parts as { type?: string; text?: string }[],
+  ).trim();
 }
 
 /**
