@@ -3,6 +3,8 @@ import {
   mapBackendMessageToTranscript,
   mergeRecoveredSessions,
   newSessionId as newSessionIdShared,
+  sessionListWorkspaceTargets,
+  sessionWorkspacePathForId,
 } from "@altai/agent-ui";
 import type { UIMessage } from "ai";
 import { createAppStore } from "@/lib/appStore";
@@ -103,8 +105,7 @@ async function loadMessagesFromBackend(id: string): Promise<UIMessage[] | null> 
   try {
     const { native } = await import("./native");
     const sessions = (await store.get<SessionMeta[]>(KEY_SESSIONS)) ?? [];
-    const workspacePath =
-      sessions.find((session) => session.id === id)?.workspacePath ?? undefined;
+    const workspacePath = sessionWorkspacePathForId(sessions, id);
     const backend = await native.agentGetSessionMessages(id, workspacePath);
     if (!backend || backend.length === 0) return null;
     const ui = backend.map((m, i) => backendMessageToUi(m, i));
@@ -176,14 +177,7 @@ export async function mergeBackendSessions(
     // Query the project-free store plus every workspace represented by the
     // persisted conversation list. Targets belong to chats, not to the app
     // window, so there is no single global workspace to query.
-    const targets = [
-      undefined,
-      ...new Set(
-        frontend
-          .map((session) => session.workspacePath ?? undefined)
-          .filter((path): path is string => Boolean(path)),
-      ),
-    ];
+    const targets = sessionListWorkspaceTargets(frontend);
     for (const workspacePath of targets) {
       const items = await native.agentListSessions(workspacePath);
       backend.push(...items);

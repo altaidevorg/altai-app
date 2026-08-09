@@ -298,6 +298,7 @@ consumption of shared panel shells:
 | A6.180 | Slash command non-empty tail |
 | A6.181 | Backend/session default title |
 | A6.183 | Uint8Array body byte pack |
+| A6.182 | Session list workspace query targets |
 
 ### A5 complete enough
 
