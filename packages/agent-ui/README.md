@@ -276,6 +276,7 @@ consumption of shared panel shells:
 | A6.158 | Path / shell safety guards |
 | A6.159 | Compaction threshold resolve |
 | A6.160 | IsanAgent target URL + unresolved errors |
+| A6.161 | Provider key presence helper |
 
 ### A5 complete enough
 

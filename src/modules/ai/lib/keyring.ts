@@ -1,3 +1,4 @@
+import { hasAnyProviderKey as hasAnyProviderKeyShared } from "@altai/agent-ui";
 import { invoke } from "@tauri-apps/api/core";
 import {
   getProvider,
@@ -87,5 +88,11 @@ export async function getAllKeys(): Promise<ProviderKeys> {
 }
 
 export function hasAnyKey(keys: ProviderKeys): boolean {
-  return PROVIDERS.some((p) => providerSupportsKey(p.id) && !!keys[p.id]);
+  return hasAnyProviderKeyShared(
+    keys,
+    PROVIDERS.map((p) => ({
+      id: p.id,
+      supportsKey: providerSupportsKey(p.id),
+    })),
+  );
 }
