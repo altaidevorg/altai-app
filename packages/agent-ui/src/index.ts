@@ -895,6 +895,11 @@ export {
 export { insertSessionAfterActive } from "./lib/insertSessionAfterActive.js";
 export { renameSessionInList } from "./lib/renameSessionInList.js";
 export type { SessionTitleMeta } from "./lib/renameSessionInList.js";
+export { applySessionWorkspaceTarget } from "./lib/sessionWorkspaceTarget.js";
+export type {
+  SessionWorkspaceTarget,
+  SessionWorkspaceFields,
+} from "./lib/sessionWorkspaceTarget.js";
 export type { SessionIdTitle } from "./lib/resolveActiveSessionOnHydrate.js";
 export type {
   UntitledSessionMeta,
