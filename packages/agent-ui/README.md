@@ -274,6 +274,7 @@ consumption of shared panel shells:
 | A6.156 | Workspace slash path + command name |
 | A6.157 | Workspace workflow frontmatter parse |
 | A6.158 | Path / shell safety guards |
+| A6.159 | Compaction threshold resolve |
 
 ### A5 complete enough
 
