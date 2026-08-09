@@ -7,6 +7,8 @@ import {
   insertSessionAfterActive,
   renameSessionInList,
   applySessionWorkspaceTarget,
+  removeSessionFromList,
+  nextActiveIdAfterDelete,
 } from "@altai/agent-ui";
 import type { UIMessage } from "ai";
 import { native } from "../lib/native";
@@ -998,7 +1000,7 @@ export const useChatStore = create<StoreState>((set, get) => ({
       void requestStop(id).catch(() => undefined);
       return;
     }
-    const remaining = currentState.sessions.filter((s) => s.id !== id);
+    const remaining = removeSessionFromList(currentState.sessions, id);
     const pendingClarificationsBySession = {
       ...currentState.pendingClarificationsBySession,
     };
@@ -1042,7 +1044,11 @@ export const useChatStore = create<StoreState>((set, get) => ({
     const wasActive = currentState.activeSessionId === id;
     // remaining is non-empty here (the empty case returned above), so
     // remaining[0] is defined whenever we deleted the active session.
-    const nextActive = wasActive ? remaining[0].id : currentState.activeSessionId;
+    const nextActive = nextActiveIdAfterDelete(
+      currentState.sessions,
+      id,
+      currentState.activeSessionId,
+    );
     if (wasActive) {
       const pending = nextActive
         ? pendingClarificationsBySession[nextActive]

@@ -896,6 +896,10 @@ export { insertSessionAfterActive } from "./lib/insertSessionAfterActive.js";
 export { renameSessionInList } from "./lib/renameSessionInList.js";
 export type { SessionTitleMeta } from "./lib/renameSessionInList.js";
 export { applySessionWorkspaceTarget } from "./lib/sessionWorkspaceTarget.js";
+export {
+  removeSessionFromList,
+  nextActiveIdAfterDelete,
+} from "./lib/removeSessionFromList.js";
 export type {
   SessionWorkspaceTarget,
   SessionWorkspaceFields,

@@ -310,6 +310,7 @@ consumption of shared panel shells:
 | A6.192 | Insert session after active tab |
 | A6.193 | Rename session title in list |
 | A6.194 | Apply session workspace target |
+| A6.195 | Remove session + next active id |
 
 ### A5 complete enough
 
