@@ -1432,6 +1432,24 @@ export type {
   PersistedWebviewState,
   PersistedWorkHubView,
 } from "./lib/webviewState.js";
+
+export type {
+  ChatAnnouncePref,
+  ExtensionPreferences,
+  ExtensionSettingKey,
+  FocusRingPref,
+  ReduceMotionPref,
+  SnippetPref,
+} from "./lib/extensionPreferences.js";
+export {
+  EXTENSION_SETTING_KEYS,
+  coerceExtensionPreferences,
+  defaultExtensionPreferences,
+  isExtensionSettingKey,
+  isValidSettingValue,
+  parseSnippetsJson,
+  serializeSnippets,
+} from "./lib/extensionPreferences.js";
 export {
   MAX_COMPOSER_DRAFT_CHARS,
   MAX_PREFERRED_ROOT_URI_CHARS,
