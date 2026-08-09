@@ -807,6 +807,8 @@ export {
   isClearedOutput,
   estimateTokens,
 } from "./lib/tokenEstimate.js";
+export { pruneOldToolOutputs } from "./lib/pruneToolOutputs.js";
+export type { PruneableMessage } from "./lib/pruneToolOutputs.js";
 export { proposalKindFromPlanEdit } from "./lib/proposalKind.js";
 
 export {
