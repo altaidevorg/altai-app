@@ -866,6 +866,8 @@ export type { ProviderKeySupport } from "./lib/providerKeysChrome.js";
 export { joinWorkspaceRelativePath } from "./lib/joinWorkspacePath.js";
 export { parseTodoWriteItems } from "./lib/todoWriteItems.js";
 export type { ParsedTodoWriteItem } from "./lib/todoWriteItems.js";
+export { newNativeMessageId } from "./lib/nativeMessageId.js";
+
 
 
 
