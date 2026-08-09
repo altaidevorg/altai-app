@@ -290,6 +290,7 @@ consumption of shared panel shells:
 | A6.172 | Slash command focus suffix |
 | A6.173 | Parse composer slash/hash lead |
 | A6.174 | Find agent by id or name |
+| A6.175 | Plan mode off slash tail |
 
 ### A5 complete enough
 

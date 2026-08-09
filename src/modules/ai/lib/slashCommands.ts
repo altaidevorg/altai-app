@@ -15,6 +15,7 @@ import {
   ALTAI_CMD_RE,
   appendSlashCommandFocus,
   findAgentByIdOrName,
+  isPlanModeOffTail,
   parseComposerSlashLead,
   filterSlashCommands as filterSlashCommandsShared,
   isWorkspaceSlashCommandPath,
@@ -259,7 +260,7 @@ function runLocalCommand(name: string, tail: string): SlashOutcome {
       return { kind: "handled", toast: "Opened run details" };
     case "plan": {
       const store = usePlanStore.getState();
-      if (tail === "off" || tail === "exit") {
+      if (isPlanModeOffTail(tail)) {
         store.disable();
         return { kind: "handled", toast: "Plan mode off" };
       }
