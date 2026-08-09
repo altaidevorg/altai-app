@@ -1470,6 +1470,13 @@ export type {
 } from "./lib/sidePanelSurface.js";
 
 export type { StringKeyStorage } from "./lib/sidePanelWidthStorage.js";
+
+export type {
+  OperationsOpenIntent,
+  OperationsOpenView,
+  OperationsOpenWorkHubView,
+} from "./lib/operationsOpenEvent.js";
+export { buildOperationsOpenIntent } from "./lib/operationsOpenEvent.js";
 export {
   readPanelWidthFromStorage,
   writePanelWidthToStorage,
