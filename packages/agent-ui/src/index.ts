@@ -854,6 +854,14 @@ export {
   resolveCompactionSpecFromContext,
 } from "./lib/compactionSpec.js";
 export type { CompactionPrefs, CompactionSpec } from "./lib/compactionSpec.js";
+export {
+  CONFIGURED_LOCAL_CATALOG_IDS,
+  isConfiguredLocalCatalogId,
+  toChatCompletionsUrl,
+  describeUnresolvedIsanAgentTarget,
+} from "./lib/isanagentTargetChrome.js";
+export type { ConfiguredLocalCatalogId } from "./lib/isanagentTargetChrome.js";
+
 
 export {
   checkReadable,

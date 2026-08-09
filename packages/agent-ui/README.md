@@ -275,6 +275,7 @@ consumption of shared panel shells:
 | A6.157 | Workspace workflow frontmatter parse |
 | A6.158 | Path / shell safety guards |
 | A6.159 | Compaction threshold resolve |
+| A6.160 | IsanAgent target URL + unresolved errors |
 
 ### A5 complete enough
 
