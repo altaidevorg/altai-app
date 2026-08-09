@@ -1,6 +1,5 @@
 import {
   DEFAULT_SESSION_TITLE,
-  isUntitledSessionTitle,
   appendDeletedSessionId,
   resolveActiveSessionOnHydrate,
   createUntitledSessionMeta,
@@ -9,6 +8,7 @@ import {
   applySessionWorkspaceTarget,
   removeSessionFromList,
   nextActiveIdAfterDelete,
+  maybeDeriveSessionTitleList,
 } from "@altai/agent-ui";
 import type { UIMessage } from "ai";
 import { native } from "../lib/native";
@@ -410,15 +410,9 @@ function persistNativeMessages(id: string, messages: UIMessage[]): void {
   // otherwise we'd rewrite the sessions array (and trigger re-renders + a
   // store write) on every streamed event.
   const state = useChatStore.getState();
-  const meta = state.sessions.find((s) => s.id === id);
-  if (!meta) return;
-  const isUntitled = isUntitledSessionTitle(meta.title);
-  if (!isUntitled) return;
   const nextTitle = deriveTitle(messages);
-  if (nextTitle === meta.title) return;
-  const next = state.sessions.map((s) =>
-    s.id === id ? { ...s, title: nextTitle, updatedAt: Date.now() } : s,
-  );
+  const next = maybeDeriveSessionTitleList(state.sessions, id, nextTitle);
+  if (!next) return;
   useChatStore.setState({ sessions: next });
   void saveSessionsList(next);
 }

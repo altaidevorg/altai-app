@@ -311,6 +311,7 @@ consumption of shared panel shells:
 | A6.193 | Rename session title in list |
 | A6.194 | Apply session workspace target |
 | A6.195 | Remove session + next active id |
+| A6.196 | Maybe auto-derive untitled session title |
 
 ### A5 complete enough
 
