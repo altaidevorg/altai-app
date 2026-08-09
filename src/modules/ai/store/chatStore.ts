@@ -1,3 +1,4 @@
+import { isUntitledSessionTitle } from "@altai/agent-ui";
 import type { UIMessage } from "ai";
 import { native } from "../lib/native";
 import { create } from "zustand";
@@ -400,7 +401,7 @@ function persistNativeMessages(id: string, messages: UIMessage[]): void {
   const state = useChatStore.getState();
   const meta = state.sessions.find((s) => s.id === id);
   if (!meta) return;
-  const isUntitled = !meta.title || meta.title === "New chat";
+  const isUntitled = isUntitledSessionTitle(meta.title);
   if (!isUntitled) return;
   const nextTitle = deriveTitle(messages);
   if (nextTitle === meta.title) return;
@@ -855,7 +856,7 @@ export const useChatStore = create<StoreState>((set, get) => ({
     // every launch), else create a fresh one.
     let active =
       (activeId ? sessions.find((s) => s.id === activeId) : undefined) ?? null;
-    if (!active && sessions[0]?.title === "New chat") {
+    if (!active && isUntitledSessionTitle(sessions[0]?.title)) {
       active = sessions[0];
     }
     let nextSessions: SessionMeta[];

@@ -303,6 +303,7 @@ consumption of shared panel shells:
 | A6.185 | Slash session/run toast copy |
 | A6.187 | Untitled session meta factory |
 | A6.186 | Slash settings/ops toast copy |
+| A6.188 | Untitled session title check |
 
 ### A5 complete enough
 
