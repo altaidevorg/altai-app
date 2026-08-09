@@ -828,6 +828,8 @@ export {
   clampProjectInstructions,
 } from "./lib/projectInstructions.js";
 
+export { newSessionId } from "./lib/sessionId.js";
+
 
 
 
