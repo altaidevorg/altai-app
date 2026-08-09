@@ -294,6 +294,7 @@ consumption of shared panel shells:
 | A6.176 | Sync body → byte array helpers |
 | A6.177 | Request URL + method normalize |
 | A6.178 | IsanAgent target resolution result |
+| A6.179 | Slash agent switch toast copy |
 
 ### A5 complete enough
 
