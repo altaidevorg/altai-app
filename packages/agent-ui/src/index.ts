@@ -902,6 +902,11 @@ export {
   arrayBufferToBytes,
   arrayBufferViewToBytes,
 } from "./lib/bodyBytes.js";
+export {
+  requestUrlToString,
+  requestMethodFromInit,
+} from "./lib/requestInitChrome.js";
+
 
 
 
