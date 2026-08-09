@@ -3,6 +3,11 @@ import { plural } from "@/lib/utils";
 import {
   isRecoverableAttentionMessage as isRecoverableAttentionMessageShared,
   isRetryableRunOutcome as isRetryableRunOutcomeShared,
+  isRecoverableRunOutcome as isRecoverableRunOutcomeShared,
+  describeTerminalOutcomeAttention as describeTerminalOutcomeAttentionShared,
+  continueStuckPrompt as continueStuckPromptShared,
+  continueBudgetSegmentPrompt as continueBudgetSegmentPromptShared,
+  describeRunWarning as describeRunWarningShared,
 } from "@altai/agent-ui";
 import { useChatStore } from "../store/chatStore";
 import { useAgentRunsStore } from "../store/agentRunsStore";
@@ -213,7 +218,7 @@ export function isRetryableRunOutcome(
 export function isRecoverableRunOutcome(
   outcome: RunOutcome | null | undefined,
 ): boolean {
-  return outcome?.kind === "stuck" || outcome?.kind === "budget_exhausted";
+  return isRecoverableRunOutcomeShared(outcome);
 }
 
 /** Chat alert / pill copy that must never render as “Something went wrong.” */
@@ -228,33 +233,19 @@ export function isRecoverableAttentionMessage(message: string): boolean {
 export function describeTerminalOutcomeAttention(
   outcome: RunOutcome | null | undefined,
 ): string | null {
-  if (!outcome || outcome.kind === "completed" || outcome.kind === "cancelled") {
-    return null;
-  }
-  if (outcome.kind === "failed") return outcome.failure;
-  if (outcome.kind === "stuck") {
-    return `Run paused — ${outcome.reason.replace(/^Stopped:\s*/i, "")}`;
-  }
-  return `Run paused — Hit the turn limit after ${outcome.budget.iterations_used} steps`;
+  return describeTerminalOutcomeAttentionShared(outcome);
 }
 
 export function continueStuckPrompt(): string {
-  return "Continue the previous task from where it stopped. Reuse the existing context, avoid repeating successful side effects, and make measurable progress before completing.";
+  return continueStuckPromptShared();
 }
 
 export function continueBudgetSegmentPrompt(): string {
-  return "Continue the previous task from where it stopped. You have additional turns available now — pick up the unfinished work, reuse the existing context, avoid repeating successful side effects, and make measurable progress before completing.";
+  return continueBudgetSegmentPromptShared();
 }
 
 export function describeRunWarning(warning: RunBudgetWarning): string {
-  switch (warning.reason.kind) {
-    case "approaching_limit":
-      return `Run is approaching its ${warning.reason.limit.replace(/_/g, " ")} limit`;
-    case "repeated_root_cause":
-      return `The same typed failure repeated ${warning.reason.failures} times`;
-    case "no_progress":
-      return `No measurable progress for ${warning.reason.turns} turns`;
-  }
+  return describeRunWarningShared(warning);
 }
 
 /** Soft cap so an unbounded task cannot auto-burn forever. */
