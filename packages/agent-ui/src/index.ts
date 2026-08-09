@@ -813,6 +813,12 @@ export {
   COMPOSER_PLACEHOLDERS,
   pickPlaceholder,
 } from "./lib/composerPlaceholders.js";
+export {
+  stripChatTitleNoise,
+  deriveChatTitleFromMessages,
+  type ChatTitleMessage,
+  type ChatTitleMessagePart,
+} from "./lib/chatTitle.js";
 
 
 
