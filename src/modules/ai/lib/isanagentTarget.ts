@@ -2,7 +2,7 @@ import {
   describeUnresolvedIsanAgentTarget,
   isConfiguredLocalCatalogId,
   resolveCompactionSpecFromContext,
-  toChatCompletionsUrl,
+  resolveConfiguredLocalTargetCandidate,
 } from "@altai/agent-ui";
 /**
  * Resolve the UI's selected model into the concrete (provider, apiKey,
@@ -80,21 +80,13 @@ const PROVIDER_BASE_URLS: Record<ProviderId, string> = {
   mlx: "",
 };
 
-type ConfiguredLocalTarget = {
-  catalogId: string;
-  providerName: ProviderId;
-  modelName: string;
-  baseUrl: string;
-  apiKey: string;
-};
-
 /** Resolve catalog aliases and raw configured local-model ids through one table. */
 function resolveConfiguredLocalTarget(
   modelId: string,
   apiKeys: ProviderKeys,
   inputs: TargetInputs,
 ): ResolvedTarget | null {
-  const targets: ConfiguredLocalTarget[] = [
+  return resolveConfiguredLocalTargetCandidate(modelId, [
     {
       catalogId: "lmstudio-local",
       providerName: "lmstudio",
@@ -116,22 +108,7 @@ function resolveConfiguredLocalTarget(
       baseUrl: inputs.openaiCompatibleBaseURL,
       apiKey: apiKeys["openai-compatible"] ?? "",
     },
-  ];
-  const target = targets.find(
-    (candidate) =>
-      modelId === candidate.catalogId ||
-      (!!candidate.modelName && modelId === candidate.modelName),
-  );
-  if (!target) return null;
-
-  const baseUrl = toChatCompletionsUrl(target.baseUrl);
-  if (!target.modelName || !baseUrl) return null;
-  return {
-    providerName: target.providerName,
-    apiKey: target.apiKey,
-    modelName: target.modelName,
-    baseUrl,
-  };
+  ]);
 }
 
 /**

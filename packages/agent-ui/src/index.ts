@@ -875,6 +875,12 @@ export type {
   TranscriptTextPart,
   TranscriptToolPart,
 } from "./lib/backendMessageMap.js";
+export { resolveConfiguredLocalTargetCandidate } from "./lib/configuredLocalTarget.js";
+export type {
+  ConfiguredLocalTargetCandidate,
+  ResolvedConfiguredLocalTarget,
+} from "./lib/configuredLocalTarget.js";
+
 
 
 
