@@ -1,5 +1,6 @@
 import {
   describeUnresolvedIsanAgentTarget,
+  fallbackSpecFromTarget,
   isConfiguredLocalCatalogId,
   resolveCompactionSpecFromContext,
   resolveConfiguredLocalTargetCandidate,
@@ -190,15 +191,10 @@ export function resolveFallbackSpec(
   apiKeys: ProviderKeys,
   inputs: TargetInputs,
 ): FallbackSpec | null {
-  if (!fallbackModelId) return null;
-  const target = resolveOne(fallbackModelId, apiKeys, inputs);
-  if (!target) return null;
-  return {
-    providerName: target.providerName,
-    baseUrl: target.baseUrl,
-    apiKey: target.apiKey,
-    modelName: target.modelName,
-  };
+  return fallbackSpecFromTarget(
+    fallbackModelId,
+    resolveOne(fallbackModelId, apiKeys, inputs),
+  );
 }
 
 // Re-export for callers that want the catalog without a second import.

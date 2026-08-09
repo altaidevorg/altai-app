@@ -877,6 +877,12 @@ export type {
 } from "./lib/backendMessageMap.js";
 export { resolveConfiguredLocalTargetCandidate } from "./lib/configuredLocalTarget.js";
 export { mergeRecoveredSessions } from "./lib/mergeRecoveredSessions.js";
+export { fallbackSpecFromTarget } from "./lib/fallbackSpec.js";
+export type {
+  ResolvedProviderTarget,
+  FallbackProviderSpec,
+} from "./lib/fallbackSpec.js";
+
 export type {
   RecoverableSessionMeta,
   BackendSessionRow,
