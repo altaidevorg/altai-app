@@ -1,6 +1,5 @@
 import {
   DEFAULT_SESSION_TITLE,
-  isUntitledSessionTitle,
   appendDeletedSessionId,
   resolveActiveSessionOnHydrate,
   createUntitledSessionMeta,
