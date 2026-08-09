@@ -1,3 +1,4 @@
+import { deriveChatTitleFromMessages } from "@altai/agent-ui";
 import type { UIMessage } from "ai";
 import { createAppStore } from "@/lib/appStore";
 
@@ -170,37 +171,7 @@ export function newSessionId(): string {
 }
 
 export function deriveTitle(messages: UIMessage[]): string {
-  for (const m of messages) {
-    if (m.role !== "user") continue;
-    for (const p of m.parts) {
-      if (p.type !== "text") continue;
-      const text = (p as { text: string }).text
-        .replace(
-          /<(env|system-reminder|environment_details|terminal-context|git-diff|folder|selection|file|tool_call|task|instructions|context)[\s\S]*?<\/\1>\s*/gi,
-          "",
-        )
-        .replace(
-          /<\/?(env|system-reminder|environment_details|terminal-context|git-diff|folder|selection|file)[^>]*>\s*/gi,
-          "",
-        )
-        .trim();
-      if (!text) continue;
-      const first = text
-        .split("\n")
-        .map((line) =>
-          line
-            .replace(/^```[^\n]*/g, "")
-            .replace(/^\s{0,3}#+\s*/, "")
-            .replace(/^\s{0,3}>\s*/, "")
-            .replace(/^\s{0,3}[-*]\s*/, "")
-            .trim(),
-        )
-        .find((line) => line.length > 0);
-      if (!first) continue;
-      return first.length > 40 ? `${first.slice(0, 40)}…` : first;
-    }
-  }
-  return "New chat";
+  return deriveChatTitleFromMessages(messages);
 }
 
 

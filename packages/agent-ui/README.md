@@ -263,6 +263,7 @@ consumption of shared panel shells:
 | A6.145 | Cleared-output markers + token estimate |
 | A6.146 | Composer placeholder rotation |
 | A6.147 | Plan edit proposal kind map |
+| A6.148 | Chat title derive from user messages |
 
 ### A5 complete enough
 
