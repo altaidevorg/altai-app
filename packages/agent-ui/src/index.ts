@@ -819,6 +819,8 @@ export {
   type ChatTitleMessage,
   type ChatTitleMessagePart,
 } from "./lib/chatTitle.js";
+export { redactSensitive } from "./lib/redactSensitive.js";
+
 
 
 
