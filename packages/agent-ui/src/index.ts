@@ -897,6 +897,11 @@ export type { ComposerSlashLead } from "./lib/parseComposerSlashLead.js";
 export { findAgentByIdOrName } from "./lib/findAgentByName.js";
 export type { NamedAgent } from "./lib/findAgentByName.js";
 export { isPlanModeOffTail } from "./lib/planModeTail.js";
+export {
+  utf8StringToBytes,
+  arrayBufferToBytes,
+  arrayBufferViewToBytes,
+} from "./lib/bodyBytes.js";
 
 
 
