@@ -832,6 +832,11 @@ export {
 
 export { newSessionId } from "./lib/sessionId.js";
 export { newSnippetId } from "./lib/snippetId.js";
+export {
+  filterSlashCommands,
+  resolveSlashCommandInIndex,
+} from "./lib/slashCommandIndex.js";
+export type { SlashCommandSearchFields } from "./lib/slashCommandIndex.js";
 
 export {
   newAgentId,
