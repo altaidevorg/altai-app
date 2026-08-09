@@ -3,24 +3,23 @@ import {
   setFavoriteModelIds,
   setRecentModelIds,
 } from "@/modules/settings/store";
+import {
+  pushRecentId,
+  sameIdSequence,
+  toggleIdInList,
+} from "@altai/agent-ui";
 
 const RECENTS_MAX = 5;
 
 export async function toggleFavoriteModel(id: string): Promise<void> {
   const current = usePreferencesStore.getState().favoriteModelIds;
-  const next = current.includes(id)
-    ? current.filter((x) => x !== id)
-    : [...current, id];
-  await setFavoriteModelIds(next);
+  await setFavoriteModelIds(toggleIdInList(current, id));
 }
 
 export async function pushRecentModel(id: string): Promise<void> {
   const current = usePreferencesStore.getState().recentModelIds;
-  const next = [id, ...current.filter((x) => x !== id)].slice(0, RECENTS_MAX);
-  if (
-    next.length === current.length &&
-    next.every((x, i) => x === current[i])
-  ) {
+  const next = pushRecentId(current, id, RECENTS_MAX);
+  if (sameIdSequence(current, next)) {
     return;
   }
   await setRecentModelIds(next);
