@@ -1,10 +1,16 @@
 import { native } from "./native";
+import {
+  PROJECT_INSTRUCTIONS_FILE,
+  MAX_PROJECT_INSTRUCTIONS_CHARS,
+  projectInstructionsPath as projectInstructionsPathShared,
+  combineAgentInstructions as combineAgentInstructionsShared,
+  clampProjectInstructions,
+} from "@altai/agent-ui";
 
-export const PROJECT_INSTRUCTIONS_FILE = "ALTAI.md";
-const MAX_PROJECT_INSTRUCTIONS = 16_000;
+export { PROJECT_INSTRUCTIONS_FILE };
 
 export function projectInstructionsPath(workspacePath: string): string {
-  return `${workspacePath.replace(/[\\/]+$/, "")}/${PROJECT_INSTRUCTIONS_FILE}`;
+  return projectInstructionsPathShared(workspacePath);
 }
 
 /** Read the workspace contract without making an absent file an agent error. */
@@ -15,8 +21,10 @@ export async function readProjectInstructions(
   try {
     const result = await native.readFile(projectInstructionsPath(workspacePath));
     if (result.kind !== "text") return undefined;
-    const text = result.content.trim();
-    return text ? text.slice(0, MAX_PROJECT_INSTRUCTIONS) : undefined;
+    return clampProjectInstructions(
+      result.content,
+      MAX_PROJECT_INSTRUCTIONS_CHARS,
+    );
   } catch {
     return undefined;
   }
@@ -30,11 +38,5 @@ export function combineAgentInstructions(
   agentInstructions: string | undefined,
   projectInstructions: string | undefined,
 ): string | undefined {
-  const sections = [
-    projectInstructions
-      ? `<project-instructions source="${PROJECT_INSTRUCTIONS_FILE}">\n${projectInstructions}\n</project-instructions>`
-      : "",
-    agentInstructions ?? "",
-  ].filter(Boolean);
-  return sections.length ? sections.join("\n\n") : undefined;
+  return combineAgentInstructionsShared(agentInstructions, projectInstructions);
 }

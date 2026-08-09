@@ -820,6 +820,13 @@ export {
   type ChatTitleMessagePart,
 } from "./lib/chatTitle.js";
 export { redactSensitive } from "./lib/redactSensitive.js";
+export {
+  PROJECT_INSTRUCTIONS_FILE,
+  MAX_PROJECT_INSTRUCTIONS_CHARS,
+  projectInstructionsPath,
+  combineAgentInstructions,
+  clampProjectInstructions,
+} from "./lib/projectInstructions.js";
 
 
 
