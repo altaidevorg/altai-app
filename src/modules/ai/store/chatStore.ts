@@ -1,6 +1,7 @@
 import {
   DEFAULT_SESSION_TITLE,
   isUntitledSessionTitle,
+  appendDeletedSessionId,
 } from "@altai/agent-ui";
 import type { UIMessage } from "ai";
 import { native } from "../lib/native";
@@ -1019,8 +1020,10 @@ export const useChatStore = create<StoreState>((set, get) => ({
     void useTodosStore.getState().clearSession(id);
     // Permanent delete: blocklist the id so the backend recovery pass on the
     // next launch doesn't resurrect this chat from the durable memory DB.
-    deletedSessionIds.add(id);
-    void saveDeletedIds([...deletedSessionIds]);
+    const nextDeleted = appendDeletedSessionId([...deletedSessionIds], id);
+    deletedSessionIds.clear();
+    for (const d of nextDeleted) deletedSessionIds.add(d);
+    void saveDeletedIds(nextDeleted);
 
     if (remaining.length === 0) {
       const fresh: SessionMeta = {
