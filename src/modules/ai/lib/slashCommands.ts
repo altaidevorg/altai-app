@@ -13,6 +13,7 @@ import { openSettingsWindow } from "@/modules/settings/openSettingsWindow";
 import { currentWorkspaceFolder } from "@/modules/workspace/folder";
 import {
   ALTAI_CMD_RE,
+  appendSlashCommandFocus,
   filterSlashCommands as filterSlashCommandsShared,
   isWorkspaceSlashCommandPath,
   joinWorkspaceRelativePath,
@@ -340,7 +341,6 @@ function openOperationsSurface(
 }
 
 function promptFor(name: string, tail: string): string {
-  const focus = tail ? `\n\nFocus from the user: ${tail}` : "";
   const prompts: Record<string, string> = {
     init: INIT_PROMPT,
     index: "Inspect this workspace without changing files. Produce a compact codebase map: entry points, major modules, data flow, build/test commands, conventions, and high-risk areas. Cite concrete paths for each conclusion.",
@@ -361,7 +361,10 @@ function promptFor(name: string, tail: string): string {
     workflow: "Inspect existing project automation and WORKFLOW.md. Propose or update a reusable workflow with clear trigger, steps, validation, approval boundaries, and rollback notes.",
     research: "Research the requested topic using primary, current sources where possible. Separate facts from inference, cite sources, and translate findings into concrete project implications.",
   };
-  return `${prompts[name] ?? "Handle the requested task carefully and verify the result."}${focus}`;
+  return appendSlashCommandFocus(
+    prompts[name] ?? "Handle the requested task carefully and verify the result.",
+    tail,
+  );
 }
 
 /** Fire a manual `/compact` directly (no input prefill, no Enter required). */

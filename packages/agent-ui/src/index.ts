@@ -891,6 +891,8 @@ export {
   pushRecentId,
   sameIdSequence,
 } from "./lib/modelListChrome.js";
+export { appendSlashCommandFocus } from "./lib/slashCommandFocus.js";
+
 
 
 
