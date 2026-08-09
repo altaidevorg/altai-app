@@ -928,6 +928,15 @@ export {
   openedRunDetailsToast,
   openedChangeReviewToast,
 } from "./lib/slashSessionToast.js";
+  openedOperationsWorkToast,
+  openedOperationsInboxToast,
+  openedOperationsScheduledToast,
+  openedModelSettingsToast,
+  openedPermissionSettingsToast,
+  openedMcpSettingsToast,
+  openedSkillsToast,
+  openedContextSettingsToast,
+} from "./lib/slashSettingsToast.js";
 export {
   utf8StringToBytes,
   uint8ArrayToBytes,
