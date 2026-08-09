@@ -901,6 +901,8 @@ export {
   nextActiveIdAfterDelete,
 } from "./lib/removeSessionFromList.js";
 export { maybeDeriveSessionTitleList } from "./lib/maybeDeriveSessionTitle.js";
+export { cutThroughNthUserMessage } from "./lib/cutThroughNthUser.js";
+export type { MessageWithRole } from "./lib/cutThroughNthUser.js";
 export type { DerivableSession } from "./lib/maybeDeriveSessionTitle.js";
 export type {
   SessionWorkspaceTarget,
