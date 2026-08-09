@@ -3,13 +3,14 @@
  * Wave 4 / A6.32 — hosts supply run outcome + prefs; no React.
  */
 
-export type ChatAnnouncePref = "off" | "polite" | "assertive" | string;
+/** Announce preference for transcript aria-live (accepts unknown host values). */
+export type TranscriptAriaLivePref = "off" | "polite" | "assertive" | string;
 
 /**
  * Map host announce prefs to a valid `aria-live` value for the transcript.
  */
 export function resolveChatAriaLive(
-  announce: ChatAnnouncePref,
+  announce: TranscriptAriaLivePref,
 ): "off" | "polite" | "assertive" {
   if (announce === "off") return "off";
   if (announce === "assertive") return "assertive";

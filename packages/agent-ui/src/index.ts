@@ -752,7 +752,7 @@ export {
   joinMessageTextParts,
   resolveChatAriaLive,
   resolveTranscriptRunErrorVariant,
-  type ChatAnnouncePref,
+  type TranscriptAriaLivePref,
 } from "./lib/chatTranscriptChrome.js";
 
 export {
