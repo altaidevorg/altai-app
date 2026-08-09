@@ -3,6 +3,25 @@
  * Hosts supply outcome shapes; no React and no bridge I/O.
  */
 
+/** Soft cap so an unbounded task cannot auto-burn forever. */
+export const MAX_BUDGET_SEGMENT_AUTO_CONTINUES = 20;
+
+/**
+ * Next auto-continue count, or null when the soft cap is reached.
+ */
+export function nextBudgetSegmentAutoContinueCount(
+  used: number,
+  max: number = MAX_BUDGET_SEGMENT_AUTO_CONTINUES,
+): number | null {
+  if (!Number.isFinite(used) || used < 0) {
+    return null;
+  }
+  if (used >= max) {
+    return null;
+  }
+  return used + 1;
+}
+
 export type SharedRunBudgetSnapshot = {
   iterations_used: number;
   iterations_limit?: number;

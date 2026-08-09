@@ -761,6 +761,8 @@ export {
   continueStuckPrompt,
   continueBudgetSegmentPrompt,
   describeRunWarning,
+  MAX_BUDGET_SEGMENT_AUTO_CONTINUES,
+  nextBudgetSegmentAutoContinueCount,
   type SharedRunBudgetSnapshot,
   type SharedRunBudgetWarning,
   type SharedRunOutcome,
