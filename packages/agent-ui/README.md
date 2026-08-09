@@ -312,6 +312,7 @@ consumption of shared panel shells:
 | A6.194 | Apply session workspace target |
 | A6.195 | Remove session + next active id |
 | A6.196 | Maybe auto-derive untitled session title |
+| A6.197 | Cut transcript through Nth user turn |
 
 ### A5 complete enough
 

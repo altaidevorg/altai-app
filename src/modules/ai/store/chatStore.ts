@@ -9,6 +9,8 @@ import {
   removeSessionFromList,
   nextActiveIdAfterDelete,
   maybeDeriveSessionTitleList,
+  cutThroughNthUserMessage,
+  joinMessageTextParts,
 } from "@altai/agent-ui";
 import type { UIMessage } from "ai";
 import { native } from "../lib/native";
@@ -1117,11 +1119,9 @@ useChatStore.subscribe((state, prev) => {
 
 /** Plain-text body of a user message (text parts joined). */
 function userMessageText(m: UIMessage): string {
-  return m.parts
-    .filter((p): p is { type: "text"; text: string } => p.type === "text")
-    .map((p) => p.text)
-    .join("\n")
-    .trim();
+  return joinMessageTextParts(
+    m.parts as { type?: string; text?: string }[],
+  ).trim();
 }
 
 /**
@@ -1131,16 +1131,6 @@ function userMessageText(m: UIMessage): string {
  * (matches the backend no-op). Mirrors `TruncateAfterUserMessage` so the
  * frontend transcript stays in sync after a rewind.
  */
-function cutThroughNthUser(messages: UIMessage[], keep: number): UIMessage[] {
-  if (keep <= 0) return [];
-  let seen = 0;
-  for (let i = 0; i < messages.length; i++) {
-    if (messages[i].role === "user") seen++;
-    if (seen >= keep) return messages.slice(0, i + 1);
-  }
-  return messages.slice();
-}
-
 function workspacePathForChat(chatId?: string | null): string | undefined {
   const state = useChatStore.getState();
   const id = chatId ?? state.activeSessionId;
@@ -1198,7 +1188,7 @@ async function rewindAndResend(
     });
     return false;
   }
-  const cut = cutThroughNthUser(
+  const cut = cutThroughNthUserMessage(
     useChatStore.getState().nativeMessages,
     keepUserMessages,
   );
