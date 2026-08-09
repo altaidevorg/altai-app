@@ -280,6 +280,7 @@ consumption of shared panel shells:
 | A6.162 | Join workspace relative path |
 | A6.163 | Parse todo_write items |
 | A6.164 | Native transcript message id |
+| A6.165 | Backend chat message → transcript map |
 
 ### A5 complete enough
 

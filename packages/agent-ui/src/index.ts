@@ -867,6 +867,15 @@ export { joinWorkspaceRelativePath } from "./lib/joinWorkspacePath.js";
 export { parseTodoWriteItems } from "./lib/todoWriteItems.js";
 export type { ParsedTodoWriteItem } from "./lib/todoWriteItems.js";
 export { newNativeMessageId } from "./lib/nativeMessageId.js";
+export { mapBackendMessageToTranscript } from "./lib/backendMessageMap.js";
+export type {
+  BackendChatMessage,
+  BackendTranscriptMessage,
+  TranscriptPart,
+  TranscriptTextPart,
+  TranscriptToolPart,
+} from "./lib/backendMessageMap.js";
+
 
 
 
