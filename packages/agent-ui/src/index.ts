@@ -783,6 +783,14 @@ export {
   type PickAutoModelInput,
 } from "./lib/modelRouting.js";
 
+export {
+  parseMcpToolName,
+  activityKindForTool,
+  RESEARCH_TOOL_NAMES,
+  type McpToolInfo,
+  type ToolActivityKind,
+} from "./lib/mcpToolName.js";
+
 
 export {
   AiChatTranscriptFrame,

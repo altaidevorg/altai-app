@@ -18,6 +18,7 @@ import { appendBackgroundMessage } from "./backgroundTranscript";
 import { pruneOldToolOutputs } from "./compaction";
 import type { Todo, TodoStatus } from "./todos";
 import { parseMcpToolName, type McpToolInfo } from "@/modules/mcp/toolName";
+import { activityKindForTool as activityKindForToolShared } from "@altai/agent-ui";
 import { z } from "zod";
 import { native } from "./native";
 
@@ -30,19 +31,10 @@ const todoWriteSchema = z.object({
   items: z.array(z.record(z.string(), z.unknown())),
 });
 
-const RESEARCH_TOOL_NAMES = new Set([
-  "web_search",
-  "web_fetch",
-  "arxiv_search",
-  "arxiv_fetch",
-  "hf_hub_file_fetch",
-]);
-
 const activeMcpCalls = new Map<string, McpToolInfo>();
 
 function activityKindForTool(name: string): "research" | "mcp" | "tool" {
-  if (parseMcpToolName(name)) return "mcp";
-  return RESEARCH_TOOL_NAMES.has(name) ? "research" : "tool";
+  return activityKindForToolShared(name);
 }
 
 /** Normalize the agent's free-form todo status into the app's TodoStatus.

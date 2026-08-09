@@ -257,6 +257,7 @@ consumption of shared panel shells:
 | A6.139 | Budget-segment auto-continue soft cap |
 | A6.140 | Pure model routing (auto-pick + tools constraint) |
 | A6.141 | Native RPC method list parse + availability |
+| A6.142 | MCP tool name parse + activity kind |
 
 ### A5 complete enough
 
