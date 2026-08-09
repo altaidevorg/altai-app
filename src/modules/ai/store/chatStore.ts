@@ -2,6 +2,8 @@ import {
   DEFAULT_SESSION_TITLE,
   isUntitledSessionTitle,
   appendDeletedSessionId,
+  resolveActiveSessionOnHydrate,
+  createUntitledSessionMeta,
 } from "@altai/agent-ui";
 import type { UIMessage } from "ai";
 import { native } from "../lib/native";
@@ -858,22 +860,15 @@ export const useChatStore = create<StoreState>((set, get) => ({
     // most recent conversation instead of an empty "New chat". Else reuse the
     // most recent untitled "New chat" (no point stacking empty placeholders
     // every launch), else create a fresh one.
-    let active =
-      (activeId ? sessions.find((s) => s.id === activeId) : undefined) ?? null;
-    if (!active && isUntitledSessionTitle(sessions[0]?.title)) {
-      active = sessions[0];
-    }
-    let nextSessions: SessionMeta[];
-    if (active) {
-      nextSessions = sessions;
-    } else {
-      active = {
-        id: newSessionId(),
-        title: DEFAULT_SESSION_TITLE,
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-      };
-      nextSessions = [active, ...sessions];
+    const resolved = resolveActiveSessionOnHydrate(
+      sessions,
+      activeId,
+      () =>
+        createUntitledSessionMeta(newSessionId()) as SessionMeta,
+    );
+    const active = resolved.active;
+    const nextSessions = resolved.nextSessions as SessionMeta[];
+    if (resolved.created) {
       void saveSessionsList(nextSessions);
     }
     const activeSessionId = active.id;

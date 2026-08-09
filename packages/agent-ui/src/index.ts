@@ -888,6 +888,11 @@ export {
   filterDeletedSessions,
   appendDeletedSessionId,
 } from "./lib/filterDeletedSessions.js";
+export {
+  resolveActiveSessionOnHydrate,
+  createUntitledSessionMeta,
+} from "./lib/resolveActiveSessionOnHydrate.js";
+export type { SessionIdTitle } from "./lib/resolveActiveSessionOnHydrate.js";
 export type {
   UntitledSessionMeta,
   UntitledSessionMetaSeed,
