@@ -1,4 +1,7 @@
-import { isUntitledSessionTitle } from "@altai/agent-ui";
+import {
+  DEFAULT_SESSION_TITLE,
+  isUntitledSessionTitle,
+} from "@altai/agent-ui";
 import type { UIMessage } from "ai";
 import { native } from "../lib/native";
 import { create } from "zustand";
@@ -865,7 +868,7 @@ export const useChatStore = create<StoreState>((set, get) => ({
     } else {
       active = {
         id: newSessionId(),
-        title: "New chat",
+        title: DEFAULT_SESSION_TITLE,
         createdAt: Date.now(),
         updatedAt: Date.now(),
       };
@@ -896,7 +899,7 @@ export const useChatStore = create<StoreState>((set, get) => ({
     const id = newSessionId();
     const meta: SessionMeta = {
       id,
-      title: "New chat",
+      title: DEFAULT_SESSION_TITLE,
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
@@ -1022,7 +1025,7 @@ export const useChatStore = create<StoreState>((set, get) => ({
     if (remaining.length === 0) {
       const fresh: SessionMeta = {
         id: newSessionId(),
-        title: "New chat",
+        title: DEFAULT_SESSION_TITLE,
         createdAt: Date.now(),
         updatedAt: Date.now(),
       };

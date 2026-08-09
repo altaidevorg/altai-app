@@ -304,6 +304,7 @@ consumption of shared panel shells:
 | A6.187 | Untitled session meta factory |
 | A6.186 | Slash settings/ops toast copy |
 | A6.188 | Untitled session title check |
+| A6.189 | Desktop New chat uses DEFAULT_SESSION_TITLE |
 
 ### A5 complete enough
 
