@@ -15,6 +15,7 @@ import {
   ALTAI_CMD_RE,
   appendSlashCommandFocus,
   findAgentByIdOrName,
+  hasSlashCommandTail,
   isPlanModeOffTail,
   agentSettingsToast,
   switchedAgentToast,
@@ -243,7 +244,7 @@ function runLocalCommand(name: string, tail: string): SlashOutcome {
       openAiSurface("history");
       return { kind: "handled", toast: "Opened chat sessions" };
     case "rename":
-      if (!tail || !chat.activeSessionId) {
+      if (!hasSlashCommandTail(tail) || !chat.activeSessionId) {
         return { kind: "handled", toast: "Usage: /rename <new title>" };
       }
       chat.renameSession(chat.activeSessionId, tail);

@@ -295,6 +295,7 @@ consumption of shared panel shells:
 | A6.177 | Request URL + method normalize |
 | A6.178 | IsanAgent target resolution result |
 | A6.179 | Slash agent switch toast copy |
+| A6.180 | Slash command non-empty tail |
 
 ### A5 complete enough
 

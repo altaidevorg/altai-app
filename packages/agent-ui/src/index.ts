@@ -912,6 +912,7 @@ export {
   switchedAgentToast,
   agentSettingsToast,
 } from "./lib/slashToastChrome.js";
+export { hasSlashCommandTail } from "./lib/slashRenameTail.js";
 
 
 
