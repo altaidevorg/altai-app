@@ -287,6 +287,7 @@ consumption of shared panel shells:
 | A6.169 | HeadersInit to record |
 | A6.170 | Cloud catalog model target resolve |
 | A6.171 | Model favorite/recent id list ops |
+| A6.172 | Slash command focus suffix |
 
 ### A5 complete enough
 
