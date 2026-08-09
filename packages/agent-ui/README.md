@@ -271,6 +271,7 @@ consumption of shared panel shells:
 | A6.153 | Snippet id generator |
 | A6.154 | Prune old tool outputs (recency budget) |
 | A6.155 | Slash command index filter/resolve |
+| A6.156 | Workspace slash path + command name |
 
 ### A5 complete enough
 

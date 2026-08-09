@@ -837,6 +837,14 @@ export {
   resolveSlashCommandInIndex,
 } from "./lib/slashCommandIndex.js";
 export type { SlashCommandSearchFields } from "./lib/slashCommandIndex.js";
+export {
+  WORKSPACE_SLASH_COMMAND_PATH,
+  SLASH_COMMAND_NAME,
+  isWorkspaceSlashCommandPath,
+  workspaceSlashCommandStem,
+  isValidSlashCommandName,
+} from "./lib/workspaceSlashPath.js";
+
 
 export {
   newAgentId,

@@ -14,7 +14,10 @@ import { currentWorkspaceFolder } from "@/modules/workspace/folder";
 import {
   ALTAI_CMD_RE,
   filterSlashCommands as filterSlashCommandsShared,
+  isValidSlashCommandName,
+  isWorkspaceSlashCommandPath,
   resolveSlashCommandInIndex as resolveSlashCommandInIndexShared,
+  workspaceSlashCommandStem,
   wrapWithCommandMarker,
 } from "@altai/agent-ui";
 import { native } from "./native";
@@ -127,9 +130,6 @@ export const SLASH_COMMAND_INDEX = Object.freeze(BUILTIN_COMMANDS);
 let workspaceCommands: readonly SlashCommandMeta[] = [];
 let indexedWorkspace: string | null = null;
 
-const WORKFLOW_PATH = /^\.altai\/commands\/([^/]+)\.md$/i;
-const COMMAND_NAME = /^[a-z0-9][a-z0-9-]*$/;
-
 export function getSlashCommandIndex(): readonly SlashCommandMeta[] {
   return [...SLASH_COMMAND_INDEX, ...workspaceCommands];
 }
@@ -159,7 +159,7 @@ export async function refreshWorkspaceSlashCommands(
       limit: 10_000,
     });
     const files = listed.files
-      .filter((path) => WORKFLOW_PATH.test(path))
+      .filter((path) => isWorkspaceSlashCommandPath(path))
       .sort((a, b) => a.localeCompare(b));
     const builtins = new Set(
       SLASH_COMMAND_INDEX.flatMap((command) => [command.name, ...(command.aliases ?? [])]),
@@ -199,9 +199,8 @@ function joinWorkspacePath(root: string, relative: string): string {
 }
 
 function parseWorkflowCommand(path: string, source: string): SlashCommandMeta | null {
-  const match = path.match(WORKFLOW_PATH);
-  if (!match) return null;
-  const fallbackName = match[1].toLowerCase();
+  const fallbackName = workspaceSlashCommandStem(path);
+  if (!fallbackName) return null;
   const frontmatter = source.match(/^---\s*\r?\n([\s\S]*?)\r?\n---\s*(?:\r?\n|$)/);
   const fields = new Map<string, string>();
   if (frontmatter) {
@@ -211,13 +210,13 @@ function parseWorkflowCommand(path: string, source: string): SlashCommandMeta | 
     }
   }
   const name = (fields.get("name") ?? fallbackName).toLowerCase();
-  if (!COMMAND_NAME.test(name)) return null;
+  if (!isValidSlashCommandName(name)) return null;
   const body = (frontmatter ? source.slice(frontmatter[0].length) : source).trim();
   if (!body) return null;
   const heading = body.match(/^#\s+(.+)$/m)?.[1]?.trim();
   const description = fields.get("description") ?? heading ?? `Run workspace workflow from ${path}.`;
   const aliases = parseAliases(fields.get("aliases"));
-  if (aliases.some((alias) => !COMMAND_NAME.test(alias))) return null;
+  if (aliases.some((alias) => !isValidSlashCommandName(alias))) return null;
   return {
     name,
     invocation: `/${name}`,
