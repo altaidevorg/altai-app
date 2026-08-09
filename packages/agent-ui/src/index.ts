@@ -849,6 +849,15 @@ export {
   parseWorkspaceWorkflowCommand,
 } from "./lib/workspaceWorkflowCommand.js";
 export type { ParsedWorkspaceWorkflow } from "./lib/workspaceWorkflowCommand.js";
+export type { SafetyResult } from "./lib/pathSafety.js";
+export {
+  checkReadable,
+  checkWritable,
+  checkReadableCanonical,
+  checkWritableCanonical,
+  checkShellCommand,
+} from "./lib/pathSafety.js";
+
 
 
 export {
