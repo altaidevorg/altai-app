@@ -1,6 +1,7 @@
 import {
   deriveChatTitleFromMessages,
   mapBackendMessageToTranscript,
+  mergeRecoveredSessions,
   newSessionId as newSessionIdShared,
 } from "@altai/agent-ui";
 import type { UIMessage } from "ai";
@@ -192,26 +193,15 @@ export async function mergeBackendSessions(
     return { merged: frontend, recoveredIds: [] };
   }
 
-  const known = new Set(frontend.map((s) => s.id));
-  const deleted = new Set(deletedIds);
-  const recoveredIds: string[] = [];
-  for (const b of backend) {
-    if (known.has(b.id)) continue;
-    // Skip sessions the user permanently deleted — the blocklist keeps the
-    // backend (source of truth) from resurrecting them on every restart.
-    if (deleted.has(b.id)) continue;
-    frontend.push({
-      id: b.id,
-      // Backend preview is a best-effort title; deriveTitle would do the same
-      // truncation, so keep the backend value when present, else default.
-      title: b.title?.trim() || "New chat",
-      createdAt: b.updatedAt,
-      updatedAt: b.updatedAt,
-    });
-    known.add(b.id);
-    recoveredIds.push(b.id);
-  }
-  // Newest-first, consistent with the rest of the store.
-  frontend.sort((a, b) => b.updatedAt - a.updatedAt);
-  return { merged: frontend, recoveredIds };
+  // Skip sessions the user permanently deleted — the blocklist keeps the
+  // backend (source of truth) from resurrecting them on every restart.
+  const { merged, recoveredIds } = mergeRecoveredSessions(
+    frontend,
+    backend,
+    deletedIds,
+  );
+  return {
+    merged: merged as SessionMeta[],
+    recoveredIds,
+  };
 }
