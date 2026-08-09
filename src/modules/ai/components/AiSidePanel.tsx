@@ -53,8 +53,8 @@ import {
   INSPECTOR_PANEL_MAX_WIDTH,
   INSPECTOR_PANEL_MIN_WIDTH,
   INSPECTOR_PANEL_WIDTH_KEY,
-  parsePanelWidth,
-  serializePanelWidth,
+  readPanelWidthFromStorage,
+  writePanelWidthToStorage,
   toggleSidePanelChromeSurface,
   reconcileOpenChatTabIds,
   resolveSidePanelOpenEvent,
@@ -103,21 +103,11 @@ function readPanelWidth(
   min: number,
   max: number,
 ): number {
-  try {
-    return parsePanelWidth(window.localStorage.getItem(key), fallback, min, max);
-  } catch {
-    return parsePanelWidth(null, fallback, min, max);
-  }
+  return readPanelWidthFromStorage(window.localStorage, key, fallback, min, max);
 }
 
 function persistPanelWidth(key: string, width: number, min: number, max: number) {
-  const serialized = serializePanelWidth(width, min, max);
-  if (!serialized) return;
-  try {
-    window.localStorage.setItem(key, serialized);
-  } catch {
-    // Storage can be unavailable in restricted webviews; resizing still works.
-  }
+  writePanelWidthToStorage(window.localStorage, key, width, min, max);
 }
 
 /** Canonical Work / Inbox destinations live under Operations, not AI overlays. */
