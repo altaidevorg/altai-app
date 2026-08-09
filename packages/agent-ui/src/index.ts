@@ -892,6 +892,9 @@ export {
   sameIdSequence,
 } from "./lib/modelListChrome.js";
 export { appendSlashCommandFocus } from "./lib/slashCommandFocus.js";
+export { parseComposerSlashLead } from "./lib/parseComposerSlashLead.js";
+export type { ComposerSlashLead } from "./lib/parseComposerSlashLead.js";
+
 
 
 
