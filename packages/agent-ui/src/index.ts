@@ -1086,7 +1086,10 @@ export {
   type ShellSurface,
 } from "./lib/shellChrome.js";
 
-export { isEscapeDismissKey } from "./lib/chatKeyboardChrome.js";
+export {
+  isEscapeDismissKey,
+  shouldDismissSidePanelOnEscape,
+} from "./lib/chatKeyboardChrome.js";
 
 export { canMountReplayControl } from "./lib/replayChrome.js";
 
