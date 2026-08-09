@@ -1,8 +1,887 @@
 export {
-  sessionListWorkspaceTargets,
-  sessionWorkspacePathForId,
-} from "./lib/sessionWorkspaceTargets.js";
-export type { SessionWorkspacePathLike } from "./lib/sessionWorkspaceTargets.js";
+  HostPortsProvider,
+  useHostPorts,
+  useHostPortsContext,
+  useCapability,
+  type HostPortsContextValue,
+  type HostPortsProviderProps,
+} from "./host/HostPortsProvider.js";
+
+export {
+  HostPortUnsupportedError,
+  unsupported,
+  withUnsupportedDefaults,
+} from "./host/unsupported.js";
+
+export {
+  AuxiliarySurface,
+  SurfaceEmptyState,
+  SurfaceHeader,
+  SurfaceIconAction,
+  SurfaceSearch,
+  SurfaceSectionHeader,
+  SurfaceTabs,
+} from "./components/AuxiliarySurface.js";
+
+export {
+  AiToolApproval,
+  type AiToolApprovalProps,
+  type ToolApprovalPart,
+} from "./components/AiToolApproval.js";
+
+export {
+  EditApprovalCard,
+  parseDiffLines,
+  type EditApprovalCardProps,
+  type EditApprovalDiff,
+} from "./components/EditApprovalCard.js";
+
+export {
+  TodoChecklist,
+  parseTodoItems,
+  summarizeTodos,
+  type TodoChecklistProps,
+  type TodoItem,
+  type TodoItemStatus,
+} from "./components/TodoChecklist.js";
+
+export {
+  isTodoToolName,
+  parseTodoItemsFromInput,
+  summarizeTodoItems,
+} from "./lib/todoParse.js";
+
+export {
+  canEditUserMessage,
+  parseUserTurnId,
+  renumberUserTurnIds,
+  truncateBoundaryForEdit,
+  truncateDisplayAfterUserTurn,
+} from "./lib/chatMessageEdit.js";
+
+export {
+  ChatPathLink,
+  ChatExternalLink,
+  type ChatPathLinkProps,
+  type ChatExternalLinkProps,
+} from "./components/ChatPathLink.js";
+
+export {
+  AgentStatusPill,
+  type AgentStatusMeta,
+  type AgentStatusPillProps,
+} from "./components/AgentStatusPill.js";
+
+export {
+  TodoSummaryChip,
+  type TodoSummaryChipProps,
+} from "./components/TodoSummaryChip.js";
+
+export {
+  ComposerConfigTrigger,
+  type ComposerConfigTriggerProps,
+} from "./components/ComposerConfigTrigger.js";
+
+export {
+  ContextChips,
+  type ContextChip,
+  type ContextChipsProps,
+} from "./components/ContextChips.js";
+
+export {
+  PermissionModeSwitcher,
+  effectivePermissionMode,
+  visiblePermissionModes,
+  PERMISSION_MODE_LABELS,
+  PERMISSION_MODE_DESCRIPTIONS,
+  type PermissionModeSwitcherProps,
+} from "./components/PermissionModeSwitcher.js";
+
+export {
+  CommandSnippet,
+  type CommandSnippetMeta,
+  type CommandSnippetProps,
+} from "./components/CommandSnippet.js";
+
+export {
+  ComposerSuggestionList,
+  type ComposerSuggestionCommand,
+  type ComposerSuggestionItem,
+  type ComposerSuggestionListProps,
+  type ComposerSuggestionSnippet,
+} from "./components/ComposerSuggestionList.js";
+
+export {
+  FileSuggestionList,
+  type FileSuggestionListProps,
+} from "./components/FileSuggestionList.js";
+
+export {
+  SelectionAskAi,
+  type SelectionAskAiProps,
+} from "./components/SelectionAskAi.js";
+
+export {
+  HoverActionButton,
+  type HoverActionButtonProps,
+} from "./components/HoverActionButton.js";
+
+export {
+  InspectorMetric,
+  type InspectorMetricProps,
+} from "./components/InspectorMetric.js";
+
+export {
+  ContextAction,
+  type ContextActionProps,
+} from "./components/ContextAction.js";
+
+export {
+  RunStateMetric,
+  type RunStateMetricProps,
+} from "./components/RunStateMetric.js";
+
+export {
+  ProviderPill,
+  type ProviderPillProps,
+} from "./components/ProviderPill.js";
+
+export {
+  HistoryRow,
+  type HistoryRowProps,
+} from "./components/HistoryRow.js";
+
+export {
+  ModelSectionLabel,
+  type ModelSectionLabelProps,
+} from "./components/ModelSectionLabel.js";
+
+export {
+  InboxLoadFailed,
+  type InboxLoadFailedProps,
+} from "./components/InboxLoadFailed.js";
+
+export {
+  FilteredEmptyInbox,
+  type FilteredEmptyInboxProps,
+} from "./components/FilteredEmptyInbox.js";
+
+export {
+  RowIconButton,
+  type RowIconButtonProps,
+} from "./components/RowIconButton.js";
+
+export {
+  IconBtn,
+  type IconBtnProps,
+} from "./components/IconBtn.js";
+
+export {
+  ContextSourceToggle,
+  type ContextSourceToggleProps,
+} from "./components/ContextSourceToggle.js";
+
+export {
+  TaskOutcome,
+  type TaskOutcomeProps,
+} from "./components/TaskOutcome.js";
+
+export {
+  InboxSection,
+  type InboxSectionProps,
+} from "./components/InboxSection.js";
+
+export {
+  EmptyInbox,
+} from "./components/EmptyInbox.js";
+
+export {
+  SessionRow,
+  type SessionRowProps,
+} from "./components/SessionRow.js";
+
+export {
+  InspectorEmpty,
+  type InspectorEmptyProps,
+} from "./components/InspectorEmpty.js";
+
+export {
+  ModelOption,
+  type ModelOptionProps,
+} from "./components/ModelOption.js";
+
+export {
+  UnifiedDiffPreview,
+  type UnifiedDiffPreviewProps,
+} from "./components/UnifiedDiffPreview.js";
+
+export {
+  PlanRow,
+  type PlanRowProps,
+} from "./components/PlanRow.js";
+
+export {
+  TodosInspector,
+  type TodosInspectorItem,
+  type TodosInspectorProps,
+} from "./components/TodosInspector.js";
+
+export {
+  AgentsInspector,
+  type AgentsInspectorTask,
+  type AgentsInspectorProps,
+} from "./components/AgentsInspector.js";
+
+export {
+  ChangeReviewBanner,
+  type ChangeReviewBannerProps,
+} from "./components/ChangeReviewBanner.js";
+
+export {
+  PlanModeStrip,
+  type PlanModeStripProps,
+} from "./components/PlanModeStrip.js";
+
+export {
+  ResearchInspector,
+  type ResearchInspectorEvent,
+  type ResearchInspectorProps,
+} from "./components/ResearchInspector.js";
+
+export {
+  McpInspector,
+  type McpInspectorEvent,
+  type McpInspectorProps,
+} from "./components/McpInspector.js";
+
+export {
+  ArtifactsInspector,
+  type ArtifactsInspectorItem,
+  type ArtifactsInspectorProps,
+} from "./components/ArtifactsInspector.js";
+
+export {
+  ChangesInspector,
+  type ChangesInspectorItem,
+  type ChangesInspectorProps,
+} from "./components/ChangesInspector.js";
+
+export {
+  ApprovalsInspector,
+  approvalPreview,
+  type ApprovalsInspectorItem,
+  type ApprovalsInspectorProps,
+} from "./components/ApprovalsInspector.js";
+
+export {
+  ChatProjectTarget,
+  type ChatProjectTargetProps,
+} from "./components/ChatProjectTarget.js";
+
+export {
+  EmptyState,
+  type EmptyStateProps,
+} from "./components/EmptyState.js";
+
+export {
+  ClarificationChoices,
+  type ClarificationChoicesProps,
+} from "./components/ClarificationChoices.js";
+
+export {
+  InboxNotificationCard,
+  type InboxNotificationCardProps,
+  type InboxNotificationItem,
+} from "./components/InboxNotificationCard.js";
+
+export {
+  InboxJobCard,
+  labelForInboxJob,
+  type InboxJobCardProps,
+  type InboxJobItem,
+} from "./components/InboxJobCard.js";
+
+export {
+  InboxTicketCard,
+  type InboxTicketCardProps,
+  type InboxTicketItem,
+} from "./components/InboxTicketCard.js";
+
+export {
+  RunRecoveryActions,
+  type RunRecoveryActionsProps,
+} from "./components/RunRecoveryActions.js";
+
+export {
+  ReviewHistory,
+  type ReviewHistoryItem,
+  type ReviewHistoryProps,
+} from "./components/ReviewHistory.js";
+
+export {
+  SnapshotsInspector,
+  type SnapshotsInspectorAppliedItem,
+  type SnapshotsInspectorCheckpointItem,
+  type SnapshotsInspectorProps,
+} from "./components/SnapshotsInspector.js";
+
+export {
+  ActivityInspector,
+  type ActivityInspectorEvent,
+  type ActivityInspectorProps,
+} from "./components/ActivityInspector.js";
+
+export {
+  InspectorSection,
+  type InspectorSectionProps,
+} from "./components/InspectorSection.js";
+
+export {
+  ChatTabStrip,
+  type ChatTabItem,
+  type ChatTabStripProps,
+} from "./components/ChatTabStrip.js";
+
+export {
+  WorkspaceTopbarActions,
+  type WorkspaceTopbarActionsProps,
+} from "./components/WorkspaceTopbarActions.js";
+
+export {
+  CheckpointMenuPanel,
+  checkpointBasename,
+  formatCheckpointTimeAgo,
+  type CheckpointItem,
+  type CheckpointMenuPanelProps,
+} from "./components/CheckpointMenuPanel.js";
+
+export {
+  ComposerToolbarIcon,
+  type ComposerToolbarIconProps,
+} from "./components/ComposerToolbarIcon.js";
+
+export {
+  ComposerAttachChips,
+  fileExtensionLabel,
+  selectionLineCount,
+  type ComposerAttachChipsProps,
+  type ComposerAttachCommand,
+  type ComposerAttachFile,
+  type ComposerAttachSnippet,
+} from "./components/ComposerAttachChips.js";
+
+export {
+  CompactNowControl,
+  type CompactNowControlProps,
+} from "./components/CompactNowControl.js";
+
+export {
+  AiComposerCompactControl,
+  type AiComposerCompactControlProps,
+} from "./components/AiComposerCompactControl.js";
+
+export {
+  canInvokeCompact,
+  canMountCompactControl,
+  type ComposerCompactFlags,
+} from "./lib/composerCompactPolicy.js";
+
+export {
+  formatComposerHintLine,
+  listComposerAffordances,
+  type ComposerHint,
+} from "./lib/composerHintChrome.js";
+
+export {
+  canMountComposerAttachMenu,
+  composerAttachSurfaceShowsAttachments,
+  composerAttachSurfaceShowsToolbar,
+  type ComposerAttachCapabilityFlags,
+  type ComposerAttachSurface,
+} from "./lib/composerAttachPolicy.js";
+
+export {
+  ProviderConnectBanner,
+  type ProviderConnectBannerProps,
+} from "./components/ProviderConnectBanner.js";
+
+export {
+  WorkspaceTargetForm,
+  type WorkspaceTargetBusy,
+  type WorkspaceTargetFormProps,
+} from "./components/WorkspaceTargetForm.js";
+
+export {
+  AiOpenControl,
+  type AiOpenControlProps,
+} from "./components/AiOpenControl.js";
+
+export {
+  PlanDiffReviewPanel,
+  planDiffStats,
+  type PlanDiffReviewPanelProps,
+  type PlanDiffReviewQueueItem,
+} from "./components/PlanDiffReviewPanel.js";
+
+export {
+  NotificationInboxPanel,
+  type NotificationInboxFilter,
+  type NotificationInboxJobRow,
+  type NotificationInboxNotificationRow,
+  type NotificationInboxPanelProps,
+  type NotificationInboxTicketRow,
+} from "./components/NotificationInboxPanel.js";
+
+export {
+  ChatHistoryPanel,
+  type ChatHistoryPanelProps,
+} from "./components/ChatHistoryPanel.js";
+
+export {
+  AgentChatLayout,
+  type AgentChatLayoutDensity,
+  type AgentChatLayoutProps,
+} from "./components/AgentChatLayout.js";
+
+export {
+  groupSessionsByRecency,
+  sessionHistoryBucket,
+  startOfDay,
+  SESSION_HISTORY_GROUP_ORDER,
+  type SessionHistoryGroup,
+  type SessionHistoryItem,
+} from "./lib/sessionHistory.js";
+
+export {
+  TaskRunCard,
+  formatTaskAge,
+  type TaskRunCardProps,
+  type TaskRunStatus,
+} from "./components/TaskRunCard.js";
+
+export {
+  WorkHubNavigation,
+  type WorkHubNavigationProps,
+  type WorkHubView,
+} from "./components/WorkHubNavigation.js";
+
+export {
+  OperationsNavigationShell,
+  OPERATIONS_VIEWS,
+  type OperationsNavigationShellProps,
+  type OperationsView,
+} from "./components/OperationsNavigationShell.js";
+
+export {
+  OperationsOverview,
+  type OperationsOverviewMetric,
+  type OperationsOverviewProps,
+  type OperationsOverviewRow,
+} from "./components/OperationsOverview.js";
+
+export {
+  AutomationCard,
+  automationLastRunLabel,
+  automationNextRunLabel,
+  automationScheduleLabel,
+  type AutomationCardProps,
+  type AutomationSchedule,
+} from "./components/AutomationCard.js";
+
+export {
+  AutomationList,
+  type AutomationListItem,
+  type AutomationListProps,
+} from "./components/AutomationList.js";
+
+export {
+  ModelPickerPanel,
+  type ModelPickerAutoOption,
+  type ModelPickerPanelProps,
+  type ModelPickerProvider,
+  type ModelPickerRow,
+} from "./components/ModelPickerPanel.js";
+
+export {
+  AgentOptionRow,
+  type AgentOptionRowProps,
+} from "./components/AgentOptionRow.js";
+
+export {
+  AgentSwitcherTrigger,
+  type AgentSwitcherTriggerProps,
+  type AgentSwitcherTriggerVariant,
+} from "./components/AgentSwitcherTrigger.js";
+
+export {
+  TaskContextSources,
+  contextFileName,
+  type TaskContextSourcesProps,
+} from "./components/TaskContextSources.js";
+
+export {
+  TaskSkillChips,
+  type TaskSkillChipsProps,
+  type TaskSkillOption,
+} from "./components/TaskSkillChips.js";
+
+export {
+  PromptTemplateGrid,
+  type PromptTemplate,
+  type PromptTemplateGridProps,
+} from "./components/PromptTemplateGrid.js";
+
+export {
+  SurfaceFilteredEmpty,
+  type SurfaceFilteredEmptyProps,
+} from "./components/SurfaceFilteredEmpty.js";
+
+export {
+  AutomationScheduleFields,
+  localDateTimeValue,
+  type AutomationScheduleFieldsProps,
+  type AutomationScheduleMode,
+} from "./components/AutomationScheduleFields.js";
+
+export {
+  ComposerFollowupBar,
+  type ComposerFollowupBarProps,
+} from "./components/ComposerFollowupBar.js";
+
+export {
+  AiComposerFollowupControl,
+  type AiComposerFollowupControlProps,
+} from "./components/AiComposerFollowupControl.js";
+
+export {
+  SurfaceFilterToolbar,
+  type SurfaceFilterTab,
+  type SurfaceFilterToolbarProps,
+} from "./components/SurfaceFilterToolbar.js";
+
+export {
+  CreateFormActions,
+  type CreateFormActionsProps,
+} from "./components/CreateFormActions.js";
+
+export {
+  PromptEditorSection,
+  type PromptEditorSectionProps,
+} from "./components/PromptEditorSection.js";
+
+export {
+  ComposerConfigRow,
+  type ComposerConfigRowProps,
+} from "./components/ComposerConfigRow.js";
+
+export {
+  ComposerPrimaryRow,
+  type ComposerPrimaryRowProps,
+} from "./components/ComposerPrimaryRow.js";
+
+export {
+  ComposerTextArea,
+  type ComposerTextAreaProps,
+} from "./components/ComposerTextArea.js";
+
+export {
+  ComposerShell,
+  type ComposerShellProps,
+} from "./components/ComposerShell.js";
+
+export {
+  AiComposer,
+  type AiComposerProps,
+} from "./components/AiComposer.js";
+
+export {
+  TaskRunConfigSection,
+  type TaskRunConfigSectionProps,
+} from "./components/TaskRunConfigSection.js";
+
+export {
+  RunDetailsHeader,
+  type RunDetailsHeaderProps,
+  type RunDetailsStatus,
+} from "./components/RunDetailsHeader.js";
+
+export {
+  RunOverviewCard,
+  type RunOverviewCardProps,
+  type RunOverviewMetric,
+} from "./components/RunOverviewCard.js";
+
+export {
+  RunBlockedBanner,
+  type RunBlockedBannerProps,
+} from "./components/RunBlockedBanner.js";
+
+export {
+  SurfacePrimaryAction,
+  SurfaceSecondaryAction,
+  type SurfacePrimaryActionProps,
+  type SurfaceSecondaryActionProps,
+} from "./components/SurfacePrimaryAction.js";
+
+export {
+  TranscriptToolGroup,
+  type TranscriptToolGroupProps,
+} from "./components/TranscriptToolGroup.js";
+
+export {
+  TranscriptReadPaths,
+  type TranscriptReadPathsProps,
+} from "./components/TranscriptReadPaths.js";
+
+export {
+  TranscriptReadRow,
+  type TranscriptReadRowProps,
+} from "./components/TranscriptReadRow.js";
+
+export {
+  AssistantBrandLabel,
+  type AssistantBrandLabelProps,
+} from "./components/AssistantBrandLabel.js";
+
+export {
+  TranscriptConversationEmpty,
+  type TranscriptConversationEmptyProps,
+} from "./components/TranscriptConversationEmpty.js";
+
+export {
+  TranscriptRunError,
+  type TranscriptRunErrorProps,
+  type TranscriptRunErrorVariant,
+} from "./components/TranscriptRunError.js";
+
+export { stripUserContextBlocks } from "./lib/userContextBlocks.js";
+
+export {
+  ALTAI_CMD_RE,
+  ALTAI_COMMAND_MARKER_RE,
+  indexOfLastTextPart,
+  parseCommandMarkerPrefix,
+  prepareUserTurnDisplay,
+  resolveStreamingAssistantMessageId,
+  wrapWithCommandMarker,
+  type UserTurnDisplay,
+} from "./lib/userTurnDisplay.js";
+
+export {
+  appendMetaMessage,
+  appendUserMessage,
+  applyAgentEventToMessages,
+  displayMessagesFromSession,
+  extractEditDiff,
+  extractTodoToolItems,
+  extractToolFileTarget,
+  newDisplayMessageId,
+  shouldShowChatEmptyHome,
+  textFromAgentEvent,
+  type ChatDisplayMessage,
+  type ChatDisplayRole,
+  type SessionMessageLike,
+} from "./lib/chatDisplayTranscript.js";
+
+export {
+  AT_MENTION_MIN_QUERY,
+  detectAtMention,
+  detectSlashOrSnippetTrigger,
+  nextAtMentionIndex,
+  pathForSuggestionList,
+  removeAtMentionToken,
+  shouldSearchAtMention,
+  type AtMentionRange,
+  type ComposerTokenTrigger,
+} from "./lib/composerTriggers.js";
+
+export {
+  nextSuggestionActiveIndex,
+  resolveComposerSuggestionKeyAction,
+  resolveComposerSuggestionOpen,
+  type ComposerSuggestionKeyAction,
+} from "./lib/composerSuggestionKeyboard.js";
+
+export {
+  getComposerActionAvailability,
+  remainingTextAfterAcceptedDispatch,
+  resolveComposerEnterAction,
+  type ComposerAction,
+  type ComposerActionAvailability,
+  type ComposerActionAvailabilityInput,
+} from "./lib/composerEnterAction.js";
+
+export {
+  canEnableComposerSend,
+  canEnableComposerStop,
+  composerSubmitChromeMode,
+  type ComposerSubmitChromeMode,
+} from "./lib/composerSubmitChrome.js";
+
+export {
+  composerFollowupVisibility,
+  resolveComposerSubmitMode,
+  type ComposerFollowupMode,
+  type ComposerFollowupPolicyInput,
+  type ComposerFollowupVisibility,
+} from "./lib/composerFollowup.js";
+
+export {
+  resolveSidePanelChromeLayout,
+  SIDE_PANEL_HISTORY_SIDEBAR_MIN_WIDTH,
+  SIDE_PANEL_INSPECTOR_SIDEBAR_MIN_WIDTH,
+  type SidePanelChromeLayout,
+  type SidePanelChromeLayoutInput,
+  type SidePanelVariant,
+} from "./lib/sidePanelLayout.js";
+
+export {
+  AiSidePanelFrame,
+  type AiSidePanelFrameProps,
+} from "./components/AiSidePanelFrame.js";
+
+export {
+  AiChatMainColumn,
+  type AiChatMainColumnProps,
+} from "./components/AiChatMainColumn.js";
+
+export {
+  canRetryLastAssistantTurn,
+  isRecoverableAttentionMessage,
+  isRetryableRunOutcome,
+  joinMessageTextParts,
+  resolveChatAriaLive,
+  resolveTranscriptRunErrorVariant,
+  type TranscriptAriaLivePref,
+} from "./lib/chatTranscriptChrome.js";
+
+export {
+  isRecoverableRunOutcome,
+  describeTerminalOutcomeAttention,
+  continueStuckPrompt,
+  continueBudgetSegmentPrompt,
+  describeRunWarning,
+  MAX_BUDGET_SEGMENT_AUTO_CONTINUES,
+  nextBudgetSegmentAutoContinueCount,
+  type SharedRunBudgetSnapshot,
+  type SharedRunBudgetWarning,
+  type SharedRunOutcome,
+} from "./lib/runContinueChrome.js";
+export {
+  parseNativeMethodList,
+  nativeMethodAvailable,
+} from "./lib/nativeMethodList.js";
+
+export {
+  agentRequiresTools,
+  supportsAgentModel,
+  describeModelConstraint,
+  pickAutoModel,
+  type SharedModelRoutingAgent,
+  type SharedModelRoutingCapabilities,
+  type SharedModelRoutingInfo,
+  type PickAutoModelInput,
+} from "./lib/modelRouting.js";
+
+export {
+  parseMcpToolName,
+  activityKindForTool,
+  RESEARCH_TOOL_NAMES,
+  type McpToolInfo,
+  type ToolActivityKind,
+} from "./lib/mcpToolName.js";
+
+export {
+  parseSkillInstallSource,
+  type ParsedSkillInstallSource,
+} from "./lib/skillInstallSource.js";
+
+export {
+  normalizeTodoStatus,
+  type SharedTodoStatus,
+} from "./lib/todoStatus.js";
+
+export {
+  CLEARED_OUTPUT,
+  CLEARED_TOOL_OUTPUT_TEXT,
+  isClearedOutput,
+  estimateTokens,
+} from "./lib/tokenEstimate.js";
+export { pruneOldToolOutputs } from "./lib/pruneToolOutputs.js";
+export type { PruneableMessage } from "./lib/pruneToolOutputs.js";
+export { proposalKindFromPlanEdit } from "./lib/proposalKind.js";
+
+export {
+  COMPOSER_PLACEHOLDERS,
+  pickPlaceholder,
+} from "./lib/composerPlaceholders.js";
+export {
+  stripChatTitleNoise,
+  deriveChatTitleFromMessages,
+  type ChatTitleMessage,
+  type ChatTitleMessagePart,
+} from "./lib/chatTitle.js";
+export { redactSensitive } from "./lib/redactSensitive.js";
+export {
+  PROJECT_INSTRUCTIONS_FILE,
+  MAX_PROJECT_INSTRUCTIONS_CHARS,
+  projectInstructionsPath,
+  combineAgentInstructions,
+  clampProjectInstructions,
+} from "./lib/projectInstructions.js";
+
+export { newSessionId } from "./lib/sessionId.js";
+export { newSnippetId } from "./lib/snippetId.js";
+export {
+  filterSlashCommands,
+  resolveSlashCommandInIndex,
+} from "./lib/slashCommandIndex.js";
+export type { SlashCommandSearchFields } from "./lib/slashCommandIndex.js";
+export {
+  WORKSPACE_SLASH_COMMAND_PATH,
+  SLASH_COMMAND_NAME,
+  isWorkspaceSlashCommandPath,
+  workspaceSlashCommandStem,
+  isValidSlashCommandName,
+} from "./lib/workspaceSlashPath.js";
+export {
+  parseWorkflowAliases,
+  parseWorkspaceWorkflowCommand,
+} from "./lib/workspaceWorkflowCommand.js";
+export type { ParsedWorkspaceWorkflow } from "./lib/workspaceWorkflowCommand.js";
+export type { SafetyResult } from "./lib/pathSafety.js";
+export {
+  resolveCompactionSpecFromContext,
+} from "./lib/compactionSpec.js";
+export type { CompactionPrefs, CompactionSpec } from "./lib/compactionSpec.js";
+export {
+  CONFIGURED_LOCAL_CATALOG_IDS,
+  isConfiguredLocalCatalogId,
+  toChatCompletionsUrl,
+  describeUnresolvedIsanAgentTarget,
+} from "./lib/isanagentTargetChrome.js";
+export type { ConfiguredLocalCatalogId } from "./lib/isanagentTargetChrome.js";
+export { hasAnyProviderKey } from "./lib/providerKeysChrome.js";
+export type { ProviderKeySupport } from "./lib/providerKeysChrome.js";
+export { joinWorkspaceRelativePath } from "./lib/joinWorkspacePath.js";
+export { parseTodoWriteItems } from "./lib/todoWriteItems.js";
+export type { ParsedTodoWriteItem } from "./lib/todoWriteItems.js";
+export { newNativeMessageId } from "./lib/nativeMessageId.js";
+export { mapBackendMessageToTranscript } from "./lib/backendMessageMap.js";
+export type {
+  BackendChatMessage,
+  BackendTranscriptMessage,
+  TranscriptPart,
+  TranscriptTextPart,
+  TranscriptToolPart,
+} from "./lib/backendMessageMap.js";
+export { resolveConfiguredLocalTargetCandidate } from "./lib/configuredLocalTarget.js";
+export { mergeRecoveredSessions } from "./lib/mergeRecoveredSessions.js";
+export {
+  backendSessionTitle,
+  displaySessionTitle,
+  DEFAULT_SESSION_TITLE,
+} from "./lib/backendSessionTitle.js";
 export { fallbackSpecFromTarget } from "./lib/fallbackSpec.js";
 export type {
   ResolvedProviderTarget,
