@@ -284,6 +284,7 @@ consumption of shared panel shells:
 | A6.166 | Configured local model target match |
 | A6.167 | Merge recovered backend sessions |
 | A6.168 | Fallback provider spec map |
+| A6.169 | HeadersInit to record |
 
 ### A5 complete enough
 

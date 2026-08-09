@@ -882,6 +882,8 @@ export type {
   ResolvedProviderTarget,
   FallbackProviderSpec,
 } from "./lib/fallbackSpec.js";
+export { headersInitToRecord } from "./lib/headersInit.js";
+export type { FlatHeaders } from "./lib/headersInit.js";
 
 export type {
   RecoverableSessionMeta,
