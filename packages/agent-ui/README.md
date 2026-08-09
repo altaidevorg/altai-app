@@ -252,6 +252,7 @@ consumption of shared panel shells:
 | A6.134 | Side panel chrome surface + open-chat tabs |
 | A6.135 | Side panel width storage I/O helpers |
 | A6.136 | Operations open-intent builder from AI chrome |
+| A6.137 | Side panel Escape dismiss policy |
 
 ### A5 complete enough
 
