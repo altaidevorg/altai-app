@@ -3,6 +3,8 @@
  * Host fetches backend rows; package merges without I/O.
  */
 
+import { backendSessionTitle } from "./backendSessionTitle.js";
+
 export type RecoverableSessionMeta = {
   id: string;
   title: string;
@@ -36,7 +38,7 @@ export function mergeRecoveredSessions<T extends RecoverableSessionMeta>(
     if (deleted.has(b.id)) continue;
     additions.push({
       id: b.id,
-      title: b.title?.trim() || "New chat",
+      title: backendSessionTitle(b.title),
       createdAt: b.updatedAt,
       updatedAt: b.updatedAt,
     });
