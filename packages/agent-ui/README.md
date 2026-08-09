@@ -300,6 +300,7 @@ consumption of shared panel shells:
 | A6.183 | Uint8Array body byte pack |
 | A6.182 | Session list workspace query targets |
 | A6.184 | Plan mode on/off toast copy |
+| A6.185 | Slash session/run toast copy |
 
 ### A5 complete enough
 

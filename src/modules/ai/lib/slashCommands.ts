@@ -19,6 +19,16 @@ import {
   isPlanModeOffTail,
   planModeOffToast,
   planModeToggleToast,
+  startedNewChatToast,
+  openedChatSessionsToast,
+  renameUsageToast,
+  renamedActiveChatToast,
+  retryingLastRequestToast,
+  cancellationRequestedToast,
+  compactionRequestedToast,
+  openedRunDetailsToast,
+  openedChangeReviewToast,
+
   agentSettingsToast,
   switchedAgentToast,
   parseComposerSlashLead,
@@ -241,28 +251,28 @@ function runLocalCommand(name: string, tail: string): SlashOutcome {
   switch (name) {
     case "new":
       chat.newSession();
-      return { kind: "handled", toast: "Started a new chat" };
+      return { kind: "handled", toast: startedNewChatToast() };
     case "sessions":
       openAiSurface("history");
-      return { kind: "handled", toast: "Opened chat sessions" };
+      return { kind: "handled", toast: openedChatSessionsToast() };
     case "rename":
       if (!hasSlashCommandTail(tail) || !chat.activeSessionId) {
-        return { kind: "handled", toast: "Usage: /rename <new title>" };
+        return { kind: "handled", toast: renameUsageToast() };
       }
       chat.renameSession(chat.activeSessionId, tail);
-      return { kind: "handled", toast: "Renamed active chat" };
+      return { kind: "handled", toast: renamedActiveChatToast() };
     case "retry":
       void retryLastMessage();
-      return { kind: "handled", toast: "Retrying the last request" };
+      return { kind: "handled", toast: retryingLastRequestToast() };
     case "stop":
       void requestStop(chat.activeSessionId);
-      return { kind: "handled", toast: "Cancellation requested" };
+      return { kind: "handled", toast: cancellationRequestedToast() };
     case "compact":
       void runCompactNow(tail || undefined);
-      return { kind: "handled", toast: "Compaction requested" };
+      return { kind: "handled", toast: compactionRequestedToast() };
     case "status":
       openAiSurface("inspector");
-      return { kind: "handled", toast: "Opened run details" };
+      return { kind: "handled", toast: openedRunDetailsToast() };
     case "plan": {
       const store = usePlanStore.getState();
       if (isPlanModeOffTail(tail)) {
@@ -281,7 +291,7 @@ function runLocalCommand(name: string, tail: string): SlashOutcome {
     case "review":
       if (tail) return { kind: "send-prompt", commandName: name, prompt: promptFor(name, tail) };
       openAiSurface("review");
-      return { kind: "handled", toast: "Opened change review" };
+      return { kind: "handled", toast: openedChangeReviewToast() };
     case "tasks":
       openOperationsSurface("work", "runs");
       return { kind: "handled", toast: "Opened Operations work" };
