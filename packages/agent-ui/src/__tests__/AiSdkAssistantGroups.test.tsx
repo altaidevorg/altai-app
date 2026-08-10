@@ -27,7 +27,7 @@ describe("AiSdkAssistantGroups", () => {
     ];
     const groups = buildTranscriptPartGroups(parts);
     const renderPart = vi.fn(
-      ({ part }: { part: (typeof parts)[number] }) =>
+      ({ part }: { part: unknown }) =>
         createElement(
           "span",
           { "data-part": (part as { type?: string }).type },
