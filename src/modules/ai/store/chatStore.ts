@@ -12,6 +12,9 @@ import {
   cutThroughNthUserMessage,
   joinMessageTextParts,
   sessionWorkspacePathForId,
+  buildEnvBlockFromFacts,
+  buildIsolatedWorktreeEnvBlock,
+  prependEnvBlockToText,
 } from "@altai/agent-ui";
 import type { UIMessage } from "ai";
 import { native } from "../lib/native";
@@ -1635,11 +1638,12 @@ export async function dispatchToSession(
   appendBackgroundMessage(chatId, "user", text);
 
   const envBlock = runConfig?.workspacePath
-    ? `<env>\nworkspace_root: ${runConfig.workspacePath}\nactive_branch: ${
-        runConfig.branchName ?? "(unknown)"
-      }\nworkspace_mode: isolated-worktree\n</env>`
+    ? buildIsolatedWorktreeEnvBlock(
+        runConfig.workspacePath,
+        runConfig.branchName,
+      )
     : buildEnvBlock(store.live);
-  const payload = envBlock ? `${envBlock}\n\n${text}` : text;
+  const payload = prependEnvBlockToText(text, envBlock);
   try {
     const acknowledgement = await native.agentSend(
       payload,
@@ -1665,16 +1669,12 @@ export async function dispatchToSession(
 }
 
 function buildEnvBlock(live: Live): string | null {
-  const lines: string[] = [];
-  const workspaceRoot = live.getWorkspaceRoot();
-  const cwd = live.getCwd();
-  const activeFile = live.getActiveFile();
-  if (workspaceRoot) lines.push(`workspace_root: ${workspaceRoot}`);
-  if (cwd) lines.push(`active_terminal_cwd: ${cwd}`);
-  if (activeFile) lines.push(`active_file: ${activeFile}`);
-  if (live.isActiveTerminalPrivate()) lines.push("active_terminal_mode: private");
-  if (lines.length === 0) return null;
-  return `<env>\n${lines.join("\n")}\n</env>`;
+  return buildEnvBlockFromFacts({
+    workspaceRoot: live.getWorkspaceRoot(),
+    cwd: live.getCwd(),
+    activeFile: live.getActiveFile(),
+    activeTerminalPrivate: live.isActiveTerminalPrivate(),
+  });
 }
 
 export function stop(): void {
