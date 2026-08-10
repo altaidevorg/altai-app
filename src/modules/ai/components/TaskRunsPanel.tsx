@@ -63,6 +63,7 @@ import {
   taskFilterCounts,
   taskMatchesListFilter,
   taskMatchesQuery,
+  TASK_PROMPT_TEMPLATES,
 } from "@altai/agent-ui";
 
 const TERMINAL: AssignmentStatus[] = ["done", "failed", "cancelled"];
@@ -78,25 +79,6 @@ function currentStatus(
     TERMINAL,
   ) as AssignmentStatus;
 }
-
-const TASK_TEMPLATES = [
-  {
-    label: "Fix a bug",
-    prompt: "Investigate the reported bug, identify the root cause, implement the smallest safe fix, and run the relevant checks.",
-  },
-  {
-    label: "Review changes",
-    prompt: "Review the current working-tree changes for correctness, regressions, security risks, and missing tests. Make only clearly necessary fixes and report the findings.",
-  },
-  {
-    label: "Add tests",
-    prompt: "Inspect the relevant implementation, add focused tests for the important behavior and edge cases, then run the narrowest useful test command.",
-  },
-  {
-    label: "Refactor safely",
-    prompt: "Find the highest-value local refactor in the relevant area. Preserve behavior, keep the diff focused, and verify the result with appropriate checks.",
-  },
-];
 
 /**
  * A workspace-level task launcher. Each run has a dedicated chat_id, so a
@@ -369,7 +351,7 @@ export function TaskRunsPanel({
           onChange={setPrompt}
           textareaId="background-task-prompt"
           placeholder="Example: Review the auth flow, fix the highest-impact issue, and run the relevant tests."
-          templates={TASK_TEMPLATES.map((template) => ({
+          templates={TASK_PROMPT_TEMPLATES.map((template) => ({
             label: template.label,
             value: template.prompt,
           }))}

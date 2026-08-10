@@ -332,6 +332,7 @@ consumption of shared panel shells:
 | A6.214 | Task Runs filter counts/match/group chrome |
 | A6.215 | Notification inbox filter/search chrome |
 | A6.216 | Session id set + title map |
+| A6.217 | Operations task/automation prompt templates |
 
 ### A5 complete enough
 
