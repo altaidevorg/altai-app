@@ -19,6 +19,8 @@ import {
   notificationsForInboxFilter,
   partitionNotificationsByReadState,
   type NotificationInboxFilter,
+  sessionIdSet,
+  sessionTitleMap,
 } from "@altai/agent-ui";
 import type { AgentNotificationInfo } from "../lib/native";
 import { useChatStore } from "../store/chatStore";
@@ -84,11 +86,11 @@ export function NotificationInboxPanel({
     [notifications, backgroundJobs, clarificationTickets],
   );
   const sessionIds = useMemo(
-    () => new Set(sessions.map((session) => session.id)),
+    () => sessionIdSet(sessions),
     [sessions],
   );
   const sessionTitles = useMemo(
-    () => new Map(sessions.map((session) => [session.id, session.title])),
+    () => sessionTitleMap(sessions),
     [sessions],
   );
   useEffect(() => {
