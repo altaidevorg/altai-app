@@ -26,7 +26,12 @@ import {
 import { HugeiconsIcon } from "@hugeicons/react";
 import { ISANAGENT_AGENT_IDS, type AgentIconId } from "../lib/agents";
 import { useAgentsStore } from "../store/agentsStore";
-import { AgentOptionRow, AgentSwitcherTrigger } from "@altai/agent-ui";
+import {
+  AgentOptionRow,
+  AgentSwitcherTrigger,
+  partitionAgentsForSwitcher,
+  resolveSwitcherActiveAgent,
+} from "@altai/agent-ui";
 
 const ICONS: Record<AgentIconId, typeof CodeIcon> = {
   coder: CodeIcon,
@@ -67,14 +72,12 @@ export function AgentSwitcher({
   // Resolve active from the full list (including disabled) so the trigger
   // still labels the disabled-but-active edge correctly until the store
   // downgrades it on the next setDisabled call.
-  const active = allList.find((a) => a.id === activeId) ?? list[0] ?? allList[0];
-  const builtIn = list.filter(
-    (a) => a.builtIn && !ISANAGENT_AGENT_IDS.has(a.id),
+  const active =
+    resolveSwitcherActiveAgent(allList, list, activeId) ?? allList[0];
+  const { builtIn, mlAgents, custom } = partitionAgentsForSwitcher(
+    list,
+    (id) => ISANAGENT_AGENT_IDS.has(id),
   );
-  const mlAgents = list.filter(
-    (a) => a.builtIn && ISANAGENT_AGENT_IDS.has(a.id),
-  );
-  const custom = list.filter((a) => !a.builtIn);
   const ActiveIcon = ICONS[active.icon] ?? SparklesIcon;
   const activeIsMl = ISANAGENT_AGENT_IDS.has(active.id);
 
