@@ -328,6 +328,7 @@ consumption of shared panel shells:
 | A6.210 | Automation filter counts/match/sort chrome |
 | A6.211 | Automation schedule form error copy |
 | A6.212 | Session history snippet + content presence |
+| A6.213 | Task assignment status from live run |
 
 ### A5 complete enough
 
