@@ -1939,3 +1939,9 @@ export {
   indexLatestCronJobsByAutomationId,
 } from "./lib/automationListChrome.js";
 export type { BackgroundJobLike } from "./lib/automationListChrome.js";
+
+export {
+  withPendingStarted,
+  withPendingEnded,
+} from "./lib/pendingIdsChrome.js";
+export type { PendingIdMap } from "./lib/pendingIdsChrome.js";

@@ -4,6 +4,8 @@ import {
   indexLatestCronJobsByAutomationId,
   normalizedWorkspacePath as normalizedWorkspacePathShared,
   sortAutomationItemsById,
+  withPendingEnded,
+  withPendingStarted,
 } from "@altai/agent-ui";
 import {
   native,
@@ -101,10 +103,7 @@ export const useAutomationStore = create<AutomationState>((set, get) => ({
       return false;
     }
     const pendingKey = "create";
-    set((state) => ({
-      error: null,
-      pendingIds: { ...state.pendingIds, [pendingKey]: true },
-    }));
+    set((state) => withPendingStarted(state.pendingIds, pendingKey));
     try {
       const item = await native.agentAutomationCreate(chatId, schedule, message, path);
       set((state) => ({ items: sortAutomationItemsById([...state.items, item]) }));
@@ -113,11 +112,7 @@ export const useAutomationStore = create<AutomationState>((set, get) => ({
       set({ error: messageFrom(error) });
       return false;
     } finally {
-      set((state) => {
-        const pendingIds = { ...state.pendingIds };
-        delete pendingIds[pendingKey];
-        return { pendingIds };
-      });
+      set((state) => withPendingEnded(state.pendingIds, pendingKey));
     }
   },
 
@@ -125,10 +120,7 @@ export const useAutomationStore = create<AutomationState>((set, get) => ({
     const path = get().workspacePath;
     if (!path) return;
     const pendingKey = `remove:${automationId}`;
-    set((state) => ({
-      error: null,
-      pendingIds: { ...state.pendingIds, [pendingKey]: true },
-    }));
+    set((state) => withPendingStarted(state.pendingIds, pendingKey));
     try {
       await native.agentAutomationRemove(automationId, chatId, path);
       set((state) => ({
@@ -140,11 +132,7 @@ export const useAutomationStore = create<AutomationState>((set, get) => ({
     } catch (error) {
       set({ error: messageFrom(error) });
     } finally {
-      set((state) => {
-        const pendingIds = { ...state.pendingIds };
-        delete pendingIds[pendingKey];
-        return { pendingIds };
-      });
+      set((state) => withPendingEnded(state.pendingIds, pendingKey));
     }
   },
 
