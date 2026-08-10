@@ -1229,16 +1229,7 @@ async fn handle_task_cancel(
         }
     };
     let summary = match journal.latest_run_summary_for_chat(task_id) {
-        Ok(Some(summary)) if summary.terminal_seq.is_none() => summary,
-        Ok(Some(_)) => {
-            return respond(
-                writer,
-                id,
-                None,
-                Some(error_value(-32002, "task_run_not_active")),
-            )
-            .await
-        }
+        Ok(Some(summary)) => summary,
         Ok(None) => {
             return respond(
                 writer,
@@ -1259,6 +1250,15 @@ async fn handle_task_cancel(
         }
     };
     let terminal_still_open = event_sink.claim_cancel(&summary.run_id);
+    if summary.terminal_seq.is_some() && !terminal_still_open {
+        return respond(
+            writer,
+            id,
+            None,
+            Some(error_value(-32002, "task_run_not_active")),
+        )
+        .await;
+    }
     match service
         .route_cancel(task_id.to_string(), summary.run_id)
         .await

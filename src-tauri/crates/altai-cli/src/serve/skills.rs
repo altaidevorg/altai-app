@@ -1,12 +1,12 @@
 //! Workspace skills catalogue + install for the stdio host.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use serde_json::{json, Value};
 
-/// Skills live under `<workspace>/.isanagent/skills/<name>/`.
+/// Skills live under IsanAgent's workspace state directory.
 pub fn list_workspace_skills(workspace_root: &Path) -> Result<Value, String> {
-    let skills_dir = workspace_root.join(".isanagent").join("skills");
+    let skills_dir = workspace_skills_dir(workspace_root)?;
     let entries = match std::fs::read_dir(&skills_dir) {
         Ok(entries) => entries,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
@@ -44,7 +44,7 @@ pub fn list_workspace_skills(workspace_root: &Path) -> Result<Value, String> {
     Ok(json!({ "skills": skills }))
 }
 
-/// Install skill(s) from a GitHub repo into `<workspace>/.isanagent/skills`.
+/// Install skill(s) from a GitHub repo into IsanAgent's workspace skill directory.
 ///
 /// Params mirror the Desktop Tauri command: `source` is owner/repo or a full
 /// URL; optional `skill` installs a single named skill from that repo.
@@ -57,15 +57,7 @@ pub async fn install_workspace_skills(
     if repo.is_empty() {
         return Err("A repository URL or owner/repo is required.".to_string());
     }
-    let root = workspace_root
-        .to_str()
-        .ok_or_else(|| "workspace path is not valid UTF-8".to_string())?
-        .trim_end_matches('/')
-        .to_string();
-    let workspace_isan = format!("{root}/.isanagent");
-    let workspace =
-        isanagent::workspace::IsanagentWorkspace::new(Some(workspace_isan.as_str()), None)?;
-    let mut registry = isanagent::skills::SkillRegistry::new(workspace.skills_path());
+    let mut registry = isanagent::skills::SkillRegistry::new(workspace_skills_dir(workspace_root)?);
     let skill = skill.map(str::trim).filter(|s| !s.is_empty());
     let installed = registry.install_skills_from_repo(repo, skill).await?;
     if installed.is_empty() {
@@ -105,6 +97,15 @@ pub async fn install_workspace_skills(
     }))
 }
 
+fn workspace_skills_dir(workspace_root: &Path) -> Result<PathBuf, String> {
+    let state_dir = workspace_root.join(".isanagent");
+    let state_dir = state_dir
+        .to_str()
+        .ok_or_else(|| "workspace path is not valid UTF-8".to_string())?;
+    let workspace = isanagent::workspace::IsanagentWorkspace::new(Some(state_dir), None)?;
+    Ok(workspace.skills_path())
+}
+
 fn skill_description(text: &str) -> Option<String> {
     for line in text.lines().take(40) {
         let trimmed = line.trim();
@@ -127,7 +128,12 @@ mod tests {
     #[test]
     fn lists_skills_from_workspace() {
         let dir = tempdir().unwrap();
-        let skill_dir = dir.path().join(".isanagent").join("skills").join("demo");
+        let skill_dir = dir
+            .path()
+            .join(".isanagent")
+            .join("workspace")
+            .join("skills")
+            .join("demo");
         fs::create_dir_all(&skill_dir).unwrap();
         fs::write(
             skill_dir.join("SKILL.md"),
