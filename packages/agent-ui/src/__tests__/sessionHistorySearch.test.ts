@@ -43,7 +43,7 @@ describe("filterSessionsForHistorySearch", () => {
     ];
     expect(
       filterSessionsForHistorySearch(rows, {
-        query: "a",
+        query: "alph",
         hasContent: { a: true, b: true, c: false },
         snippets: { a: "", b: "zzz", c: "alpha" },
       }).map((s) => s.id),
