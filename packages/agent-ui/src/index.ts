@@ -2092,3 +2092,8 @@ export {
   wrapWorkingTreeDiffBlock,
   composePromptWithSelectedContext,
 } from "./lib/taskContextComposeChrome.js";
+export {
+  mapById,
+  filterUnreadBySeenAtMs,
+  removeListValue,
+} from "./lib/idIndexChrome.js";

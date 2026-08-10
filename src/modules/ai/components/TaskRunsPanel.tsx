@@ -83,6 +83,7 @@ import {
   wrapTerminalContextBlock,
   wrapWorkingTreeDiffBlock,
   composePromptWithSelectedContext,
+  removeListValue,
 } from "@altai/agent-ui";
 
 const TERMINAL: AssignmentStatus[] = ["done", "failed", "cancelled"];
@@ -408,9 +409,7 @@ export function TaskRunsPanel({
           }}
           onChooseFiles={() => void chooseContextFiles()}
           onRemoveFile={(path) =>
-            setContextFiles((current) =>
-              current.filter((item) => item !== path),
-            )
+            setContextFiles((current) => removeListValue(current, path))
           }
           activeFileDisabled={!activeFilePath || activeFileSelected}
           activeFileSelected={activeFileSelected}
