@@ -43,6 +43,16 @@ jobs:
           pnpm --filter @altai/agent-ui test
           ./scripts/publish-altai-packages.sh --dry-run
 
+      - name: Verify npm publishing credentials
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          test -n "$NODE_AUTH_TOKEN" || {
+            echo "NPM_TOKEN is not configured for the npm environment." >&2
+            exit 1
+          }
+          npm whoami
+
       - name: Publish packages
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
