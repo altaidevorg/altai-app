@@ -1733,7 +1733,11 @@ export type {
 
 export {
   COMPOSER_DRAFT_DEBOUNCE_MS,
+  createComposerDraftPersistence,
   shouldPersistComposerDraftImmediately,
+  type ComposerDraftPersistence,
+  type ComposerDraftPersistenceOptions,
+  type ComposerDraftTimers,
 } from "./lib/composerDraftPersist.js";
 
 export { withAssetCacheBust } from "./lib/assetCacheBust.js";
