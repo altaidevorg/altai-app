@@ -84,6 +84,8 @@ import {
   wrapWorkingTreeDiffBlock,
   composePromptWithSelectedContext,
   removeListValue,
+  terminalContextDetailLabel,
+  gitDiffContextDetailLabel,
 } from "@altai/agent-ui";
 
 const TERMINAL: AssignmentStatus[] = ["done", "failed", "cancelled"];
@@ -415,21 +417,14 @@ export function TaskRunsPanel({
           activeFileSelected={activeFileSelected}
           includeTerminal={includeTerminal}
           onIncludeTerminalChange={setIncludeTerminal}
-          terminalDetail={
-            terminalPrivate
-              ? "Unavailable while the active terminal is private"
-              : terminalContextAvailable
-                ? "Latest visible output from the active terminal"
-                : "No terminal output available"
-          }
+          terminalDetail={terminalContextDetailLabel({
+            terminalPrivate,
+            terminalAvailable: terminalContextAvailable,
+          })}
           terminalDisabled={!terminalContextAvailable}
           includeDiff={includeDiff}
           onIncludeDiffChange={setIncludeDiff}
-          diffDetail={
-            workspaceContextAvailable
-              ? "Current unstaged Git diff"
-              : "Open a workspace to include Git changes"
-          }
+          diffDetail={gitDiffContextDetailLabel(workspaceContextAvailable)}
           diffDisabled={!workspaceContextAvailable}
         />
 

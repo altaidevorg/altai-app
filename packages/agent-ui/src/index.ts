@@ -2099,3 +2099,7 @@ export {
   filterUnreadBySeenAtMs,
   removeListValue,
 } from "./lib/idIndexChrome.js";
+export {
+  terminalContextDetailLabel,
+  gitDiffContextDetailLabel,
+} from "./lib/taskContextSourceChrome.js";
