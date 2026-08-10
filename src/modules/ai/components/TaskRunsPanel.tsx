@@ -72,6 +72,8 @@ import {
   normalizeDialogPathSelection,
   appendUniqueContextPaths,
   stripTaskBotTitlePrefix,
+  findCatalogEntryById,
+  catalogModelLabel,
 } from "@altai/agent-ui";
 
 const TERMINAL: AssignmentStatus[] = ["done", "failed", "cancelled"];
@@ -242,9 +244,7 @@ export function TaskRunsPanel({
     setPrompt(task.source.prompt);
     if (task.runConfig?.agentId) setAgentId(task.runConfig.agentId);
     if (task.runConfig?.modelId) {
-      const knownModel = MODELS.find(
-        (model) => model.id === task.runConfig?.modelId,
-      );
+      const knownModel = findCatalogEntryById(MODELS, task.runConfig.modelId);
       if (knownModel) setModelId(knownModel.id as ModelId);
     }
     if (task.runConfig?.permissionMode) {
@@ -506,16 +506,14 @@ export function TaskRunsPanel({
                   subagentCount={run?.subagents.length ?? 0}
                   agentLabel={
                     task.runConfig?.agentId
-                      ? (agents.find((agent) => agent.id === task.runConfig?.agentId)
+                      ? (findCatalogEntryById(agents, task.runConfig.agentId)
                           ?.name ?? "Custom agent")
                       : undefined
                   }
-                  modelLabel={
-                    task.runConfig?.modelId
-                      ? (MODELS.find((model) => model.id === task.runConfig?.modelId)
-                          ?.label ?? task.runConfig.modelId)
-                      : undefined
-                  }
+                  modelLabel={catalogModelLabel(
+                    MODELS,
+                    task.runConfig?.modelId,
+                  )}
                   skillsLabel={
                     task.runConfig?.skills?.length
                       ? task.runConfig.skills.join(", ")
