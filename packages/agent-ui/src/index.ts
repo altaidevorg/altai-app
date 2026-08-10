@@ -2046,11 +2046,18 @@ export {
 } from "./lib/timedCacheChrome.js";
 
 export {
+export {
   isCatalogModelAvailable,
   filterAvailableCatalogModels,
 } from "./lib/catalogModelAvailable.js";
+export {
 export {
   everyMsFromMinutes,
   minutesFromEveryMs,
   everyMinutesInputFromMs,
 } from "./lib/automationIntervalChrome.js";
+export {
+  sortByCreatedAtDesc,
+  filterEnabledAgents,
+  filterTaskSourceAssignments,
+} from "./lib/taskListOrderChrome.js";

@@ -66,6 +66,9 @@ import {
   TASK_PROMPT_TEMPLATES,
   canCreateTaskDraft,
   taskTitleFromPrompt,
+  filterEnabledAgents,
+  filterTaskSourceAssignments,
+  sortByCreatedAtDesc,
 } from "@altai/agent-ui";
 
 const TERMINAL: AssignmentStatus[] = ["done", "failed", "cancelled"];
@@ -132,21 +135,22 @@ export function TaskRunsPanel({
 
   const agents = useMemo(() => {
     const store = useAgentsStore.getState();
-    return store.all().filter((agent) => !store.isDisabled(agent.id));
+    return filterEnabledAgents(store.all(), (id) => store.isDisabled(id));
   }, [activeAgentId]);
 
   const tasks = useMemo(
-    () => assignments.filter((assignment) => assignment.source.kind === "task"),
+    () => filterTaskSourceAssignments(assignments),
     [assignments],
   );
   const resolvedTasks = useMemo(
     () =>
-      tasks
-        .map((task) => ({
+      sortByCreatedAtDesc(
+        tasks.map((task) => ({
           task,
           status: currentStatus(task, runs[task.sessionId]),
-        }))
-        .sort((left, right) => right.task.createdAt - left.task.createdAt),
+          createdAt: task.createdAt,
+        })),
+      ),
     [runs, tasks],
   );
   const filterCounts = useMemo(

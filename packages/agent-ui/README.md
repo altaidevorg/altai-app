@@ -339,6 +339,7 @@ consumption of shared panel shells:
 | A6.221 | Timed cache fresh + task title from prompt |
 | A6.222 | Catalog model availability filter |
 | A6.223 | Automation every interval ms conversion |
+| A6.224 | Task list sort + enabled agents filter |
 
 ### A5 complete enough
 
