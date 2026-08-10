@@ -79,6 +79,10 @@ import {
   skillsListLabel,
   catalogEntryName,
   toggleTaskSkillSelection,
+  wrapContextFileBlock,
+  wrapTerminalContextBlock,
+  wrapWorkingTreeDiffBlock,
+  composePromptWithSelectedContext,
 } from "@altai/agent-ui";
 
 const TERMINAL: AssignmentStatus[] = ["done", "failed", "cancelled"];
@@ -596,9 +600,7 @@ async function addSelectedContext(
         enforceIsanagentignore: true,
       });
       if (result.kind === "text") {
-        blocks.push(
-          `<context-file path="${path}">\n${result.content.slice(0, 60_000)}\n</context-file>`,
-        );
+        blocks.push(wrapContextFileBlock(path, result.content));
       }
     } catch {
       /* unavailable files simply stay out of the task */
@@ -606,7 +608,10 @@ async function addSelectedContext(
   }
   if (selected.terminal && !live.isActiveTerminalPrivate()) {
     const output = live.getTerminalContext();
-    if (output?.trim()) blocks.push(`<terminal-context>\n${output.trim().slice(0, 60_000)}\n</terminal-context>`);
+    if (output) {
+      const block = wrapTerminalContextBlock(output);
+      if (block) blocks.push(block);
+    }
   }
   if (selected.diff) {
     const cwd = live.getCwd() ?? live.getWorkspaceRoot();
@@ -615,11 +620,15 @@ async function addSelectedContext(
         const repo = await native.gitResolveRepo(cwd);
         if (repo) {
           const diff = await native.gitDiff(repo.repoRoot, null, false);
-          if (diff.diffText.trim()) blocks.push(`<working-tree-diff${diff.truncated ? ' truncated="true"' : ""}>\n${diff.diffText.slice(0, 80_000)}\n</working-tree-diff>`);
+          const block = wrapWorkingTreeDiffBlock(
+            diff.diffText,
+            Boolean(diff.truncated),
+          );
+          if (block) blocks.push(block);
         }
       } catch { /* non-git workspaces have no diff to include */ }
     }
   }
-  return blocks.length ? `${prompt.trim()}\n\n<selected-context>\n${blocks.join("\n\n")}\n</selected-context>` : prompt;
+  return composePromptWithSelectedContext(prompt, blocks);
 }
 

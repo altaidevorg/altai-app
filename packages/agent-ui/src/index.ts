@@ -2085,3 +2085,9 @@ export {
   skillsListLabel,
   catalogEntryName,
 } from "./lib/taskRunCardChrome.js";
+export {
+  wrapContextFileBlock,
+  wrapTerminalContextBlock,
+  wrapWorkingTreeDiffBlock,
+  composePromptWithSelectedContext,
+} from "./lib/taskContextComposeChrome.js";
