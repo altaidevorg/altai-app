@@ -2109,3 +2109,7 @@ export {
   partitionModelsByFavRecent,
 } from "./lib/modelDropdownFilterChrome.js";
 export type { DropdownModelLike } from "./lib/modelDropdownFilterChrome.js";
+export {
+  isNotificationInboxEmpty,
+  filterRowsBySearchFields,
+} from "./lib/notificationInboxSearchChrome.js";
