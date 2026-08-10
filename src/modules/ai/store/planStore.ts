@@ -6,8 +6,11 @@
 import { create } from "zustand";
 import { native } from "../lib/native";
 import {
+  editProposalInputFromQueued as editProposalInputFromQueuedShared,
+  markPlanEditAppliedState,
+} from "@altai/agent-ui";
+import {
   applyPlanEditMutation,
-  proposalKindFromPlanEdit,
   restorePlanEditMutation,
   type PlanEditFs,
 } from "../lib/planEditFs";
@@ -51,17 +54,17 @@ export function setPlanEditFs(next: PlanEditFs | null): void {
 }
 
 export function editProposalInputFromQueued(item: QueuedEdit) {
-  return {
-    path: item.path,
-    kind: proposalKindFromPlanEdit(item.kind, item.isNewFile) as
+  return editProposalInputFromQueuedShared(item) as {
+    path: string;
+    kind:
       | "edit_file"
       | "create_file"
       | "create_directory"
       | "write_file"
       | "edit"
-      | "multi_edit",
-    originalContent: item.originalContent,
-    proposedContent: item.proposedContent,
+      | "multi_edit";
+    originalContent: string;
+    proposedContent: string;
   };
 }
 
@@ -93,12 +96,9 @@ function markAppliedState(
   applied: AppliedPlanEdit[],
   item: QueuedEdit,
 ): { queue: QueuedEdit[]; applied: AppliedPlanEdit[] } {
-  return {
-    queue: queue.filter((q) => q.id !== item.id),
-    applied:
-      item.kind === "create_directory"
-        ? applied
-        : [...applied, { ...item, appliedAt: Date.now() }].slice(-40),
+  return markPlanEditAppliedState(queue, applied, item) as {
+    queue: QueuedEdit[];
+    applied: AppliedPlanEdit[];
   };
 }
 
