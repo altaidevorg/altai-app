@@ -341,6 +341,7 @@ consumption of shared panel shells:
 | A6.223 | Automation every interval ms conversion |
 | A6.224 | Task list sort + enabled agents filter |
 | A6.225 | Task context path merge + bot title strip |
+| A6.226 | Chat history session search filter |
 
 ### A5 complete enough
 

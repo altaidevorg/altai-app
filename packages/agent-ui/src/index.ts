@@ -2064,3 +2064,8 @@ export {
   appendUniqueContextPaths,
   stripTaskBotTitlePrefix,
 } from "./lib/taskContextPathChrome.js";
+export {
+  sessionMatchesHistorySearch,
+  filterSessionsForHistorySearch,
+} from "./lib/sessionHistorySearch.js";
+export type { HistorySessionLike } from "./lib/sessionHistorySearch.js";
