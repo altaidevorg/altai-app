@@ -69,6 +69,15 @@ import {
   automationCreateStatusText,
   automationCreateSubmitLabel,
   AUTOMATION_CREATE_SESSION_FALLBACK_TITLE,
+  AUTOMATIONS_LOADING_LABEL,
+  AUTOMATIONS_EMPTY_TITLE,
+  AUTOMATIONS_EMPTY_DESCRIPTION,
+  AUTOMATIONS_EMPTY_ACTION_LABEL,
+  AUTOMATIONS_FILTERED_EMPTY_MESSAGE,
+  AUTOMATIONS_SEARCH_PLACEHOLDER,
+  AUTOMATIONS_TABS_LABEL,
+  AUTOMATIONS_OWNING_CHAT_FALLBACK,
+  AUTOMATIONS_SELECT_CHAT_LABEL,
 } from "@altai/agent-ui";
 
 type ScheduleMode = "at" | "every";
@@ -254,8 +263,8 @@ export function AutomationsPanel({
         <SurfaceFilterToolbar
           query={query}
           onQueryChange={setQuery}
-          searchPlaceholder="Search by instruction, chat, or schedule"
-          tabsLabel="Filter automations"
+          searchPlaceholder={AUTOMATIONS_SEARCH_PLACEHOLDER}
+          tabsLabel={AUTOMATIONS_TABS_LABEL}
           tabValue={filter}
           onTabChange={(value) => setFilter(value as AutomationFilter)}
           tabs={[
@@ -298,7 +307,7 @@ export function AutomationsPanel({
             <DropdownMenu>
               <DropdownMenuTrigger className="flex min-w-0 flex-1 items-center justify-between gap-2 rounded-md border border-border bg-card px-2 py-1 text-[10px] text-foreground hover:bg-accent">
                 <span className="truncate">
-                  {titles.get(ownerChatId) || "Select a chat"}
+                  {titles.get(ownerChatId) || AUTOMATIONS_SELECT_CHAT_LABEL}
                 </span>
                 <HugeiconsIcon
                   icon={ArrowDown01Icon}
@@ -353,26 +362,26 @@ export function AutomationsPanel({
       <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
         {!hydrated || loading ? (
           <SurfaceLoadingState density="inline">
-            <Spinner className="size-3" /> Loading automations…
+            <Spinner className="size-3" /> {AUTOMATIONS_LOADING_LABEL}
           </SurfaceLoadingState>
         ) : items.length === 0 ? (
           <SurfaceEmptyState
             icon={CalendarSyncIcon}
-            title="No schedules yet"
-            description="Turn a useful, repeatable instruction into background work that returns to the right chat."
+            title={AUTOMATIONS_EMPTY_TITLE}
+            description={AUTOMATIONS_EMPTY_DESCRIPTION}
             action={
               <button
                 type="button"
                 onClick={() => setViewMode("create")}
                 className="rounded-md bg-primary px-3 py-1.5 text-[10px] font-semibold text-primary-foreground"
               >
-                Create an automation
+                {AUTOMATIONS_EMPTY_ACTION_LABEL}
               </button>
             }
           />
         ) : visibleItems.length === 0 ? (
           <SurfaceFilteredEmpty
-            message="No automations match this view."
+            message={AUTOMATIONS_FILTERED_EMPTY_MESSAGE}
             className="px-3 py-7 text-[10.5px]"
             onClear={() => {
               setQuery("");
@@ -390,7 +399,7 @@ export function AutomationsPanel({
                 scheduleLabel: automationScheduleLabel(item.schedule),
                 nextRunLabel: automationNextRunLabel(item),
                 lastRunLabel: automationLastRunLabel(item.lastRunAtMs),
-                owningChatLabel: titles.get(item.chatId) || "Owning chat",
+                owningChatLabel: titles.get(item.chatId) || AUTOMATIONS_OWNING_CHAT_FALLBACK,
                 jobState: job?.state ?? null,
                 jobError: job?.lastError ?? null,
                 pendingRemove: pending,
