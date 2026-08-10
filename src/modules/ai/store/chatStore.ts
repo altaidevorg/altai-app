@@ -17,6 +17,7 @@ import {
   prependEnvBlockToText,
   projectAgentMetaFromRun,
   describeTerminalOutcomeAttention,
+  hasApiKeyForModel,
   resolveRunModelIdFromCandidates,
 } from "@altai/agent-ui";
 import type { UIMessage } from "ai";
@@ -1266,8 +1267,13 @@ export function getActiveProviderKey(): string | null {
 
 export function hasKeyForModel(modelId: ModelId): boolean {
   const { apiKeys } = useChatStore.getState();
-  const provider = getModel(modelId).provider;
-  return providerNeedsKey(provider) ? !!apiKeys[provider] : true;
+  return hasApiKeyForModel({
+    modelId,
+    apiKeys,
+    providerForModel: (id) => getModel(id as ModelId).provider,
+    providerNeedsKey: (provider) =>
+      providerNeedsKey(provider as ProviderId),
+  });
 }
 
 export async function sendMessage(

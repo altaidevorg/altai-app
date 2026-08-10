@@ -2034,3 +2034,8 @@ export {
 export type { RunModelPickable } from "./lib/opsCreateChrome.js";
 
 export { nextConversationOwnerChatId } from "./lib/conversationOwnerChrome.js";
+export {
+  hasProviderApiKey,
+  hasApiKeyForModel,
+} from "./lib/providerKeyChrome.js";
+export type { ProviderKeyMap } from "./lib/providerKeyChrome.js";

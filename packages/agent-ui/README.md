@@ -335,6 +335,7 @@ consumption of shared panel shells:
 | A6.217 | Operations task/automation prompt templates |
 | A6.218 | Ops create readiness + auto model pick |
 | A6.219 | Conversation owner chat resolve |
+| A6.220 | Provider API key presence checks |
 
 ### A5 complete enough
 
