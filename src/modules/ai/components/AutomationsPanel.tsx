@@ -66,6 +66,9 @@ import {
   isFiniteNumber,
   automationListSubtitle,
   automationCreateSubtitle,
+  automationCreateStatusText,
+  automationCreateSubmitLabel,
+  AUTOMATION_CREATE_SESSION_FALLBACK_TITLE,
 } from "@altai/agent-ui";
 
 type ScheduleMode = "at" | "every";
@@ -317,7 +320,7 @@ export function AutomationsPanel({
                     )}
                   >
                     <span className="max-w-52 truncate">
-                      {session.title || "New chat"}
+                      {session.title || AUTOMATION_CREATE_SESSION_FALLBACK_TITLE}
                     </span>
                   </DropdownMenuItem>
                 ))}
@@ -327,13 +330,12 @@ export function AutomationsPanel({
         >
           <CreateFormActions
             status={
-              scheduleError ??
-              (ownerChatId ? "Schedule is ready" : "Select a chat to create one")
+              scheduleError ?? automationCreateStatusText(ownerChatId)
             }
             statusTone={scheduleError ? "destructive" : "muted"}
             onCancel={() => setViewMode("list")}
             submitDisabled={!canCreate}
-            submitLabel={creating ? "Creating…" : "Create"}
+            submitLabel={automationCreateSubmitLabel(creating)}
           />
         </ConversationOwnerSection>
       </form>
