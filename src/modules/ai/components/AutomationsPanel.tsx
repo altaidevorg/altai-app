@@ -42,6 +42,7 @@ import {
   automationMatchesFilter,
   automationMatchesQuery,
   automationNextRunAtMs,
+  automationScheduleError as computeAutomationScheduleError,
   compareAutomationsForList,
   defaultAutomationAtValue,
   PromptEditorSection,
@@ -132,14 +133,11 @@ export function AutomationsPanel({
   const creating = Boolean(pendingIds.create);
   const scheduledAtMs = new Date(atValue).getTime();
   const repeatMinutes = Number(everyMinutes);
-  const scheduleError =
-    mode === "at"
-      ? !Number.isFinite(scheduledAtMs) || scheduledAtMs <= Date.now()
-        ? "Choose a valid future time"
-        : null
-      : !Number.isFinite(repeatMinutes) || repeatMinutes < 1
-        ? "Minimum interval is 1 minute"
-        : null;
+  const scheduleError = computeAutomationScheduleError(
+    mode,
+    scheduledAtMs,
+    repeatMinutes,
+  );
   const canCreate = Boolean(
     ownerChatId && message.trim() && !creating && !scheduleError,
   );

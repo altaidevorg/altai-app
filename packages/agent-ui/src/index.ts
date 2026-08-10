@@ -1972,3 +1972,6 @@ export type {
   AutomationJobLike,
   AutomationFilterCounts,
 } from "./lib/automationFilterChrome.js";
+
+export { automationScheduleError } from "./lib/automationScheduleError.js";
+export type { AutomationScheduleMode } from "./lib/automationScheduleError.js";
