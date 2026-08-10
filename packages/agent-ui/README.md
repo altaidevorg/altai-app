@@ -352,6 +352,7 @@ consumption of shared panel shells:
 | A6.234 | Task context source detail labels |
 | A6.235 | Model dropdown filter + fav/recent partition |
 | A6.236 | Notification inbox empty + search filter |
+| A6.237 | Automation form datetime/minutes parse |
 
 ### A5 complete enough
 
