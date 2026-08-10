@@ -1,7 +1,6 @@
 import { create } from "zustand";
 import {
   errorMessageFromUnknown,
-  mutationKey as mutationKeyShared,
   normalizedWorkspacePath as normalizedWorkspacePathShared,
 } from "@altai/agent-ui";
 import {
