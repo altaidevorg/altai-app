@@ -2235,3 +2235,10 @@ export {
   automationCreateSubmitLabel,
   AUTOMATION_CREATE_SESSION_FALLBACK_TITLE,
 } from "./lib/automationCreateFormChrome.js";
+export {
+  CHAT_HISTORY_CONTROL_LABEL,
+  CHAT_HISTORY_SEARCH_ARIA_LABEL,
+  CHAT_HISTORY_SEARCH_PLACEHOLDER,
+  SESSION_UNTITLED_TITLE,
+  chatHistoryEmptyMessage,
+} from "./lib/chatHistoryChrome.js";
