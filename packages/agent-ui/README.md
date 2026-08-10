@@ -334,6 +334,7 @@ consumption of shared panel shells:
 | A6.216 | Session id set + title map |
 | A6.217 | Operations task/automation prompt templates |
 | A6.218 | Ops create readiness + auto model pick |
+| A6.219 | Conversation owner chat resolve |
 
 ### A5 complete enough
 
