@@ -2025,3 +2025,10 @@ export {
   automationTemplatesAsMessages,
 } from "./lib/opsPromptTemplates.js";
 export type { OpsPromptTemplate } from "./lib/opsPromptTemplates.js";
+
+export {
+  canCreateAutomationDraft,
+  canCreateTaskDraft,
+  resolveRunModelIdFromCandidates,
+} from "./lib/opsCreateChrome.js";
+export type { RunModelPickable } from "./lib/opsCreateChrome.js";
