@@ -2196,3 +2196,9 @@ export type {
   RunRecoveryOutcomeLike,
   RunRecoveryPresentation,
 } from "./lib/runRecoveryChrome.js";
+export {
+  aiAgentToggleTitle,
+  voiceInputControlTitle,
+  voiceInputControlDisabled,
+} from "./lib/statusBarChrome.js";
+export type { VoiceControlState } from "./lib/statusBarChrome.js";
