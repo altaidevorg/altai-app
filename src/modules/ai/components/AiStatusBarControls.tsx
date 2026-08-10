@@ -21,6 +21,9 @@ import {
   composerStopAriaLabel,
   composerStopControlLabel,
   COMPOSER_SEND_ARIA_LABEL,
+  STATUS_BAR_CLOSE_PANEL_LABEL,
+  STATUS_BAR_SEND_TITLE,
+  STATUS_BAR_CHECKPOINTS_TITLE,
 } from "@altai/agent-ui";
 import {
   Context,
@@ -142,10 +145,10 @@ export function AiStatusBarControls() {
       <span className="mx-1 h-8 w-px bg-border" aria-hidden />
       <Button
         onClick={closePanel}
-        title="Close AI panel"
+        title={STATUS_BAR_CLOSE_PANEL_LABEL}
         size="xs"
         variant="ghost"
-        aria-label="Close AI panel"
+        aria-label={STATUS_BAR_CLOSE_PANEL_LABEL}
         className="px-1 text-[11px] text-foreground/85"
       >
         <Kbd className="h-4 gap-px px-2 font-mono text-[11px]">
@@ -180,7 +183,7 @@ export function AiStatusBarControls() {
           disabled={!c.canSend}
           className="ml-1 h-5.5 w-7.5"
           aria-label={COMPOSER_SEND_ARIA_LABEL}
-          title="Send (Enter)"
+          title={STATUS_BAR_SEND_TITLE}
         >
           <HugeiconsIcon icon={ArrowUpIcon} size={13} strokeWidth={1.75} />
         </Button>
@@ -255,7 +258,7 @@ function CheckpointButton() {
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <IconBtn
-          title="Edit checkpoints (undo agent edits)"
+          title={STATUS_BAR_CHECKPOINTS_TITLE}
           onClick={() => setOpen(true)}
         >
           <HugeiconsIcon

@@ -2312,3 +2312,8 @@ export {
   AUTOMATIONS_MESSAGE_PLACEHOLDER,
   AUTOMATIONS_DISMISS_ERROR_ARIA,
 } from "./lib/automationsFormChrome.js";
+export {
+  STATUS_BAR_CLOSE_PANEL_LABEL,
+  STATUS_BAR_SEND_TITLE,
+  STATUS_BAR_CHECKPOINTS_TITLE,
+} from "./lib/statusBarResidualChrome.js";

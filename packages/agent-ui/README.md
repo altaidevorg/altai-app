@@ -380,6 +380,7 @@ consumption of shared panel shells:
 | A6.262 | Side panel shell and inspector labels |
 | A6.263 | Task runs create-form chrome |
 | A6.264 | Automations form field chrome |
+| A6.265 | Status-bar residual titles |
 
 ### A5 complete enough
 
