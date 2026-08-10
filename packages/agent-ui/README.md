@@ -314,6 +314,7 @@ consumption of shared panel shells:
 | A6.196 | Maybe auto-derive untitled session title |
 | A6.197 | Cut transcript through Nth user turn |
 | A6.198 | Desktop workspacePath via sessionWorkspacePathForId |
+| A6.199 | Live/isolated env block builders |
 
 ### A5 complete enough
 

@@ -902,6 +902,13 @@ export {
 } from "./lib/removeSessionFromList.js";
 export { maybeDeriveSessionTitleList } from "./lib/maybeDeriveSessionTitle.js";
 export { cutThroughNthUserMessage } from "./lib/cutThroughNthUser.js";
+export {
+  formatEnvBlock,
+  buildEnvBlockFromFacts,
+  buildIsolatedWorktreeEnvBlock,
+  prependEnvBlockToText,
+} from "./lib/envBlock.js";
+export type { LiveEnvFacts } from "./lib/envBlock.js";
 export type { MessageWithRole } from "./lib/cutThroughNthUser.js";
 export type { DerivableSession } from "./lib/maybeDeriveSessionTitle.js";
 export type {
