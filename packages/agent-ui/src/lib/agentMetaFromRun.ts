@@ -41,7 +41,7 @@ export type ProjectedAgentTokens = {
  */
 export function projectAgentMetaFromRun(
   run: SharedRunStateLike | null | undefined,
-  describeError: (outcome: SharedRunOutcomeLike) => string | null,
+  describeError: (outcome: unknown) => string | null,
 ): {
   status: ProjectedAgentRunStatus;
   step: string | null;

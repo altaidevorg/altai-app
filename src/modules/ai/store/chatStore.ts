@@ -159,7 +159,11 @@ const IDLE_META: AgentMeta = {
 };
 
 function agentMetaForRun(run: RunState | undefined): AgentMeta {
-  const projected = projectAgentMetaFromRun(run, describeTerminalOutcomeAttention);
+  const projected = projectAgentMetaFromRun(run, (outcome) =>
+    describeTerminalOutcomeAttention(
+      outcome as Parameters<typeof describeTerminalOutcomeAttention>[0],
+    ),
+  );
   if (!projected) return IDLE_META;
   return {
     ...IDLE_META,
