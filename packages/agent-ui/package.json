@@ -1,7 +1,6 @@
 {
   "name": "@altai/agent-ui",
   "version": "0.1.0",
-  "private": true,
   "type": "module",
   "description": "Shared ALTAI agent chat UI consumed by Desktop and VS Code Webview",
   "exports": {
@@ -44,6 +43,7 @@
   },
   "files": [
     "src",
-    "README.md"
+    "README.md",
+    "!src/__tests__"
   ]
 }

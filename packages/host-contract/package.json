@@ -1,7 +1,6 @@
 {
   "name": "@altai/host-contract",
   "version": "0.1.0",
-  "private": true,
   "type": "module",
   "description": "Product-neutral host ports and capability schema for ALTAI Desktop and VS Code",
   "exports": "./src/index.ts",
@@ -25,6 +24,7 @@
   },
   "files": [
     "src",
-    "README.md"
+    "README.md",
+    "!src/__tests__"
   ]
 }
