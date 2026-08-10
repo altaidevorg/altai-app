@@ -2230,3 +2230,8 @@ export {
   COMPOSER_SEND_TOOLTIP,
   COMPOSER_SEND_ARIA_LABEL,
 } from "./lib/composerStopSendChrome.js";
+export {
+  automationCreateStatusText,
+  automationCreateSubmitLabel,
+  AUTOMATION_CREATE_SESSION_FALLBACK_TITLE,
+} from "./lib/automationCreateFormChrome.js";

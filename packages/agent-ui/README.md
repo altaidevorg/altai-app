@@ -373,6 +373,7 @@ consumption of shared panel shells:
 | A6.255 | Desktop composer placeholder/follow-up chrome |
 | A6.256 | Composer context menu and tool titles |
 | A6.257 | Composer stop/send control labels |
+| A6.258 | Automation create form status/submit |
 
 ### A5 complete enough
 
