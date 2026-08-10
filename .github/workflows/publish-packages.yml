@@ -1,0 +1,51 @@
+name: Publish shared packages
+
+on:
+  workflow_dispatch:
+    inputs:
+      dist_tag:
+        description: npm dist-tag to publish (latest, beta, or next)
+        required: true
+        default: latest
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    name: npm publish @altai packages
+    runs-on: ubuntu-22.04
+    environment: npm
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          cache: pnpm
+          registry-url: https://registry.npmjs.org
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify publishable packages
+        run: |
+          pnpm --filter @altai/host-contract typecheck
+          pnpm --filter @altai/host-contract test
+          pnpm --filter @altai/agent-protocol typecheck
+          pnpm --filter @altai/agent-protocol test
+          pnpm --filter @altai/agent-ui typecheck
+          pnpm --filter @altai/agent-ui test
+          ./scripts/publish-altai-packages.sh --dry-run
+
+      - name: Publish packages
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NPM_PUBLISH: "1"
+          NPM_TAG: ${{ inputs.dist_tag }}
+        run: ./scripts/publish-altai-packages.sh
