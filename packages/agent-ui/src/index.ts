@@ -448,6 +448,8 @@ export {
   sessionHistoryBucket,
   startOfDay,
   SESSION_HISTORY_GROUP_ORDER,
+  sessionHistoryItemsFromSessions,
+  trimmedSessionRenameTitle,
   type SessionHistoryGroup,
   type SessionHistoryItem,
 } from "./lib/sessionHistory.js";
