@@ -327,6 +327,7 @@ consumption of shared panel shells:
 | A6.209 | Automation schedule next-run + default at |
 | A6.210 | Automation filter counts/match/sort chrome |
 | A6.211 | Automation schedule form error copy |
+| A6.212 | Session history snippet + content presence |
 
 ### A5 complete enough
 

@@ -1974,3 +1974,10 @@ export type {
 } from "./lib/automationFilterChrome.js";
 
 export { automationScheduleError } from "./lib/automationScheduleError.js";
+
+export {
+  cleanTranscriptSnippetText,
+  extractSessionSnippet,
+  hasConversationContent,
+} from "./lib/sessionSnippet.js";
+export type { SnippetMessage, SnippetMessagePart } from "./lib/sessionSnippet.js";
