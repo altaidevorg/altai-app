@@ -1912,6 +1912,7 @@ export {
 export {
   byNewestCreatedAt,
   isWaitingTicketStatus,
+  isWaitingJobState,
   isTerminalJobState,
   buildNotificationInboxView,
 } from "./lib/notificationInboxView.js";

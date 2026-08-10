@@ -55,6 +55,11 @@ export function isWaitingTicketStatus(status: string): boolean {
   return status.trim().toLowerCase() === "waiting";
 }
 
+/** True when a background job state reports waiting (substring match). */
+export function isWaitingJobState(state: string): boolean {
+  return state.trim().toLowerCase().includes("waiting");
+}
+
 /** True when a background job is in a terminal/finished state. */
 export function isTerminalJobState(state: string): boolean {
   return TERMINAL_JOB_STATES.has(state.trim().toLowerCase());
@@ -101,7 +106,7 @@ export function buildNotificationInboxView(
   const waitingJobs = backgroundJobs
     .filter((job) => !isTerminalJobState(job.state))
     .filter((job) => !waitingJobIds.has(job.id))
-    .filter((job) => job.state.trim().toLowerCase().includes("waiting"))
+    .filter((job) => isWaitingJobState(job.state))
     .slice()
     .sort((a, b) => b.updatedAtMs - a.updatedAtMs);
 

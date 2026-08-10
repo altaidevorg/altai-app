@@ -2,12 +2,15 @@ import { describe, expect, it } from "vitest";
 import {
   buildNotificationInboxView,
   isTerminalJobState,
+  isWaitingJobState,
   isWaitingTicketStatus,
 } from "../lib/notificationInboxView.js";
 
 describe("notificationInboxView", () => {
   it("classifies wait/terminal", () => {
     expect(isWaitingTicketStatus(" Waiting ")).toBe(true);
+    expect(isWaitingJobState("waiting_for_user")).toBe(true);
+    expect(isWaitingJobState("running")).toBe(false);
     expect(isTerminalJobState("completed")).toBe(true);
     expect(isTerminalJobState("running")).toBe(false);
   });
