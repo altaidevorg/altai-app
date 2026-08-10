@@ -317,6 +317,7 @@ consumption of shared panel shells:
 | A6.199 | Live/isolated env block builders |
 | A6.200 | Slash command prompt templates |
 | A6.201 | Project agent meta from run snapshot |
+| A6.202 | Compaction activity toast copy |
 
 ### A5 complete enough
 
