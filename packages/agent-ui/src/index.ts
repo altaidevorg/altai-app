@@ -748,6 +748,12 @@ export {
 } from "./components/AiPanelTopbar.js";
 
 export {
+  AiPanelSurfaceTabs,
+  type AiPanelSurfaceTab,
+  type AiPanelSurfaceTabsProps,
+} from "./components/AiPanelSurfaceTabs.js";
+
+export {
   AgentMarkdown,
   type AgentMarkdownLink,
   type AgentMarkdownProps,
