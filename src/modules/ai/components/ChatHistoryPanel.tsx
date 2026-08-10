@@ -4,6 +4,8 @@ import {
   filterSessionsForHistorySearch,
   groupSessionsByRecency,
   hasConversationContent,
+  sessionHistoryItemsFromSessions,
+  trimmedSessionRenameTitle,
 } from "@altai/agent-ui";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { loadMessages } from "../lib/sessions";
@@ -94,12 +96,7 @@ export function ChatHistoryPanel({
   const groups = useMemo(
     () =>
       groupSessionsByRecency(
-        filtered.map((s) => ({
-          id: s.id,
-          title: s.title || "New chat",
-          updatedAt: s.updatedAt,
-          snippet: snippets[s.id],
-        })),
+        sessionHistoryItemsFromSessions(filtered, snippets),
       ),
     [filtered, snippets],
   );
@@ -119,7 +116,7 @@ export function ChatHistoryPanel({
 
   const commitRename = useCallback(() => {
     if (!renamingId) return;
-    const trimmed = renameValue.trim();
+    const trimmed = trimmedSessionRenameTitle(renameValue);
     if (trimmed) renameSession(renamingId, trimmed);
     setRenamingId(null);
     setRenameValue("");

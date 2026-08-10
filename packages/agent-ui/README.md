@@ -348,6 +348,7 @@ consumption of shared panel shells:
 | A6.230 | Task selected-context compose blocks |
 | A6.231 | Waiting job state helpers |
 | A6.232 | Id map + unread filter + list remove |
+| A6.233 | Session history items + rename trim |
 
 ### A5 complete enough
 

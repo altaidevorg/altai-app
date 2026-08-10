@@ -64,3 +64,32 @@ export function groupSessionsByRecency(
     }),
   );
 }
+
+/**
+ * Map host session rows + snippets into history list items.
+ * Empty/null titles fall back to `defaultTitle`.
+ */
+export function sessionHistoryItemsFromSessions(
+  sessions: readonly {
+    id: string;
+    title?: string | null;
+    updatedAt: number;
+  }[],
+  snippets: Readonly<Record<string, string | undefined>>,
+  defaultTitle = "New chat",
+): SessionHistoryItem[] {
+  return sessions.map((session) => ({
+    id: session.id,
+    title: session.title || defaultTitle,
+    updatedAt: session.updatedAt,
+    snippet: snippets[session.id],
+  }));
+}
+
+/**
+ * Commit-ready rename title, or null when blank after trim.
+ */
+export function trimmedSessionRenameTitle(value: string): string | null {
+  const trimmed = value.trim();
+  return trimmed ? trimmed : null;
+}
