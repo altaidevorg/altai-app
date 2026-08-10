@@ -363,6 +363,7 @@ consumption of shared panel shells:
 | A6.245 | Plan apply feedback chrome |
 | A6.246 | Task context availability flags |
 | A6.247 | Model dropdown trigger/empty copy |
+| A6.248 | Task queue surface subtitle |
 
 ### A5 complete enough
 
