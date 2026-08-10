@@ -18,7 +18,7 @@ describe("TranscriptReadPaths", () => {
 
   it("renders nothing for empty paths", () => {
     const html = renderToStaticMarkup(
-      createElement(TranscriptReadPaths, { paths: [] }),
+      createElement(TranscriptReadPaths, { paths: [], onOpen: vi.fn() }),
     );
     expect(html).toBe("");
   });

@@ -10,7 +10,7 @@ describe("AiDisplayMessageBodyExtras", () => {
         children: createElement("p", null, "main"),
         originalText: "a",
         proposedText: "b",
-        todos: [{ id: "1", content: "t", status: "pending" }],
+        todos: [{ id: "1", title: "t", status: "pending" }],
       }),
     );
     expect(html).toContain("main");

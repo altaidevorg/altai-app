@@ -14,8 +14,8 @@ describe("TranscriptToolGroup", () => {
           preview: "a.ts, b.ts",
           icon: createElement("span", null, "icon"),
           defaultOpen: false,
+          children: createElement("ul", null, createElement("li", null, "row")),
         },
-        createElement("ul", null, createElement("li", null, "row")),
       ),
     );
     expect(html).toContain("Read");
@@ -34,8 +34,8 @@ describe("TranscriptToolGroup", () => {
           countLabel: "1 call",
           icon: createElement("span", null, "icon"),
           defaultOpen: true,
+          children: createElement("div", { className: "body" }, "expanded"),
         },
-        createElement("div", { className: "body" }, "expanded"),
       ),
     );
     expect(html).toContain('aria-expanded="true"');
