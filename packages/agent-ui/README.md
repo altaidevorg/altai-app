@@ -338,6 +338,7 @@ consumption of shared panel shells:
 | A6.220 | Provider API key presence checks |
 | A6.221 | Timed cache fresh + task title from prompt |
 | A6.222 | Catalog model availability filter |
+| A6.223 | Automation every interval ms conversion |
 
 ### A5 complete enough
 

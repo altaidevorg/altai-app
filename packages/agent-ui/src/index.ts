@@ -2049,3 +2049,8 @@ export {
   isCatalogModelAvailable,
   filterAvailableCatalogModels,
 } from "./lib/catalogModelAvailable.js";
+export {
+  everyMsFromMinutes,
+  minutesFromEveryMs,
+  everyMinutesInputFromMs,
+} from "./lib/automationIntervalChrome.js";
