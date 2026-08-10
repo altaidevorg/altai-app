@@ -1018,6 +1018,37 @@ struct AsyncRunRequest {
     compact_tail: Option<usize>,
 }
 
+/// The reusable host forwards outbound bus traffic through both its generic
+/// router and its channel-delivery router. `observe_tx` receives those two
+/// immediate copies. Keep the CLI's machine-output and journal boundaries
+/// exactly-once without attempting to change host routing from this adapter.
+fn is_duplicate_observed_bus_message(
+    previous_fingerprint: &mut Option<String>,
+    message: &isanagent::bus::BusMessage,
+) -> bool {
+    // Do not retain arbitrary routing messages: `SwitchModel`, for example,
+    // carries a credential and is not user-visible machine output. The three
+    // variants below are exactly the ones the JSONL emitter/journal consume.
+    let observable = matches!(
+        message,
+        isanagent::bus::BusMessage::RunLifecycle(_)
+            | isanagent::bus::BusMessage::Outbound(_)
+            | isanagent::bus::BusMessage::Telemetry(_)
+    );
+    if !observable {
+        *previous_fingerprint = None;
+        return false;
+    }
+    let Ok(fingerprint) = serde_json::to_string(message) else {
+        // Observation is diagnostic/output-only. If a future non-serializable
+        // observable variant is introduced, deliver it rather than dropping it.
+        return false;
+    };
+    let duplicate = previous_fingerprint.as_deref() == Some(fingerprint.as_str());
+    *previous_fingerprint = Some(fingerprint);
+    duplicate
+}
+
 async fn async_run_prompt(request: AsyncRunRequest) -> Result<(), CliError> {
     use isanagent::host::{OneshotOutcome, OneshotResult};
     use std::io::{self, Write};
@@ -1052,7 +1083,11 @@ async fn async_run_prompt(request: AsyncRunRequest) -> Result<(), CliError> {
         let mut emitter = run_output::JsonlEmitter::new(workspace_display);
         let mut stdout = io::stdout();
         let mut stderr = io::stderr();
+        let mut previous_fingerprint = None;
         while let Some(message) = observe_rx.recv().await {
+            if is_duplicate_observed_bus_message(&mut previous_fingerprint, &message) {
+                continue;
+            }
             if let Some(sink) = journal_sink_for_observer.lock().await.as_mut() {
                 sink.observe_bus_message(&message);
             }
@@ -1377,6 +1412,30 @@ fn missing_desktop_message(candidates: &[PathBuf]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn suppresses_immediate_duplicate_observed_bus_messages() {
+        use isanagent::bus::{BusMessage, RunLifecycleEvent};
+
+        let started = BusMessage::RunLifecycle(RunLifecycleEvent::Started {
+            run_id: "run-1".to_string(),
+            chat_id: "chat-1".to_string(),
+        });
+        let next_run = BusMessage::RunLifecycle(RunLifecycleEvent::Started {
+            run_id: "run-2".to_string(),
+            chat_id: "chat-1".to_string(),
+        });
+        let control = BusMessage::Cancel("chat-1".to_string());
+        let mut previous = None;
+
+        assert!(!is_duplicate_observed_bus_message(&mut previous, &started));
+        assert!(is_duplicate_observed_bus_message(&mut previous, &started));
+        // Non-observable routing traffic neither gets retained nor causes a
+        // later legitimate repeated lifecycle event to be dropped.
+        assert!(!is_duplicate_observed_bus_message(&mut previous, &control));
+        assert!(!is_duplicate_observed_bus_message(&mut previous, &started));
+        assert!(!is_duplicate_observed_bus_message(&mut previous, &next_run));
+    }
 
     #[test]
     fn desktop_router_uses_sibling_binary_on_windows_and_linux() {
