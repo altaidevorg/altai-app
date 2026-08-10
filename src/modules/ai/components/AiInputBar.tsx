@@ -44,6 +44,10 @@ import {
   COMPOSER_CONTEXT_ACTIVE_TERMINAL,
   COMPOSER_CONTEXT_WORKING_DIFF,
   voiceInputControlTitle,
+  composerStopControlLabel,
+  composerStopAriaLabel,
+  COMPOSER_SEND_TOOLTIP,
+  COMPOSER_SEND_ARIA_LABEL,
 } from "@altai/agent-ui";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import {
@@ -581,7 +585,7 @@ export function AiInputBar() {
               onClick={c.stop}
               disabled={c.isCancelling}
               className="h-7 gap-1.5 rounded-md px-2.5 text-[11px]"
-              aria-label={c.isCancelling ? "Cancelling" : "Stop"}
+              aria-label={composerStopAriaLabel(c.isCancelling)}
             >
               {c.isCancelling ? (
                 <Spinner className="size-3" />
@@ -589,18 +593,18 @@ export function AiInputBar() {
                 <span className="block size-2 rounded-sm bg-foreground" />
               )}
               <span className="altai-ai-composer-submit-label">
-                {c.isCancelling ? "Stopping" : "Stop"}
+                {composerStopControlLabel(c.isCancelling)}
               </span>
             </Button>
           ) : (
-            <HoverTooltip label="Send · Enter">
+            <HoverTooltip label={COMPOSER_SEND_TOOLTIP}>
               <Button
                 type="button"
                 size="icon"
                 onClick={c.submit}
                 disabled={!c.canSend}
                 className="size-7 rounded-md p-0 transition-all active:scale-[0.98]"
-                aria-label="Send"
+                aria-label={COMPOSER_SEND_ARIA_LABEL}
               >
                 <HugeiconsIcon icon={ArrowUpIcon} size={13} strokeWidth={2.25} />
               </Button>

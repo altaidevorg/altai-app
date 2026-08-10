@@ -2224,3 +2224,9 @@ export {
   COMPOSER_CONTEXT_WORKING_DIFF,
 } from "./lib/composerContextMenuChrome.js";
 export type { ComposerContextActionCopy } from "./lib/composerContextMenuChrome.js";
+export {
+  composerStopControlLabel,
+  composerStopAriaLabel,
+  COMPOSER_SEND_TOOLTIP,
+  COMPOSER_SEND_ARIA_LABEL,
+} from "./lib/composerStopSendChrome.js";
