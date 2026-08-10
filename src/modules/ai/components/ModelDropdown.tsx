@@ -46,7 +46,11 @@ import {
   ComposerConfigTrigger,
   ModelPickerPanel,
   filterCatalogModelsForDropdown,
+  modelDropdownAutoDetail,
+  modelDropdownEmptyMessage,
   modelDropdownShowSections,
+  modelDropdownTriggerLabel,
+  modelDropdownTriggerTitle,
   partitionModelsByFavRecent,
 } from "@altai/agent-ui";
 
@@ -265,18 +269,21 @@ export function ModelDropdown({
               className="shrink-0 opacity-80"
             />
           }
-          label={autoSelected ? `Auto · ${autoModel?.label ?? current.label}` : current.label}
+          label={modelDropdownTriggerLabel(
+            autoSelected,
+            current.label,
+            autoModel?.label,
+          )}
           className={cn(
             triggerUsable ? "text-foreground/85" : "text-warning",
             className,
           )}
-          title={
-            autoSelected
-              ? `Auto selects a compatible model for each task. Current recommendation: ${autoModel?.label ?? current.label}`
-              : triggerUsable
-              ? `Model: ${current.label}`
-              : `${current.label} — add an API key in Model settings`
-          }
+          title={modelDropdownTriggerTitle(
+            autoSelected,
+            triggerUsable,
+            current.label,
+            autoModel?.label,
+          )}
         />
       </PopoverTrigger>
 
@@ -313,13 +320,11 @@ export function ModelDropdown({
           onSelectProvider={(id) =>
             setActiveProvider(id as ProviderId | null)
           }
-          emptyMessage={
-            filtered.length === 0
-              ? available.length === 0
-                ? "No models available — add an API key in Model settings."
-                : (describeModelConstraint(activeAgent) ?? "No models match.")
-              : null
-          }
+          emptyMessage={modelDropdownEmptyMessage(
+            filtered.length,
+            available.length,
+            describeModelConstraint(activeAgent),
+          )}
           autoOption={
             autoOptionVisible
               ? {
@@ -327,9 +332,7 @@ export function ModelDropdown({
                   providerIcon:
                     PROVIDER_ICON[autoModel?.provider ?? current.provider],
                   domId: modelOptionDomId(autoModel?.id ?? current.id),
-                  detail: autoModel
-                    ? `Recommended now: ${autoModel.label}`
-                    : "Choose from compatible models",
+                  detail: modelDropdownAutoDetail(autoModel?.label),
                   selected: autoSelected,
                   active: activeIndex === 0,
                   onClick: pickAuto,

@@ -362,6 +362,7 @@ consumption of shared panel shells:
 | A6.244 | Agent switcher list partition |
 | A6.245 | Plan apply feedback chrome |
 | A6.246 | Task context availability flags |
+| A6.247 | Model dropdown trigger/empty copy |
 
 ### A5 complete enough
 

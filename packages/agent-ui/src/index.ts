@@ -2170,3 +2170,9 @@ export {
   isTerminalContextAvailable,
   isWorkspaceContextAvailable,
 } from "./lib/taskContextAvailabilityChrome.js";
+export {
+  modelDropdownTriggerLabel,
+  modelDropdownTriggerTitle,
+  modelDropdownEmptyMessage,
+  modelDropdownAutoDetail,
+} from "./lib/modelDropdownChrome.js";
