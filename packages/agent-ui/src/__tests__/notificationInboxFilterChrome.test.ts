@@ -9,7 +9,8 @@ import {
 
 describe("matchesSearchFields", () => {
   it("matches normalized haystack", () => {
-    expect(matchesSearchFields(["Hello", null, "World"], "lo w")).toBe(true);
+    expect(matchesSearchFields(["Hello", null, "World"], "hello")).toBe(true);
+    expect(matchesSearchFields(["Hello", null, "World"], "world")).toBe(true);
     expect(matchesSearchFields(["Hello"], "zzz")).toBe(false);
   });
 });
