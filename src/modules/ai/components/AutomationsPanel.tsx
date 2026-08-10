@@ -38,7 +38,11 @@ import {
   AuxiliarySurface,
   ConversationOwnerSection,
   CreateFormActions,
+  automationFilterCounts,
+  automationMatchesFilter,
+  automationMatchesQuery,
   automationNextRunAtMs,
+  compareAutomationsForList,
   defaultAutomationAtValue,
   PromptEditorSection,
   SurfaceEmptyState,
@@ -140,41 +144,28 @@ export function AutomationsPanel({
     ownerChatId && message.trim() && !creating && !scheduleError,
   );
   const filterCounts = useMemo(
-    () => ({
-      all: items.length,
-      once: items.filter((item) => item.schedule.kind === "at").length,
-      repeat: items.filter((item) => item.schedule.kind !== "at").length,
-      issues: items.filter((item) => jobsByAutomationId[item.id]?.lastError)
-        .length,
-    }),
+    () => automationFilterCounts(items, jobsByAutomationId),
     [items, jobsByAutomationId],
   );
   const visibleItems = useMemo(() => {
-    const normalizedQuery = query.trim().toLowerCase();
     return items
       .filter((item) => {
-        if (filter === "once" && item.schedule.kind !== "at") return false;
-        if (filter === "repeat" && item.schedule.kind === "at") return false;
-        if (filter === "issues" && !jobsByAutomationId[item.id]?.lastError) {
+        if (!automationMatchesFilter(item, filter, jobsByAutomationId)) {
           return false;
         }
-        if (!normalizedQuery) return true;
-        return [
-          item.message,
+        return automationMatchesQuery(
+          item,
+          query,
           titles.get(item.chatId) ?? "",
           automationScheduleLabel(item.schedule),
           jobsByAutomationId[item.id]?.lastError ?? "",
-        ]
-          .join("\n")
-          .toLowerCase()
-          .includes(normalizedQuery);
+        );
       })
-      .sort((left, right) => {
-        const leftFailed = Boolean(jobsByAutomationId[left.id]?.lastError);
-        const rightFailed = Boolean(jobsByAutomationId[right.id]?.lastError);
-        if (leftFailed !== rightFailed) return leftFailed ? -1 : 1;
-        return automationNextRunAtMs(left) - automationNextRunAtMs(right);
-      });
+      .sort((left, right) =>
+        compareAutomationsForList(left, right, jobsByAutomationId, (l, r) =>
+          automationNextRunAtMs(l) - automationNextRunAtMs(r),
+        ),
+      );
   }, [filter, items, jobsByAutomationId, query, titles]);
 
   const submit = (event: React.FormEvent) => {

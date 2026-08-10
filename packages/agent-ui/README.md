@@ -325,6 +325,7 @@ consumption of shared panel shells:
 | A6.207 | Pending id map start/end chrome |
 | A6.208 | Omit record key + list item by id |
 | A6.209 | Automation schedule next-run + default at |
+| A6.210 | Automation filter counts/match/sort chrome |
 
 ### A5 complete enough
 
