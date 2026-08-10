@@ -18,6 +18,9 @@ import {
   voiceInputControlTitle,
   miniConversationControlTitle,
   COMPOSER_ATTACH_FILE_TITLE,
+  composerStopAriaLabel,
+  composerStopControlLabel,
+  COMPOSER_SEND_ARIA_LABEL,
 } from "@altai/agent-ui";
 import {
   Context,
@@ -164,8 +167,8 @@ export function AiStatusBarControls() {
           variant="ghost"
           onClick={c.stop}
           className="size-6"
-          aria-label="Stop"
-          title="Stop"
+          aria-label={composerStopAriaLabel(false)}
+          title={composerStopControlLabel(false)}
         >
           <HugeiconsIcon icon={StopCircleIcon} size={13} strokeWidth={1.75} />
         </Button>
@@ -176,7 +179,7 @@ export function AiStatusBarControls() {
           onClick={c.submit}
           disabled={!c.canSend}
           className="ml-1 h-5.5 w-7.5"
-          aria-label="Send"
+          aria-label={COMPOSER_SEND_ARIA_LABEL}
           title="Send (Enter)"
         >
           <HugeiconsIcon icon={ArrowUpIcon} size={13} strokeWidth={1.75} />
