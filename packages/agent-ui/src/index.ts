@@ -2103,3 +2103,9 @@ export {
   terminalContextDetailLabel,
   gitDiffContextDetailLabel,
 } from "./lib/taskContextSourceChrome.js";
+export {
+  modelDropdownShowSections,
+  filterCatalogModelsForDropdown,
+  partitionModelsByFavRecent,
+} from "./lib/modelDropdownFilterChrome.js";
+export type { DropdownModelLike } from "./lib/modelDropdownFilterChrome.js";
