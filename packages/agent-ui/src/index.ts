@@ -940,6 +940,11 @@ export {
   sameIdSequence,
 } from "./lib/modelListChrome.js";
 export { appendSlashCommandFocus } from "./lib/slashCommandFocus.js";
+export {
+  INIT_WORKSPACE_PROMPT,
+  SLASH_COMMAND_PROMPTS,
+  promptForSlashCommand,
+} from "./lib/slashCommandPrompt.js";
 export { parseComposerSlashLead } from "./lib/parseComposerSlashLead.js";
 export type { ComposerSlashLead } from "./lib/parseComposerSlashLead.js";
 export { findAgentByIdOrName } from "./lib/findAgentByName.js";
