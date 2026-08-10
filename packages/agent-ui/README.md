@@ -330,6 +330,7 @@ consumption of shared panel shells:
 | A6.212 | Session history snippet + content presence |
 | A6.213 | Task assignment status from live run |
 | A6.214 | Task Runs filter counts/match/group chrome |
+| A6.215 | Notification inbox filter/search chrome |
 
 ### A5 complete enough
 
