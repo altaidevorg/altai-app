@@ -23,6 +23,7 @@ import {
   AgentsInspector,
   AiChatMainColumn,
   AiPanelTopbar,
+  AiRunInspectorFrame,
   AiSidePanelFrame,
   ApprovalsInspector,
   ArtifactsInspector,
@@ -875,22 +876,16 @@ function RunInspector({ className, onClose }: { className?: string; onClose?: ()
   const running = isAgentRunBusy(meta.status);
 
   return (
-    <aside
+    <AiRunInspectorFrame
       aria-label={SIDE_PANEL_RUN_DETAILS_ARIA}
-      className={cn(
-        "flex min-h-0 min-w-0 flex-col border-l border-border-subtle bg-card",
-        className,
-      )}
-    >
-      <RunDetailsHeader
+      className={className}
+      header={<RunDetailsHeader
         subtitle={runInspectorHeaderSubtitle(meta.status, meta.step)}
         status={meta.error ? "blocked" : running ? "running" : "idle"}
         onClose={onClose}
         onStop={stopAgent}
-      />
-
-      <div className="min-h-0 flex-1 space-y-2.5 overflow-y-auto p-2.5">
-        <RunOverviewCard
+      />}
+      summary={<RunOverviewCard
           statusPill={<AgentStatusPill announce={false} />}
           tokenLabel={runInspectorUsageTokenLabel(tokenTotal)}
           step={meta.step}
@@ -909,7 +904,8 @@ function RunInspector({ className, onClose }: { className?: string; onClose?: ()
               value: String(meta.activeSubagents.length),
             },
           ]}
-        />
+        />}
+    >
 
         {meta.error ? <RunBlockedBanner message={meta.error} /> : null}
 
@@ -1023,8 +1019,7 @@ function RunInspector({ className, onClose }: { className?: string; onClose?: ()
             setItems={setCheckpoints}
           />
         </InspectorSection>
-      </div>
-    </aside>
+    </AiRunInspectorFrame>
   );
 }
 

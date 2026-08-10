@@ -765,6 +765,12 @@ export {
 } from "./components/AiChatMainColumn.js";
 
 export {
+  AiRunInspectorFrame,
+  type AiRunInspectorFrameProps,
+  type AiRunInspectorFrameVariant,
+} from "./components/AiRunInspectorFrame.js";
+
+export {
   canRetryLastAssistantTurn,
   isRecoverableAttentionMessage,
   isRetryableRunOutcome,
