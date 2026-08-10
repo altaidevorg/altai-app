@@ -2018,3 +2018,10 @@ export type {
 
 export { sessionTitleMap, sessionIdSet } from "./lib/sessionTitleMap.js";
 export type { SessionTitleSource } from "./lib/sessionTitleMap.js";
+
+export {
+  TASK_PROMPT_TEMPLATES,
+  AUTOMATION_PROMPT_TEMPLATES,
+  automationTemplatesAsMessages,
+} from "./lib/opsPromptTemplates.js";
+export type { OpsPromptTemplate } from "./lib/opsPromptTemplates.js";
