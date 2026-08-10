@@ -2015,3 +2015,6 @@ export type {
   NotificationInboxFilterId,
   InboxFilterCountSource,
 } from "./lib/notificationInboxFilterChrome.js";
+
+export { sessionTitleMap, sessionIdSet } from "./lib/sessionTitleMap.js";
+export type { SessionTitleSource } from "./lib/sessionTitleMap.js";

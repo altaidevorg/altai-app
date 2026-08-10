@@ -54,6 +54,7 @@ import {
   SurfaceLoadingState,
   SurfacePrimaryAction,
   SurfaceSecondaryAction,
+  sessionTitleMap,
 } from "@altai/agent-ui";
 
 type ScheduleMode = "at" | "every";
@@ -127,7 +128,7 @@ export function AutomationsPanel({
   }, [activeChatId, ownerChatId, sessions]);
 
   const titles = useMemo(
-    () => new Map(sessions.map((session) => [session.id, session.title])),
+    () => sessionTitleMap(sessions),
     [sessions],
   );
   const creating = Boolean(pendingIds.create);
