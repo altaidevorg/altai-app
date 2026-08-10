@@ -32,6 +32,10 @@ import {
   filterWorkspacePathsForPicker,
   prependComposerInstruction,
   SEMBLE_SCOUT_SEARCH_INSTRUCTION,
+  composerDesktopPlaceholder,
+  composerFollowupBarHint,
+  composerSteerControlTitle,
+  COMPOSER_QUEUE_CONTROL_TITLE,
 } from "@altai/agent-ui";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import {
@@ -390,11 +394,7 @@ export function AiInputBar() {
                       else if (action === "send") c.submit();
                     }
                   }}
-                  placeholder={
-                    c.isBusy
-                      ? "Add a follow-up, steer the active run, or queue the next task…"
-                      : "Describe a task or ask a follow-up…  @ files  / commands  # snippets"
-                  }
+                  placeholder={composerDesktopPlaceholder(c.isBusy)}
                 />
               </div>
             </PopoverAnchor>
@@ -422,27 +422,22 @@ export function AiInputBar() {
         followup={
           c.canSteer || c.canQueue ? (
             <ComposerFollowupBar
-              hint={
-                c.isCancelling
-                  ? "Cancellation requested — you can queue the next task"
-                  : c.canSteer
-                    ? "Enter queues next · ⌘/Ctrl+Enter steers this run"
-                    : "Enter queues next · starts after the active run ends"
-              }
+              hint={composerFollowupBarHint({
+                isCancelling: c.isCancelling,
+                canSteer: c.canSteer,
+              })}
               showSteer={c.isRunning}
               showQueue={c.isBusy}
               canSteer={c.canSteer}
               canQueue={c.canQueue}
               onSteer={c.steer}
               onQueue={c.queueNext}
-              steerTitle={
+              steerTitle={composerSteerControlTitle(
                 c.files.some(
                   (file) => file.kind === "image" || file.kind === "pdf",
-                )
-                  ? "Steering cannot include images or PDFs; use Queue next"
-                  : "Apply at the active run's next safe boundary"
-              }
-              queueTitle="Start after the active run terminates"
+                ),
+              )}
+              queueTitle={COMPOSER_QUEUE_CONTROL_TITLE}
             />
           ) : undefined
         }
