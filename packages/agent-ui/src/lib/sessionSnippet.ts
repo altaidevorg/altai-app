@@ -40,6 +40,9 @@ export function extractSessionSnippet(
 ): string {
   for (let i = messages.length - 1; i >= 0; i--) {
     const message = messages[i];
+    // Guests with `noUncheckedIndexedAccess` (VS Code host) treat `messages[i]`
+    // as possibly undefined even when iterating by length.
+    if (!message) continue;
     for (const part of message.parts) {
       if (part.type !== "text") continue;
       const cleaned = cleanTranscriptSnippetText(part.text ?? "");
