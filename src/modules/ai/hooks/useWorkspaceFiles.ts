@@ -1,3 +1,4 @@
+import { isTimedCacheFresh } from "@altai/agent-ui";
 import { invoke } from "@tauri-apps/api/core";
 import { useEffect, useState } from "react";
 import { currentWorkspaceEnv } from "@/modules/workspace";
@@ -21,7 +22,7 @@ const cache = new Map<string, CacheEntry>();
 const inflight = new Map<string, Promise<CacheEntry>>();
 
 function isFresh(entry: CacheEntry): boolean {
-  return Date.now() - entry.fetchedAt < CACHE_TTL_MS;
+  return isTimedCacheFresh(entry.fetchedAt, CACHE_TTL_MS);
 }
 
 function fetchFiles(root: string): Promise<CacheEntry> {

@@ -2039,3 +2039,8 @@ export {
   hasApiKeyForModel,
 } from "./lib/providerKeyChrome.js";
 export type { ProviderKeyMap } from "./lib/providerKeyChrome.js";
+
+export {
+  isTimedCacheFresh,
+  taskTitleFromPrompt,
+} from "./lib/timedCacheChrome.js";
