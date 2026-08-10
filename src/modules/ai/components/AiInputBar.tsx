@@ -48,6 +48,12 @@ import {
   composerStopAriaLabel,
   COMPOSER_SEND_TOOLTIP,
   COMPOSER_SEND_ARIA_LABEL,
+  COMPOSER_VOICE_LISTENING_LABEL,
+  COMPOSER_VOICE_TRANSCRIBING_LABEL,
+  COMPOSER_ACTIVE_TERMINAL_NAME,
+  COMPOSER_WORKING_DIFF_NAME,
+  COMPOSER_ATTACH_DIFF_ERROR_LABEL,
+  COMPOSER_PERMISSION_MODE_LABEL,
 } from "@altai/agent-ui";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import {
@@ -237,9 +243,9 @@ export function AiInputBar() {
   };
 
   const voiceLabel = c.voice.recording
-    ? "Listening…"
+    ? COMPOSER_VOICE_LISTENING_LABEL
     : c.voice.transcribing
-      ? "Transcribing…"
+      ? COMPOSER_VOICE_TRANSCRIBING_LABEL
       : null;
 
   const hasChips =
@@ -257,7 +263,7 @@ export function AiInputBar() {
   const attachTerminalContext = () => {
     const output = useChatStore.getState().live.getTerminalContext();
     if (!output) return;
-    c.addTextContext({ kind: "terminal", name: "Active terminal", text: output });
+    c.addTextContext({ kind: "terminal", name: COMPOSER_ACTIVE_TERMINAL_NAME, text: output });
     setContextOpen(false);
   };
 
@@ -266,11 +272,11 @@ export function AiInputBar() {
     try {
       const diff = await native.gitDiff(workspaceRoot, null, false);
       if (diff.diffText.trim()) {
-        c.addTextContext({ kind: "diff", name: "Working tree diff", text: diff.diffText });
+        c.addTextContext({ kind: "diff", name: COMPOSER_WORKING_DIFF_NAME, text: diff.diffText });
       }
     } catch (cause) {
       useChatStore.getState().addActivity({
-        label: "Could not attach working-tree diff",
+        label: COMPOSER_ATTACH_DIFF_ERROR_LABEL,
         detail: cause instanceof Error ? cause.message : String(cause),
         tone: "error",
       });
@@ -572,7 +578,7 @@ export function AiInputBar() {
           </>
         }
         permission={
-          <HoverTooltip label="Permission mode">
+          <HoverTooltip label={COMPOSER_PERMISSION_MODE_LABEL}>
             <PermissionModeSwitcher variant="toolbar-icon" />
           </HoverTooltip>
         }
