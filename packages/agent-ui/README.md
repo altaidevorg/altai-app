@@ -340,6 +340,7 @@ consumption of shared panel shells:
 | A6.222 | Catalog model availability filter |
 | A6.223 | Automation every interval ms conversion |
 | A6.224 | Task list sort + enabled agents filter |
+| A6.225 | Task context path merge + bot title strip |
 
 ### A5 complete enough
 

@@ -2059,3 +2059,8 @@ export {
   filterEnabledAgents,
   filterTaskSourceAssignments,
 } from "./lib/taskListOrderChrome.js";
+export {
+  normalizeDialogPathSelection,
+  appendUniqueContextPaths,
+  stripTaskBotTitlePrefix,
+} from "./lib/taskContextPathChrome.js";
