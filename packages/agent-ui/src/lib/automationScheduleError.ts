@@ -2,7 +2,9 @@
  * Pure Automation create form schedule validation copy (A6.211).
  */
 
-export type AutomationScheduleMode = "at" | "every";
+import type { AutomationScheduleMode } from "../components/AutomationScheduleFields.js";
+
+export type { AutomationScheduleMode };
 
 /**
  * Human-readable schedule field error, or null when the draft is sendable.
