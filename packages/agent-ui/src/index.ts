@@ -2208,3 +2208,9 @@ export {
 } from "./lib/historyToggleChrome.js";
 export { taskPermissionModeShortLabel } from "./lib/taskPermissionModeChrome.js";
 export type { TaskPermissionModeLike } from "./lib/taskPermissionModeChrome.js";
+export {
+  composerDesktopPlaceholder,
+  composerFollowupBarHint,
+  composerSteerControlTitle,
+  COMPOSER_QUEUE_CONTROL_TITLE,
+} from "./lib/composerDesktopChrome.js";
