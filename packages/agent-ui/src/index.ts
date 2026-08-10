@@ -2032,3 +2032,5 @@ export {
   resolveRunModelIdFromCandidates,
 } from "./lib/opsCreateChrome.js";
 export type { RunModelPickable } from "./lib/opsCreateChrome.js";
+
+export { nextConversationOwnerChatId } from "./lib/conversationOwnerChrome.js";

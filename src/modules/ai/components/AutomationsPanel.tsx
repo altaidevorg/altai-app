@@ -57,6 +57,7 @@ import {
   sessionTitleMap,
   automationTemplatesAsMessages,
   canCreateAutomationDraft,
+  nextConversationOwnerChatId,
 } from "@altai/agent-ui";
 
 type ScheduleMode = "at" | "every";
@@ -105,12 +106,12 @@ export function AutomationsPanel({
   }, [refresh, workspacePath]);
 
   useEffect(() => {
-    if (
-      activeChatId &&
-      (!ownerChatId || !sessions.some((session) => session.id === ownerChatId))
-    ) {
-      setOwnerChatId(activeChatId);
-    }
+    const next = nextConversationOwnerChatId(
+      activeChatId,
+      ownerChatId,
+      sessions.map((session) => session.id),
+    );
+    if (next) setOwnerChatId(next);
   }, [activeChatId, ownerChatId, sessions]);
 
   const titles = useMemo(
