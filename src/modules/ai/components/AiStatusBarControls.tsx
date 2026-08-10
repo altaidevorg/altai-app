@@ -16,6 +16,7 @@ import {
   aiAgentToggleTitle,
   voiceInputControlDisabled,
   voiceInputControlTitle,
+  miniConversationControlTitle,
 } from "@altai/agent-ui";
 import {
   Context,
@@ -148,7 +149,7 @@ export function AiStatusBarControls() {
         </Kbd>
       </Button>
       <IconBtn
-        title={miniOpen ? "Mini-window open" : "Open conversation"}
+        title={miniConversationControlTitle(miniOpen)}
         onClick={openMini}
         disabled={miniOpen}
       >

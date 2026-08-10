@@ -78,6 +78,7 @@ import {
   isRecoverableRunOutcome,
   runRecoveryPresentation,
   runRecoverySteerPrompt,
+  historyToggleLabel,
 } from "@altai/agent-ui";
 import {
   retryFailedRun,
@@ -681,11 +682,11 @@ function WorkspaceTopbar({
   }, [refreshInbox, workspacePath]);
 
   const historyControl = (
-    <IconTooltip label={historyOpen ? "Back to task" : "Chat sessions"}>
+    <IconTooltip label={historyToggleLabel(historyOpen)}>
       <button
         type="button"
         onClick={onToggleHistory}
-        aria-label={historyOpen ? "Back to task" : "Chat sessions"}
+        aria-label={historyToggleLabel(historyOpen)}
         aria-pressed={historyOpen}
         className={cn(
           "inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground",

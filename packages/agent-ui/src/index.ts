@@ -2202,3 +2202,7 @@ export {
   voiceInputControlDisabled,
 } from "./lib/statusBarChrome.js";
 export type { VoiceControlState } from "./lib/statusBarChrome.js";
+export {
+  historyToggleLabel,
+  miniConversationControlTitle,
+} from "./lib/historyToggleChrome.js";

@@ -368,6 +368,7 @@ consumption of shared panel shells:
 | A6.250 | Run inspector overview copy |
 | A6.251 | Run recovery title/detail/steer copy |
 | A6.252 | AI status-bar control titles |
+| A6.253 | History toggle and mini-conversation titles |
 
 ### A5 complete enough
 
