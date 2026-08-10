@@ -383,6 +383,7 @@ consumption of shared panel shells:
 | A6.265 | Status-bar residual titles |
 | A6.266 | Composer residual chrome |
 | A6.267 | Misc AI control labels |
+| A6.268 | Paper import and Compact now labels |
 
 ### A5 complete enough
 
