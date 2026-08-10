@@ -2156,3 +2156,12 @@ export {
   partitionAgentsForSwitcher,
   resolveSwitcherActiveAgent,
 } from "./lib/agentSwitcherChrome.js";
+export {
+  failedPlanApplyResults,
+  bulkPlanApplyFeedback,
+  singlePlanApplyFeedback,
+} from "./lib/planApplyFeedbackChrome.js";
+export type {
+  PlanApplyResultLike,
+  PlanApplyFeedback,
+} from "./lib/planApplyFeedbackChrome.js";

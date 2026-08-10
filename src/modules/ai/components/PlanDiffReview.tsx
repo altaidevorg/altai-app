@@ -4,9 +4,11 @@ import {
   ReviewHistory,
   useHostPorts,
   type ReviewHistoryItem,
+  bulkPlanApplyFeedback,
   composePlanReviewHistoryRows,
   isPlanRestoreRowId,
   planIdFromRestoreRowId,
+  singlePlanApplyFeedback,
 } from "@altai/agent-ui";
 import { native, type CheckpointInfo } from "../lib/native";
 import {
@@ -78,27 +80,19 @@ export function PlanDiffReview({
       for (const item of pending) {
         results.push(await applyViaReviewPort(item));
       }
-      const failed = results.filter((r) => !r.ok);
-      if (failed.length) {
-        console.error("plan apply failures:", failed);
-        setFeedback(
-          `${failed.length} change${failed.length === 1 ? "" : "s"} could not be applied. They remain in review.`,
+      const chrome = bulkPlanApplyFeedback(results);
+      if (chrome.tone === "error") {
+        console.error(
+          "plan apply failures:",
+          results.filter((r) => !r.ok),
         );
-        addActivity({
-          label: "Some reviewed changes could not be applied",
-          detail: `${failed.length} change${failed.length === 1 ? "" : "s"} remain queued`,
-          tone: "error",
-        });
-      } else {
-        setFeedback(
-          `${results.length} change${results.length === 1 ? "" : "s"} applied. A restore point is available in Undo.`,
-        );
-        addActivity({
-          label: `Applied ${results.length} reviewed change${results.length === 1 ? "" : "s"}`,
-          detail: "Restore points are available in Undo",
-          tone: "success",
-        });
       }
+      setFeedback(chrome.feedback);
+      addActivity({
+        label: chrome.activityLabel,
+        detail: chrome.activityDetail ?? undefined,
+        tone: chrome.tone,
+      });
     } finally {
       setBusy(false);
     }
@@ -111,21 +105,13 @@ export function PlanDiffReview({
       const item = usePlanStore.getState().queue.find((q) => q.id === id);
       if (!item) return;
       const result = await applyViaReviewPort(item);
-      if (result.ok) {
-        setFeedback("Change applied. A restore point is available in Undo.");
-        addActivity({
-          label: "Applied a reviewed change",
-          detail: "Restore point available in Undo",
-          tone: "success",
-        });
-      } else {
-        setFeedback(`Could not apply change: ${result.error ?? "Unknown error"}`);
-        addActivity({
-          label: "Reviewed change could not be applied",
-          detail: result.error,
-          tone: "error",
-        });
-      }
+      const chrome = singlePlanApplyFeedback(result);
+      setFeedback(chrome.feedback);
+      addActivity({
+        label: chrome.activityLabel,
+        detail: chrome.activityDetail ?? undefined,
+        tone: chrome.tone,
+      });
     } finally {
       setApplyingId(null);
     }
