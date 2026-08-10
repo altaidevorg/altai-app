@@ -92,6 +92,13 @@ import {
   taskQueueSurfaceSubtitle,
   TASK_CREATE_SURFACE_SUBTITLE,
   taskPermissionModeShortLabel,
+  TASK_RUNS_LOADING_LABEL,
+  TASK_RUNS_EMPTY_TITLE,
+  TASK_RUNS_EMPTY_DESCRIPTION,
+  TASK_RUNS_EMPTY_ACTION_LABEL,
+  TASK_RUNS_FILTERED_EMPTY_MESSAGE,
+  TASK_RUNS_SEARCH_PLACEHOLDER,
+  TASK_RUNS_TABS_LABEL,
 } from "@altai/agent-ui";
 
 const TERMINAL: AssignmentStatus[] = ["done", "failed", "cancelled"];
@@ -348,8 +355,8 @@ export function TaskRunsPanel({
         <SurfaceFilterToolbar
           query={query}
           onQueryChange={setQuery}
-          searchPlaceholder="Search by task, step, or result"
-          tabsLabel="Filter work runs"
+          searchPlaceholder={TASK_RUNS_SEARCH_PLACEHOLDER}
+          tabsLabel={TASK_RUNS_TABS_LABEL}
           tabValue={filter}
           onTabChange={(value) => setFilter(value as TaskFilter)}
           tabs={[
@@ -472,26 +479,26 @@ export function TaskRunsPanel({
       <div className="min-h-0 flex-1 overflow-y-auto p-3">
         {!hydrated ? (
           <SurfaceLoadingState density="panel">
-            <Spinner className="size-3.5" /> Loading tasks…
+            <Spinner className="size-3.5" /> {TASK_RUNS_LOADING_LABEL}
           </SurfaceLoadingState>
         ) : tasks.length === 0 ? (
           <SurfaceEmptyState
             icon={Notebook01Icon}
-            title="No background work yet"
-            description="Delegate a task to an isolated chat and keep working here while the agent runs."
+            title={TASK_RUNS_EMPTY_TITLE}
+            description={TASK_RUNS_EMPTY_DESCRIPTION}
             action={
               <button
                 type="button"
                 onClick={() => setViewMode("create")}
                 className="rounded-md bg-primary px-3 py-1.5 text-[10px] font-semibold text-primary-foreground"
               >
-                Start a background task
+                {TASK_RUNS_EMPTY_ACTION_LABEL}
               </button>
             }
           />
         ) : visibleTasks.length === 0 ? (
           <SurfaceFilteredEmpty
-            message="No tasks match this view."
+            message={TASK_RUNS_FILTERED_EMPTY_MESSAGE}
             onClear={() => {
               setQuery("");
               setFilter("all");
