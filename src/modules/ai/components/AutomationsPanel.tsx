@@ -78,6 +78,13 @@ import {
   AUTOMATIONS_TABS_LABEL,
   AUTOMATIONS_OWNING_CHAT_FALLBACK,
   AUTOMATIONS_SELECT_CHAT_LABEL,
+  AUTOMATIONS_SURFACE_EYEBROW,
+  AUTOMATIONS_REFRESH_LABEL,
+  AUTOMATIONS_INSTRUCTION_TITLE,
+  AUTOMATIONS_INSTRUCTION_DESCRIPTION,
+  AUTOMATIONS_MESSAGE_ARIA,
+  AUTOMATIONS_MESSAGE_PLACEHOLDER,
+  AUTOMATIONS_DISMISS_ERROR_ARIA,
 } from "@altai/agent-ui";
 
 type ScheduleMode = "at" | "every";
@@ -217,7 +224,7 @@ export function AutomationsPanel({
   return (
     <AuxiliarySurface
       title="Work"
-      eyebrow="Workspace work"
+      eyebrow={AUTOMATIONS_SURFACE_EYEBROW}
       icon={Notebook01Icon}
       presentation={presentation}
       subtitle={
@@ -235,7 +242,7 @@ export function AutomationsPanel({
           {viewMode === "list" ? (
             <>
               <SurfaceIconAction
-                label="Refresh automations"
+                label={AUTOMATIONS_REFRESH_LABEL}
                 onClick={() => void refresh(workspacePath)}
                 disabled={loading}
               >
@@ -278,14 +285,14 @@ export function AutomationsPanel({
       {viewMode === "create" ? (
       <form onSubmit={submit} className="min-h-0 flex-1 overflow-y-auto">
         <PromptEditorSection
-          title="Instruction"
-          description="Keep it specific, repeatable, and easy to review."
+          title={AUTOMATIONS_INSTRUCTION_TITLE}
+          description={AUTOMATIONS_INSTRUCTION_DESCRIPTION}
           value={message}
           onChange={setMessage}
           maxLength={10_000}
           rows={4}
-          ariaLabel="Automation message"
-          placeholder="What should the agent do?"
+          ariaLabel={AUTOMATIONS_MESSAGE_ARIA}
+          placeholder={AUTOMATIONS_MESSAGE_PLACEHOLDER}
           size="automation"
           templateColumns={3}
           templateDensity="compact"
@@ -354,7 +361,7 @@ export function AutomationsPanel({
         <SurfaceInlineError
           message={error}
           onDismiss={clearError}
-          dismissAriaLabel="Dismiss automation error"
+          dismissAriaLabel={AUTOMATIONS_DISMISS_ERROR_ARIA}
         />
       ) : null}
 
