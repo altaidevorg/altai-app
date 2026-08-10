@@ -2120,3 +2120,10 @@ export {
 } from "./lib/automationFormParseChrome.js";
 export { chatTabsFromOpenIds } from "./lib/chatTabsFromOpenIds.js";
 export type { SessionTabSource } from "./lib/chatTabsFromOpenIds.js";
+export {
+  countCompletedTodos,
+  filterActivityByQuery,
+  filterActivityByKind,
+  isAgentRunBusy,
+} from "./lib/runInspectorActivityChrome.js";
+export type { RunActivityItemLike } from "./lib/runInspectorActivityChrome.js";

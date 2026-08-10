@@ -354,6 +354,7 @@ consumption of shared panel shells:
 | A6.236 | Notification inbox empty + search filter |
 | A6.237 | Automation form datetime/minutes parse |
 | A6.238 | Chat tabs from open session ids |
+| A6.239 | Run inspector activity filter + todo count |
 
 ### A5 complete enough
 
