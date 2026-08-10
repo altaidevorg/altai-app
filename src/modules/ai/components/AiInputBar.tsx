@@ -30,6 +30,8 @@ import {
   type ComposerTokenTrigger,
   filterSnippetsForPicker,
   filterWorkspacePathsForPicker,
+  prependComposerInstruction,
+  SEMBLE_SCOUT_SEARCH_INSTRUCTION,
 } from "@altai/agent-ui";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import {
@@ -268,9 +270,8 @@ export function AiInputBar() {
   };
 
   const prepareSembleSearch = () => {
-    const prefix = "Use the Semble Scout subagent to search this workspace before answering.";
     c.setValue((value) =>
-      value.trim() ? `${prefix}\n\n${value}` : `${prefix}\n\n`,
+      prependComposerInstruction(value, SEMBLE_SCOUT_SEARCH_INSTRUCTION),
     );
     requestAnimationFrame(() => c.textareaRef.current?.focus());
   };

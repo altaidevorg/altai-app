@@ -357,6 +357,7 @@ consumption of shared panel shells:
 | A6.239 | Run inspector activity filter + todo count |
 | A6.240 | Automation list/create subtitle copy |
 | A6.241 | Composer snippet/file picker filters |
+| A6.242 | Composer instruction prefix helper |
 
 ### A5 complete enough
 

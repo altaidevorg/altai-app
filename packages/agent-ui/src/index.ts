@@ -2136,3 +2136,7 @@ export {
   filterWorkspacePathsForPicker,
 } from "./lib/composerPickerFilterChrome.js";
 export type { SnippetPickerFields } from "./lib/composerPickerFilterChrome.js";
+export {
+  prependComposerInstruction,
+  SEMBLE_SCOUT_SEARCH_INSTRUCTION,
+} from "./lib/composerInstructionChrome.js";
