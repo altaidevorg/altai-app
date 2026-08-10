@@ -4,6 +4,11 @@ import {
   extractSessionSnippet,
   groupSessionsByRecency,
   SessionRow,
+  CHAT_HISTORY_CONTROL_LABEL,
+  CHAT_HISTORY_SEARCH_ARIA_LABEL,
+  CHAT_HISTORY_SEARCH_PLACEHOLDER,
+  SESSION_UNTITLED_TITLE,
+  chatHistoryEmptyMessage,
 } from "@altai/agent-ui";
 import {
   Clock01Icon,
@@ -85,7 +90,7 @@ export function ChatHistory() {
     const q = search.trim().toLowerCase();
     if (!q) return sessions;
     return sessions.filter((s) => {
-      const title = (s.title || "New chat").toLowerCase();
+      const title = (s.title || SESSION_UNTITLED_TITLE).toLowerCase();
       if (title.includes(q)) return true;
       const snippet = snippets[s.id] ?? "";
       return snippet.toLowerCase().includes(q);
@@ -97,7 +102,7 @@ export function ChatHistory() {
       groupSessionsByRecency(
         filtered.map((s) => ({
           id: s.id,
-          title: s.title || "New chat",
+          title: s.title || SESSION_UNTITLED_TITLE,
           updatedAt: s.updatedAt,
           snippet: snippets[s.id],
         })),
@@ -115,7 +120,7 @@ export function ChatHistory() {
 
   const handleStartRename = useCallback((id: string, title: string) => {
     setRenamingId(id);
-    setRenameValue(title || "New chat");
+    setRenameValue(title || SESSION_UNTITLED_TITLE);
   }, []);
 
   const handleCommitRename = useCallback(() => {
@@ -136,8 +141,8 @@ export function ChatHistory() {
       <PopoverTrigger asChild>
         <button
           type="button"
-          title="Chat history"
-          aria-label="Chat history"
+          title={CHAT_HISTORY_CONTROL_LABEL}
+          aria-label={CHAT_HISTORY_CONTROL_LABEL}
           className={cn(
             "inline-flex size-6 shrink-0 items-center justify-center rounded-md",
             "text-muted-foreground transition-colors hover:bg-accent hover:text-foreground",
@@ -163,7 +168,7 @@ export function ChatHistory() {
           />
           <input
             ref={searchInputRef}
-            aria-label="Search chat history"
+            aria-label={CHAT_HISTORY_SEARCH_ARIA_LABEL}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             onKeyDown={(e) => {
@@ -174,7 +179,7 @@ export function ChatHistory() {
                 }
               }
             }}
-            placeholder="Search chat history…"
+            placeholder={CHAT_HISTORY_SEARCH_PLACEHOLDER}
             className="w-full bg-transparent text-[12px] outline-none placeholder:text-muted-foreground/60"
           />
         </div>
@@ -182,7 +187,7 @@ export function ChatHistory() {
         <div className="min-h-0 flex-1 overflow-y-auto py-1">
           {groups.length === 0 ? (
             <div className="px-3 py-8 text-center text-[11px] text-muted-foreground/70">
-              {search ? "No chats match." : "No chats yet."}
+              {chatHistoryEmptyMessage(Boolean(search))}
             </div>
           ) : (
             groups.map((group) => (
