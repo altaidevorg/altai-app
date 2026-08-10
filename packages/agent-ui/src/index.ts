@@ -2180,3 +2180,9 @@ export {
   taskQueueSurfaceSubtitle,
   TASK_CREATE_SURFACE_SUBTITLE,
 } from "./lib/taskQueueSubtitleChrome.js";
+export {
+  runInspectorHeaderSubtitle,
+  runInspectorUsageTokenLabel,
+  planProgressMetricValue,
+  planInspectorSectionSummary,
+} from "./lib/runInspectorChrome.js";
