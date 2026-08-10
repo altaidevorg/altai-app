@@ -2046,11 +2046,9 @@ export {
 } from "./lib/timedCacheChrome.js";
 
 export {
-export {
   isCatalogModelAvailable,
   filterAvailableCatalogModels,
 } from "./lib/catalogModelAvailable.js";
-export {
 export {
   everyMsFromMinutes,
   minutesFromEveryMs,
