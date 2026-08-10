@@ -365,6 +365,7 @@ consumption of shared panel shells:
 | A6.247 | Model dropdown trigger/empty copy |
 | A6.248 | Task queue surface subtitle |
 | A6.249 | Session id list projection |
+| A6.250 | Run inspector overview copy |
 
 ### A5 complete enough
 

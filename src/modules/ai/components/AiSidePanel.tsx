@@ -71,6 +71,10 @@ import {
   isAgentRunBusy,
   sumRunTokens,
   sessionIds,
+  runInspectorHeaderSubtitle,
+  runInspectorUsageTokenLabel,
+  planProgressMetricValue,
+  planInspectorSectionSummary,
 } from "@altai/agent-ui";
 import {
   retryFailedRun,
@@ -846,9 +850,7 @@ function RunInspector({ className, onClose }: { className?: string; onClose?: ()
       )}
     >
       <RunDetailsHeader
-        subtitle={
-          meta.status === "idle" ? "Ready for the next task" : meta.step ?? "Agent is working"
-        }
+        subtitle={runInspectorHeaderSubtitle(meta.status, meta.step)}
         status={meta.error ? "blocked" : running ? "running" : "idle"}
         onClose={onClose}
         onStop={stopAgent}
@@ -857,14 +859,12 @@ function RunInspector({ className, onClose }: { className?: string; onClose?: ()
       <div className="min-h-0 flex-1 space-y-2.5 overflow-y-auto p-2.5">
         <RunOverviewCard
           statusPill={<AgentStatusPill announce={false} />}
-          tokenLabel={
-            tokenTotal ? `${tokenTotal.toLocaleString()} tokens` : "No usage yet"
-          }
+          tokenLabel={runInspectorUsageTokenLabel(tokenTotal)}
           step={meta.step}
           metrics={[
             {
               label: "Plan",
-              value: todos.length ? `${completedTodos}/${todos.length}` : "—",
+              value: planProgressMetricValue(completedTodos, todos.length),
             },
             { label: "Changes", value: String(planQueue.length) },
             {
@@ -891,11 +891,7 @@ function RunInspector({ className, onClose }: { className?: string; onClose?: ()
 
         <InspectorSection
           title="Plan"
-          summary={
-            todos.length
-              ? `${completedTodos} of ${todos.length} steps complete`
-              : "No checklist for this run"
-          }
+          summary={planInspectorSectionSummary(completedTodos, todos.length)}
           count={todos.length}
           defaultOpen={todos.length > 0 && running}
         >
