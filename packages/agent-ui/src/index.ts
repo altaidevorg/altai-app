@@ -2131,3 +2131,8 @@ export {
   automationListSubtitle,
   automationCreateSubtitle,
 } from "./lib/automationListSubtitleChrome.js";
+export {
+  filterSnippetsForPicker,
+  filterWorkspacePathsForPicker,
+} from "./lib/composerPickerFilterChrome.js";
+export type { SnippetPickerFields } from "./lib/composerPickerFilterChrome.js";

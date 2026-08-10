@@ -356,6 +356,7 @@ consumption of shared panel shells:
 | A6.238 | Chat tabs from open session ids |
 | A6.239 | Run inspector activity filter + todo count |
 | A6.240 | Automation list/create subtitle copy |
+| A6.241 | Composer snippet/file picker filters |
 
 ### A5 complete enough
 

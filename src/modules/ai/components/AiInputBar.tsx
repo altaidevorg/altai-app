@@ -28,6 +28,8 @@ import {
   ProviderConnectBanner,
   type AtMentionRange,
   type ComposerTokenTrigger,
+  filterSnippetsForPicker,
+  filterWorkspacePathsForPicker,
 } from "@altai/agent-ui";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import {
@@ -122,19 +124,16 @@ export function AiInputBar() {
   const filteredItems = useMemo<PickerItem[]>(() => {
     if (!trigger) return [];
     const q = trigger.query;
-    const cmdItems: PickerItem[] = findSlashCommands(q)
-      .map((command) => ({ kind: "command", command }));
+    const cmdItems: PickerItem[] = findSlashCommands(q).map((command) => ({
+      kind: "command",
+      command,
+    }));
     const snipItems: PickerItem[] =
       trigger.prefix === "#"
-        ? snippets
-            .filter(
-              (s) =>
-                !q ||
-                s.handle.includes(q) ||
-                s.name.toLowerCase().includes(q) ||
-                s.description.toLowerCase().includes(q),
-            )
-            .map((snippet) => ({ kind: "snippet", snippet }))
+        ? filterSnippetsForPicker(snippets, q).map((snippet) => ({
+            kind: "snippet",
+            snippet,
+          }))
         : [];
     return [...cmdItems, ...snipItems];
   }, [commandIndexVersion, trigger, snippets]);
@@ -142,16 +141,11 @@ export function AiInputBar() {
   const FILE_PICKER_CAP = 30;
   const filteredFiles = useMemo<string[]>(() => {
     if (!fileTrigger) return [];
-    const q = fileQuery.toLowerCase();
-    if (!q) return workspaceFiles.files.slice(0, FILE_PICKER_CAP);
-    const out: string[] = [];
-    for (const f of workspaceFiles.files) {
-      if (f.toLowerCase().includes(q)) {
-        out.push(f);
-        if (out.length >= FILE_PICKER_CAP) break;
-      }
-    }
-    return out;
+    return filterWorkspacePathsForPicker(
+      workspaceFiles.files,
+      fileQuery,
+      FILE_PICKER_CAP,
+    );
   }, [fileTrigger, fileQuery, workspaceFiles.files]);
 
   const fileTriggerOpen = fileTrigger !== null;
