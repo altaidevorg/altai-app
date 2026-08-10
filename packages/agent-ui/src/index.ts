@@ -2127,3 +2127,7 @@ export {
   isAgentRunBusy,
 } from "./lib/runInspectorActivityChrome.js";
 export type { RunActivityItemLike } from "./lib/runInspectorActivityChrome.js";
+export {
+  automationListSubtitle,
+  automationCreateSubtitle,
+} from "./lib/automationListSubtitleChrome.js";

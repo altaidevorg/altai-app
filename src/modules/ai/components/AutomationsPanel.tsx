@@ -63,6 +63,8 @@ import {
   datetimeLocalInputToMs,
   parseFiniteMinutesInput,
   isFiniteNumber,
+  automationListSubtitle,
+  automationCreateSubtitle,
 } from "@altai/agent-ui";
 
 type ScheduleMode = "at" | "every";
@@ -207,8 +209,11 @@ export function AutomationsPanel({
       presentation={presentation}
       subtitle={
         viewMode === "list"
-          ? `${filterCounts.repeat} recurring · ${filterCounts.once} one-time`
-          : "Define an instruction, owner chat, and schedule"
+          ? automationListSubtitle({
+              repeat: filterCounts.repeat,
+              once: filterCounts.once,
+            })
+          : automationCreateSubtitle()
       }
       onClose={onClose}
       navigation={navigation}
