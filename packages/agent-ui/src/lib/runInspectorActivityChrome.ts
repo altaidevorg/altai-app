@@ -33,7 +33,7 @@ export function filterActivityByQuery<T extends RunActivityItemLike>(
 }
 
 /** Keep activity rows of a single kind (research, mcp, …). */
-export function filterActivityByKind<T extends { kind: string }>(
+export function filterActivityByKind<T extends { kind?: string | null }>(
   items: readonly T[],
   kind: string,
 ): T[] {
