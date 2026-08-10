@@ -102,19 +102,30 @@ impl StdioEventSink {
             }
         }
 
-        let value = json!({
-            "jsonrpc": "2.0",
-            "method": "run/event",
-            "params": {
-                "chat_id": envelope.chat_id,
-                "run_id": run_id,
-                "seq": envelope.seq,
-                "event": envelope.event,
-            }
-        });
+        let value = run_event_notification(&envelope)
+            .expect("run envelopes with identity produce run/event notifications");
         write_framed(&self.writer, &value)
             .map_err(|error| AgentEventSinkError::Unavailable(error.to_string()))
     }
+}
+
+/// Convert a sequenced agent envelope into the stable stdio notification
+/// consumed by extension hosts. System-only envelopes intentionally have no
+/// `run/event` representation because the Webview meter is run-scoped.
+fn run_event_notification(envelope: &AgentEventEnvelope) -> Option<serde_json::Value> {
+    let (Some(run_id), Some(seq)) = (envelope.run_id.as_deref(), envelope.seq) else {
+        return None;
+    };
+    Some(json!({
+        "jsonrpc": "2.0",
+        "method": "run/event",
+        "params": {
+            "chat_id": &envelope.chat_id,
+            "run_id": run_id,
+            "seq": seq,
+            "event": &envelope.event,
+        }
+    }))
 }
 
 impl AgentEventSink for StdioEventSink {
@@ -145,4 +156,39 @@ fn test_terminal_pause() -> Option<Duration> {
 #[cfg(not(debug_assertions))]
 fn test_terminal_pause() -> Option<Duration> {
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn usage_envelope_preserves_token_fields_in_stdio_notification() {
+        let envelope = AgentEventEnvelope::run(
+            "chat-1",
+            "run-1",
+            7,
+            json!({
+                "type": "usage",
+                "prompt_tokens": 120,
+                "completion_tokens": 45,
+                "total_tokens": 165,
+            }),
+        );
+
+        let notification = run_event_notification(&envelope).expect("run notification");
+
+        assert_eq!(notification["method"], "run/event");
+        assert_eq!(notification["params"]["chat_id"], "chat-1");
+        assert_eq!(notification["params"]["run_id"], "run-1");
+        assert_eq!(notification["params"]["seq"], 7);
+        assert_eq!(notification["params"]["event"]["type"], "usage");
+        assert_eq!(notification["params"]["event"]["total_tokens"], 165);
+    }
+
+    #[test]
+    fn system_envelope_does_not_become_a_run_notification() {
+        let envelope = AgentEventEnvelope::system("chat-1", json!({ "type": "usage" }));
+        assert!(run_event_notification(&envelope).is_none());
+    }
 }
