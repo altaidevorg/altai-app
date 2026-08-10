@@ -1981,3 +1981,9 @@ export {
   hasConversationContent,
 } from "./lib/sessionSnippet.js";
 export type { SnippetMessage, SnippetMessagePart } from "./lib/sessionSnippet.js";
+
+export { resolveAssignmentStatusFromRun } from "./lib/taskAssignmentStatus.js";
+export type {
+  TaskAssignmentStatus,
+  TaskRunSnapshotLike,
+} from "./lib/taskAssignmentStatus.js";
