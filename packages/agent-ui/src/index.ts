@@ -2165,3 +2165,8 @@ export type {
   PlanApplyResultLike,
   PlanApplyFeedback,
 } from "./lib/planApplyFeedbackChrome.js";
+export {
+  isActiveFileInContext,
+  isTerminalContextAvailable,
+  isWorkspaceContextAvailable,
+} from "./lib/taskContextAvailabilityChrome.js";
