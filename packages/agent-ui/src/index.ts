@@ -2080,3 +2080,8 @@ export type {
   TaskVerificationLike,
   TaskRunOutcomeCounts,
 } from "./lib/taskRunOutcomeChrome.js";
+export {
+  sumRunTokens,
+  skillsListLabel,
+  catalogEntryName,
+} from "./lib/taskRunCardChrome.js";

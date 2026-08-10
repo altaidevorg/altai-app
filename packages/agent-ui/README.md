@@ -344,6 +344,7 @@ consumption of shared panel shells:
 | A6.226 | Chat history session search filter |
 | A6.227 | Catalog id lookup + model label |
 | A6.228 | Task run outcome counts |
+| A6.229 | Task run card tokens/skills/name labels |
 
 ### A5 complete enough
 

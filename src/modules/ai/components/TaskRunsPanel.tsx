@@ -75,6 +75,10 @@ import {
   findCatalogEntryById,
   catalogModelLabel,
   taskRunOutcomeCounts,
+  sumRunTokens,
+  skillsListLabel,
+  catalogEntryName,
+  toggleTaskSkillSelection,
 } from "@altai/agent-ui";
 
 const TERMINAL: AssignmentStatus[] = ["done", "failed", "cancelled"];
@@ -362,7 +366,7 @@ export function TaskRunsPanel({
         <TaskRunConfigSection>
           <DropdownMenu>
             <DropdownMenuTrigger className="flex h-6 items-center gap-1 rounded-md border border-border bg-card px-2 text-[10px] text-muted-foreground transition-colors hover:bg-foreground/[0.055]">
-              {agents.find((agent) => agent.id === agentId)?.name ?? "Default"}
+              {catalogEntryName(agents, agentId, "Default")}
               <HugeiconsIcon icon={ArrowDown01Icon} size={9} strokeWidth={2} />
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start" className="min-w-28">
@@ -394,7 +398,7 @@ export function TaskRunsPanel({
             const path = liveContext.getActiveFile();
             if (path) {
               setContextFiles((current) =>
-                current.includes(path) ? current : [...current, path],
+                appendUniqueContextPaths(current, [path]),
               );
             }
           }}
@@ -431,9 +435,7 @@ export function TaskRunsPanel({
           selected={selectedSkills}
           onToggle={(skillName) =>
             setSelectedSkills((current) =>
-              current.includes(skillName)
-                ? current.filter((name) => name !== skillName)
-                : [...current, skillName],
+              toggleTaskSkillSelection(current, skillName),
             )
           }
         />
@@ -495,7 +497,6 @@ export function TaskRunsPanel({
             {group.items.map(({ task, status }, index) => {
               const run = runs[task.sessionId];
               const active = ACTIVE_ASSIGNMENT_STATES.includes(status);
-              const tokens = run ? run.tokens.input + run.tokens.output : 0;
               return (
                 <TaskRunCard
                   key={task.id}
@@ -503,23 +504,18 @@ export function TaskRunsPanel({
                   title={stripTaskBotTitlePrefix(task.title)}
                   status={status}
                   createdAtMs={task.createdAt}
-                  tokens={tokens}
+                  tokens={sumRunTokens(run?.tokens)}
                   subagentCount={run?.subagents.length ?? 0}
-                  agentLabel={
-                    task.runConfig?.agentId
-                      ? (findCatalogEntryById(agents, task.runConfig.agentId)
-                          ?.name ?? "Custom agent")
-                      : undefined
-                  }
+                  agentLabel={catalogEntryName(
+                    agents,
+                    task.runConfig?.agentId,
+                    "Custom agent",
+                  )}
                   modelLabel={catalogModelLabel(
                     MODELS,
                     task.runConfig?.modelId,
                   )}
-                  skillsLabel={
-                    task.runConfig?.skills?.length
-                      ? task.runConfig.skills.join(", ")
-                      : undefined
-                  }
+                  skillsLabel={skillsListLabel(task.runConfig?.skills)}
                   step={run?.step}
                   lastResult={run?.lastResult}
                   outcome={
