@@ -1921,6 +1921,8 @@ export type {
   InboxClarificationTicketRow,
   NotificationInboxViewModel,
 } from "./lib/notificationInboxView.js";
+
+export {
   editProposalInputFromQueued,
   markPlanEditAppliedState,
 } from "./lib/planQueueChrome.js";
