@@ -46,6 +46,7 @@ import {
   HoverActionButton,
   joinMessageTextParts,
   prepareUserTurnDisplay,
+  STOP_GENERATING_TITLE,
 } from "@altai/agent-ui";
 import { AgentStatusPill } from "./AgentStatusPill";
 import { openWorkspaceFile } from "../lib/openChatHref";
@@ -245,7 +246,7 @@ const RenderedMessage = memo(function RenderedMessage({
           </MessageActions>
         )}
         renderStop={() => (
-          <HoverActionButton title="Stop generating" onClick={() => onStop?.()}>
+          <HoverActionButton title={STOP_GENERATING_TITLE} onClick={() => onStop?.()}>
             <HugeiconsIcon icon={Cancel01Icon} size={11} strokeWidth={1.75} />
             Stop
           </HoverActionButton>
