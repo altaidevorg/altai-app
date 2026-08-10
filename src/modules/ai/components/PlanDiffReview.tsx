@@ -4,6 +4,9 @@ import {
   ReviewHistory,
   useHostPorts,
   type ReviewHistoryItem,
+  composePlanReviewHistoryRows,
+  isPlanRestoreRowId,
+  planIdFromRestoreRowId,
 } from "@altai/agent-ui";
 import { native, type CheckpointInfo } from "../lib/native";
 import {
@@ -195,26 +198,23 @@ function ReviewHistoryBridge({
 
   if (!items.length && !applied.length) return null;
 
-  const rows: ReviewHistoryItem[] = [
-    ...[...applied].reverse().map((item) => ({
-      id: `plan-${item.id}`,
-      path: item.path,
-      detail: `Accepted review · ${item.isNewFile ? "remove new file" : "restore prior content"}`,
-    })),
-    ...items.map((item) => ({
-      id: item.id,
-      path: item.path,
-      detail: `${item.label} · ${new Date(item.createdMs).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`,
-    })),
-  ];
+  const rows: ReviewHistoryItem[] = composePlanReviewHistoryRows(
+    applied,
+    items,
+    (createdMs) =>
+      new Date(createdMs).toLocaleTimeString([], {
+        hour: "2-digit",
+        minute: "2-digit",
+      }),
+  );
 
   const onRestore = async (rowId: string) => {
     if (restoring) return;
     setError(null);
     setRestoring(rowId);
     try {
-      if (rowId.startsWith("plan-")) {
-        const id = rowId.slice("plan-".length);
+      if (isPlanRestoreRowId(rowId)) {
+        const id = planIdFromRestoreRowId(rowId);
         const result = await restoreApplied(id);
         if (result && !result.ok) {
           setError(result.error ?? "Could not restore change.");
