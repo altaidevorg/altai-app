@@ -38,7 +38,8 @@ import {
   AuxiliarySurface,
   ConversationOwnerSection,
   CreateFormActions,
-  localDateTimeValue,
+  automationNextRunAtMs,
+  defaultAutomationAtValue,
   PromptEditorSection,
   SurfaceEmptyState,
   SurfaceFilteredEmpty,
@@ -71,11 +72,6 @@ const AUTOMATION_TEMPLATES = [
   },
 ];
 
-function defaultAtValue(): string {
-  const next = new Date(Date.now() + 5 * 60_000);
-  next.setSeconds(0, 0);
-  return localDateTimeValue(next.getTime());
-}
 
 export function AutomationsPanel({
   onClose,
@@ -102,7 +98,7 @@ export function AutomationsPanel({
   const clearError = useAutomationStore((state) => state.clearError);
   const [message, setMessage] = useState("");
   const [mode, setMode] = useState<ScheduleMode>("at");
-  const [atValue, setAtValue] = useState(defaultAtValue);
+  const [atValue, setAtValue] = useState(defaultAutomationAtValue);
   const [everyMinutes, setEveryMinutes] = useState("60");
   const [ownerChatId, setOwnerChatId] = useState(activeChatId ?? "");
   const [query, setQuery] = useState("");
@@ -177,7 +173,7 @@ export function AutomationsPanel({
         const leftFailed = Boolean(jobsByAutomationId[left.id]?.lastError);
         const rightFailed = Boolean(jobsByAutomationId[right.id]?.lastError);
         if (leftFailed !== rightFailed) return leftFailed ? -1 : 1;
-        return nextRunAt(left) - nextRunAt(right);
+        return automationNextRunAtMs(left) - automationNextRunAtMs(right);
       });
   }, [filter, items, jobsByAutomationId, query, titles]);
 
@@ -190,7 +186,7 @@ export function AutomationsPanel({
       void create(ownerChatId, { kind: "at", atMs }, message.trim()).then((created) => {
         if (!created) return;
         setMessage("");
-        setAtValue(defaultAtValue());
+        setAtValue(defaultAutomationAtValue());
         setViewMode("list");
       });
       return;
@@ -210,7 +206,7 @@ export function AutomationsPanel({
     setOwnerChatId(item.chatId);
     if (item.schedule.kind === "at") {
       setMode("at");
-      setAtValue(defaultAtValue());
+      setAtValue(defaultAutomationAtValue());
     } else if (item.schedule.kind === "every") {
       setMode("every");
       setEveryMinutes(String(item.schedule.everyMs / 60_000));
@@ -453,10 +449,3 @@ export function AutomationsPanel({
   );
 }
 
-function nextRunAt(item: AgentAutomationInfo): number {
-  if (item.schedule.kind === "at") return item.schedule.atMs;
-  if (item.schedule.kind === "every") {
-    return (item.lastRunAtMs ?? Date.now()) + item.schedule.everyMs;
-  }
-  return Number.MAX_SAFE_INTEGER;
-}

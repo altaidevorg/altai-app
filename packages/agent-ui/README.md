@@ -324,6 +324,7 @@ consumption of shared panel shells:
 | A6.206 | Automation list sort + cron job index |
 | A6.207 | Pending id map start/end chrome |
 | A6.208 | Omit record key + list item by id |
+| A6.209 | Automation schedule next-run + default at |
 
 ### A5 complete enough
 
