@@ -1,3 +1,7 @@
+import {
+  filterAvailableCatalogModels,
+  isCatalogModelAvailable,
+} from "@altai/agent-ui";
 export const KEYRING_SERVICE = "altai-ai";
 
 export type ProviderId =
@@ -842,11 +846,13 @@ export function isModelAvailable(
   hasProviderKey: (provider: ProviderId) => boolean,
   hiddenIds: ReadonlySet<string>,
 ): boolean {
-  if (hiddenIds.has(model.id)) return false;
-  if (providerNeedsKey(model.provider) && !hasProviderKey(model.provider)) {
-    return false;
-  }
-  return true;
+  return isCatalogModelAvailable({
+    modelId: model.id,
+    provider: model.provider,
+    hiddenIds,
+    providerNeedsKey: (provider) => providerNeedsKey(provider as ProviderId),
+    hasProviderKey: (provider) => hasProviderKey(provider as ProviderId),
+  });
 }
 
 /** Models the user can actually pick — requires a key for keyed providers,
@@ -856,11 +862,12 @@ export function listAvailableModels(
   apiKeys: Partial<Record<ProviderId, string | null | undefined>>,
   hiddenIds: ReadonlySet<string> | readonly string[] = [],
 ): ModelInfo[] {
-  const hidden =
-    hiddenIds instanceof Set ? hiddenIds : new Set(hiddenIds);
-  const hasKey = (id: ProviderId) =>
-    providerNeedsKey(id) ? !!apiKeys[id] : true;
-  return MODELS.filter((m) => isModelAvailable(m, hasKey, hidden));
+  return filterAvailableCatalogModels(
+    MODELS,
+    apiKeys,
+    hiddenIds,
+    (provider) => providerNeedsKey(provider as ProviderId),
+  );
 }
 
 /** Providers that currently have at least one selectable model. */

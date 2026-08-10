@@ -337,6 +337,7 @@ consumption of shared panel shells:
 | A6.219 | Conversation owner chat resolve |
 | A6.220 | Provider API key presence checks |
 | A6.221 | Timed cache fresh + task title from prompt |
+| A6.222 | Catalog model availability filter |
 
 ### A5 complete enough
 

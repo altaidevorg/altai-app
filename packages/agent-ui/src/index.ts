@@ -2044,3 +2044,8 @@ export {
   isTimedCacheFresh,
   taskTitleFromPrompt,
 } from "./lib/timedCacheChrome.js";
+
+export {
+  isCatalogModelAvailable,
+  filterAvailableCatalogModels,
+} from "./lib/catalogModelAvailable.js";
