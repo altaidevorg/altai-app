@@ -367,6 +367,7 @@ consumption of shared panel shells:
 | A6.249 | Session id list projection |
 | A6.250 | Run inspector overview copy |
 | A6.251 | Run recovery title/detail/steer copy |
+| A6.252 | AI status-bar control titles |
 
 ### A5 complete enough
 

@@ -13,6 +13,9 @@ import {
   CheckpointMenuPanel,
   CompactNowControl,
   IconBtn,
+  aiAgentToggleTitle,
+  voiceInputControlDisabled,
+  voiceInputControlTitle,
 } from "@altai/agent-ui";
 import {
   Context,
@@ -58,7 +61,7 @@ export function AiOpenButton({
       <AiOpenControl
         active={active}
         onOpen={onOpen}
-        title={`${active ? "Hide" : "Show"} AI agent  ${fmtShortcut(MOD_KEY, "I")}`}
+        title={aiAgentToggleTitle(active, fmtShortcut(MOD_KEY, "I"))}
       />
     </motion.div>
   );
@@ -95,19 +98,19 @@ export function AiStatusBarControls() {
 
       {c.voice.supported && (
         <IconBtn
-          title={
-            !c.voice.hasKey
-              ? "Voice needs an OpenAI key"
-              : c.voice.recording
-                ? "Stop & transcribe"
-                : c.voice.transcribing
-                  ? "Transcribing…"
-                  : "Voice input"
-          }
+          title={voiceInputControlTitle({
+            hasKey: c.voice.hasKey,
+            recording: c.voice.recording,
+            transcribing: c.voice.transcribing,
+          })}
           onClick={() =>
             c.voice.recording ? c.voice.stop() : void c.voice.start()
           }
-          disabled={c.isBusy || c.voice.transcribing || !c.voice.hasKey}
+          disabled={voiceInputControlDisabled(c.isBusy, {
+            hasKey: c.voice.hasKey,
+            recording: c.voice.recording,
+            transcribing: c.voice.transcribing,
+          })}
           className={cn(
             c.voice.recording &&
               "bg-destructive/10 text-destructive hover:bg-destructive/15",
