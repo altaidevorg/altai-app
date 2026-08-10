@@ -321,6 +321,7 @@ consumption of shared panel shells:
 | A6.203 | Notification inbox attention view |
 | A6.204 | Plan queue proposal + applied mark |
 | A6.205 | errorMessage/mutationKey/workspace path normalize |
+| A6.206 | Automation list sort + cron job index |
 
 ### A5 complete enough
 
