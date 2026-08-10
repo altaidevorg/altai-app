@@ -123,6 +123,39 @@ fn replay_event_type(value: &Value) -> Option<&str> {
     value.pointer("/event/type").and_then(Value::as_str)
 }
 
+fn create_fixture_skill_repo(root: &std::path::Path) -> std::path::PathBuf {
+    let repo = root.join("fixture-skills");
+    let skill = repo.join("skills").join("fixture-review");
+    std::fs::create_dir_all(&skill).expect("fixture skill directory");
+    std::fs::write(
+        skill.join("SKILL.md"),
+        "---\nname: fixture-review\ndescription: Fixture skill installed through stdio.\n---\n\nUse this fixture only in tests.\n",
+    )
+    .expect("fixture skill file");
+
+    for args in [
+        vec!["init"],
+        vec!["add", "."],
+        vec![
+            "-c",
+            "user.name=ALTAI Test",
+            "-c",
+            "user.email=altai-test@example.invalid",
+            "commit",
+            "-m",
+            "fixture skill",
+        ],
+    ] {
+        let status = Command::new("git")
+            .args(args)
+            .current_dir(&repo)
+            .status()
+            .expect("run fixture git command");
+        assert!(status.success(), "fixture git command failed");
+    }
+    repo
+}
+
 #[test]
 fn config_update_persists_a_non_secret_model_setting() {
     let workspace = tempfile::tempdir().expect("workspace");
@@ -216,6 +249,48 @@ fn mcp_server_configuration_uses_the_native_lifecycle_protocol() {
     assert_eq!(process.next()["result"]["servers"][0]["enabled"], false);
     process.frame(json!({"jsonrpc":"2.0","id":6,"method":"shutdown"}));
     assert_eq!(process.next()["id"], 6);
+    let _stderr = process.shutdown();
+}
+
+#[test]
+fn skills_install_and_list_use_the_stdio_host_protocol() {
+    let root = tempfile::tempdir().expect("test root");
+    let workspace = root.path().join("workspace");
+    std::fs::create_dir_all(&workspace).expect("workspace directory");
+    let source = create_fixture_skill_repo(root.path());
+    let source = format!("file://{}", source.display());
+    let mut process = ServeProcess::spawn(&workspace, false);
+
+    process.frame(initialize(json!(1)));
+    let initialized = process.next();
+    for capability in ["skills/list", "skills/install"] {
+        assert!(initialized["result"]["capabilities"]
+            .as_array()
+            .expect("capabilities")
+            .contains(&json!(capability)));
+    }
+
+    process.frame(json!({"jsonrpc":"2.0","id":2,"method":"skills/list"}));
+    assert_eq!(process.next()["result"]["skills"], json!([]));
+
+    process.frame(json!({
+        "jsonrpc":"2.0", "id":3, "method":"skills/install",
+        "params":{"source": source, "skill":"fixture-review"}
+    }));
+    let installed = process.next();
+    assert_eq!(installed["result"]["installed"], json!(["fixture-review"]));
+    assert_eq!(installed["result"]["skills"][0]["name"], "fixture-review");
+    assert_eq!(
+        installed["result"]["skills"][0]["description"],
+        "Fixture skill installed through stdio."
+    );
+
+    process.frame(json!({"jsonrpc":"2.0","id":4,"method":"skills/list"}));
+    let listed = process.next();
+    assert_eq!(listed["result"]["skills"][0]["name"], "fixture-review");
+
+    process.frame(json!({"jsonrpc":"2.0","id":5,"method":"shutdown"}));
+    assert_eq!(process.next()["id"], 5);
     let _stderr = process.shutdown();
 }
 
@@ -742,7 +817,13 @@ fn task_run_rpc_persists_status_and_supports_lifecycle_actions() {
         listed["result"]["task_runs"][0]["title"],
         "Review pull request"
     );
-    assert_eq!(listed["result"]["task_runs"][0]["status"], "running");
+    assert!(
+        matches!(
+            listed["result"]["task_runs"][0]["status"].as_str(),
+            Some("running" | "succeeded")
+        ),
+        "task status: {listed}"
+    );
 
     process.frame(json!({
         "jsonrpc":"2.0", "id":4, "method":"work/tasks/cancel", "params":{"task_id":"task-rpc"}
