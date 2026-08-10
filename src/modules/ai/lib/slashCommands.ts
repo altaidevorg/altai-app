@@ -14,6 +14,10 @@ import { currentWorkspaceFolder } from "@/modules/workspace/folder";
 import {
   ALTAI_CMD_RE,
   promptForSlashCommand,
+  compactionRequestedLabel,
+  compactionRequestedDetail,
+  compactionFailedLabel,
+  compactionFailedDetail,
   findAgentByIdOrName,
   hasSlashCommandTail,
   isPlanModeOffTail,
@@ -374,16 +378,16 @@ export async function runCompactNow(focusInstructions?: string): Promise<boolean
       focusInstructions: focusInstructions?.trim() || null,
     });
     store.addActivity({
-      label: "Context compaction requested",
-      detail: "Queued directly on the agent runtime",
+      label: compactionRequestedLabel(),
+      detail: compactionRequestedDetail(),
       kind: "agent",
       tone: "success",
     });
     return true;
   } catch (error) {
     store.addActivity({
-      label: "Context compaction failed",
-      detail: error instanceof Error ? error.message : String(error),
+      label: compactionFailedLabel(),
+      detail: compactionFailedDetail(error),
       kind: "agent",
       tone: "error",
     });

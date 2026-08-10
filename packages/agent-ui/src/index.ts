@@ -1901,3 +1901,10 @@ export {
   isCapabilityEnabled,
   capabilityForAction,
 } from "@altai/host-contract";
+
+export {
+  compactionRequestedLabel,
+  compactionRequestedDetail,
+  compactionFailedLabel,
+  compactionFailedDetail,
+} from "./lib/compactionToast.js";
