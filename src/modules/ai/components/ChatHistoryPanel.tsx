@@ -1,46 +1,12 @@
 import {
   ChatHistoryPanel as SharedChatHistoryPanel,
+  extractSessionSnippet,
   groupSessionsByRecency,
+  hasConversationContent,
 } from "@altai/agent-ui";
-import type { UIMessage } from "ai";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { loadMessages } from "../lib/sessions";
 import { useChatStore } from "../store/chatStore";
-
-function extractSnippet(messages: UIMessage[]): string {
-  for (let i = messages.length - 1; i >= 0; i--) {
-    const m = messages[i];
-    for (const p of m.parts) {
-      if (p.type !== "text") continue;
-      const raw = (p as { text?: string }).text ?? "";
-      const cleaned = raw
-        .replace(/<terminal-context[\s\S]*?<\/terminal-context>\s*/g, "")
-        .replace(/<git-diff[\s\S]*?<\/git-diff>\s*/g, "")
-        .replace(/<folder[\s\S]*?<\/folder>\s*/g, "")
-        .replace(/<selection[\s\S]*?<\/selection>\s*/g, "")
-        .replace(/<file[\s\S]*?<\/file>\s*/g, "")
-        .replace(/<env>[\s\S]*?<\/env>\s*/gi, "")
-        .replace(/\s+/g, " ")
-        .trim();
-      if (cleaned) {
-        return cleaned.length > 90 ? `${cleaned.slice(0, 90)}…` : cleaned;
-      }
-    }
-  }
-  return "";
-}
-
-function hasConversationContent(messages: UIMessage[]): boolean {
-  return messages.some((message) =>
-    message.parts.some((part) => {
-      if (part.type === "text") {
-        return Boolean((part as { text?: string }).text?.trim());
-      }
-      // A non-text user attachment is still a meaningful conversation start.
-      return message.role === "user";
-    }),
-  );
-}
 
 /**
  * Desktop bridge for the shared chat history panel. Owns store mutations,
@@ -84,7 +50,7 @@ export function ChatHistoryPanel({
         loadedRef.current.set(s.id, s.updatedAt);
         const msgs = await loadMessages(s.id);
         if (cancelled) return;
-        const snippet = extractSnippet(msgs ?? []);
+        const snippet = extractSessionSnippet(msgs ?? []);
         const containsContent = hasConversationContent(msgs ?? []);
         setSnippets((prev) =>
           prev[s.id] === snippet ? prev : { ...prev, [s.id]: snippet },

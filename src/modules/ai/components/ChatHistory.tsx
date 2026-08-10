@@ -1,12 +1,15 @@
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
-import { groupSessionsByRecency, SessionRow } from "@altai/agent-ui";
+import {
+  extractSessionSnippet,
+  groupSessionsByRecency,
+  SessionRow,
+} from "@altai/agent-ui";
 import {
   Clock01Icon,
   Search01Icon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import type { UIMessage } from "ai";
 import {
   useCallback,
   useEffect,
@@ -16,28 +19,6 @@ import {
 } from "react";
 import { loadMessages } from "../lib/sessions";
 import { useChatStore } from "../store/chatStore";
-
-function extractSnippet(messages: UIMessage[]): string {
-  for (let i = messages.length - 1; i >= 0; i--) {
-    const m = messages[i];
-    for (const p of m.parts) {
-      if (p.type !== "text") continue;
-      const raw = (p as { text?: string }).text ?? "";
-      const cleaned = raw
-        .replace(/<terminal-context[\s\S]*?<\/terminal-context>\s*/g, "")
-        .replace(/<git-diff[\s\S]*?<\/git-diff>\s*/g, "")
-        .replace(/<folder[\s\S]*?<\/folder>\s*/g, "")
-        .replace(/<selection[\s\S]*?<\/selection>\s*/g, "")
-        .replace(/<file[\s\S]*?<\/file>\s*/g, "")
-        .replace(/\s+/g, " ")
-        .trim();
-      if (cleaned) {
-        return cleaned.length > 90 ? `${cleaned.slice(0, 90)}…` : cleaned;
-      }
-    }
-  }
-  return "";
-}
 
 export function ChatHistory() {
   const [open, setOpen] = useState(false);
@@ -65,7 +46,7 @@ export function ChatHistory() {
         loadedRef.current.add(s.id);
         const msgs = await loadMessages(s.id);
         if (cancelled) return;
-        const snippet = extractSnippet(msgs ?? []);
+        const snippet = extractSessionSnippet(msgs ?? []);
         setSnippets((prev) =>
           prev[s.id] === snippet ? prev : { ...prev, [s.id]: snippet },
         );
