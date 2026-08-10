@@ -107,7 +107,7 @@ export const useAutomationStore = create<AutomationState>((set, get) => ({
     }));
     try {
       const item = await native.agentAutomationCreate(chatId, schedule, message, path);
-      set((state) => ({ items: sortItems([...state.items, item]) }));
+      set((state) => ({ items: sortAutomationItemsById([...state.items, item]) }));
       return true;
     } catch (error) {
       set({ error: messageFrom(error) });
