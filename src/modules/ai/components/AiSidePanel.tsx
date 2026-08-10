@@ -22,6 +22,7 @@ import {
   ActivityInspector,
   AgentsInspector,
   AiChatMainColumn,
+  AiPanelTopbar,
   AiSidePanelFrame,
   ApprovalsInspector,
   ArtifactsInspector,
@@ -752,8 +753,9 @@ function WorkspaceTopbar({
 
   if (variant === "sidebar") {
     return (
-      <div className="altai-ai-topbar flex shrink-0 flex-col border-b border-border-subtle bg-card">
-        <div className="flex h-10 min-w-0 items-center gap-1.5 px-2.5">
+      <AiPanelTopbar
+        aria-label="ALTAI panel chrome"
+        primary={<div className="flex h-10 min-w-0 items-center gap-1.5 px-2.5">
           {historyControl}
           <ChatTabStripBridge
             embedded
@@ -774,19 +776,20 @@ function WorkspaceTopbar({
               </button>
             </IconTooltip>
           ) : null}
-        </div>
-        <div className="flex h-9 min-w-0 items-center gap-1.5 border-t border-border-subtle/70 px-2.5">
+        </div>}
+        secondary={<div className="flex h-9 min-w-0 items-center gap-1.5 border-t border-border-subtle/70 px-2.5">
           {workspaceActions}
           <div className="min-w-0 flex-1" />
           {todoSummary}
-        </div>
-      </div>
+        </div>}
+      />
     );
   }
 
   return (
-    <div className="altai-ai-topbar flex shrink-0 flex-col border-b border-border-subtle bg-card">
-      <div
+    <AiPanelTopbar
+      aria-label="ALTAI panel chrome"
+      primary={<div
         className={cn(
           "flex h-10 min-w-0 items-center gap-1.5 px-2.5",
           IS_MAC && "pl-20",
@@ -829,8 +832,8 @@ function WorkspaceTopbar({
             <WindowControls />
           </>
         ) : null}
-      </div>
-    </div>
+      </div>}
+    />
   );
 }
 
@@ -1232,4 +1235,3 @@ function ClarificationChoicesBridge() {
     />
   );
 }
-

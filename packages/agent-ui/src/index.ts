@@ -743,6 +743,11 @@ export {
 } from "./components/AiSidePanelFrame.js";
 
 export {
+  AiPanelTopbar,
+  type AiPanelTopbarProps,
+} from "./components/AiPanelTopbar.js";
+
+export {
   AgentMarkdown,
   type AgentMarkdownLink,
   type AgentMarkdownProps,
