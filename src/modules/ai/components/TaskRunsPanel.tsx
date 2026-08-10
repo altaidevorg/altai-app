@@ -64,6 +64,7 @@ import {
   taskMatchesListFilter,
   taskMatchesQuery,
   TASK_PROMPT_TEMPLATES,
+  canCreateTaskDraft,
 } from "@altai/agent-ui";
 
 const TERMINAL: AssignmentStatus[] = ["done", "failed", "cancelled"];
@@ -440,7 +441,7 @@ export function TaskRunsPanel({
           status={error ?? undefined}
           statusTone={error ? "destructive" : "muted"}
           onCancel={() => setViewMode("queue")}
-          submitDisabled={!prompt.trim() || dispatching}
+          submitDisabled={!canCreateTaskDraft({ prompt, creating: dispatching })}
           submitLabel={
             <>
               {dispatching ? <Spinner className="size-3" /> : null}
