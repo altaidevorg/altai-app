@@ -377,6 +377,7 @@ consumption of shared panel shells:
 | A6.259 | Chat history popover chrome |
 | A6.260 | Task runs list empty/filter chrome |
 | A6.261 | Automations list empty/filter chrome |
+| A6.262 | Side panel shell and inspector labels |
 
 ### A5 complete enough
 
