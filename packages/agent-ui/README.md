@@ -361,6 +361,7 @@ consumption of shared panel shells:
 | A6.243 | Plan review history row projection |
 | A6.244 | Agent switcher list partition |
 | A6.245 | Plan apply feedback chrome |
+| A6.246 | Task context availability flags |
 
 ### A5 complete enough
 

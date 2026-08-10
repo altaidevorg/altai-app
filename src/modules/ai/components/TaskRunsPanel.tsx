@@ -76,6 +76,9 @@ import {
   catalogModelLabel,
   taskRunOutcomeCounts,
   sumRunTokens,
+  isActiveFileInContext,
+  isTerminalContextAvailable,
+  isWorkspaceContextAvailable,
   skillsListLabel,
   catalogEntryName,
   toggleTaskSkillSelection,
@@ -293,15 +296,18 @@ export function TaskRunsPanel({
 
   const liveContext = useChatStore.getState().live;
   const activeFilePath = liveContext.getActiveFile();
-  const activeFileSelected = Boolean(
-    activeFilePath && contextFiles.includes(activeFilePath),
+  const activeFileSelected = isActiveFileInContext(
+    activeFilePath,
+    contextFiles,
   );
   const terminalPrivate = liveContext.isActiveTerminalPrivate();
-  const terminalContextAvailable = Boolean(
-    !terminalPrivate && liveContext.getTerminalContext()?.trim(),
+  const terminalContextAvailable = isTerminalContextAvailable(
+    terminalPrivate,
+    liveContext.getTerminalContext(),
   );
-  const workspaceContextAvailable = Boolean(
-    liveContext.getCwd() ?? liveContext.getWorkspaceRoot(),
+  const workspaceContextAvailable = isWorkspaceContextAvailable(
+    liveContext.getCwd(),
+    liveContext.getWorkspaceRoot(),
   );
 
   return (
