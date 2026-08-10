@@ -69,6 +69,9 @@ import {
   filterEnabledAgents,
   filterTaskSourceAssignments,
   sortByCreatedAtDesc,
+  normalizeDialogPathSelection,
+  appendUniqueContextPaths,
+  stripTaskBotTitlePrefix,
 } from "@altai/agent-ui";
 
 const TERMINAL: AssignmentStatus[] = ["done", "failed", "cancelled"];
@@ -257,16 +260,9 @@ export function TaskRunsPanel({
       multiple: true,
       title: "Add files as task context",
     });
-    const paths =
-      typeof selected === "string"
-        ? [selected]
-        : Array.isArray(selected)
-          ? selected
-          : [];
+    const paths = normalizeDialogPathSelection(selected);
     if (!paths.length) return;
-    setContextFiles((current) =>
-      Array.from(new Set([...current, ...paths])).slice(0, 12),
-    );
+    setContextFiles((current) => appendUniqueContextPaths(current, paths));
   };
 
   const retryTask = async (task: Assignment) => {
@@ -274,7 +270,7 @@ export function TaskRunsPanel({
     setError(null);
     try {
       await runTask({
-        title: task.title.replace(/^🤖\s*/, ""),
+        title: stripTaskBotTitlePrefix(task.title),
         prompt: task.source.prompt,
         runConfig: task.runConfig,
       });
@@ -503,7 +499,7 @@ export function TaskRunsPanel({
                 <TaskRunCard
                   key={task.id}
                   className={index > 0 ? "border-t border-border-subtle" : undefined}
-                  title={task.title.replace(/^🤖\s*/, "")}
+                  title={stripTaskBotTitlePrefix(task.title)}
                   status={status}
                   createdAtMs={task.createdAt}
                   tokens={tokens}
@@ -578,7 +574,7 @@ export function TaskRunsPanel({
             </AlertDialogDescription>
           </AlertDialogHeader>
           <div className="line-clamp-2 rounded-md bg-muted px-3 py-2 text-[11px] text-muted-foreground">
-            {removeTarget?.title.replace(/^🤖\s*/, "")}
+            {removeTarget ? stripTaskBotTitlePrefix(removeTarget.title) : null}
           </div>
           <AlertDialogFooter>
             <AlertDialogCancel>Keep task</AlertDialogCancel>
