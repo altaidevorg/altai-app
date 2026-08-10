@@ -17,6 +17,7 @@ import {
   prependEnvBlockToText,
   projectAgentMetaFromRun,
   describeTerminalOutcomeAttention,
+  resolveRunModelIdFromCandidates,
 } from "@altai/agent-ui";
 import type { UIMessage } from "ai";
 import { native } from "../lib/native";
@@ -1338,11 +1339,15 @@ function resolveRunModelId({
   agent: Agent | undefined;
   prompt: string;
 }): ModelId {
-  if (!useAuto) return requestedModelId;
-  const resolvable = listAvailableModels(apiKeys, hiddenModelIds).filter((model) =>
-    resolveIsanAgentTarget(model.id, apiKeys, targetInputs).ok,
-  );
-  return (pickAutoModel({ models: resolvable, agent, prompt })?.id ?? requestedModelId) as ModelId;
+  return resolveRunModelIdFromCandidates({
+    requestedModelId,
+    useAuto,
+    listResolvable: () =>
+      listAvailableModels(apiKeys, hiddenModelIds).filter((model) =>
+        resolveIsanAgentTarget(model.id, apiKeys, targetInputs).ok,
+      ),
+    pick: (models) => pickAutoModel({ models, agent, prompt }),
+  }) as ModelId;
 }
 
 async function sendViaIsanAgent(

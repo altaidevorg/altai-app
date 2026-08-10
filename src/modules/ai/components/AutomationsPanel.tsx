@@ -56,6 +56,7 @@ import {
   SurfaceSecondaryAction,
   sessionTitleMap,
   automationTemplatesAsMessages,
+  canCreateAutomationDraft,
 } from "@altai/agent-ui";
 
 type ScheduleMode = "at" | "every";
@@ -124,9 +125,12 @@ export function AutomationsPanel({
     scheduledAtMs,
     repeatMinutes,
   );
-  const canCreate = Boolean(
-    ownerChatId && message.trim() && !creating && !scheduleError,
-  );
+  const canCreate = canCreateAutomationDraft({
+    ownerChatId,
+    message,
+    creating,
+    scheduleError,
+  });
   const filterCounts = useMemo(
     () => automationFilterCounts(items, jobsByAutomationId),
     [items, jobsByAutomationId],
