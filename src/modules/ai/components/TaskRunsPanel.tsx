@@ -74,6 +74,7 @@ import {
   stripTaskBotTitlePrefix,
   findCatalogEntryById,
   catalogModelLabel,
+  taskRunOutcomeCounts,
 } from "@altai/agent-ui";
 
 const TERMINAL: AssignmentStatus[] = ["done", "failed", "cancelled"];
@@ -523,15 +524,10 @@ export function TaskRunsPanel({
                   lastResult={run?.lastResult}
                   outcome={
                     (status === "done" || status === "failed") && run
-                      ? {
+                      ? taskRunOutcomeCounts({
                           changesCount: run.changes.length,
-                          checksPassed: run.verifications.filter(
-                            (v) => v.status === "passed",
-                          ).length,
-                          checksFailed: run.verifications.filter(
-                            (v) => v.status === "failed",
-                          ).length,
-                        }
+                          verifications: run.verifications,
+                        })
                       : null
                   }
                   isOpenNow={activeSessionId === task.sessionId}

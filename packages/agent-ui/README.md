@@ -343,6 +343,7 @@ consumption of shared panel shells:
 | A6.225 | Task context path merge + bot title strip |
 | A6.226 | Chat history session search filter |
 | A6.227 | Catalog id lookup + model label |
+| A6.228 | Task run outcome counts |
 
 ### A5 complete enough
 

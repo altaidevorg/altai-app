@@ -2073,3 +2073,10 @@ export {
   findCatalogEntryById,
   catalogModelLabel,
 } from "./lib/catalogIdLookupChrome.js";
+export {
+  taskRunOutcomeCounts,
+} from "./lib/taskRunOutcomeChrome.js";
+export type {
+  TaskVerificationLike,
+  TaskRunOutcomeCounts,
+} from "./lib/taskRunOutcomeChrome.js";
