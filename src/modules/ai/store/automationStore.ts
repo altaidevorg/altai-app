@@ -1,7 +1,9 @@
 import { create } from "zustand";
 import {
   errorMessageFromUnknown,
+  indexLatestCronJobsByAutomationId,
   normalizedWorkspacePath as normalizedWorkspacePathShared,
+  sortAutomationItemsById,
 } from "@altai/agent-ui";
 import {
   native,
@@ -41,9 +43,6 @@ function messageFrom(error: unknown): string {
   return errorMessageFromUnknown(error);
 }
 
-function sortItems(items: AgentAutomationInfo[]): AgentAutomationInfo[] {
-  return [...items].sort((left, right) => left.id.localeCompare(right.id));
-}
 
 export const useAutomationStore = create<AutomationState>((set, get) => ({
   workspacePath: null,
@@ -84,20 +83,9 @@ export const useAutomationStore = create<AutomationState>((set, get) => ({
         native.agentListAutomations(path),
         native.agentListBackgroundJobs({ workspacePath: path, limit: 200 }),
       ]);
-      const jobsByAutomationId = jobs.reduce<Record<string, AgentBackgroundJobInfo>>(
-        (result, job) => {
-          if (!job.id.startsWith("cron:")) return result;
-          const automationId = job.id.slice("cron:".length);
-          const existing = result[automationId];
-          if (!existing || existing.updatedAtMs < job.updatedAtMs) {
-            result[automationId] = job;
-          }
-          return result;
-        },
-        {},
-      );
+      const jobsByAutomationId = indexLatestCronJobsByAutomationId(jobs);
       if (get().workspacePath === path) {
-        set({ items: sortItems(items), jobsByAutomationId, hydrated: true, loading: false });
+        set({ items: sortAutomationItemsById(items), jobsByAutomationId, hydrated: true, loading: false });
       }
     } catch (error) {
       if (get().workspacePath === path) {

@@ -1933,3 +1933,9 @@ export {
   mutationKey,
   normalizedWorkspacePath,
 } from "./lib/errorMessage.js";
+
+export {
+  sortAutomationItemsById,
+  indexLatestCronJobsByAutomationId,
+} from "./lib/automationListChrome.js";
+export type { BackgroundJobLike } from "./lib/automationListChrome.js";
