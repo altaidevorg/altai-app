@@ -1923,15 +1923,12 @@ export type {
 } from "./lib/notificationInboxView.js";
 
 export {
-<<<<<<< HEAD
   editProposalInputFromQueued,
   markPlanEditAppliedState,
 } from "./lib/planQueueChrome.js";
 export type { QueuedPlanEditLike } from "./lib/planQueueChrome.js";
 
 export {
-=======
->>>>>>> 2ed4fc2 (fix(agent-ui): restore errorMessage barrel export after rebase)
   errorMessageFromUnknown,
   mutationKey,
   normalizedWorkspacePath,
