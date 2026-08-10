@@ -767,6 +767,14 @@ export {
   type SharedRunBudgetWarning,
   type SharedRunOutcome,
 } from "./lib/runContinueChrome.js";
+export { projectAgentMetaFromRun } from "./lib/agentMetaFromRun.js";
+export type {
+  SharedRunTokenSnapshot,
+  SharedRunOutcomeLike,
+  SharedRunStateLike,
+  ProjectedAgentRunStatus,
+  ProjectedAgentTokens,
+} from "./lib/agentMetaFromRun.js";
 export {
   parseNativeMethodList,
   nativeMethodAvailable,

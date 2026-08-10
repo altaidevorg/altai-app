@@ -15,6 +15,8 @@ import {
   buildEnvBlockFromFacts,
   buildIsolatedWorktreeEnvBlock,
   prependEnvBlockToText,
+  projectAgentMetaFromRun,
+  describeTerminalOutcomeAttention,
 } from "@altai/agent-ui";
 import type { UIMessage } from "ai";
 import { native } from "../lib/native";
@@ -63,7 +65,6 @@ import { effectivePermissionMode, setDefaultModel } from "@/modules/settings/sto
 import type { AssignmentRunConfig } from "@/modules/github/lib/assignments";
 import type { RunOutcome } from "../lib/agentEventBridge";
 import {
-  describeTerminalOutcomeAttention,
   dismissRunAttention,
   resetBudgetSegmentAutoContinues,
 } from "../lib/agentEventBridge";
@@ -158,24 +159,15 @@ const IDLE_META: AgentMeta = {
 };
 
 function agentMetaForRun(run: RunState | undefined): AgentMeta {
-  if (!run) return IDLE_META;
-  const error = describeTerminalOutcomeAttention(run.outcome);
+  const projected = projectAgentMetaFromRun(run, describeTerminalOutcomeAttention);
+  if (!projected) return IDLE_META;
   return {
     ...IDLE_META,
-    status:
-      run.completed && run.outcome?.kind === "failed"
-        ? "error"
-        : run.completed
-          ? "idle"
-          : run.status,
-    step: run.completed ? null : run.step,
-    error,
-    tokens: {
-      inputTokens: run.tokens.input,
-      outputTokens: run.tokens.output,
-      cachedInputTokens: run.tokens.cached,
-    },
-    activeSubagents: run.subagents,
+    status: projected.status as AgentMeta["status"],
+    step: projected.step,
+    error: projected.error,
+    tokens: projected.tokens,
+    activeSubagents: projected.activeSubagents as AgentMeta["activeSubagents"],
   };
 }
 
