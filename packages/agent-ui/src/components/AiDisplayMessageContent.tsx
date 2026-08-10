@@ -4,6 +4,7 @@
  */
 
 import type { ReactNode } from "react";
+import { AgentMarkdown } from "./AgentMarkdown.js";
 import { ChatExternalLink, ChatPathLink } from "./ChatPathLink.js";
 import {
   segmentChatContent,
@@ -25,7 +26,8 @@ export type AiDisplayMessageContentProps = {
 };
 
 /**
- * Segmented chat body: text, fenced code, path links, external links.
+ * Segmented, GFM-capable chat body: the shared Markdown renderer owns text
+ * while this boundary preserves host-authorized path and external links.
  * Classes match VS Code `altai-chat-*` host stylesheets.
  */
 export function AiDisplayMessageContent({
@@ -89,7 +91,7 @@ function Segment({
   onOpenUrl?: (href: string) => void;
 }) {
   if (segment.kind === "text") {
-    return <>{segment.text}</>;
+    return <AgentMarkdown content={segment.text} />;
   }
   if (segment.kind === "code") {
     return (
