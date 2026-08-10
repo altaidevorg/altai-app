@@ -22,6 +22,8 @@ import {
   sessionIdSet,
   sessionTitleMap,
   isWaitingTicketStatus,
+  filterUnreadBySeenAtMs,
+  mapById,
 } from "@altai/agent-ui";
 import type { AgentNotificationInfo } from "../lib/native";
 import { useChatStore } from "../store/chatStore";
@@ -126,7 +128,7 @@ export function NotificationInboxPanel({
     view.notifications.length === 0 &&
     view.waitingJobs.length === 0;
   const unreadNotifications = useMemo(
-    () => view.notifications.filter((notification) => notification.seenAtMs === null),
+    () => filterUnreadBySeenAtMs(view.notifications),
     [view.notifications],
   );
   const visibleTickets = useMemo(
@@ -210,15 +212,15 @@ export function NotificationInboxPanel({
   };
 
   const ticketById = useMemo(
-    () => new Map(visibleTickets.map((ticket) => [ticket.id, ticket])),
+    () => mapById(visibleTickets),
     [visibleTickets],
   );
   const jobById = useMemo(
-    () => new Map(visibleWaitingJobs.map((job) => [job.id, job])),
+    () => mapById(visibleWaitingJobs),
     [visibleWaitingJobs],
   );
   const notificationById = useMemo(
-    () => new Map(view.notifications.map((notification) => [notification.id, notification])),
+    () => mapById(view.notifications),
     [view.notifications],
   );
 
