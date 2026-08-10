@@ -1,5 +1,8 @@
 import { create } from "zustand";
 import {
+  buildNotificationInboxView as buildNotificationInboxViewShared,
+} from "@altai/agent-ui";
+import {
   native,
   type AgentBackgroundJobInfo,
   type AgentClarificationTicketInfo,
@@ -7,16 +10,6 @@ import {
 } from "../lib/native";
 
 const DEFAULT_LIMIT = 200;
-const TERMINAL_JOB_STATES = new Set([
-  "cancelled",
-  "canceled",
-  "completed",
-  "dismissed",
-  "done",
-  "failed",
-  "success",
-]);
-
 type MutationKind = "notification" | "job" | "ticket";
 
 export type NotificationInboxView = {
@@ -67,32 +60,6 @@ function messageFrom(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-function byNewest(
-  a: { createdAtMs: number },
-  b: { createdAtMs: number },
-): number {
-  return b.createdAtMs - a.createdAtMs;
-}
-
-function isWaitingStatus(status: string): boolean {
-  return status.trim().toLowerCase() === "waiting";
-}
-
-function isTerminalJobState(state: string): boolean {
-  return TERMINAL_JOB_STATES.has(state.trim().toLowerCase());
-}
-
-function isLinkedTicketNotification(
-  notification: AgentNotificationInfo,
-  waitingTicketChatIds: ReadonlySet<string>,
-): boolean {
-  if (!waitingTicketChatIds.has(notification.chatId)) return false;
-  return (
-    notification.kind === "clarification_ticket" ||
-    notification.actionKind === "reply_ticket"
-  );
-}
-
 /**
  * Build the render model without duplicating the notification that IsanAgent
  * creates for every clarification ticket. Waiting tickets always count as
@@ -105,37 +72,16 @@ export function buildNotificationInboxView(
   backgroundJobs: AgentBackgroundJobInfo[],
   clarificationTickets: AgentClarificationTicketInfo[],
 ): NotificationInboxView {
-  const waitingTickets = clarificationTickets
-    .filter((ticket) => isWaitingStatus(ticket.status))
-    .sort(byNewest);
-  const waitingTicketChatIds = new Set(
-    waitingTickets.map((ticket) => ticket.chatId),
+  const view = buildNotificationInboxViewShared(
+    notifications,
+    backgroundJobs,
+    clarificationTickets,
   );
-  const waitingJobIds = new Set(waitingTickets.map((ticket) => ticket.jobId));
-
-  const visibleNotifications = notifications
-    .filter((notification) => notification.resolvedAtMs === null)
-    .filter(
-      (notification) =>
-        !isLinkedTicketNotification(notification, waitingTicketChatIds),
-    )
-    .sort(byNewest);
-
-  const waitingJobs = backgroundJobs
-    .filter((job) => !isTerminalJobState(job.state))
-    .filter((job) => !waitingJobIds.has(job.id))
-    .filter((job) => job.state.trim().toLowerCase().includes("waiting"))
-    .sort((a, b) => b.updatedAtMs - a.updatedAtMs);
-
-  const unreadNotifications = visibleNotifications.filter(
-    (notification) => notification.seenAtMs === null,
-  ).length;
   return {
-    waitingTickets,
-    notifications: visibleNotifications,
-    waitingJobs,
-    attentionCount:
-      waitingTickets.length + unreadNotifications + waitingJobs.length,
+    waitingTickets: view.waitingTickets as AgentClarificationTicketInfo[],
+    notifications: view.notifications as AgentNotificationInfo[],
+    waitingJobs: view.waitingJobs as AgentBackgroundJobInfo[],
+    attentionCount: view.attentionCount,
   };
 }
 

@@ -1908,3 +1908,16 @@ export {
   compactionFailedLabel,
   compactionFailedDetail,
 } from "./lib/compactionToast.js";
+
+export {
+  byNewestCreatedAt,
+  isWaitingTicketStatus,
+  isTerminalJobState,
+  buildNotificationInboxView,
+} from "./lib/notificationInboxView.js";
+export type {
+  InboxNotificationRow,
+  InboxBackgroundJobRow,
+  InboxClarificationTicketRow,
+  NotificationInboxViewModel,
+} from "./lib/notificationInboxView.js";
