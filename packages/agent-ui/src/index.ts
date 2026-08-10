@@ -2140,3 +2140,15 @@ export {
   prependComposerInstruction,
   SEMBLE_SCOUT_SEARCH_INSTRUCTION,
 } from "./lib/composerInstructionChrome.js";
+export {
+  planAppliedHistoryRows,
+  checkpointHistoryRows,
+  composePlanReviewHistoryRows,
+  isPlanRestoreRowId,
+  planIdFromRestoreRowId,
+} from "./lib/planReviewHistoryChrome.js";
+export type {
+  AppliedPlanEditLike,
+  CheckpointHistoryLike,
+  PlanReviewHistoryRow,
+} from "./lib/planReviewHistoryChrome.js";
