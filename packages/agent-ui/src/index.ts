@@ -1959,3 +1959,16 @@ export type {
   AutomationScheduleLike,
   AutomationNextRunLike,
 } from "./lib/automationScheduleChrome.js";
+
+export {
+  automationFilterCounts,
+  automationMatchesFilter,
+  automationMatchesQuery,
+  compareAutomationsForList,
+} from "./lib/automationFilterChrome.js";
+export type {
+  AutomationFilterId,
+  AutomationFilterItemLike,
+  AutomationJobLike,
+  AutomationFilterCounts,
+} from "./lib/automationFilterChrome.js";
