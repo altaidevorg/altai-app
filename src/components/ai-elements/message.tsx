@@ -9,6 +9,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
+import { AgentMarkdown } from "@altai/agent-ui";
 import { ArrowLeft01Icon, ArrowRight01Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import type { UIMessage } from "ai";
@@ -22,7 +23,6 @@ import {
   useMemo,
   useState,
 } from "react";
-import { Streamdown } from "streamdown";
 import { ChatStreamingProvider } from "./chat-code";
 import { chatMarkdownComponents } from "./chat-markdown";
 import { MarkdownCode } from "./markdown-code";
@@ -318,8 +318,14 @@ export const MessageBranchPage = ({
   );
 };
 
-export type MessageResponseProps = ComponentProps<typeof Streamdown> & {
+export type MessageResponseProps = Omit<
+  ComponentProps<typeof AgentMarkdown>,
+  "content"
+> & {
   streaming?: boolean;
+  /** Lets memo callers refresh an in-progress response without changing text. */
+  isAnimating?: boolean;
+  children?: string;
 };
 
 // Merge the compact chat headings with the code-block override so a single
@@ -332,15 +338,17 @@ const streamdownComponents = {
 };
 
 export const MessageResponse = memo(
-  ({ className, streaming = false, ...props }: MessageResponseProps) => (
+  ({ className, streaming = false, children, ...props }: MessageResponseProps) => (
     <ChatStreamingProvider value={streaming}>
       <div aria-busy={streaming || undefined}>
-        <Streamdown
+        <AgentMarkdown
           className={cn(
             "size-full min-w-0 max-w-full [overflow-wrap:anywhere] [word-break:break-word] [&>*:first-child]:mt-0 [&>*:last-child]:mb-0",
             className,
           )}
           components={streamdownComponents}
+          content={children ?? ""}
+          streaming={streaming}
           {...props}
         />
       </div>
