@@ -2054,3 +2054,8 @@ export {
   minutesFromEveryMs,
   everyMinutesInputFromMs,
 } from "./lib/automationIntervalChrome.js";
+export {
+  sortByCreatedAtDesc,
+  filterEnabledAgents,
+  filterTaskSourceAssignments,
+} from "./lib/taskListOrderChrome.js";
