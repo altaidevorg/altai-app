@@ -91,6 +91,7 @@ import {
   gitDiffContextDetailLabel,
   taskQueueSurfaceSubtitle,
   TASK_CREATE_SURFACE_SUBTITLE,
+  taskPermissionModeShortLabel,
 } from "@altai/agent-ui";
 
 const TERMINAL: AssignmentStatus[] = ["done", "failed", "cancelled"];
@@ -398,7 +399,9 @@ export function TaskRunsPanel({
           />
           <DropdownMenu>
             <DropdownMenuTrigger className="flex h-6 items-center gap-1 rounded-md border border-border bg-card px-2 text-[10px] text-muted-foreground transition-colors hover:bg-foreground/[0.055]">
-              <span className="truncate">{permissionMode === "ask" ? "Ask" : permissionMode === "auto-edit" ? "Auto-edit" : permissionMode === "plan" ? "Plan" : permissionMode === "bypass" ? "Bypass" : "Ask"}</span>
+              <span className="truncate">
+                {taskPermissionModeShortLabel(permissionMode)}
+              </span>
               <HugeiconsIcon icon={ArrowDown01Icon} size={9} strokeWidth={2} />
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start" className="min-w-32">

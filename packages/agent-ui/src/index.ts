@@ -2206,3 +2206,5 @@ export {
   historyToggleLabel,
   miniConversationControlTitle,
 } from "./lib/historyToggleChrome.js";
+export { taskPermissionModeShortLabel } from "./lib/taskPermissionModeChrome.js";
+export type { TaskPermissionModeLike } from "./lib/taskPermissionModeChrome.js";
