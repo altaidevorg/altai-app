@@ -26,6 +26,17 @@ describe("AiDisplayMessageContent", () => {
     expect(html).toContain("altai-chat-path");
   });
 
+  it("renders GFM text through the shared Markdown renderer", () => {
+    const html = renderToStaticMarkup(
+      createElement(AiDisplayMessageContent, {
+        content: "## Status\n\n| Item | State |\n| --- | --- |\n| UI | Ready |",
+      }),
+    );
+
+    expect(html).toContain("Status");
+    expect(html).toContain("<table");
+  });
+
   it("invokes callbacks via host open flags only when enabled", () => {
     const onOpenPath = vi.fn();
     renderToStaticMarkup(
