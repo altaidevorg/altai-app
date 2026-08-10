@@ -2118,3 +2118,5 @@ export {
   parseFiniteMinutesInput,
   isFiniteNumber,
 } from "./lib/automationFormParseChrome.js";
+export { chatTabsFromOpenIds } from "./lib/chatTabsFromOpenIds.js";
+export type { SessionTabSource } from "./lib/chatTabsFromOpenIds.js";

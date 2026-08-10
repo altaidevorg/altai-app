@@ -64,6 +64,7 @@ import {
   buildOperationsOpenIntent,
   isTextEditingKeyboardTarget,
   shouldDismissSidePanelOnEscape,
+  chatTabsFromOpenIds,
 } from "@altai/agent-ui";
 import {
   retryFailedRun,
@@ -594,10 +595,7 @@ function ChatTabStripBridge({
   const activeId = useChatStore((s) => s.activeSessionId);
   const sessions = useChatStore((s) => s.sessions);
   const switchSession = useChatStore((s) => s.switchSession);
-  const tabs = openChatIds
-    .map((id) => sessions.find((session) => session.id === id))
-    .filter((session): session is NonNullable<typeof session> => Boolean(session))
-    .map((session) => ({ id: session.id, title: session.title }));
+  const tabs = chatTabsFromOpenIds(openChatIds, sessions);
 
   return (
     <ChatTabStrip

@@ -353,6 +353,7 @@ consumption of shared panel shells:
 | A6.235 | Model dropdown filter + fav/recent partition |
 | A6.236 | Notification inbox empty + search filter |
 | A6.237 | Automation form datetime/minutes parse |
+| A6.238 | Chat tabs from open session ids |
 
 ### A5 complete enough
 
