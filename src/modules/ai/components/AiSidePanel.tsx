@@ -104,6 +104,7 @@ import {
   INSPECTOR_METRIC_SUBAGENTS,
   INSPECTOR_METRIC_CHANGES,
   INSPECTOR_METRIC_PLAN,
+  PLAN_RESTORE_FALLBACK_ERROR,
 } from "@altai/agent-ui";
 import {
   retryFailedRun,
@@ -1063,7 +1064,7 @@ function SnapshotsInspectorBridge({
         try {
           const result = await restoreApplied(id);
           if (result && !result.ok) {
-            setError(result.error ?? "Could not restore change.");
+            setError(result.error ?? PLAN_RESTORE_FALLBACK_ERROR);
           }
         } finally {
           setRestoring(null);

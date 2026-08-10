@@ -2325,3 +2325,8 @@ export {
   COMPOSER_ATTACH_DIFF_ERROR_LABEL,
   COMPOSER_PERMISSION_MODE_LABEL,
 } from "./lib/composerResidualChrome.js";
+export {
+  MODEL_SETTINGS_LABEL,
+  STOP_GENERATING_TITLE,
+  PLAN_RESTORE_FALLBACK_ERROR,
+} from "./lib/miscAiChrome.js";

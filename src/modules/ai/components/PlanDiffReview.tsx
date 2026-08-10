@@ -9,6 +9,7 @@ import {
   isPlanRestoreRowId,
   planIdFromRestoreRowId,
   singlePlanApplyFeedback,
+  PLAN_RESTORE_FALLBACK_ERROR,
 } from "@altai/agent-ui";
 import { native, type CheckpointInfo } from "../lib/native";
 import {
@@ -203,7 +204,7 @@ function ReviewHistoryBridge({
         const id = planIdFromRestoreRowId(rowId);
         const result = await restoreApplied(id);
         if (result && !result.ok) {
-          setError(result.error ?? "Could not restore change.");
+          setError(result.error ?? PLAN_RESTORE_FALLBACK_ERROR);
         }
       } else {
         await ports.review.restoreCheckpoint(rowId);

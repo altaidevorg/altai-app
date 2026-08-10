@@ -382,6 +382,7 @@ consumption of shared panel shells:
 | A6.264 | Automations form field chrome |
 | A6.265 | Status-bar residual titles |
 | A6.266 | Composer residual chrome |
+| A6.267 | Misc AI control labels |
 
 ### A5 complete enough
 

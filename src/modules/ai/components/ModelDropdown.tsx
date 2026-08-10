@@ -52,6 +52,7 @@ import {
   modelDropdownTriggerLabel,
   modelDropdownTriggerTitle,
   partitionModelsByFavRecent,
+  MODEL_SETTINGS_LABEL,
 } from "@altai/agent-ui";
 
 const PROVIDER_ICON = {
@@ -87,8 +88,8 @@ export function ModelSettingsButton({
       type="button"
       variant="ghost"
       size="icon"
-      title="Model settings"
-      aria-label="Model settings"
+      title={MODEL_SETTINGS_LABEL}
+      aria-label={MODEL_SETTINGS_LABEL}
       onClick={() => void openSettingsWindow("models")}
       className={cn(
         "size-6 shrink-0 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground",
