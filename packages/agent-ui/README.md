@@ -371,6 +371,7 @@ consumption of shared panel shells:
 | A6.253 | History toggle and mini-conversation titles |
 | A6.254 | Task permission mode short label |
 | A6.255 | Desktop composer placeholder/follow-up chrome |
+| A6.256 | Composer context menu and tool titles |
 
 ### A5 complete enough
 

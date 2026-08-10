@@ -36,6 +36,14 @@ import {
   composerFollowupBarHint,
   composerSteerControlTitle,
   COMPOSER_QUEUE_CONTROL_TITLE,
+  COMPOSER_ATTACH_FILE_TITLE,
+  COMPOSER_ADD_WORKSPACE_CONTEXT_LABEL,
+  COMPOSER_RESEARCH_SEMBLE_TITLE,
+  COMPOSER_CONTEXT_ACTIVE_FILE,
+  COMPOSER_CONTEXT_WORKSPACE_MAP,
+  COMPOSER_CONTEXT_ACTIVE_TERMINAL,
+  COMPOSER_CONTEXT_WORKING_DIFF,
+  voiceInputControlTitle,
 } from "@altai/agent-ui";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import {
@@ -448,7 +456,7 @@ export function AiInputBar() {
         tools={
           <>
             <ComposerToolbarIcon
-              title="Attach file or image"
+              title={COMPOSER_ATTACH_FILE_TITLE}
               onClick={() => fileInputRef.current?.click()}
               renderTooltip={withComposerTooltip}
             >
@@ -464,7 +472,7 @@ export function AiInputBar() {
                         type="button"
                         variant="ghost"
                         size="icon"
-                        aria-label="Add workspace context"
+                        aria-label={COMPOSER_ADD_WORKSPACE_CONTEXT_LABEL}
                         className="size-6 shrink-0 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
                       >
                         <HugeiconsIcon icon={CodeIcon} size={14} strokeWidth={1.75} />
@@ -473,19 +481,58 @@ export function AiInputBar() {
                   </span>
                 </TooltipTrigger>
                 <TooltipContent side="top" sideOffset={6} className="text-[11px]">
-                  Add workspace context
+                  {COMPOSER_ADD_WORKSPACE_CONTEXT_LABEL}
                 </TooltipContent>
               </Tooltip>
               <PopoverContent side="top" align="start" sideOffset={6} className="w-56 gap-0 rounded-lg border border-border/80 bg-popover p-1.5 text-popover-foreground shadow-xl">
-                <ContextAction icon={File01Icon} label="Active file" detail="Attach the file open in the editor" disabled={!workspaceRoot || !useChatStore.getState().live.getActiveFile()} onClick={() => { setContextOpen(false); void attachActiveFile(); }} />
-                <ContextAction icon={Attachment01Icon} label="Workspace file map" detail="Attach a compact folder manifest" disabled={!workspaceRoot} onClick={() => { setContextOpen(false); void attachWorkspaceMap(); }} />
-                <ContextAction icon={TerminalIcon} label="Active terminal" detail="Attach the latest non-private output" disabled={!useChatStore.getState().live.getTerminalContext()} onClick={() => { setContextOpen(false); attachTerminalContext(); }} />
-                <ContextAction icon={CodeIcon} label="Working tree diff" detail="Attach unstaged Git changes" disabled={!workspaceRoot} onClick={() => { setContextOpen(false); void attachWorkingDiff(); }} />
+                <ContextAction
+                  icon={File01Icon}
+                  label={COMPOSER_CONTEXT_ACTIVE_FILE.label}
+                  detail={COMPOSER_CONTEXT_ACTIVE_FILE.detail}
+                  disabled={
+                    !workspaceRoot ||
+                    !useChatStore.getState().live.getActiveFile()
+                  }
+                  onClick={() => {
+                    setContextOpen(false);
+                    void attachActiveFile();
+                  }}
+                />
+                <ContextAction
+                  icon={Attachment01Icon}
+                  label={COMPOSER_CONTEXT_WORKSPACE_MAP.label}
+                  detail={COMPOSER_CONTEXT_WORKSPACE_MAP.detail}
+                  disabled={!workspaceRoot}
+                  onClick={() => {
+                    setContextOpen(false);
+                    void attachWorkspaceMap();
+                  }}
+                />
+                <ContextAction
+                  icon={TerminalIcon}
+                  label={COMPOSER_CONTEXT_ACTIVE_TERMINAL.label}
+                  detail={COMPOSER_CONTEXT_ACTIVE_TERMINAL.detail}
+                  disabled={!useChatStore.getState().live.getTerminalContext()}
+                  onClick={() => {
+                    setContextOpen(false);
+                    attachTerminalContext();
+                  }}
+                />
+                <ContextAction
+                  icon={CodeIcon}
+                  label={COMPOSER_CONTEXT_WORKING_DIFF.label}
+                  detail={COMPOSER_CONTEXT_WORKING_DIFF.detail}
+                  disabled={!workspaceRoot}
+                  onClick={() => {
+                    setContextOpen(false);
+                    void attachWorkingDiff();
+                  }}
+                />
               </PopoverContent>
             </Popover>
 
             <ComposerToolbarIcon
-              title="Research with Semble Scout"
+              title={COMPOSER_RESEARCH_SEMBLE_TITLE}
               onClick={prepareSembleSearch}
               disabled={!workspaceRoot}
               renderTooltip={withComposerTooltip}
@@ -494,15 +541,11 @@ export function AiInputBar() {
             </ComposerToolbarIcon>
             {c.voice.supported && (
               <ComposerToolbarIcon
-                title={
-                  !c.voice.hasKey
-                    ? "Voice needs an OpenAI key"
-                    : c.voice.recording
-                      ? "Stop & transcribe"
-                      : c.voice.transcribing
-                        ? "Transcribing…"
-                        : "Voice input"
-                }
+                title={voiceInputControlTitle({
+                  hasKey: c.voice.hasKey,
+                  recording: c.voice.recording,
+                  transcribing: c.voice.transcribing,
+                })}
                 onClick={() =>
                   c.voice.recording ? c.voice.stop() : void c.voice.start()
                 }

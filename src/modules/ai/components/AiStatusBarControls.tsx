@@ -17,6 +17,7 @@ import {
   voiceInputControlDisabled,
   voiceInputControlTitle,
   miniConversationControlTitle,
+  COMPOSER_ATTACH_FILE_TITLE,
 } from "@altai/agent-ui";
 import {
   Context,
@@ -90,7 +91,7 @@ export function AiStatusBarControls() {
       />
 
       <IconBtn
-        title="Attach file or image"
+        title={COMPOSER_ATTACH_FILE_TITLE}
         onClick={() => fileInputRef.current?.click()}
         disabled={c.isBusy}
       >
