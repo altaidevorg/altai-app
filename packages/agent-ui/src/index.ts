@@ -2113,3 +2113,8 @@ export {
   isNotificationInboxEmpty,
   filterRowsBySearchFields,
 } from "./lib/notificationInboxSearchChrome.js";
+export {
+  datetimeLocalInputToMs,
+  parseFiniteMinutesInput,
+  isFiniteNumber,
+} from "./lib/automationFormParseChrome.js";

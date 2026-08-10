@@ -60,6 +60,9 @@ import {
   nextConversationOwnerChatId,
   everyMsFromMinutes,
   everyMinutesInputFromMs,
+  datetimeLocalInputToMs,
+  parseFiniteMinutesInput,
+  isFiniteNumber,
 } from "@altai/agent-ui";
 
 type ScheduleMode = "at" | "every";
@@ -121,8 +124,8 @@ export function AutomationsPanel({
     [sessions],
   );
   const creating = Boolean(pendingIds.create);
-  const scheduledAtMs = new Date(atValue).getTime();
-  const repeatMinutes = Number(everyMinutes);
+  const scheduledAtMs = datetimeLocalInputToMs(atValue);
+  const repeatMinutes = parseFiniteMinutesInput(everyMinutes);
   const scheduleError = computeAutomationScheduleError(
     mode,
     scheduledAtMs,
@@ -163,8 +166,8 @@ export function AutomationsPanel({
     event.preventDefault();
     if (!ownerChatId || !message.trim() || scheduleError) return;
     if (mode === "at") {
-      const atMs = new Date(atValue).getTime();
-      if (!Number.isFinite(atMs)) return;
+      const atMs = datetimeLocalInputToMs(atValue);
+      if (!isFiniteNumber(atMs)) return;
       void create(ownerChatId, { kind: "at", atMs }, message.trim()).then((created) => {
         if (!created) return;
         setMessage("");
@@ -173,8 +176,8 @@ export function AutomationsPanel({
       });
       return;
     }
-    const everyMs = everyMsFromMinutes(Number(everyMinutes));
-    if (!Number.isFinite(everyMs)) return;
+    const everyMs = everyMsFromMinutes(parseFiniteMinutesInput(everyMinutes));
+    if (!isFiniteNumber(everyMs)) return;
     void create(ownerChatId, { kind: "every", everyMs }, message.trim()).then((created) => {
       if (created) {
         setMessage("");
