@@ -21,6 +21,7 @@ import {
   type NotificationInboxFilter,
   sessionIdSet,
   sessionTitleMap,
+  isWaitingTicketStatus,
 } from "@altai/agent-ui";
 import type { AgentNotificationInfo } from "../lib/native";
 import { useChatStore } from "../store/chatStore";
@@ -251,13 +252,11 @@ export function NotificationInboxPanel({
           canOpenChat: sessionIds.has(ticket.chatId),
           canResume: backgroundJobs.some(
             (job) =>
-              job.id === ticket.jobId &&
-              job.state.trim().toLowerCase() === "waiting",
+              job.id === ticket.jobId && isWaitingTicketStatus(job.state),
           ),
           canDismiss: backgroundJobs.some(
             (job) =>
-              job.id === ticket.jobId &&
-              job.state.trim().toLowerCase() === "waiting",
+              job.id === ticket.jobId && isWaitingTicketStatus(job.state),
           ),
         }))}
         jobs={visibleWaitingJobs.map((job) => ({

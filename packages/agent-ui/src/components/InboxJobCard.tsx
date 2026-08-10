@@ -2,6 +2,7 @@ import { Notebook01Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { cn } from "../lib/cn.js";
 import { formatRelativeTime, humanize } from "../lib/inboxFormat.js";
+import { isWaitingJobState } from "../lib/notificationInboxView.js";
 
 export type InboxJobItem = {
   kind: string;
@@ -40,7 +41,7 @@ export function InboxJobCard({
   onOpenChat,
   onDismiss,
 }: InboxJobCardProps) {
-  const waiting = job.state.toLowerCase().includes("waiting");
+  const waiting = isWaitingJobState(job.state);
   return (
     <article className="rounded-lg border border-border bg-muted/30 p-2.5">
       <div className="flex items-start gap-2">
