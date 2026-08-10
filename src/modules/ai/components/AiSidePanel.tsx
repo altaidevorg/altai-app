@@ -65,6 +65,11 @@ import {
   isTextEditingKeyboardTarget,
   shouldDismissSidePanelOnEscape,
   chatTabsFromOpenIds,
+  countCompletedTodos,
+  filterActivityByQuery,
+  filterActivityByKind,
+  isAgentRunBusy,
+  sumRunTokens,
 } from "@altai/agent-ui";
 import {
   retryFailedRun,
@@ -821,19 +826,15 @@ function RunInspector({ className, onClose }: { className?: string; onClose?: ()
     };
   }, [sessionId, planQueue.length]);
 
-  const completedTodos = todos.filter((todo) => todo.status === "completed").length;
-  const normalizedActivityQuery = activityQuery.trim().toLowerCase();
-  const filteredActivity = meta.activity.filter((item) =>
-    [item.label, item.detail, item.kind, item.tone]
-      .filter(Boolean)
-      .join("\n")
-      .toLowerCase()
-      .includes(normalizedActivityQuery),
-  );
-  const researchEvents = meta.activity.filter((item) => item.kind === "research");
-  const mcpEvents = meta.activity.filter((item) => item.kind === "mcp");
-  const tokenTotal = meta.tokens.inputTokens + meta.tokens.outputTokens;
-  const running = meta.status === "thinking" || meta.status === "streaming";
+  const completedTodos = countCompletedTodos(todos);
+  const filteredActivity = filterActivityByQuery(meta.activity, activityQuery);
+  const researchEvents = filterActivityByKind(meta.activity, "research");
+  const mcpEvents = filterActivityByKind(meta.activity, "mcp");
+  const tokenTotal = sumRunTokens({
+    input: meta.tokens.inputTokens,
+    output: meta.tokens.outputTokens,
+  });
+  const running = isAgentRunBusy(meta.status);
 
   return (
     <aside
