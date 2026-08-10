@@ -2019,7 +2019,7 @@ export type {
   InboxFilterCountSource,
 } from "./lib/notificationInboxFilterChrome.js";
 
-export { sessionTitleMap, sessionIdSet } from "./lib/sessionTitleMap.js";
+export { sessionTitleMap, sessionIdSet, sessionIds } from "./lib/sessionTitleMap.js";
 export type { SessionTitleSource } from "./lib/sessionTitleMap.js";
 
 export {

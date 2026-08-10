@@ -364,6 +364,7 @@ consumption of shared panel shells:
 | A6.246 | Task context availability flags |
 | A6.247 | Model dropdown trigger/empty copy |
 | A6.248 | Task queue surface subtitle |
+| A6.249 | Session id list projection |
 
 ### A5 complete enough
 

@@ -70,6 +70,7 @@ import {
   filterActivityByKind,
   isAgentRunBusy,
   sumRunTokens,
+  sessionIds,
 } from "@altai/agent-ui";
 import {
   retryFailedRun,
@@ -274,7 +275,7 @@ export function AiSidePanel({
     setOpenChatIds((current) =>
       reconcileOpenChatTabIds({
         openIds: current,
-        sessionIds: chatSessions.map((session) => session.id),
+        sessionIds: sessionIds(chatSessions),
         activeSessionId: sessionId,
       }),
     );
