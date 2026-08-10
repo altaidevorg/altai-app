@@ -320,6 +320,7 @@ consumption of shared panel shells:
 | A6.202 | Compaction activity toast copy |
 | A6.203 | Notification inbox attention view |
 | A6.204 | Plan queue proposal + applied mark |
+| A6.205 | errorMessage/mutationKey/workspace path normalize |
 
 ### A5 complete enough
 
