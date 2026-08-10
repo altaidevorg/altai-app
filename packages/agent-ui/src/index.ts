@@ -1987,3 +1987,19 @@ export type {
   TaskAssignmentStatus,
   TaskRunSnapshotLike,
 } from "./lib/taskAssignmentStatus.js";
+
+export {
+  isTaskAttentionStatus,
+  taskFilterCounts,
+  taskMatchesListFilter,
+  taskMatchesQuery,
+  partitionTasksByGroupStatus,
+  TASK_GROUP_DEFINITIONS,
+} from "./lib/taskFilterChrome.js";
+export type {
+  TaskListFilterId,
+  TaskStatusRowLike,
+  TaskFilterCounts,
+  TaskGroupBucketId,
+  TaskGroupDefinition,
+} from "./lib/taskFilterChrome.js";
