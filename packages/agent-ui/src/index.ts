@@ -2016,9 +2016,12 @@ export type {
   InboxFilterCountSource,
 } from "./lib/notificationInboxFilterChrome.js";
 
+<<<<<<< Updated upstream
 export { sessionTitleMap, sessionIdSet } from "./lib/sessionTitleMap.js";
 export type { SessionTitleSource } from "./lib/sessionTitleMap.js";
 
+=======
+>>>>>>> Stashed changes
 export {
   TASK_PROMPT_TEMPLATES,
   AUTOMATION_PROMPT_TEMPLATES,

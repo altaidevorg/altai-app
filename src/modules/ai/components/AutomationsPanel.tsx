@@ -54,29 +54,17 @@ import {
   SurfaceLoadingState,
   SurfacePrimaryAction,
   SurfaceSecondaryAction,
+<<<<<<< Updated upstream
   sessionTitleMap,
+=======
+  automationTemplatesAsMessages,
+>>>>>>> Stashed changes
 } from "@altai/agent-ui";
 
 type ScheduleMode = "at" | "every";
 type AutomationFilter = "all" | "once" | "repeat" | "issues";
 
-const AUTOMATION_TEMPLATES = [
-  {
-    label: "Code health",
-    message:
-      "Review the latest workspace changes for regressions, risky patterns, and missing tests. Return a concise, prioritized report with file references.",
-  },
-  {
-    label: "Test failures",
-    message:
-      "Run the relevant test suite, investigate any failures, and return the root cause with the smallest safe fix or a clear recommended next step.",
-  },
-  {
-    label: "Project brief",
-    message:
-      "Summarize meaningful workspace changes since the previous run. Highlight completed work, open risks, decisions, and the next three priorities.",
-  },
-];
+const AUTOMATION_TEMPLATES = automationTemplatesAsMessages();
 
 
 export function AutomationsPanel({
