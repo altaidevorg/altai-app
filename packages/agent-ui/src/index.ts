@@ -1927,3 +1927,9 @@ export {
   markPlanEditAppliedState,
 } from "./lib/planQueueChrome.js";
 export type { QueuedPlanEditLike } from "./lib/planQueueChrome.js";
+
+export {
+  errorMessageFromUnknown,
+  mutationKey,
+  normalizedWorkspacePath,
+} from "./lib/errorMessage.js";

@@ -1,6 +1,9 @@
 import { create } from "zustand";
 import {
   buildNotificationInboxView as buildNotificationInboxViewShared,
+  errorMessageFromUnknown,
+  mutationKey as mutationKeyShared,
+  normalizedWorkspacePath as normalizedWorkspacePathShared,
 } from "@altai/agent-ui";
 import {
   native,
@@ -48,16 +51,15 @@ export type NotificationState = {
 };
 
 function normalizedWorkspacePath(path?: string | null): string | null {
-  const trimmed = path?.trim();
-  return trimmed ? trimmed : null;
+  return normalizedWorkspacePathShared(path);
 }
 
 function mutationKey(kind: MutationKind, id: string): string {
-  return `${kind}:${id}`;
+  return mutationKeyShared(kind, id);
 }
 
 function messageFrom(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+  return errorMessageFromUnknown(error);
 }
 
 /**
