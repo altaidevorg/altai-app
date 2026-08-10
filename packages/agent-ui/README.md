@@ -378,6 +378,7 @@ consumption of shared panel shells:
 | A6.260 | Task runs list empty/filter chrome |
 | A6.261 | Automations list empty/filter chrome |
 | A6.262 | Side panel shell and inspector labels |
+| A6.263 | Task runs create-form chrome |
 
 ### A5 complete enough
 

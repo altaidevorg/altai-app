@@ -99,6 +99,18 @@ import {
   TASK_RUNS_FILTERED_EMPTY_MESSAGE,
   TASK_RUNS_SEARCH_PLACEHOLDER,
   TASK_RUNS_TABS_LABEL,
+  TASK_RUNS_SURFACE_EYEBROW,
+  TASK_RUNS_CREATE_TITLE,
+  TASK_RUNS_CREATE_DESCRIPTION,
+  TASK_RUNS_PROMPT_PLACEHOLDER,
+  TASK_RUNS_ADD_FILES_DIALOG_TITLE,
+  TASK_RUNS_CUSTOM_AGENT_LABEL,
+  TASK_RUNS_START_ERROR,
+  TASK_RUNS_RETRY_ERROR,
+  TASK_RUNS_FILTER_TAB_ATTENTION,
+  TASK_RUNS_FILTER_TAB_HISTORY,
+  TASK_RUNS_FILTER_TAB_LIVE,
+  TASK_RUNS_FILTER_TAB_ALL,
 } from "@altai/agent-ui";
 
 const TERMINAL: AssignmentStatus[] = ["done", "failed", "cancelled"];
@@ -124,7 +136,7 @@ export function TaskRunsPanel({
   navigation,
   presentation = "overlay",
   surfaceTitle = "Work",
-  surfaceEyebrow = "Workspace work",
+  surfaceEyebrow = TASK_RUNS_SURFACE_EYEBROW,
 }: {
   onClose?: () => void;
   navigation?: ReactNode;
@@ -260,7 +272,7 @@ export function TaskRunsPanel({
       setIncludeDiff(false);
       setViewMode("queue");
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Couldn't start the task.");
+      setError(cause instanceof Error ? cause.message : TASK_RUNS_START_ERROR);
     }
   }
 
@@ -283,7 +295,7 @@ export function TaskRunsPanel({
     const selected = await open({
       directory: false,
       multiple: true,
-      title: "Add files as task context",
+      title: TASK_RUNS_ADD_FILES_DIALOG_TITLE,
     });
     const paths = normalizeDialogPathSelection(selected);
     if (!paths.length) return;
@@ -300,7 +312,7 @@ export function TaskRunsPanel({
         runConfig: task.runConfig,
       });
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Couldn't retry the task.");
+      setError(cause instanceof Error ? cause.message : TASK_RUNS_RETRY_ERROR);
     }
   };
 
@@ -360,16 +372,16 @@ export function TaskRunsPanel({
           tabValue={filter}
           onTabChange={(value) => setFilter(value as TaskFilter)}
           tabs={[
-            { id: "all", label: "All", count: filterCounts.all },
-            { id: "active", label: "Live", count: filterCounts.active },
+            { id: "all", label: TASK_RUNS_FILTER_TAB_ALL, count: filterCounts.all },
+            { id: "active", label: TASK_RUNS_FILTER_TAB_LIVE, count: filterCounts.active },
             {
               id: "attention",
-              label: "Attention",
+              label: TASK_RUNS_FILTER_TAB_ATTENTION,
               count: filterCounts.attention,
             },
             {
               id: "finished",
-              label: "History",
+              label: TASK_RUNS_FILTER_TAB_HISTORY,
               count: filterCounts.finished,
             },
           ]}
@@ -378,12 +390,12 @@ export function TaskRunsPanel({
       {viewMode === "create" ? (
       <form onSubmit={start} className="min-h-0 flex-1 overflow-y-auto">
         <PromptEditorSection
-          title="Describe the outcome"
-          description="Give the agent a concrete result to deliver and how to verify it."
+          title={TASK_RUNS_CREATE_TITLE}
+          description={TASK_RUNS_CREATE_DESCRIPTION}
           value={prompt}
           onChange={setPrompt}
           textareaId="background-task-prompt"
-          placeholder="Example: Review the auth flow, fix the highest-impact issue, and run the relevant tests."
+          placeholder={TASK_RUNS_PROMPT_PLACEHOLDER}
           templates={TASK_PROMPT_TEMPLATES.map((template) => ({
             label: template.label,
             value: template.prompt,
@@ -528,7 +540,7 @@ export function TaskRunsPanel({
                   agentLabel={catalogEntryName(
                     agents,
                     task.runConfig?.agentId,
-                    "Custom agent",
+                    TASK_RUNS_CUSTOM_AGENT_LABEL,
                   )}
                   modelLabel={catalogModelLabel(
                     MODELS,
