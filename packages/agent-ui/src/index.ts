@@ -2069,3 +2069,7 @@ export {
   filterSessionsForHistorySearch,
 } from "./lib/sessionHistorySearch.js";
 export type { HistorySessionLike } from "./lib/sessionHistorySearch.js";
+export {
+  findCatalogEntryById,
+  catalogModelLabel,
+} from "./lib/catalogIdLookupChrome.js";
