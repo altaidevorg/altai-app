@@ -58,7 +58,11 @@ import {
   TaskRunCard,
   TaskRunConfigSection,
   TaskSkillChips,
+  partitionTasksByGroupStatus,
   resolveAssignmentStatusFromRun,
+  taskFilterCounts,
+  taskMatchesListFilter,
+  taskMatchesQuery,
 } from "@altai/agent-ui";
 
 const TERMINAL: AssignmentStatus[] = ["done", "failed", "cancelled"];
@@ -162,75 +166,36 @@ export function TaskRunsPanel({
     [runs, tasks],
   );
   const filterCounts = useMemo(
-    () => ({
-      all: resolvedTasks.length,
-      active: resolvedTasks.filter(({ status }) =>
-        ACTIVE_ASSIGNMENT_STATES.includes(status),
-      ).length,
-      attention: resolvedTasks.filter(
-        ({ status }) => status === "awaiting-approval" || status === "failed",
-      ).length,
-      finished: resolvedTasks.filter(({ status }) =>
-        TERMINAL.includes(status),
-      ).length,
-    }),
+    () =>
+      taskFilterCounts(resolvedTasks, ACTIVE_ASSIGNMENT_STATES, TERMINAL),
     [resolvedTasks],
   );
   const visibleTasks = useMemo(() => {
-    const normalizedQuery = query.trim().toLowerCase();
     return resolvedTasks.filter(({ task, status }) => {
-      const matchesFilter =
-        filter === "all" ||
-        (filter === "active" && ACTIVE_ASSIGNMENT_STATES.includes(status)) ||
-        (filter === "attention" &&
-          (status === "awaiting-approval" || status === "failed")) ||
-        (filter === "finished" && TERMINAL.includes(status));
-      if (!matchesFilter) return false;
-      if (!normalizedQuery) return true;
+      if (
+        !taskMatchesListFilter(
+          status,
+          filter,
+          ACTIVE_ASSIGNMENT_STATES,
+          TERMINAL,
+        )
+      ) {
+        return false;
+      }
       const run = runs[task.sessionId];
-      return [
-        task.title,
-        task.source.kind === "task" ? task.source.prompt : "",
-        run?.step ?? "",
-        run?.lastResult ?? "",
-      ]
-        .join("\n")
-        .toLowerCase()
-        .includes(normalizedQuery);
+      return taskMatchesQuery(
+        [
+          task.title,
+          task.source.kind === "task" ? task.source.prompt : "",
+          run?.step ?? "",
+          run?.lastResult ?? "",
+        ],
+        query,
+      );
     });
   }, [filter, query, resolvedTasks, runs]);
   const taskGroups = useMemo(
-    () => [
-      {
-        id: "attention",
-        title: "Needs attention",
-        description: "Runs waiting on you or blocked by an error",
-        items: visibleTasks.filter(
-          ({ status }) => status === "awaiting-approval" || status === "failed",
-        ),
-      },
-      {
-        id: "active",
-        title: "In progress",
-        description: "Agents currently working in isolated chats",
-        items: visibleTasks.filter(
-          ({ status }) =>
-            status === "dispatching" || status === "running",
-        ),
-      },
-      {
-        id: "ready",
-        title: "Ready to review",
-        description: "Completed runs with transcripts and outcomes",
-        items: visibleTasks.filter(({ status }) => status === "done"),
-      },
-      {
-        id: "stopped",
-        title: "Stopped",
-        description: "Cancelled background work",
-        items: visibleTasks.filter(({ status }) => status === "cancelled"),
-      },
-    ].filter((group) => group.items.length > 0),
+    () => partitionTasksByGroupStatus(visibleTasks),
     [visibleTasks],
   );
 
