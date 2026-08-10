@@ -54,11 +54,8 @@ import {
   SurfaceLoadingState,
   SurfacePrimaryAction,
   SurfaceSecondaryAction,
-<<<<<<< Updated upstream
   sessionTitleMap,
-=======
   automationTemplatesAsMessages,
->>>>>>> Stashed changes
 } from "@altai/agent-ui";
 
 type ScheduleMode = "at" | "every";

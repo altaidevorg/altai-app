@@ -331,11 +331,8 @@ consumption of shared panel shells:
 | A6.213 | Task assignment status from live run |
 | A6.214 | Task Runs filter counts/match/group chrome |
 | A6.215 | Notification inbox filter/search chrome |
-<<<<<<< Updated upstream
 | A6.216 | Session id set + title map |
-=======
 | A6.217 | Operations task/automation prompt templates |
->>>>>>> Stashed changes
 
 ### A5 complete enough
 
