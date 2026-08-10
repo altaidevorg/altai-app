@@ -79,6 +79,31 @@ import {
   runRecoveryPresentation,
   runRecoverySteerPrompt,
   historyToggleLabel,
+  SIDE_PANEL_CLOSE_LABEL,
+  SIDE_PANEL_SETTINGS_LABEL,
+  SIDE_PANEL_WINDOW_TITLE_BAR_LABEL,
+  SIDE_PANEL_CHAT_SESSIONS_ARIA,
+  SIDE_PANEL_RESIZE_HISTORY_LABEL,
+  SIDE_PANEL_RESIZE_INSPECTOR_LABEL,
+  SIDE_PANEL_RUN_DETAILS_ARIA,
+  SIDE_PANEL_LOCAL_WORKSPACE_FALLBACK,
+  INSPECTOR_ACTIVITY_TITLE,
+  INSPECTOR_ACTIVITY_SUMMARY,
+  INSPECTOR_ACTIVITY_FILTER_PLACEHOLDER,
+  INSPECTOR_CHANGES_TITLE,
+  INSPECTOR_CHANGES_SUMMARY,
+  INSPECTOR_CHANGES_EMPTY,
+  INSPECTOR_RESEARCH_TITLE,
+  INSPECTOR_RESEARCH_SUMMARY,
+  INSPECTOR_RESEARCH_EMPTY,
+  INSPECTOR_DELEGATED_TITLE,
+  INSPECTOR_DELEGATED_SUMMARY,
+  INSPECTOR_RECOVERY_TITLE,
+  INSPECTOR_RECOVERY_SUMMARY,
+  INSPECTOR_METRIC_APPROVALS,
+  INSPECTOR_METRIC_SUBAGENTS,
+  INSPECTOR_METRIC_CHANGES,
+  INSPECTOR_METRIC_PLAN,
 } from "@altai/agent-ui";
 import {
   retryFailedRun,
@@ -159,7 +184,7 @@ export function AiSidePanel({
   onClose,
   hasComposer = true,
   variant = "sidebar",
-  workspaceName = "Local workspace",
+  workspaceName = SIDE_PANEL_LOCAL_WORKSPACE_FALLBACK,
   workspacePath = null,
   workspaceKind = null,
   onOpenStudio,
@@ -368,7 +393,7 @@ export function AiSidePanel({
                 }
               >
                 <nav
-                  aria-label="Chat sessions"
+                  aria-label={SIDE_PANEL_CHAT_SESSIONS_ARIA}
                   className="altai-ai-history-rail z-10 flex h-full min-h-0 min-w-0 flex-col overflow-hidden"
                 >
                   <ChatHistoryPanel
@@ -379,8 +404,8 @@ export function AiSidePanel({
               </ResizablePanel>
               <ResizableHandle
                 withHandle
-                aria-label="Resize chat history sidebar"
-                title="Resize chat history sidebar"
+                aria-label={SIDE_PANEL_RESIZE_HISTORY_LABEL}
+                title={SIDE_PANEL_RESIZE_HISTORY_LABEL}
               />
             </>
           ) : null}
@@ -454,8 +479,8 @@ export function AiSidePanel({
             <>
               <ResizableHandle
                 withHandle
-                aria-label="Resize run inspector sidebar"
-                title="Resize run inspector sidebar"
+                aria-label={SIDE_PANEL_RESIZE_INSPECTOR_LABEL}
+                title={SIDE_PANEL_RESIZE_INSPECTOR_LABEL}
               />
               <ResizablePanel
                 id="ai-run-inspector-sidebar"
@@ -737,11 +762,11 @@ function WorkspaceTopbar({
             onNewChat={onNewChat}
           />
           {onClose ? (
-            <IconTooltip label="Close panel">
+            <IconTooltip label={SIDE_PANEL_CLOSE_LABEL}>
               <button
                 type="button"
                 onClick={onClose}
-                aria-label="Close panel"
+                aria-label={SIDE_PANEL_CLOSE_LABEL}
                 className="inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground"
               >
                 <HugeiconsIcon icon={Cancel01Icon} size={13} strokeWidth={1.75} />
@@ -770,17 +795,17 @@ function WorkspaceTopbar({
           data-tauri-drag-region
           onDoubleClick={toggleWindowMaximize}
           className="h-full min-w-4 flex-1"
-          aria-label="Window title bar"
+          aria-label={SIDE_PANEL_WINDOW_TITLE_BAR_LABEL}
         />
         {historyControl}
         {todoSummary}
         {workspaceActions}
         {onOpenSettings ? (
-          <IconTooltip label="ALTAI Studio settings">
+          <IconTooltip label={SIDE_PANEL_SETTINGS_LABEL}>
             <button
               type="button"
               onClick={onOpenSettings}
-              aria-label="ALTAI Studio settings"
+              aria-label={SIDE_PANEL_SETTINGS_LABEL}
               className="inline-flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
             >
               <HugeiconsIcon icon={Settings01Icon} size={14} strokeWidth={1.75} />
@@ -847,7 +872,7 @@ function RunInspector({ className, onClose }: { className?: string; onClose?: ()
 
   return (
     <aside
-      aria-label="Run details"
+      aria-label={SIDE_PANEL_RUN_DETAILS_ARIA}
       className={cn(
         "flex min-h-0 min-w-0 flex-col border-l border-border-subtle bg-card",
         className,
@@ -867,16 +892,16 @@ function RunInspector({ className, onClose }: { className?: string; onClose?: ()
           step={meta.step}
           metrics={[
             {
-              label: "Plan",
+              label: INSPECTOR_METRIC_PLAN,
               value: planProgressMetricValue(completedTodos, todos.length),
             },
-            { label: "Changes", value: String(planQueue.length) },
+            { label: INSPECTOR_METRIC_CHANGES, value: String(planQueue.length) },
             {
-              label: "Approvals",
+              label: INSPECTOR_METRIC_APPROVALS,
               value: String(meta.pendingApprovals.length),
             },
             {
-              label: "Subagents",
+              label: INSPECTOR_METRIC_SUBAGENTS,
               value: String(meta.activeSubagents.length),
             },
           ]}
@@ -903,15 +928,15 @@ function RunInspector({ className, onClose }: { className?: string; onClose?: ()
         </InspectorSection>
 
         <InspectorSection
-          title="Activity"
-          summary="Chronological agent steps and tool results"
+          title={INSPECTOR_ACTIVITY_TITLE}
+          summary={INSPECTOR_ACTIVITY_SUMMARY}
           count={meta.activity.length}
           defaultOpen
         >
           <SurfaceSearch
             value={activityQuery}
             onChange={setActivityQuery}
-            placeholder="Filter activity"
+            placeholder={INSPECTOR_ACTIVITY_FILTER_PLACEHOLDER}
             className="mb-2"
           />
           <ActivityInspector
@@ -929,8 +954,8 @@ function RunInspector({ className, onClose }: { className?: string; onClose?: ()
         </InspectorSection>
 
         <InspectorSection
-          title="Changes & files"
-          summary="Proposed edits and generated artifacts"
+          title={INSPECTOR_CHANGES_TITLE}
+          summary={INSPECTOR_CHANGES_SUMMARY}
           count={planQueue.length + meta.artifacts.length}
           defaultOpen={planQueue.length > 0}
         >
@@ -956,13 +981,13 @@ function RunInspector({ className, onClose }: { className?: string; onClose?: ()
             />
           ) : null}
           {!planQueue.length && !meta.artifacts.length ? (
-            <InspectorEmpty>No changes or generated files yet.</InspectorEmpty>
+            <InspectorEmpty>{INSPECTOR_CHANGES_EMPTY}</InspectorEmpty>
           ) : null}
         </InspectorSection>
 
         <InspectorSection
-          title="Research & tools"
-          summary="External lookups and connected MCP calls"
+          title={INSPECTOR_RESEARCH_TITLE}
+          summary={INSPECTOR_RESEARCH_SUMMARY}
           count={researchEvents.length + mcpEvents.length}
         >
           {researchEvents.length ? <ResearchInspector events={researchEvents} /> : null}
@@ -971,21 +996,21 @@ function RunInspector({ className, onClose }: { className?: string; onClose?: ()
           ) : null}
           {mcpEvents.length ? <McpInspector events={mcpEvents} /> : null}
           {!researchEvents.length && !mcpEvents.length ? (
-            <InspectorEmpty>No research or connected tool activity yet.</InspectorEmpty>
+            <InspectorEmpty>{INSPECTOR_RESEARCH_EMPTY}</InspectorEmpty>
           ) : null}
         </InspectorSection>
 
         <InspectorSection
-          title="Delegated work"
-          summary="Subagents working on parts of this run"
+          title={INSPECTOR_DELEGATED_TITLE}
+          summary={INSPECTOR_DELEGATED_SUMMARY}
           count={meta.activeSubagents.length}
         >
           <AgentsInspector tasks={meta.activeSubagents} />
         </InspectorSection>
 
         <InspectorSection
-          title="Recovery"
-          summary="Restore points created before agent edits"
+          title={INSPECTOR_RECOVERY_TITLE}
+          summary={INSPECTOR_RECOVERY_SUMMARY}
           count={checkpoints.length + appliedPlanEdits.length}
         >
           <SnapshotsInspectorBridge
