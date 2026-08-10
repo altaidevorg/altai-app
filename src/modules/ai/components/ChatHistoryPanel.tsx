@@ -1,6 +1,7 @@
 import {
   ChatHistoryPanel as SharedChatHistoryPanel,
   extractSessionSnippet,
+  filterSessionsForHistorySearch,
   groupSessionsByRecency,
   hasConversationContent,
 } from "@altai/agent-ui";
@@ -80,19 +81,15 @@ export function ChatHistoryPanel({
     }
   }, [renamingId]);
 
-  const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    return sessions.filter((s) => {
-      // Wait for the local transcript read rather than briefly rendering an
-      // empty draft and removing it a frame later.
-      if (!hasContent[s.id]) return false;
-      if (!q) return true;
-      const title = (s.title || "New chat").toLowerCase();
-      if (title.includes(q)) return true;
-      const snippet = snippets[s.id] ?? "";
-      return snippet.toLowerCase().includes(q);
-    });
-  }, [hasContent, sessions, search, snippets]);
+  const filtered = useMemo(
+    () =>
+      filterSessionsForHistorySearch(sessions, {
+        query: search,
+        hasContent,
+        snippets,
+      }),
+    [hasContent, sessions, search, snippets],
+  );
 
   const groups = useMemo(
     () =>
