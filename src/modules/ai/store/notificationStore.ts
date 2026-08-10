@@ -4,6 +4,8 @@ import {
   errorMessageFromUnknown,
   mutationKey as mutationKeyShared,
   normalizedWorkspacePath as normalizedWorkspacePathShared,
+  withPendingEnded,
+  withPendingStarted,
 } from "@altai/agent-ui";
 import {
   native,
@@ -107,10 +109,7 @@ function beginMutation(
   ) => void,
   key: string,
 ): void {
-  set((state) => ({
-    error: null,
-    pendingIds: { ...state.pendingIds, [key]: true },
-  }));
+  set((state) => withPendingStarted(state.pendingIds, key));
 }
 
 function endMutation(
@@ -123,12 +122,7 @@ function endMutation(
   ) => void,
   key: string,
 ): void {
-  set((state) => {
-    if (!state.pendingIds[key]) return {};
-    const pendingIds = { ...state.pendingIds };
-    delete pendingIds[key];
-    return { pendingIds };
-  });
+  set((state) => withPendingEnded(state.pendingIds, key));
 }
 
 export const useNotificationStore = create<NotificationState>((set, get) => ({
