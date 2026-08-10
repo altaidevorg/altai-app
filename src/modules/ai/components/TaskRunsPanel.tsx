@@ -65,6 +65,7 @@ import {
   taskMatchesQuery,
   TASK_PROMPT_TEMPLATES,
   canCreateTaskDraft,
+  taskTitleFromPrompt,
 } from "@altai/agent-ui";
 
 const TERMINAL: AssignmentStatus[] = ["done", "failed", "cancelled"];
@@ -215,7 +216,7 @@ export function TaskRunsPanel({
         diff: includeDiff,
       });
       await runTask({
-        title: prompt.trim().split("\n")[0],
+        title: taskTitleFromPrompt(prompt),
         prompt: taskPrompt,
         runConfig: { agentId, modelId, permissionMode, skills: selectedSkills },
       });
