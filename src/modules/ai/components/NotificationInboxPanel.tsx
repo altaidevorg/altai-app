@@ -12,7 +12,12 @@ import { useWorkspaceFolderStore } from "@/modules/workspace/folder";
 import { useEffect, useMemo, useState } from "react";
 import {
   labelForInboxJob,
+  matchesSearchFields,
   NotificationInboxPanel as SharedNotificationInboxPanel,
+  notificationInboxFilterCounts,
+  notificationInboxHasVisibleItems,
+  notificationsForInboxFilter,
+  partitionNotificationsByReadState,
   type NotificationInboxFilter,
 } from "@altai/agent-ui";
 import type { AgentNotificationInfo } from "../lib/native";
@@ -121,73 +126,71 @@ export function NotificationInboxPanel({
     () => view.notifications.filter((notification) => notification.seenAtMs === null),
     [view.notifications],
   );
-  const matchesQuery = (values: Array<string | null | undefined>) => {
-    const normalizedQuery = query.trim().toLowerCase();
-    if (!normalizedQuery) return true;
-    return values
-      .filter(Boolean)
-      .join("\n")
-      .toLowerCase()
-      .includes(normalizedQuery);
-  };
   const visibleTickets = useMemo(
     () =>
       view.waitingTickets.filter((ticket) =>
-        matchesQuery([
-          ticket.prompt,
-          ...ticket.choices,
-          sessionTitles.get(ticket.chatId),
-        ]),
+        matchesSearchFields(
+          [
+            ticket.prompt,
+            ...ticket.choices,
+            sessionTitles.get(ticket.chatId),
+          ],
+          query,
+        ),
       ),
     [query, sessionTitles, view.waitingTickets],
   );
   const visibleNotifications = useMemo(
     () =>
-      (filter === "attention" ? unreadNotifications : view.notifications).filter(
-        (notification) =>
-          matchesQuery([
+      notificationsForInboxFilter(
+        filter,
+        view.notifications,
+        unreadNotifications,
+      ).filter((notification) =>
+        matchesSearchFields(
+          [
             notification.title,
             notification.body,
             notification.kind,
             sessionTitles.get(notification.chatId),
-          ]),
+          ],
+          query,
+        ),
       ),
     [filter, query, sessionTitles, unreadNotifications, view.notifications],
   );
-  const visibleUnreadNotifications = visibleNotifications.filter(
-    (notification) => notification.seenAtMs === null,
-  );
-  const visibleReadNotifications = visibleNotifications.filter(
-    (notification) => notification.seenAtMs !== null,
-  );
+  const { unread: visibleUnreadNotifications, read: visibleReadNotifications } =
+    useMemo(
+      () => partitionNotificationsByReadState(visibleNotifications),
+      [visibleNotifications],
+    );
   const visibleWaitingJobs = useMemo(
     () =>
       view.waitingJobs.filter((job) =>
-        matchesQuery([
-          job.kind,
-          job.state,
-          job.lastError,
-          sessionTitles.get(job.chatId),
-        ]),
+        matchesSearchFields(
+          [
+            job.kind,
+            job.state,
+            job.lastError,
+            sessionTitles.get(job.chatId),
+          ],
+          query,
+        ),
       ),
     [query, sessionTitles, view.waitingJobs],
   );
-  const filterCounts: Record<NotificationInboxFilter, number> = {
-    all:
-      view.waitingTickets.length +
-      view.notifications.length +
-      view.waitingJobs.length,
-    attention:
-      view.waitingTickets.length + unreadNotifications.length + view.waitingJobs.length,
-    updates: view.notifications.length,
-  };
-  const hasVisibleItems =
-    ((filter === "all" || filter === "attention") &&
-      visibleTickets.length > 0) ||
-    ((filter === "all" || filter === "attention" || filter === "updates") &&
-      visibleNotifications.length > 0) ||
-    ((filter === "all" || filter === "attention") &&
-      visibleWaitingJobs.length > 0);
+  const filterCounts: Record<NotificationInboxFilter, number> =
+    notificationInboxFilterCounts({
+      waitingTickets: view.waitingTickets.length,
+      notifications: view.notifications.length,
+      waitingJobs: view.waitingJobs.length,
+      unreadNotifications: unreadNotifications.length,
+    });
+  const hasVisibleItems = notificationInboxHasVisibleItems(filter, {
+    tickets: visibleTickets.length,
+    notifications: visibleNotifications.length,
+    waitingJobs: visibleWaitingJobs.length,
+  });
 
   const markAllRead = async () => {
     if (!unreadNotifications.length || markingAllRead) return;

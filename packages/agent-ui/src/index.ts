@@ -2003,3 +2003,15 @@ export type {
   TaskGroupBucketId,
   TaskGroupDefinition,
 } from "./lib/taskFilterChrome.js";
+
+export {
+  matchesSearchFields,
+  notificationInboxFilterCounts,
+  notificationInboxHasVisibleItems,
+  notificationsForInboxFilter,
+  partitionNotificationsByReadState,
+} from "./lib/notificationInboxFilterChrome.js";
+export type {
+  NotificationInboxFilterId,
+  InboxFilterCountSource,
+} from "./lib/notificationInboxFilterChrome.js";
