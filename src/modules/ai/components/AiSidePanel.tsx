@@ -75,6 +75,9 @@ import {
   runInspectorUsageTokenLabel,
   planProgressMetricValue,
   planInspectorSectionSummary,
+  isRecoverableRunOutcome,
+  runRecoveryPresentation,
+  runRecoverySteerPrompt,
 } from "@altai/agent-ui";
 import {
   retryFailedRun,
@@ -1145,26 +1148,15 @@ function RunRecoveryActionsBridge() {
   if (!run?.runId) return null;
   const warning = !run.completed ? run.warning : null;
   const outcome = run.completed ? run.outcome : null;
-  const canContinue =
-    outcome?.kind === "stuck" || outcome?.kind === "budget_exhausted";
+  const canContinue = isRecoverableRunOutcome(outcome);
   const canRetry = isRetryableRunOutcome(outcome);
   if (!warning && !canContinue && !canRetry) return null;
 
-  const detail = warning
-    ? `${describeRunWarning(warning)}. You can steer, stop, or dismiss — the run is still working.`
-    : outcome?.kind === "stuck"
-      ? `The run paused because it was ${outcome.reason.replace(/_/g, " ")}.`
-      : outcome?.kind === "budget_exhausted"
-        ? `Hit the turn limit after ${outcome.budget.iterations_used} steps. Continue picks up where it left off.`
-        : "The provider request failed after its retry policy was exhausted.";
-
-  const title = warning
-    ? "Possible repeated failure"
-    : canRetry
-      ? "Retry available"
-      : outcome?.kind === "budget_exhausted"
-        ? "Turn limit reached"
-        : "Run paused";
+  const { title, detail } = runRecoveryPresentation({
+    warningDescription: warning ? describeRunWarning(warning) : null,
+    canRetry,
+    outcome,
+  });
 
   const dismissWarning = () => {
     dismissRunAttention(sessionId);
@@ -1191,11 +1183,7 @@ function RunRecoveryActionsBridge() {
       }}
       onSteer={() => {
         dismissWarning();
-        focusInput(
-          warning
-            ? "Adjust the active run with this direction: "
-            : "Continue the previous run with this adjustment: ",
-        );
+        focusInput(runRecoverySteerPrompt(Boolean(warning)));
       }}
       onStop={() => {
         dismissWarning();

@@ -2186,3 +2186,13 @@ export {
   planProgressMetricValue,
   planInspectorSectionSummary,
 } from "./lib/runInspectorChrome.js";
+export {
+  runRecoveryTitle,
+  runRecoveryDetail,
+  runRecoveryPresentation,
+  runRecoverySteerPrompt,
+} from "./lib/runRecoveryChrome.js";
+export type {
+  RunRecoveryOutcomeLike,
+  RunRecoveryPresentation,
+} from "./lib/runRecoveryChrome.js";

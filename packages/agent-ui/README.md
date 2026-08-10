@@ -366,6 +366,7 @@ consumption of shared panel shells:
 | A6.248 | Task queue surface subtitle |
 | A6.249 | Session id list projection |
 | A6.250 | Run inspector overview copy |
+| A6.251 | Run recovery title/detail/steer copy |
 
 ### A5 complete enough
 
