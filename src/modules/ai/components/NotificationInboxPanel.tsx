@@ -12,7 +12,6 @@ import { useWorkspaceFolderStore } from "@/modules/workspace/folder";
 import { useEffect, useMemo, useState } from "react";
 import {
   labelForInboxJob,
-  matchesSearchFields,
   NotificationInboxPanel as SharedNotificationInboxPanel,
   notificationInboxFilterCounts,
   notificationInboxHasVisibleItems,
@@ -24,6 +23,8 @@ import {
   isWaitingTicketStatus,
   filterUnreadBySeenAtMs,
   mapById,
+  isNotificationInboxEmpty,
+  filterRowsBySearchFields,
 } from "@altai/agent-ui";
 import type { AgentNotificationInfo } from "../lib/native";
 import { useChatStore } from "../store/chatStore";
@@ -123,44 +124,43 @@ export function NotificationInboxPanel({
     }
   };
 
-  const empty =
-    view.waitingTickets.length === 0 &&
-    view.notifications.length === 0 &&
-    view.waitingJobs.length === 0;
+  const empty = isNotificationInboxEmpty({
+    waitingTickets: view.waitingTickets.length,
+    notifications: view.notifications.length,
+    waitingJobs: view.waitingJobs.length,
+  });
   const unreadNotifications = useMemo(
     () => filterUnreadBySeenAtMs(view.notifications),
     [view.notifications],
   );
   const visibleTickets = useMemo(
     () =>
-      view.waitingTickets.filter((ticket) =>
-        matchesSearchFields(
-          [
-            ticket.prompt,
-            ...ticket.choices,
-            sessionTitles.get(ticket.chatId),
-          ],
-          query,
-        ),
+      filterRowsBySearchFields(
+        view.waitingTickets,
+        query,
+        (ticket) => [
+          ticket.prompt,
+          ...ticket.choices,
+          sessionTitles.get(ticket.chatId),
+        ],
       ),
     [query, sessionTitles, view.waitingTickets],
   );
   const visibleNotifications = useMemo(
     () =>
-      notificationsForInboxFilter(
-        filter,
-        view.notifications,
-        unreadNotifications,
-      ).filter((notification) =>
-        matchesSearchFields(
-          [
-            notification.title,
-            notification.body,
-            notification.kind,
-            sessionTitles.get(notification.chatId),
-          ],
-          query,
+      filterRowsBySearchFields(
+        notificationsForInboxFilter(
+          filter,
+          view.notifications,
+          unreadNotifications,
         ),
+        query,
+        (notification) => [
+          notification.title,
+          notification.body,
+          notification.kind,
+          sessionTitles.get(notification.chatId),
+        ],
       ),
     [filter, query, sessionTitles, unreadNotifications, view.notifications],
   );
@@ -171,16 +171,15 @@ export function NotificationInboxPanel({
     );
   const visibleWaitingJobs = useMemo(
     () =>
-      view.waitingJobs.filter((job) =>
-        matchesSearchFields(
-          [
-            job.kind,
-            job.state,
-            job.lastError,
-            sessionTitles.get(job.chatId),
-          ],
-          query,
-        ),
+      filterRowsBySearchFields(
+        view.waitingJobs,
+        query,
+        (job) => [
+          job.kind,
+          job.state,
+          job.lastError,
+          sessionTitles.get(job.chatId),
+        ],
       ),
     [query, sessionTitles, view.waitingJobs],
   );

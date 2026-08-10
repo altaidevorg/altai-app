@@ -351,6 +351,7 @@ consumption of shared panel shells:
 | A6.233 | Session history items + rename trim |
 | A6.234 | Task context source detail labels |
 | A6.235 | Model dropdown filter + fav/recent partition |
+| A6.236 | Notification inbox empty + search filter |
 
 ### A5 complete enough
 
