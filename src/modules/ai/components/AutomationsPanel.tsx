@@ -58,6 +58,8 @@ import {
   automationTemplatesAsMessages,
   canCreateAutomationDraft,
   nextConversationOwnerChatId,
+  everyMsFromMinutes,
+  everyMinutesInputFromMs,
 } from "@altai/agent-ui";
 
 type ScheduleMode = "at" | "every";
@@ -171,7 +173,7 @@ export function AutomationsPanel({
       });
       return;
     }
-    const everyMs = Number(everyMinutes) * 60_000;
+    const everyMs = everyMsFromMinutes(Number(everyMinutes));
     if (!Number.isFinite(everyMs)) return;
     void create(ownerChatId, { kind: "every", everyMs }, message.trim()).then((created) => {
       if (created) {
@@ -189,7 +191,7 @@ export function AutomationsPanel({
       setAtValue(defaultAutomationAtValue());
     } else if (item.schedule.kind === "every") {
       setMode("every");
-      setEveryMinutes(String(item.schedule.everyMs / 60_000));
+      setEveryMinutes(everyMinutesInputFromMs(item.schedule.everyMs));
     }
     setViewMode("create");
   };
