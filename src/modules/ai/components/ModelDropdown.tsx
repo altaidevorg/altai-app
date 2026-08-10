@@ -42,7 +42,13 @@ import {
 } from "../lib/modelRouting";
 import { useAgentsStore } from "../store/agentsStore";
 import { useChatStore } from "../store/chatStore";
-import { ComposerConfigTrigger, ModelPickerPanel } from "@altai/agent-ui";
+import {
+  ComposerConfigTrigger,
+  ModelPickerPanel,
+  filterCatalogModelsForDropdown,
+  modelDropdownShowSections,
+  partitionModelsByFavRecent,
+} from "@altai/agent-ui";
 
 const PROVIDER_ICON = {
   openai: ChatGptIcon,
@@ -145,23 +151,15 @@ export function ModelDropdown({
 
   const currentUsable = available.some((m) => m.id === current.id);
 
-  const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    let pool = available;
-    if (activeProvider !== null) {
-      pool = pool.filter((m) => m.provider === activeProvider);
-    }
-    if (q) {
-      pool = pool.filter(
-        (m) =>
-          m.label.toLowerCase().includes(q) ||
-          m.hint.toLowerCase().includes(q) ||
-          m.description.toLowerCase().includes(q) ||
-          m.provider.includes(q),
-      );
-    }
-    return pool.filter((model) => supportsAgentModel(model, activeAgent));
-  }, [activeAgent, activeProvider, available, search]);
+  const filtered = useMemo(
+    () =>
+      filterCatalogModelsForDropdown(available, {
+        search,
+        provider: activeProvider,
+        isCompatible: (model) => supportsAgentModel(model, activeAgent),
+      }),
+    [activeAgent, activeProvider, available, search],
+  );
 
   const autoModel = useMemo(
     () => pickAutoModel({ models: available, agent: activeAgent }),
@@ -170,24 +168,18 @@ export function ModelDropdown({
   const showAuto = allowAuto && !onChange;
   const autoSelected = showAuto && autoModelEnabled;
   const triggerUsable = autoSelected ? Boolean(autoModel) : currentUsable;
-  const favoriteSet = useMemo(() => new Set(favoriteModelIds), [favoriteModelIds]);
-  const recentSet = useMemo(() => new Set(recentModelIds), [recentModelIds]);
-  const showSections = !search.trim() && activeProvider === null;
+  const showSections = modelDropdownShowSections(search, activeProvider);
   const autoOptionVisible = showAuto && showSections;
-  const pinned = showSections
-    ? favoriteModelIds
-        .map((id) => filtered.find((model) => model.id === id))
-        .filter((model): model is ModelInfo => Boolean(model))
-    : [];
-  const recent = showSections
-    ? recentModelIds
-        .map((id) => filtered.find((model) => model.id === id))
-        .filter((model): model is ModelInfo => Boolean(model))
-        .filter((model) => !favoriteSet.has(model.id))
-    : [];
-  const remaining = showSections
-    ? filtered.filter((model) => !favoriteSet.has(model.id) && !recentSet.has(model.id))
-    : filtered;
+  const { pinned, recent, remaining } = useMemo(
+    () =>
+      partitionModelsByFavRecent(
+        filtered,
+        favoriteModelIds,
+        recentModelIds,
+        showSections,
+      ),
+    [favoriteModelIds, filtered, recentModelIds, showSections],
+  );
 
   const ProviderIcon = PROVIDER_ICON[current.provider] ?? ChatGptIcon;
 

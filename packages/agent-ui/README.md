@@ -350,6 +350,7 @@ consumption of shared panel shells:
 | A6.232 | Id map + unread filter + list remove |
 | A6.233 | Session history items + rename trim |
 | A6.234 | Task context source detail labels |
+| A6.235 | Model dropdown filter + fav/recent partition |
 
 ### A5 complete enough
 
