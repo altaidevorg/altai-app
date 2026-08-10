@@ -319,6 +319,7 @@ consumption of shared panel shells:
 | A6.201 | Project agent meta from run snapshot |
 | A6.202 | Compaction activity toast copy |
 | A6.203 | Notification inbox attention view |
+| A6.204 | Plan queue proposal + applied mark |
 
 ### A5 complete enough
 
