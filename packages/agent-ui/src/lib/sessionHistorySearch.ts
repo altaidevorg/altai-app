@@ -37,13 +37,16 @@ export function filterSessionsForHistorySearch<T extends HistorySessionLike>(
     defaultTitle?: string;
   },
 ): T[] {
-  const hasContent =
+  const hasContentFn =
     typeof options.hasContent === "function"
       ? options.hasContent
-      : (id: string) => Boolean(options.hasContent[id]);
+      : (id: string) => {
+          const map = options.hasContent as Readonly<Record<string, boolean>>;
+          return Boolean(map[id]);
+        };
 
   return sessions.filter((session) => {
-    if (!hasContent(session.id)) return false;
+    if (!hasContentFn(session.id)) return false;
     return sessionMatchesHistorySearch({
       title: session.title,
       snippet: options.snippets[session.id],
