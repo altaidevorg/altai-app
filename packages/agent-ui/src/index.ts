@@ -743,6 +743,12 @@ export {
 } from "./components/AiSidePanelFrame.js";
 
 export {
+  AgentMarkdown,
+  type AgentMarkdownLink,
+  type AgentMarkdownProps,
+} from "./components/AgentMarkdown.js";
+
+export {
   AiChatMainColumn,
   type AiChatMainColumnProps,
 } from "./components/AiChatMainColumn.js";
