@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { sessionIdSet, sessionTitleMap } from "../lib/sessionTitleMap.js";
+import {
+  sessionIdSet,
+  sessionIds,
+  sessionTitleMap,
+} from "../lib/sessionTitleMap.js";
 
 describe("sessionTitleMap", () => {
   it("maps ids to titles", () => {
@@ -9,6 +13,12 @@ describe("sessionTitleMap", () => {
     ]);
     expect(map.get("a")).toBe("Alpha");
     expect(map.get("b")).toBe("Beta");
+  });
+});
+
+describe("sessionIds", () => {
+  it("returns ordered ids", () => {
+    expect(sessionIds([{ id: "x" }, { id: "y" }])).toEqual(["x", "y"]);
   });
 });
 

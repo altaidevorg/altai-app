@@ -11,6 +11,7 @@ import {
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import { currentWorkspaceFolder } from "@/modules/workspace/folder";
 import { create } from "zustand";
+import { sessionIdSet } from "@altai/agent-ui";
 import {
   type Assignment,
   type AssignmentDelivery,
@@ -108,7 +109,7 @@ export const useAssignmentsStore = create<State>((set, get) => ({
     // Sessions must be known before we judge an assignment orphaned, or a
     // not-yet-hydrated chatStore would make us hide every restored card.
     await useChatStore.getState().hydrateSessions();
-    const sessions = new Set(useChatStore.getState().sessions.map((s) => s.id));
+    const sessions = sessionIdSet(useChatStore.getState().sessions);
     set((s) => {
       // Merge with any assignment created during the await (in-flight dispatch),
       // and skip orphans whose session is gone. Non-destructive: we don't

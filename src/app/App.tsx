@@ -28,6 +28,7 @@ import {
 import { createTauriHostPorts } from "@/modules/ai/host/createTauriHostPorts";
 import {
   HostPortsProvider,
+  sessionIds,
   type Capabilities,
 } from "@altai/agent-ui";
 import {
@@ -995,7 +996,7 @@ export default function App() {
       const sessions = useChatStore.getState().sessions;
       await replayRestoredAgentRuns(
         workspacePath,
-        sessions.map((session) => session.id),
+        sessionIds(sessions),
       );
     })().catch((error) => {
       console.warn("Could not replay restored agent runs", error);

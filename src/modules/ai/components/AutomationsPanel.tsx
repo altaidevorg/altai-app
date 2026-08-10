@@ -55,6 +55,7 @@ import {
   SurfacePrimaryAction,
   SurfaceSecondaryAction,
   sessionTitleMap,
+  sessionIds,
   automationTemplatesAsMessages,
   canCreateAutomationDraft,
   nextConversationOwnerChatId,
@@ -116,7 +117,7 @@ export function AutomationsPanel({
     const next = nextConversationOwnerChatId(
       activeChatId,
       ownerChatId,
-      sessions.map((session) => session.id),
+      sessionIds(sessions),
     );
     if (next) setOwnerChatId(next);
   }, [activeChatId, ownerChatId, sessions]);
