@@ -2214,3 +2214,13 @@ export {
   composerSteerControlTitle,
   COMPOSER_QUEUE_CONTROL_TITLE,
 } from "./lib/composerDesktopChrome.js";
+export {
+  COMPOSER_ATTACH_FILE_TITLE,
+  COMPOSER_ADD_WORKSPACE_CONTEXT_LABEL,
+  COMPOSER_RESEARCH_SEMBLE_TITLE,
+  COMPOSER_CONTEXT_ACTIVE_FILE,
+  COMPOSER_CONTEXT_WORKSPACE_MAP,
+  COMPOSER_CONTEXT_ACTIVE_TERMINAL,
+  COMPOSER_CONTEXT_WORKING_DIFF,
+} from "./lib/composerContextMenuChrome.js";
+export type { ComposerContextActionCopy } from "./lib/composerContextMenuChrome.js";
