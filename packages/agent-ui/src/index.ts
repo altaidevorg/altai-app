@@ -1950,3 +1950,12 @@ export {
   omitRecordKey,
   omitListItemById,
 } from "./lib/recordChrome.js";
+
+export {
+  defaultAutomationAtValue,
+  automationNextRunAtMs,
+} from "./lib/automationScheduleChrome.js";
+export type {
+  AutomationScheduleLike,
+  AutomationNextRunLike,
+} from "./lib/automationScheduleChrome.js";
