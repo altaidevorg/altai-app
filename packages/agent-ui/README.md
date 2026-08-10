@@ -349,6 +349,7 @@ consumption of shared panel shells:
 | A6.231 | Waiting job state helpers |
 | A6.232 | Id map + unread filter + list remove |
 | A6.233 | Session history items + rename trim |
+| A6.234 | Task context source detail labels |
 
 ### A5 complete enough
 
