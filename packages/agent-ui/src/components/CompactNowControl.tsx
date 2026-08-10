@@ -1,5 +1,6 @@
 import { Archive02Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
+import { COMPACT_NOW_TITLE } from "../lib/paperImportChrome.js";
 import { IconBtn } from "./IconBtn.js";
 
 export type CompactNowControlProps = {
@@ -17,7 +18,7 @@ export function CompactNowControl({
 }: CompactNowControlProps) {
   return (
     <IconBtn
-      title="Compact context (run /compact now)"
+      title={COMPACT_NOW_TITLE}
       onClick={onClick}
       disabled={disabled}
     >

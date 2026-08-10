@@ -2330,3 +2330,9 @@ export {
   STOP_GENERATING_TITLE,
   PLAN_RESTORE_FALLBACK_ERROR,
 } from "./lib/miscAiChrome.js";
+export {
+  PAPER_URL_ARIA_LABEL,
+  PAPER_URL_PLACEHOLDER,
+  paperImportSubmitLabel,
+  COMPACT_NOW_TITLE,
+} from "./lib/paperImportChrome.js";

@@ -3,6 +3,11 @@ import { invoke } from "@tauri-apps/api/core";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { sendMessage } from "../store/chatStore";
+import {
+  PAPER_URL_ARIA_LABEL,
+  PAPER_URL_PLACEHOLDER,
+  paperImportSubmitLabel,
+} from "@altai/agent-ui";
 
 type PaperMeta = {
   title: string;
@@ -70,14 +75,14 @@ export function PaperImport({ onClose }: PaperImportProps) {
       <div className="flex gap-2">
         <input
           type="text"
-          aria-label="Paper URL"
+          aria-label={PAPER_URL_ARIA_LABEL}
           value={url}
           onChange={(e) => {
             setUrl(e.target.value);
             setMeta(null);
             setError(null);
           }}
-          placeholder="Paste arXiv URL (e.g. arxiv.org/abs/2301.12345)"
+          placeholder={PAPER_URL_PLACEHOLDER}
           className="flex-1 rounded-md border border-border bg-background px-3 py-1.5 text-sm text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
           onKeyDown={(e) => {
             if (e.key === "Enter" && isValid && !fetching) {
@@ -91,7 +96,7 @@ export function PaperImport({ onClose }: PaperImportProps) {
           disabled={!isValid || fetching}
           onClick={handleFetch}
         >
-          {fetching ? "Fetching..." : "Fetch"}
+          {paperImportSubmitLabel(fetching)}
         </Button>
       </div>
 
