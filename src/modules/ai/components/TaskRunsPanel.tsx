@@ -89,6 +89,8 @@ import {
   removeListValue,
   terminalContextDetailLabel,
   gitDiffContextDetailLabel,
+  taskQueueSurfaceSubtitle,
+  TASK_CREATE_SURFACE_SUBTITLE,
 } from "@altai/agent-ui";
 
 const TERMINAL: AssignmentStatus[] = ["done", "failed", "cancelled"];
@@ -318,8 +320,11 @@ export function TaskRunsPanel({
       presentation={presentation}
       subtitle={
         viewMode === "queue"
-          ? `${filterCounts.active} working · ${filterCounts.attention} need attention`
-          : "Delegate an isolated run without leaving this conversation"
+          ? taskQueueSurfaceSubtitle(
+              filterCounts.active,
+              filterCounts.attention,
+            )
+          : TASK_CREATE_SURFACE_SUBTITLE
       }
       onClose={onClose}
       navigation={navigation}

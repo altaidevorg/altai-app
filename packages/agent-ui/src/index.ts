@@ -2176,3 +2176,7 @@ export {
   modelDropdownEmptyMessage,
   modelDropdownAutoDetail,
 } from "./lib/modelDropdownChrome.js";
+export {
+  taskQueueSurfaceSubtitle,
+  TASK_CREATE_SURFACE_SUBTITLE,
+} from "./lib/taskQueueSubtitleChrome.js";
