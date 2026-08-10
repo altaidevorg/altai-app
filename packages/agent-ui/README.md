@@ -359,6 +359,7 @@ consumption of shared panel shells:
 | A6.241 | Composer snippet/file picker filters |
 | A6.242 | Composer instruction prefix helper |
 | A6.243 | Plan review history row projection |
+| A6.244 | Agent switcher list partition |
 
 ### A5 complete enough
 

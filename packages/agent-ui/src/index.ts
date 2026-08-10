@@ -2152,3 +2152,7 @@ export type {
   CheckpointHistoryLike,
   PlanReviewHistoryRow,
 } from "./lib/planReviewHistoryChrome.js";
+export {
+  partitionAgentsForSwitcher,
+  resolveSwitcherActiveAgent,
+} from "./lib/agentSwitcherChrome.js";
