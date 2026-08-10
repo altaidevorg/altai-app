@@ -3,6 +3,8 @@ import {
   errorMessageFromUnknown,
   indexLatestCronJobsByAutomationId,
   normalizedWorkspacePath as normalizedWorkspacePathShared,
+  omitListItemById,
+  omitRecordKey,
   sortAutomationItemsById,
   withPendingEnded,
   withPendingStarted,
@@ -124,10 +126,8 @@ export const useAutomationStore = create<AutomationState>((set, get) => ({
     try {
       await native.agentAutomationRemove(automationId, chatId, path);
       set((state) => ({
-        items: state.items.filter((item) => item.id !== automationId),
-        jobsByAutomationId: Object.fromEntries(
-          Object.entries(state.jobsByAutomationId).filter(([id]) => id !== automationId),
-        ),
+        items: omitListItemById(state.items, automationId),
+        jobsByAutomationId: omitRecordKey(state.jobsByAutomationId, automationId),
       }));
     } catch (error) {
       set({ error: messageFrom(error) });

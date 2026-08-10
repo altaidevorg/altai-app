@@ -1945,3 +1945,8 @@ export {
   withPendingEnded,
 } from "./lib/pendingIdsChrome.js";
 export type { PendingIdMap } from "./lib/pendingIdsChrome.js";
+
+export {
+  omitRecordKey,
+  omitListItemById,
+} from "./lib/recordChrome.js";
