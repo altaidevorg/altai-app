@@ -470,8 +470,10 @@ export {
 export {
   OperationsNavigationShell,
   OPERATIONS_VIEWS,
+  WORK_OS_VIEWS,
   type OperationsNavigationShellProps,
   type OperationsView,
+  type WorkOsView,
 } from "./components/OperationsNavigationShell.js";
 
 export {
@@ -480,6 +482,32 @@ export {
   type OperationsOverviewProps,
   type OperationsOverviewRow,
 } from "./components/OperationsOverview.js";
+
+export {
+  WorkList,
+  type WorkListFilterId,
+  type WorkListProps,
+  type WorkListRow,
+} from "./components/WorkList.js";
+
+export {
+  WorkDetail,
+  type WorkDetailAttemptRow,
+  type WorkDetailPrimaryAction,
+  type WorkDetailProps,
+} from "./components/WorkDetail.js";
+
+export {
+  WorkInbox,
+  type WorkInboxKind,
+  type WorkInboxProps,
+  type WorkInboxRow,
+} from "./components/WorkInbox.js";
+
+export {
+  NewWorkDialog,
+  type NewWorkDialogProps,
+} from "./components/NewWorkDialog.js";
 
 export {
   AutomationCard,

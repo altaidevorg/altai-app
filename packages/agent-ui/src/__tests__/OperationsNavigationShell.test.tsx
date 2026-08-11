@@ -4,41 +4,39 @@ import { describe, expect, it } from "vitest";
 import { OperationsNavigationShell } from "../components/OperationsNavigationShell.js";
 
 describe("OperationsNavigationShell", () => {
-  it("renders shared routes and disables unavailable domain slices", () => {
+  it("renders only available Work OS routes", () => {
     const html = renderToStaticMarkup(
       createElement(
         OperationsNavigationShell,
         {
-          view: "overview",
+          view: "work",
           onViewChange: () => {},
-          availableViews: ["overview"],
+          availableViews: ["work", "inbox"],
         },
         "body",
       ),
     );
-    expect(html).toContain("Operations navigation");
-    expect(html).toContain("Overview");
+    expect(html).toContain("Work navigation");
     expect(html).toContain("Work");
-    expect(html).toContain('disabled=""');
+    expect(html).toContain("Inbox");
+    expect(html).not.toContain("Overview");
+    expect(html).not.toContain("Agents");
+    expect(html).not.toContain("disabled");
   });
 
-  it("marks enabled routes as interactive and selected view as selected", () => {
+  it("marks the selected view", () => {
     const html = renderToStaticMarkup(
       createElement(
         OperationsNavigationShell,
         {
-          view: "runs",
+          view: "inbox",
           onViewChange: () => {},
-          availableViews: ["overview", "work", "runs", "inbox"],
+          availableViews: ["work", "inbox"],
         },
-        "runs-body",
+        "inbox-body",
       ),
     );
-    expect(html).toContain("runs-body");
+    expect(html).toContain("inbox-body");
     expect(html).toContain('aria-selected="true"');
-    // Overview is available but not selected — no disabled attrs on those four tabs.
-    // Agents remains disabled (not in availableViews).
-    expect(html).toContain("Agents");
-    expect(html).toMatch(/Agents[\s\S]*disabled/);
   });
 });

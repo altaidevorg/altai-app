@@ -101,6 +101,11 @@ enum Commands {
         #[command(subcommand)]
         command: JournalCommands,
     },
+    /// Durable Work OS commands (same work.db as Desktop).
+    Work {
+        #[command(subcommand)]
+        command: WorkCommands,
+    },
 }
 
 #[derive(Debug, Args)]
@@ -122,6 +127,114 @@ enum JournalCommands {
     Summary(JournalSummaryArgs),
     /// Fetch journal events for one run after a sequence number.
     Fetch(JournalFetchArgs),
+}
+
+#[derive(Debug, Subcommand)]
+enum WorkCommands {
+    /// Create a Work item in the workspace work.db.
+    Create(WorkCreateArgs),
+    /// List Work items.
+    List(WorkListArgs),
+    /// Show one Work item.
+    Show(WorkShowArgs),
+    /// Start an Attempt (moves Work to in_progress).
+    Start(WorkStartArgs),
+    /// Mark the current Attempt ready for human review (never Done).
+    ReadyForReview(WorkRevisionArgs),
+    /// Accept or Return Work that is in_review.
+    Review(WorkReviewArgs),
+}
+
+#[derive(Debug, Args)]
+struct WorkCreateArgs {
+    /// Workspace path. Defaults to the current directory.
+    path: Option<PathBuf>,
+    /// Work title.
+    #[arg(long)]
+    title: String,
+    /// Optional description.
+    #[arg(long, default_value = "")]
+    description: String,
+    /// Optional acceptance criteria.
+    #[arg(long, default_value = "")]
+    acceptance: String,
+    /// Print machine-readable JSON.
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(Debug, Args)]
+struct WorkListArgs {
+    /// Workspace path. Defaults to the current directory.
+    path: Option<PathBuf>,
+    /// Filter: my_active | review | backlog | done.
+    #[arg(long, default_value = "my_active")]
+    filter: String,
+    /// Print machine-readable JSON.
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(Debug, Args)]
+struct WorkShowArgs {
+    /// Workspace path. Defaults to the current directory.
+    path: Option<PathBuf>,
+    /// Work id.
+    id: String,
+    /// Print machine-readable JSON.
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(Debug, Args)]
+struct WorkStartArgs {
+    /// Workspace path. Defaults to the current directory.
+    path: Option<PathBuf>,
+    /// Work id.
+    id: String,
+    /// Expected revision (optimistic concurrency).
+    #[arg(long)]
+    revision: i64,
+    /// Print machine-readable JSON.
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(Debug, Args)]
+struct WorkRevisionArgs {
+    /// Workspace path. Defaults to the current directory.
+    path: Option<PathBuf>,
+    /// Work id.
+    id: String,
+    /// Expected revision (optimistic concurrency).
+    #[arg(long)]
+    revision: i64,
+    /// Print machine-readable JSON.
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(Debug, Args)]
+struct WorkReviewArgs {
+    /// Workspace path. Defaults to the current directory.
+    path: Option<PathBuf>,
+    /// Work id.
+    id: String,
+    /// Expected revision (optimistic concurrency).
+    #[arg(long)]
+    revision: i64,
+    /// Accept the Attempt evidence and mark Work done.
+    #[arg(long, group = "decision")]
+    accept: bool,
+    /// Return the Work for another Attempt.
+    #[arg(long, group = "decision")]
+    r#return: bool,
+    /// Guidance when returning (or optional note when accepting).
+    #[arg(long, default_value = "")]
+    message: String,
+    /// Print machine-readable JSON.
+    #[arg(long)]
+    json: bool,
 }
 
 #[derive(Debug, Args)]
@@ -439,6 +552,7 @@ fn run() -> Result<(), CliError> {
         Some(Commands::Models { command }) => models(command),
         Some(Commands::Open(args)) => open_desktop(args),
         Some(Commands::Journal { command }) => journal(command),
+        Some(Commands::Work { command }) => work_command(command),
     }
 }
 
@@ -522,6 +636,163 @@ fn journal(command: JournalCommands) -> Result<(), CliError> {
         JournalCommands::Summary(args) => journal_summary(args),
         JournalCommands::Fetch(args) => journal_fetch(args),
     }
+}
+
+fn work_command(command: WorkCommands) -> Result<(), CliError> {
+    match command {
+        WorkCommands::Create(args) => work_create(args),
+        WorkCommands::List(args) => work_list(args),
+        WorkCommands::Show(args) => work_show(args),
+        WorkCommands::Start(args) => work_start(args),
+        WorkCommands::ReadyForReview(args) => work_ready_for_review(args),
+        WorkCommands::Review(args) => work_review(args),
+    }
+}
+
+fn open_workspace_work(
+    path: Option<&Path>,
+) -> Result<(String, altai_core::WorkStore), CliError> {
+    let workspace = altai_core::resolve_workspace(path)
+        .map_err(|error| CliError::Message(error.to_string()))?;
+    let project_id = workspace
+        .root
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("workspace")
+        .to_string();
+    let store = altai_core::WorkStore::open(&workspace.work_db())
+        .map_err(|error| CliError::Message(format!("could not open work.db: {error}")))?;
+    store
+        .ensure_project(
+            &project_id,
+            &project_id,
+            &workspace.root.to_string_lossy(),
+        )
+        .map_err(|error| CliError::Message(error.to_string()))?;
+    Ok((project_id, store))
+}
+
+fn print_work_item(item: &altai_core::WorkItemRecord, json: bool) -> Result<(), CliError> {
+    if json {
+        println!(
+            "{}",
+            serde_json::json!({
+                "id": item.id,
+                "projectId": item.project_id,
+                "title": item.title,
+                "description": item.description,
+                "acceptanceCriteria": item.acceptance_criteria,
+                "state": item.state.as_str(),
+                "assigneeRef": item.assignee_ref,
+                "blocker": item.blocker,
+                "revision": item.revision,
+                "createdAtMs": item.created_at_ms,
+                "updatedAtMs": item.updated_at_ms,
+            })
+        );
+    } else {
+        println!(
+            "{}\t{}\trev {}\t{}",
+            item.id,
+            item.state.as_str(),
+            item.revision,
+            item.title
+        );
+    }
+    Ok(())
+}
+
+fn work_create(args: WorkCreateArgs) -> Result<(), CliError> {
+    let (project_id, store) = open_workspace_work(args.path.as_deref())?;
+    let created = store
+        .create_work(altai_core::CreateWorkInput {
+            project_id,
+            title: args.title,
+            description: args.description,
+            acceptance_criteria: args.acceptance,
+            assignee_ref: None,
+        })
+        .map_err(|error| CliError::Message(error.to_string()))?;
+    print_work_item(&created, args.json)
+}
+
+fn work_list(args: WorkListArgs) -> Result<(), CliError> {
+    let (project_id, store) = open_workspace_work(args.path.as_deref())?;
+    let filter = match args.filter.as_str() {
+        "my_active" | "my-active" | "active" => altai_core::WorkListFilter::MyActive,
+        "review" => altai_core::WorkListFilter::Review,
+        "backlog" => altai_core::WorkListFilter::Backlog,
+        "done" => altai_core::WorkListFilter::Done,
+        other => {
+            return Err(CliError::Message(format!("unknown filter: {other}")));
+        }
+    };
+    let items = store
+        .list_work(&project_id, filter)
+        .map_err(|error| CliError::Message(error.to_string()))?;
+    if args.json {
+        let rows: Vec<_> = items
+            .iter()
+            .map(|item| {
+                serde_json::json!({
+                    "id": item.id,
+                    "title": item.title,
+                    "state": item.state.as_str(),
+                    "revision": item.revision,
+                    "updatedAtMs": item.updated_at_ms,
+                })
+            })
+            .collect();
+        println!("{}", serde_json::to_string_pretty(&rows).unwrap_or_default());
+        return Ok(());
+    }
+    for item in &items {
+        print_work_item(item, false)?;
+    }
+    Ok(())
+}
+
+fn work_show(args: WorkShowArgs) -> Result<(), CliError> {
+    let (_project_id, store) = open_workspace_work(args.path.as_deref())?;
+    let item = store
+        .get_work(&args.id)
+        .map_err(|error| CliError::Message(error.to_string()))?
+        .ok_or_else(|| CliError::Message(format!("work not found: {}", args.id)))?;
+    print_work_item(&item, args.json)
+}
+
+fn work_start(args: WorkStartArgs) -> Result<(), CliError> {
+    let (_project_id, store) = open_workspace_work(args.path.as_deref())?;
+    let item = store
+        .start_attempt(&args.id, args.revision)
+        .map_err(|error| CliError::Message(error.to_string()))?;
+    print_work_item(&item, args.json)
+}
+
+fn work_ready_for_review(args: WorkRevisionArgs) -> Result<(), CliError> {
+    let (_project_id, store) = open_workspace_work(args.path.as_deref())?;
+    let item = store
+        .mark_attempt_ready_for_review(&args.id, args.revision)
+        .map_err(|error| CliError::Message(error.to_string()))?;
+    print_work_item(&item, args.json)
+}
+
+fn work_review(args: WorkReviewArgs) -> Result<(), CliError> {
+    if !args.accept && !args.r#return {
+        return Err(CliError::Message(
+            "work review requires --accept or --return".into(),
+        ));
+    }
+    if args.accept && args.r#return {
+        return Err(CliError::Message(
+            "pass only one of --accept or --return".into(),
+        ));
+    }
+    let (_project_id, store) = open_workspace_work(args.path.as_deref())?;
+    let item = store
+        .human_review(&args.id, args.revision, args.accept, &args.message)
+        .map_err(|error| CliError::Message(error.to_string()))?;
+    print_work_item(&item, args.json)
 }
 
 fn open_workspace_journal(

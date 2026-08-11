@@ -2,7 +2,32 @@
 
 Date: 2026-08-03
 
-Status: Accepted
+Status: Amended (2026-08-11)
+
+## Amendment (2026-08-11)
+
+The logical **control vs execution** split remains. The **deployment** decision
+does not.
+
+Authoritative Work / Attempt / Review / Inbox mutations live in the **existing
+Rust agent host/service** process (user-scoped `work.db` beside current host
+state). Do **not** create a separate `altai-control-plane` crate, daemon,
+server, or deployment.
+
+Canonical product plan: [`altaidevorg/altai-agent-work-os`](https://github.com/altaidevorg/altai-agent-work-os)
+(`ENGINEERING.md`, `PRODUCT.md`, `SCREENS.md`, `ROADMAP.md`).
+
+| Keep from original ADR | Change |
+| --- | --- |
+| One owner for lifecycle mutations | Owner = existing host/service, not a new daemon |
+| IsanAgent is execution-only | Unchanged |
+| Renderers must not own authoritative transitions | Unchanged |
+| Separate Assignment/Org/Budget/Outbox ownership in IsanAgent | Still rejected; those domains are out of M1 scope |
+
+Follow-ups CP-02/CP-16 that assumed a new daemon are superseded by Work OS
+Milestone 1 (five tables + Work API inside the existing host).
+
+---
 
 ## Context
 
@@ -10,11 +35,7 @@ ALTAI's agent runtime grew inside the Desktop application, and the earlier
 Agent Operations plan placed orchestration ownership in a Tauri-resident Rust
 orchestration service. That model leaves durable work, scheduling, and
 recovery tied to a renderer process and blurs who may perform authoritative
-state transitions. The parent plan
-(`docs/PAPERCLIP_STYLE_CONTROL_PLANE_ENGINEERING_PLAN.md`) establishes a
-Paperclip-style control plane and requires exactly one owner for lifecycle
-mutations (§3.1) while keeping IsanAgent as the primary execution runtime
-(§3.2).
+state transitions.
 
 Without an explicit boundary, two failure modes recur: execution components
 accumulate project-management state (tasks, assignments, budgets, routines),
@@ -25,11 +46,10 @@ Both fork identity, recovery, and audit behavior.
 
 Adopt a control-plane/execution-plane split with exactly one owner per plane.
 
-**One control-plane owner.** A single user-scoped `altai-control-plane`
-daemon owns every authoritative lifecycle mutation. React, Tauri commands,
-IDE webviews, plugins, and IsanAgent may request transitions; they may not
-perform authoritative transitions independently. No second scheduler,
-renderer-side store, or duplicate state model may claim or dispatch work.
+**One control-plane owner (amended).** The existing ALTAI Rust host/service
+owns every authoritative Work lifecycle mutation and persists them in
+`work.db`. React, IDE webviews, CLI, and plugins may request transitions; they
+may not perform authoritative transitions independently.
 
 **IsanAgent remains the execution runtime.** IsanAgent, reached through
 `altai-agent-service`, executes one authorized attempt at a time and reports
@@ -39,35 +59,31 @@ system.
 
 ### Ownership boundary
 
-| Control plane owns | IsanAgent owns |
+| Control plane owns (host `work.db`) | IsanAgent owns |
 | --- | --- |
 | Work-item lifecycle | Provider/model execution |
-| Assignment and checkout | One run's conversation/session context |
-| Dependency eligibility | Tool invocation |
-| Wake request coalescing | Permission enforcement for filesystem, shell, MCP, and edits |
-| Routine scheduling | Checkpoints and run-level recovery |
-| Retries and recovery | Steering and cancellation of an active run |
-| Budget hard stops | Run-internal subagents |
-| Authoritative terminal disposition | Compaction and model failover |
-| External-source reconciliation | Sequenced run events and transcript replay |
+| Attempt / Review records | One run's conversation/session context |
+| Inbox projection inputs | Tool invocation |
+| Work events / recovery history | Permission enforcement for filesystem, shell, MCP, and edits |
+| (Later) Routines | Checkpoints and run-level recovery |
+| Authoritative Accept/Return disposition | Steering and cancellation of an active run |
+| | Run-internal subagents |
+| | Compaction and model failover |
+| | Sequenced run events and transcript replay |
 
 IsanAgent must not own:
 
-- project tasks;
-- organization or project state;
-- durable task assignment;
-- cross-run task dependencies;
-- project routines;
+- project Work items as a PM system;
+- organization or project administration state;
+- durable task assignment stores;
+- cross-run task dependencies as a product graph;
 - company/project/agent budget policy;
-- GitHub synchronization;
-- business approvals;
-- the canonical work inbox.
+- the canonical work inbox as notification records.
 
-Run-internal objects stay run-internal: `todo_write` items are `RunPlanItem`
-records, subagents are `SubagentRun` records under one parent run, and a
-chat session is execution context, not task ownership. If run-internal work
-must become independently owned, scheduled, or reviewable, the control plane
-creates a child work item with its own attempt and run.
+Run-internal objects stay run-internal: `todo_write` items are Run Plan
+records, subagents are under one parent run, and a chat session is execution
+context, not Work identity. If run-internal work must become independently
+owned or reviewable, the host creates a child Work item with its own Attempt.
 
 ## Consequences
 
@@ -75,43 +91,28 @@ Positive consequences:
 
 - Every mutation has a single answerable owner; UI components are never
   required for scheduling or recovery correctness.
-- Durable work outlives any renderer because the control-plane daemon, not
-  an extension host or webview, holds it (amending ADR 0001 accordingly).
-- IsanAgent standalone and agent-dorm deployments are unaffected: the
-  execution plane keeps its capabilities, including the host-selectable
-  `cron` tool, and gains no project-management obligations.
-- The boundary is enforceable with dependency rules: execution crates may
-  not import control-plane persistence, and renderers may not own
-  schedulers.
+- Durable work outlives any renderer because the host process, not an
+  extension host or webview, holds it.
+- IsanAgent standalone and agent-dorm deployments are unaffected.
 
 Costs and constraints:
 
-- Features that previously wrote state directly from Tauri commands or React
-  stores must be routed through control-plane commands, which adds adapter
-  work before any new capability lands.
-- Two persistence planes (user-scoped control database plus workspace/run
-  journals) must be kept consistent through stable identities and explicit
-  mappings, not dual-write.
-- The Agent Operations plan's ownership sections that predate this split are
-  superseded where they conflict and must be read through the parent plan.
+- Features that previously wrote state from React stores must route through
+  host Work commands.
+- Workspace run journals and user-scoped `work.db` stay consistent through
+  stable IDs, not dual-write of lifecycle state.
 
 ## Rejected alternatives
 
-1. Keep orchestration ownership in the Tauri-resident orchestration modules:
-   rejected because it couples durable work and scheduling to a renderer
-   process and cannot serve IDE, Studio, CLI, and plugin clients equally.
-2. Let IsanAgent grow project-task, assignment, and routine ownership:
-   rejected because it forks the execution runtime into a second control
-   plane and breaks standalone and multi-tenant-edge deployments.
-3. Allow renderers to own projections with local mutation authority:
-   rejected because independent authoritative transitions violate the
-   one-owner rule and corrupt audit and recovery semantics.
+1. Keep orchestration ownership only in Tauri-resident renderer modules:
+   rejected because it couples durable work to a UI process.
+2. Let IsanAgent grow project-task and assignment ownership: rejected.
+3. Allow renderers to own projections with local mutation authority: rejected.
+4. **(Amended rejection)** Ship a separate `altai-control-plane` daemon for M1:
+   rejected as premature complexity; revisit only with a measured failure the
+   existing host cannot solve (Work OS hard limit).
 
 ## Follow-up
 
-CP-01 defines the shared domain contracts that cross this boundary; CP-02
-implements the control-plane database the owner persists to; CP-08 builds
-the attempt adapter that hands immutable attempt specifications to
-IsanAgent; CP-16 implements the daemon lifecycle. CP-00-02 adds the
-dependency/architecture tests that make this boundary fail the build when
-violated.
+Implement Work OS Milestone 1: five SQLite tables, Work/Inbox API, shared
+agent-ui screens, CLI `work`/`inbox`, and in-place `altai-vscode` migration.

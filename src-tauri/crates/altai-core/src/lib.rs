@@ -10,6 +10,7 @@ pub mod legacy_mapping;
 mod legacy_mapping_tests;
 pub mod palette;
 pub mod policy;
+pub mod work;
 pub mod workspace;
 
 pub use compaction::{
@@ -30,4 +31,8 @@ pub use palette::{
     TerminalPaletteManifest, TerminalThemeMode, DARK_TERMINAL_COLORS, LIGHT_TERMINAL_COLORS,
 };
 pub use policy::{shell_edit_modes_for, PermissionPolicyMode, ShellEditPolicyModes};
+pub use work::{
+    AttemptPhase, CreateWorkInput, WorkItemRecord, WorkListFilter, WorkState, WorkStore,
+    WorkStoreError,
+};
 pub use workspace::{resolve_workspace, resolve_workspace_from, WorkspaceError, WorkspacePaths};
