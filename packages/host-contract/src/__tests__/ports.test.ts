@@ -129,6 +129,13 @@ function createStubPorts(): HostPorts {
   };
 
   const work: WorkPort = {
+    listWork: unimplemented,
+    getWork: unimplemented,
+    createWork: unimplemented,
+    transitionWork: unimplemented,
+    startWork: unimplemented,
+    markWorkReadyForReview: unimplemented,
+    reviewWork: unimplemented,
     listTaskRuns: unimplemented,
     createTaskRun: unimplemented,
     cancelTaskRun: unimplemented,

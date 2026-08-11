@@ -1,4 +1,12 @@
 import { invoke } from "@tauri-apps/api/core";
+import type {
+  WorkCreateInput,
+  WorkItem,
+  WorkListFilter,
+  WorkReviewInput,
+  WorkRevisionInput,
+  WorkTransitionInput,
+} from "@altai/host-contract";
 import { currentWorkspaceEnv } from "@/modules/workspace";
 
 export type ReadResult =
@@ -583,6 +591,43 @@ export type SupportBundle = {
 
 export const native = {
   workspaceCurrentDir: () => invoke<string>("workspace_current_dir"),
+  workList: (filter: WorkListFilter = "my_active") =>
+    invoke<WorkItem[]>("work_list", {
+      workspacePath: currentWorkspaceEnv(),
+      filter,
+    }),
+  workGet: (workId: string) =>
+    invoke<WorkItem | null>("work_get", {
+      workspacePath: currentWorkspaceEnv(),
+      workId,
+    }),
+  workCreate: (input: WorkCreateInput) =>
+    invoke<WorkItem>("work_create", {
+      args: {
+        workspacePath: currentWorkspaceEnv(),
+        ...input,
+      },
+    }),
+  workTransition: (input: WorkTransitionInput) =>
+    invoke<WorkItem>("work_transition", {
+      workspacePath: currentWorkspaceEnv(),
+      ...input,
+    }),
+  workStart: (input: WorkRevisionInput) =>
+    invoke<WorkItem>("work_start", {
+      workspacePath: currentWorkspaceEnv(),
+      ...input,
+    }),
+  workReadyForReview: (input: WorkRevisionInput) =>
+    invoke<WorkItem>("work_ready_for_review", {
+      workspacePath: currentWorkspaceEnv(),
+      ...input,
+    }),
+  workReview: (input: WorkReviewInput) =>
+    invoke<WorkItem>("work_review", {
+      workspacePath: currentWorkspaceEnv(),
+      ...input,
+    }),
   /** Mirror the recent-folders list into the OS taskbar/Dock menu. */
   setRecentFolders: (folders: string[]) =>
     invoke<void>("set_recent_folders", { folders }),

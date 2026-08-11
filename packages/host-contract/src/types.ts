@@ -251,6 +251,54 @@ export type TaskRunInfo = {
   createdAt: string;
 };
 
+/** Canonical durable Work lifecycle. TaskRunInfo remains a legacy run alias. */
+export type WorkState =
+  | "backlog"
+  | "ready"
+  | "in_progress"
+  | "in_review"
+  | "done"
+  | "cancelled";
+
+export type WorkListFilter = "my_active" | "review" | "backlog" | "done";
+
+export type WorkItem = {
+  id: string;
+  projectId: string;
+  title: string;
+  description: string;
+  acceptanceCriteria: string;
+  state: WorkState;
+  assigneeRef?: string | null;
+  blocker?: string | null;
+  revision: number;
+  createdAtMs: number;
+  updatedAtMs: number;
+};
+
+export type WorkCreateInput = {
+  title: string;
+  description?: string;
+  acceptanceCriteria?: string;
+  assigneeRef?: string;
+};
+
+export type WorkTransitionInput = {
+  workId: string;
+  expectedRevision: number;
+  nextState: WorkState;
+};
+
+export type WorkRevisionInput = {
+  workId: string;
+  expectedRevision: number;
+};
+
+export type WorkReviewInput = WorkRevisionInput & {
+  accept: boolean;
+  guidance?: string;
+};
+
 export type AutomationInfo = {
   id: string;
   /** Conversation that owns the scheduled agent turn. */

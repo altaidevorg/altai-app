@@ -18,6 +18,7 @@ use crate::stdio_sink::{write_framed, SharedStdout, StdioEventSink};
 mod edit_proposals;
 mod provider_credentials;
 mod skills;
+mod work;
 
 use edit_proposals::{
     handle_apply as handle_proposal_apply, handle_deny as handle_proposal_deny,
@@ -112,6 +113,13 @@ pub async fn run(workspace: WorkspacePaths) -> Result<(), String> {
                                 "mcp/servers/list", "mcp/servers/configure", "mcp/servers/enable", "mcp/servers/restart",
                                 "skills/list",
                                 "skills/install",
+                                "work/list",
+                                "work/get",
+                                "work/create",
+                                "work/transition",
+                                "work/start",
+                                "work/ready-for-review",
+                                "work/review",
                                 "work/tasks/list",
                                 "work/tasks/create",
                                 "work/tasks/cancel",
@@ -652,6 +660,20 @@ pub async fn run(workspace: WorkspacePaths) -> Result<(), String> {
                         Ok(result) => respond(&writer, id, Some(result), None).await?,
                         Err(error) => {
                             respond(&writer, id, None, Some(error_value(-32603, &error))).await?
+                        }
+                    }
+                }
+                method if initialized && work::handles(method) => {
+                    match work::dispatch(&workspace, method, params) {
+                        Ok(result) => respond(&writer, id, Some(result), None).await?,
+                        Err(error) => {
+                            respond(
+                                &writer,
+                                id,
+                                None,
+                                Some(error_value(error.code, &error.message)),
+                            )
+                            .await?
                         }
                     }
                 }

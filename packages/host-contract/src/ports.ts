@@ -39,6 +39,12 @@ import type {
   TaskRunInfo,
   TerminalContext,
   TextRange,
+  WorkCreateInput,
+  WorkItem,
+  WorkListFilter,
+  WorkReviewInput,
+  WorkRevisionInput,
+  WorkTransitionInput,
   WorkspaceInfo,
 } from "./types.js";
 import type { Capabilities } from "./capabilities.js";
@@ -105,6 +111,15 @@ export interface ReviewPort {
 }
 
 export interface WorkPort {
+  /** Canonical Work OS API. These methods all address the durable work.db. */
+  listWork(filter?: WorkListFilter): Promise<WorkItem[]>;
+  getWork(workId: string): Promise<WorkItem | null>;
+  createWork(input: WorkCreateInput): Promise<WorkItem>;
+  transitionWork(input: WorkTransitionInput): Promise<WorkItem>;
+  startWork(input: WorkRevisionInput): Promise<WorkItem>;
+  markWorkReadyForReview(input: WorkRevisionInput): Promise<WorkItem>;
+  reviewWork(input: WorkReviewInput): Promise<WorkItem>;
+  /** Legacy Task Run and Automation methods retained during screen migration. */
   listTaskRuns(): Promise<TaskRunInfo[]>;
   createTaskRun(input: {
     title: string;
