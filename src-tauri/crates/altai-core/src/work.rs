@@ -622,8 +622,10 @@ impl WorkStore {
                 "an active attempt owns the Work transition",
             ));
         }
-        if !is_allowed_transition(from, next) {
-            return Err(WorkStoreError::InvalidState("transition not allowed"));
+        if !is_allowed_generic_transition(from, next) {
+            return Err(WorkStoreError::InvalidState(
+                "transition requires its canonical Work lifecycle command",
+            ));
         }
         tx.execute(
             r#"
@@ -1205,6 +1207,11 @@ impl WorkStore {
         accept: bool,
         guidance: &str,
     ) -> Result<WorkItemRecord> {
+        if !accept && guidance.trim().is_empty() {
+            return Err(WorkStoreError::InvalidState(
+                "Return requires human guidance",
+            ));
+        }
         let now = now_ms();
         let mut connection = self.connection.lock().expect("work store mutex");
         let tx = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
@@ -1213,6 +1220,84 @@ impl WorkStore {
             params![id],
             |row| Ok((row.get(0)?, row.get(1)?)),
         )?;
+        let next = if accept {
+            WorkState::Done
+        } else {
+            WorkState::Ready
+        };
+        let status = if accept { "complete" } else { "incomplete" };
+        if expected_revision.checked_add(1) == Some(current.1) && current.0 == next.as_str() {
+            let latest_review: Option<(String, String, i64, String)> = tx
+                .query_row(
+                    r#"
+                SELECT review.id, review.status, review.acceptance_aligned, review.guidance
+                FROM reviews AS review
+                WHERE review.reviewer_kind = 'human'
+                  AND review.attempt_id = (
+                      SELECT attempt.id
+                      FROM attempts AS attempt
+                      WHERE attempt.work_id = ?1
+                      ORDER BY attempt.number DESC
+                      LIMIT 1
+                  )
+                ORDER BY review.created_at_ms DESC, review.id DESC
+                LIMIT 1
+                "#,
+                    params![id],
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+                )
+                .optional()?;
+            let latest_event: Option<(String, String)> = tx
+                .query_row(
+                    r#"
+                    SELECT kind, payload_json
+                    FROM work_events
+                    WHERE work_id = ?1
+                    ORDER BY id DESC
+                    LIMIT 1
+                    "#,
+                    params![id],
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                )
+                .optional()?;
+            let matching_retry = latest_review.as_ref().is_some_and(
+                |(review_id, latest_status, acceptance_aligned, latest_guidance)| {
+                    latest_status == status
+                        && *acceptance_aligned == if accept { 1 } else { 0 }
+                        && latest_guidance == guidance
+                        && latest_event
+                            .as_ref()
+                            .is_some_and(|(event_kind, payload_json)| {
+                                if event_kind != if accept { "accepted" } else { "returned" } {
+                                    return false;
+                                }
+                                serde_json::from_str::<serde_json::Value>(payload_json)
+                                    .ok()
+                                    .is_some_and(|payload| {
+                                        payload.get("reviewId").and_then(serde_json::Value::as_str)
+                                            == Some(review_id.as_str())
+                                            && payload.get("to").and_then(serde_json::Value::as_str)
+                                                == Some(next.as_str())
+                                            && payload
+                                                .get("expectedRevision")
+                                                .and_then(serde_json::Value::as_i64)
+                                                == Some(expected_revision)
+                                            && payload
+                                                .get("resultRevision")
+                                                .and_then(serde_json::Value::as_i64)
+                                                == Some(current.1)
+                                    })
+                            })
+                },
+            );
+            if matching_retry {
+                drop(tx);
+                drop(connection);
+                return self
+                    .get_work(id)?
+                    .ok_or_else(|| WorkStoreError::NotFound(id.to_string()));
+            }
+        }
         if current.1 != expected_revision {
             return Err(WorkStoreError::InvalidState("revision mismatch"));
         }
@@ -1231,12 +1316,6 @@ impl WorkStore {
             params![id],
             |row| row.get(0),
         )?;
-        let next = if accept {
-            WorkState::Done
-        } else {
-            WorkState::Ready
-        };
-        let status = if accept { "complete" } else { "incomplete" };
         let review_id = new_id("review");
         tx.execute(
             r#"
@@ -1263,11 +1342,14 @@ impl WorkStore {
             params![next.as_str(), now as i64, id],
         )?;
         let kind = if accept { "accepted" } else { "returned" };
-        let payload = format!(
-            r#"{{"reviewId":"{review_id}","to":"{}"}}"#,
-            next.as_str()
-        );
-        append_event(&tx, id, kind, &payload)?;
+        let result_revision = expected_revision + 1;
+        let payload = serde_json::json!({
+            "reviewId": review_id,
+            "to": next.as_str(),
+            "expectedRevision": expected_revision,
+            "resultRevision": result_revision,
+        });
+        append_event(&tx, id, kind, &payload.to_string())?;
         tx.commit()?;
         drop(connection);
         self.get_work(id)?
@@ -1349,18 +1431,16 @@ fn push_unique(values: &mut Vec<String>, value: &str) {
     }
 }
 
-fn is_allowed_transition(from: WorkState, to: WorkState) -> bool {
+/// Generic human-controlled state changes. Attempt and Review lifecycle edges
+/// are deliberately absent: callers must use start/finish/review so the
+/// corresponding durable records and evidence are updated atomically.
+fn is_allowed_generic_transition(from: WorkState, to: WorkState) -> bool {
     use WorkState::*;
     matches!(
         (from, to),
         (Backlog, Ready)
-            | (Ready, InProgress)
             | (Ready, Cancelled)
-            | (InProgress, InReview)
-            | (InProgress, Ready) // return path before review record
             | (InProgress, Cancelled)
-            | (InReview, Done)
-            | (InReview, Ready)
             | (InReview, Cancelled)
             | (Done, Ready)
             | (Cancelled, Backlog)
@@ -1503,6 +1583,7 @@ fn new_id(prefix: &str) -> String {
 mod tests {
     use super::*;
     use crate::journal::JournalEvent;
+    use std::sync::{Arc, Barrier};
     use std::time::{SystemTime, UNIX_EPOCH};
 
     fn temp_db() -> std::path::PathBuf {
@@ -1510,7 +1591,8 @@ mod tests {
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        std::env::temp_dir().join(format!("altai-work-store-{nanos}.db"))
+        let sequence = NEXT_ID_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+        std::env::temp_dir().join(format!("altai-work-store-{nanos}-{sequence}.db"))
     }
 
     #[test]
@@ -1563,6 +1645,109 @@ mod tests {
             .expect("accept");
         assert_eq!(accepted.state, WorkState::Done);
 
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn generic_transition_cannot_manufacture_attempt_or_review_lifecycle() {
+        let path = temp_db();
+        let store = WorkStore::open(&path).expect("open");
+        store
+            .ensure_project("proj_1", "Demo", "/tmp/demo")
+            .expect("project");
+        let created = store
+            .create_work(CreateWorkInput {
+                project_id: "proj_1".into(),
+                title: "Keep lifecycle records atomic".into(),
+                description: String::new(),
+                acceptance_criteria: "Generic transitions never forge Attempt or Review state"
+                    .into(),
+                assignee_ref: None,
+            })
+            .expect("create");
+        let ready = store
+            .transition(&created.id, created.revision, WorkState::Ready)
+            .expect("backlog to ready is generic");
+
+        assert!(matches!(
+            store.transition(&ready.id, ready.revision, WorkState::InProgress),
+            Err(WorkStoreError::InvalidState(
+                "transition requires its canonical Work lifecycle command"
+            ))
+        ));
+        assert!(store.list_attempts(&ready.id).expect("attempts").is_empty());
+        assert_eq!(store.get_work(&ready.id).expect("get"), Some(ready.clone()));
+
+        let started = store
+            .start_attempt(&ready.id, ready.revision)
+            .expect("canonical start");
+        assert!(store
+            .transition(&started.id, started.revision, WorkState::InReview)
+            .is_err());
+        assert!(store
+            .transition(&started.id, started.revision, WorkState::Ready)
+            .is_err());
+        let in_review = store
+            .mark_attempt_ready_for_review(&started.id, started.revision)
+            .expect("canonical review-ready");
+        assert!(matches!(
+            store.transition(&in_review.id, in_review.revision, WorkState::Done),
+            Err(WorkStoreError::InvalidState(
+                "transition requires its canonical Work lifecycle command"
+            ))
+        ));
+        assert!(matches!(
+            store.transition(&in_review.id, in_review.revision, WorkState::Ready),
+            Err(WorkStoreError::InvalidState(
+                "transition requires its canonical Work lifecycle command"
+            ))
+        ));
+        let review_count_before_decision: i64 = store
+            .connection
+            .lock()
+            .expect("connection")
+            .query_row(
+                r#"
+                SELECT COUNT(*) FROM reviews AS review
+                JOIN attempts AS attempt ON attempt.id = review.attempt_id
+                WHERE attempt.work_id = ?1
+                "#,
+                params![created.id],
+                |row| row.get(0),
+            )
+            .expect("review count before canonical decision");
+        assert_eq!(review_count_before_decision, 0);
+
+        let done = store
+            .human_review(&in_review.id, in_review.revision, true, "Accepted")
+            .expect("canonical review");
+        let reopened = store
+            .transition(&done.id, done.revision, WorkState::Ready)
+            .expect("done can reopen to ready");
+        let cancelled = store
+            .transition(&reopened.id, reopened.revision, WorkState::Cancelled)
+            .expect("ready can be cancelled");
+        let backlog = store
+            .transition(&cancelled.id, cancelled.revision, WorkState::Backlog)
+            .expect("cancelled can reopen to backlog");
+        assert_eq!(backlog.state, WorkState::Backlog);
+
+        let connection = store.connection.lock().expect("connection");
+        let (attempt_count, review_count): (i64, i64) = connection
+            .query_row(
+                r#"
+                SELECT
+                    (SELECT COUNT(*) FROM attempts WHERE work_id = ?1),
+                    (SELECT COUNT(*) FROM reviews AS review
+                     JOIN attempts AS attempt ON attempt.id = review.attempt_id
+                     WHERE attempt.work_id = ?1)
+                "#,
+                params![created.id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .expect("lifecycle counts");
+        assert_eq!((attempt_count, review_count), (1, 1));
+        drop(connection);
         let _ = std::fs::remove_file(path);
     }
 
@@ -1742,6 +1927,375 @@ mod tests {
             .expect("return");
         assert_eq!(returned.state, WorkState::Ready);
 
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn human_review_retries_are_idempotent_and_guidance_sensitive() {
+        let path = temp_db();
+        let store = WorkStore::open(&path).expect("open");
+        store
+            .ensure_project("proj_1", "Demo", "/tmp/demo")
+            .expect("project");
+        let created = store
+            .create_work(CreateWorkInput {
+                project_id: "proj_1".into(),
+                title: "Retry the human decision".into(),
+                description: String::new(),
+                acceptance_criteria: "One auditable review per decision".into(),
+                assignee_ref: None,
+            })
+            .expect("create");
+        let started = store
+            .start_attempt(&created.id, created.revision)
+            .expect("start");
+        let first_review = store
+            .mark_attempt_ready_for_review(&started.id, started.revision)
+            .expect("review-ready");
+
+        assert!(store
+            .human_review(&first_review.id, first_review.revision, false, "   ")
+            .is_err());
+        let returned = store
+            .human_review(
+                &first_review.id,
+                first_review.revision,
+                false,
+                "Add restart coverage",
+            )
+            .expect("return");
+        let repeated_return = store
+            .human_review(
+                &first_review.id,
+                first_review.revision,
+                false,
+                "Add restart coverage",
+            )
+            .expect("same Return retry");
+        assert_eq!(repeated_return, returned);
+        assert!(store
+            .human_review(
+                &first_review.id,
+                first_review.revision,
+                false,
+                "Different guidance",
+            )
+            .is_err());
+
+        {
+            let connection = store.connection.lock().expect("connection");
+            let review_id: String = connection
+                .query_row(
+                    r#"
+                    SELECT review.id FROM reviews AS review
+                    JOIN attempts AS attempt ON attempt.id = review.attempt_id
+                    WHERE attempt.work_id = ?1
+                    ORDER BY review.created_at_ms DESC, review.id DESC
+                    LIMIT 1
+                    "#,
+                    params![first_review.id],
+                    |row| row.get(0),
+                )
+                .expect("latest human review id");
+            let legacy_payload = serde_json::json!({
+                "reviewId": review_id,
+                "to": "ready",
+            })
+            .to_string();
+            connection
+                .execute(
+                r#"
+                UPDATE work_events
+                SET payload_json = ?1
+                WHERE id = (
+                    SELECT id FROM work_events
+                    WHERE work_id = ?2 AND kind = 'returned'
+                    ORDER BY id DESC LIMIT 1
+                )
+                "#,
+                    params![legacy_payload, first_review.id],
+                )
+                .expect("replace decision payload with the pre-revision shape");
+        }
+        assert!(store
+            .human_review(
+                &first_review.id,
+                first_review.revision,
+                false,
+                "Add restart coverage",
+            )
+            .is_err());
+        assert!(store
+            .human_review(
+                &first_review.id,
+                first_review.revision,
+                true,
+                "Add restart coverage",
+            )
+            .is_err());
+
+        let second_started = store
+            .start_attempt(&returned.id, returned.revision)
+            .expect("retry Attempt");
+        let second_review = store
+            .mark_attempt_ready_for_review(&second_started.id, second_started.revision)
+            .expect("second review-ready");
+        let accepted = store
+            .human_review(&second_review.id, second_review.revision, true, "Evidence accepted")
+            .expect("accept");
+        let repeated_accept = store
+            .human_review(&second_review.id, second_review.revision, true, "Evidence accepted")
+            .expect("same Accept retry");
+        assert_eq!(repeated_accept, accepted);
+        assert_eq!(accepted.state, WorkState::Done);
+
+        let connection = store.connection.lock().expect("work store mutex");
+        let review_count: i64 = connection
+            .query_row(
+                r#"
+                SELECT COUNT(*)
+                FROM reviews AS review
+                JOIN attempts AS attempt ON attempt.id = review.attempt_id
+                WHERE attempt.work_id = ?1
+                "#,
+                params![created.id],
+                |row| row.get(0),
+            )
+            .expect("review count");
+        let decision_event_count: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM work_events WHERE work_id = ?1 AND kind IN ('returned', 'accepted')",
+                params![created.id],
+                |row| row.get(0),
+            )
+            .expect("decision event count");
+        assert_eq!(review_count, 2);
+        assert_eq!(decision_event_count, 2);
+        drop(connection);
+
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn human_review_retry_rejects_a_generic_transition_cycle_with_the_same_shape() {
+        let path = temp_db();
+        let store = WorkStore::open(&path).expect("open");
+        store
+            .ensure_project("proj_1", "Demo", "/tmp/demo")
+            .expect("project");
+        let created = store
+            .create_work(CreateWorkInput {
+                project_id: "proj_1".into(),
+                title: "Do not confuse transition history".into(),
+                description: String::new(),
+                acceptance_criteria: "Only the matching decision event is retryable".into(),
+                assignee_ref: None,
+            })
+            .expect("create");
+        let started = store
+            .start_attempt(&created.id, created.revision)
+            .expect("start");
+        let in_review = store
+            .mark_attempt_ready_for_review(&started.id, started.revision)
+            .expect("review-ready");
+        let returned = store
+            .human_review(
+                &in_review.id,
+                in_review.revision,
+                false,
+                "Keep this exact guidance",
+            )
+            .expect("return");
+
+        let generic_cancelled = store
+            .transition(&returned.id, returned.revision, WorkState::Cancelled)
+            .expect("generic cancel");
+        let generic_backlog = store
+            .transition(
+                &generic_cancelled.id,
+                generic_cancelled.revision,
+                WorkState::Backlog,
+            )
+            .expect("generic reopen to backlog");
+        let generic_ready = store
+            .transition(
+                &generic_backlog.id,
+                generic_backlog.revision,
+                WorkState::Ready,
+            )
+            .expect("generic backlog to ready");
+
+        let retry = store.human_review(
+            &generic_ready.id,
+            generic_ready.revision - 1,
+            false,
+            "Keep this exact guidance",
+        );
+        assert!(matches!(
+            retry,
+            Err(WorkStoreError::InvalidState("revision mismatch"))
+        ));
+
+        let connection = store.connection.lock().expect("connection");
+        let review_count: i64 = connection
+            .query_row(
+                r#"
+                SELECT COUNT(*) FROM reviews AS review
+                JOIN attempts AS attempt ON attempt.id = review.attempt_id
+                WHERE attempt.work_id = ?1
+                "#,
+                params![created.id],
+                |row| row.get(0),
+            )
+            .expect("review count");
+        assert_eq!(review_count, 1);
+        drop(connection);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn concurrent_identical_human_reviews_commit_one_decision_and_both_succeed() {
+        let path = temp_db();
+        let setup = WorkStore::open(&path).expect("open setup");
+        setup
+            .ensure_project("proj_1", "Demo", "/tmp/demo")
+            .expect("project");
+        let created = setup
+            .create_work(CreateWorkInput {
+                project_id: "proj_1".into(),
+                title: "Concurrent identical reviews".into(),
+                description: String::new(),
+                acceptance_criteria: "One durable human decision".into(),
+                assignee_ref: None,
+            })
+            .expect("create");
+        let started = setup
+            .start_attempt(&created.id, created.revision)
+            .expect("start");
+        let in_review = setup
+            .mark_attempt_ready_for_review(&started.id, started.revision)
+            .expect("review-ready");
+        drop(setup);
+
+        let barrier = Arc::new(Barrier::new(2));
+        let mut handles = Vec::new();
+        for _ in 0..2 {
+            let store = WorkStore::open(&path).expect("open concurrent store");
+            let barrier = Arc::clone(&barrier);
+            let work_id = in_review.id.clone();
+            let revision = in_review.revision;
+            handles.push(std::thread::spawn(move || {
+                barrier.wait();
+                store
+                    .human_review(&work_id, revision, true, "Exact shared decision")
+                    .map_err(|error| error.to_string())
+            }));
+        }
+        let outcomes: Vec<_> = handles
+            .into_iter()
+            .map(|handle| handle.join().expect("review thread"))
+            .collect();
+        assert!(
+            outcomes.iter().all(|result| result.is_ok()),
+            "outcomes: {outcomes:?}"
+        );
+        assert_eq!(
+            outcomes[0].as_ref().expect("first"),
+            outcomes[1].as_ref().expect("second")
+        );
+
+        let store = WorkStore::open(&path).expect("reopen");
+        let connection = store.connection.lock().expect("connection");
+        let (review_count, event_count): (i64, i64) = connection
+            .query_row(
+                r#"
+                SELECT
+                    (SELECT COUNT(*) FROM reviews AS review
+                     JOIN attempts AS attempt ON attempt.id = review.attempt_id
+                     WHERE attempt.work_id = ?1),
+                    (SELECT COUNT(*) FROM work_events
+                     WHERE work_id = ?1 AND kind IN ('accepted', 'returned'))
+                "#,
+                params![created.id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .expect("decision counts");
+        assert_eq!((review_count, event_count), (1, 1));
+        drop(connection);
+        drop(store);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn concurrent_different_human_review_guidance_conflicts() {
+        let path = temp_db();
+        let setup = WorkStore::open(&path).expect("open setup");
+        setup
+            .ensure_project("proj_1", "Demo", "/tmp/demo")
+            .expect("project");
+        let created = setup
+            .create_work(CreateWorkInput {
+                project_id: "proj_1".into(),
+                title: "Concurrent conflicting reviews".into(),
+                description: String::new(),
+                acceptance_criteria: "Conflicting guidance never aliases".into(),
+                assignee_ref: None,
+            })
+            .expect("create");
+        let started = setup
+            .start_attempt(&created.id, created.revision)
+            .expect("start");
+        let in_review = setup
+            .mark_attempt_ready_for_review(&started.id, started.revision)
+            .expect("review-ready");
+        drop(setup);
+
+        let barrier = Arc::new(Barrier::new(2));
+        let handles: Vec<_> = ["Add tests", "Add migration evidence"]
+            .into_iter()
+            .map(|guidance| {
+                let store = WorkStore::open(&path).expect("open concurrent store");
+                let barrier = Arc::clone(&barrier);
+                let work_id = in_review.id.clone();
+                let revision = in_review.revision;
+                std::thread::spawn(move || {
+                    barrier.wait();
+                    store
+                        .human_review(&work_id, revision, false, guidance)
+                        .map_err(|error| error.to_string())
+                })
+            })
+            .collect();
+        let outcomes: Vec<_> = handles
+            .into_iter()
+            .map(|handle| handle.join().expect("review thread"))
+            .collect();
+        assert_eq!(outcomes.iter().filter(|result| result.is_ok()).count(), 1);
+        assert_eq!(outcomes.iter().filter(|result| result.is_err()).count(), 1);
+        assert!(outcomes
+            .iter()
+            .filter_map(|result| result.as_ref().err())
+            .all(|error| error.contains("revision mismatch")));
+
+        let store = WorkStore::open(&path).expect("reopen");
+        let connection = store.connection.lock().expect("connection");
+        let (review_count, event_count): (i64, i64) = connection
+            .query_row(
+                r#"
+                SELECT
+                    (SELECT COUNT(*) FROM reviews AS review
+                     JOIN attempts AS attempt ON attempt.id = review.attempt_id
+                     WHERE attempt.work_id = ?1),
+                    (SELECT COUNT(*) FROM work_events
+                     WHERE work_id = ?1 AND kind IN ('accepted', 'returned'))
+                "#,
+                params![created.id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .expect("decision counts");
+        assert_eq!((review_count, event_count), (1, 1));
+        drop(connection);
+        drop(store);
         let _ = std::fs::remove_file(path);
     }
 

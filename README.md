@@ -108,7 +108,7 @@ Download the latest release for your platform from the [Releases](../../releases
 Altai also integrates with your OS out of the box:
 
 - **Right-click "Explain with AI" / "Refactor with AI" / "Ask About Project"** in Finder and Explorer
-- **CLI**: `altai-cli [path]` for the interactive agent, `altai-cli -p "..."` for one-shot runs, and `altai-cli open [path]` for Desktop
+- **CLI**: `altai-cli [path]` for the interactive agent, `altai-cli -p "..."` for one-shot runs, and `altai-cli open [path]` for Desktop. Canonical Work ID commands use the explicit [`--workspace` contract](docs/cli/WORK_OS.md).
 - **Deep links** via the `altai://` scheme, Dock menus / Jump Lists, launch-at-login, and single-instance behavior
 
 ### Build from source
