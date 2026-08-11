@@ -1,10 +1,10 @@
 use altai_core::{
-    CreateWorkInput, WorkItemRecord, WorkListFilter, WorkState, WorkStore, WorkStoreError,
-    WorkspacePaths,
+    CreateWorkInput, WorkInboxRecord, WorkItemRecord, WorkListFilter, WorkState, WorkStore,
+    WorkStoreError, WorkspacePaths,
 };
 use serde_json::{json, Map, Value};
 
-pub(super) const CAPABILITIES: [&str; 7] = [
+pub(super) const CAPABILITIES: [&str; 8] = [
     "work/list",
     "work/get",
     "work/create",
@@ -12,6 +12,7 @@ pub(super) const CAPABILITIES: [&str; 7] = [
     "work/start",
     "work/ready-for-review",
     "work/review",
+    "work/inbox/list",
 ];
 
 #[derive(Debug, PartialEq, Eq)]
@@ -58,6 +59,10 @@ pub(super) fn dispatch(
                 .map(|items| Value::Array(items.into_iter().map(work_item_value).collect()))
                 .map_err(store_error)
         }
+        "work/inbox/list" => store
+            .list_work_inbox(&project_id)
+            .map(|items| Value::Array(items.into_iter().map(work_inbox_value).collect()))
+            .map_err(store_error),
         "work/get" => {
             let work_id = required_string(&params, "workId")?;
             store
@@ -219,6 +224,20 @@ fn work_item_value(item: WorkItemRecord) -> Value {
     })
 }
 
+fn work_inbox_value(item: WorkInboxRecord) -> Value {
+    json!({
+        "id": item.id,
+        "workId": item.work_id,
+        "kind": item.kind.as_str(),
+        "title": item.title,
+        "why": item.why,
+        "createdAtMs": item.created_at_ms,
+        "attemptId": item.attempt_id,
+        "chatId": item.chat_id,
+        "runId": item.run_id,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::{dispatch, handles, CAPABILITIES};
@@ -324,8 +343,9 @@ mod tests {
 
     #[test]
     fn router_exposes_only_canonical_methods_and_rejects_snake_case_params() {
-        assert_eq!(CAPABILITIES.len(), 7);
+        assert_eq!(CAPABILITIES.len(), 8);
         assert!(handles("work/ready-for-review"));
+        assert!(handles("work/inbox/list"));
         assert!(!handles("work/tasks/list"));
 
         let temporary = tempfile::tempdir().expect("temporary workspace");

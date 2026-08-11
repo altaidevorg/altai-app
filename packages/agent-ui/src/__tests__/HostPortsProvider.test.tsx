@@ -115,6 +115,7 @@ function createMinimalPorts(): HostPorts {
     inbox: withUnsupportedDefaults(
       "inbox",
       [
+        "listWorkInbox",
         "listNotifications",
         "markNotificationSeen",
         "resolveNotification",

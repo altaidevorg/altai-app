@@ -17,7 +17,13 @@ import {
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { type ReactElement, useEffect, useRef, useState } from "react";
+import {
+  type ReactElement,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import {
   ActivityInspector,
   AgentsInspector,
@@ -138,9 +144,10 @@ import { ChatHistoryPanel } from "./ChatHistoryPanel";
 import { PlanDiffReview } from "./PlanDiffReview";
 import { TodoSummaryChip } from "./TodoStrip";
 import {
-  selectNotificationAttentionCount,
-  useNotificationStore,
-} from "../store/notificationStore";
+  loadWorkInboxAttentionCount,
+  WORK_INBOX_INVALIDATION_EVENTS,
+  WorkInboxRequestGate,
+} from "../lib/workInboxAttention";
 
 // Zustand selectors must return a stable reference when a session has no
 // todos yet; allocating `[]` inside the selector triggers React's external
@@ -784,12 +791,59 @@ function WorkspaceTopbar({
   onOpenSettings?: () => void;
 }) {
   const activeId = useChatStore((s) => s.activeSessionId);
-  const inboxAttentionCount = useNotificationStore(selectNotificationAttentionCount);
-  const refreshInbox = useNotificationStore((s) => s.refresh);
+  const [inboxAttentionCount, setInboxAttentionCount] = useState(0);
+  const inboxRequestGate = useRef(
+    new WorkInboxRequestGate(workspacePath ?? ""),
+  );
+  const inboxWorkspace = workspacePath ?? "";
+
+  useLayoutEffect(() => {
+    inboxRequestGate.current.reset(inboxWorkspace);
+    setInboxAttentionCount(0);
+    return () => {
+      if (inboxRequestGate.current.ownsWorkspace(inboxWorkspace)) {
+        inboxRequestGate.current.reset(inboxWorkspace);
+      }
+    };
+  }, [inboxWorkspace]);
 
   useEffect(() => {
-    void refreshInbox(workspacePath);
-  }, [refreshInbox, workspacePath]);
+    let active = true;
+    const refreshInbox = () => {
+      if (!workspacePath) {
+        setInboxAttentionCount(0);
+        return;
+      }
+      const request = inboxRequestGate.current.begin(inboxWorkspace);
+      if (!inboxRequestGate.current.isCurrent(request)) return;
+      void loadWorkInboxAttentionCount({
+        reconcile: () => native.workAttemptReconcile(workspacePath),
+        list: () => native.workInboxList(workspacePath),
+      })
+        .then((count) => {
+          if (
+            active &&
+            count !== null &&
+            inboxRequestGate.current.isCurrent(request)
+          ) {
+            setInboxAttentionCount(count);
+          }
+        })
+        .catch(() => undefined);
+    };
+    refreshInbox();
+    const timer = window.setInterval(refreshInbox, 5_000);
+    for (const eventName of WORK_INBOX_INVALIDATION_EVENTS) {
+      window.addEventListener(eventName, refreshInbox);
+    }
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+      for (const eventName of WORK_INBOX_INVALIDATION_EVENTS) {
+        window.removeEventListener(eventName, refreshInbox);
+      }
+    };
+  }, [inboxWorkspace, workspacePath]);
 
   const historyControl = (
     <IconTooltip label={historyToggleLabel(historyOpen)}>

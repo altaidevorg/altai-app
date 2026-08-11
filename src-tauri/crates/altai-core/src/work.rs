@@ -216,6 +216,42 @@ pub struct AttemptRecord {
     pub updated_at_ms: u64,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WorkInboxKind {
+    ReviewRequired,
+    Approval,
+    Question,
+    FailedAttempt,
+    Blocked,
+}
+
+impl WorkInboxKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::ReviewRequired => "review_required",
+            Self::Approval => "approval",
+            Self::Question => "question",
+            Self::FailedAttempt => "failed_attempt",
+            Self::Blocked => "blocked",
+        }
+    }
+}
+
+/// One actionable Work condition. This is a projection over canonical source
+/// records, never a mutable notification record.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WorkInboxRecord {
+    pub id: String,
+    pub work_id: String,
+    pub kind: WorkInboxKind,
+    pub title: String,
+    pub why: String,
+    pub created_at_ms: u64,
+    pub attempt_id: Option<String>,
+    pub chat_id: Option<String>,
+    pub run_id: Option<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WorkAttemptStart {
     pub work: WorkItemRecord,
@@ -424,6 +460,137 @@ impl WorkStore {
             out.push(row?);
         }
         Ok(out)
+    }
+
+    /// Project the M1 Work Inbox from authoritative Work and Attempt state.
+    /// `blocked` is read-only here: it reflects the canonical Work owner's
+    /// `work_items.blocker` value and opens that Work detail; this projection
+    /// does not invent a renderer or Inbox-owned blocker setter.
+    ///
+    /// Approval and question are valid public kinds, but this query does not
+    /// synthesize them: the current approval surface is not ID-addressable and
+    /// persisted clarification tickets do not carry the exact bound run id.
+    /// They can be added only when a host can join an unresolved durable source
+    /// to the exact bound Attempt without guessing from renderer state.
+    pub fn list_work_inbox(&self, project_id: &str) -> Result<Vec<WorkInboxRecord>> {
+        let connection = self.connection.lock().expect("work store mutex");
+        let mut rows = Vec::new();
+
+        {
+            let mut statement = connection.prepare(
+                r#"
+                SELECT w.id, w.title, w.updated_at_ms,
+                       a.id, a.chat_id, a.run_id, a.updated_at_ms
+                FROM work_items w
+                JOIN attempts a ON a.id = (
+                    SELECT latest.id FROM attempts latest
+                    WHERE latest.work_id = w.id
+                    ORDER BY latest.number DESC
+                    LIMIT 1
+                )
+                WHERE w.project_id = ?1
+                  AND w.state = 'in_review'
+                  AND a.phase = 'succeeded'
+                "#,
+            )?;
+            let projected = statement.query_map(params![project_id], |row| {
+                let work_id: String = row.get(0)?;
+                let work_updated_at_ms: i64 = row.get(2)?;
+                let attempt_id: String = row.get(3)?;
+                let attempt_updated_at_ms: i64 = row.get(6)?;
+                Ok(WorkInboxRecord {
+                    id: format!("review_required:{work_id}"),
+                    work_id,
+                    kind: WorkInboxKind::ReviewRequired,
+                    title: row.get(1)?,
+                    why: "Attempt finished — decide Accept or Return".to_string(),
+                    created_at_ms: attempt_updated_at_ms.max(work_updated_at_ms).max(0) as u64,
+                    attempt_id: Some(attempt_id),
+                    chat_id: row.get(4)?,
+                    run_id: row.get(5)?,
+                })
+            })?;
+            for row in projected {
+                rows.push(row?);
+            }
+        }
+
+        {
+            let mut statement = connection.prepare(
+                r#"
+                SELECT w.id, w.title, a.id, a.chat_id, a.run_id, a.updated_at_ms
+                FROM work_items w
+                JOIN attempts a ON a.id = (
+                    SELECT latest.id FROM attempts latest
+                    WHERE latest.work_id = w.id
+                    ORDER BY latest.number DESC
+                    LIMIT 1
+                )
+                WHERE w.project_id = ?1
+                  AND w.state = 'ready'
+                  AND a.phase = 'failed'
+                "#,
+            )?;
+            let projected = statement.query_map(params![project_id], |row| {
+                let work_id: String = row.get(0)?;
+                let attempt_id: String = row.get(2)?;
+                let updated_at_ms: i64 = row.get(5)?;
+                Ok(WorkInboxRecord {
+                    id: format!("failed_attempt:{attempt_id}"),
+                    work_id,
+                    kind: WorkInboxKind::FailedAttempt,
+                    title: row.get(1)?,
+                    why: "Attempt failed — inspect evidence and retry".to_string(),
+                    created_at_ms: updated_at_ms.max(0) as u64,
+                    attempt_id: Some(attempt_id),
+                    chat_id: row.get(3)?,
+                    run_id: row.get(4)?,
+                })
+            })?;
+            for row in projected {
+                rows.push(row?);
+            }
+        }
+
+        {
+            let mut statement = connection.prepare(
+                r#"
+                SELECT id, title, blocker, updated_at_ms
+                FROM work_items
+                WHERE project_id = ?1
+                  AND state NOT IN ('done', 'cancelled')
+                  AND blocker IS NOT NULL
+                  AND length(trim(blocker)) > 0
+                "#,
+            )?;
+            let projected = statement.query_map(params![project_id], |row| {
+                let work_id: String = row.get(0)?;
+                let blocker: String = row.get(2)?;
+                let updated_at_ms: i64 = row.get(3)?;
+                Ok(WorkInboxRecord {
+                    id: format!("blocked:{work_id}"),
+                    work_id,
+                    kind: WorkInboxKind::Blocked,
+                    title: row.get(1)?,
+                    why: format!("Blocked: {}", blocker.trim()),
+                    created_at_ms: updated_at_ms.max(0) as u64,
+                    attempt_id: None,
+                    chat_id: None,
+                    run_id: None,
+                })
+            })?;
+            for row in projected {
+                rows.push(row?);
+            }
+        }
+
+        rows.sort_by(|left, right| {
+            right
+                .created_at_ms
+                .cmp(&left.created_at_ms)
+                .then_with(|| left.id.cmp(&right.id))
+        });
+        Ok(rows)
     }
 
     pub fn transition(&self, id: &str, expected_revision: i64, next: WorkState) -> Result<WorkItemRecord> {
@@ -1396,6 +1563,155 @@ mod tests {
             .expect("accept");
         assert_eq!(accepted.state, WorkState::Done);
 
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn work_inbox_projects_only_actionable_source_conditions() {
+        let path = temp_db();
+        let store = WorkStore::open(&path).expect("open");
+        store
+            .ensure_project("proj_1", "Demo", "/tmp/demo")
+            .expect("project");
+
+        let review = store
+            .create_work(CreateWorkInput {
+                project_id: "proj_1".into(),
+                title: "Review evidence".into(),
+                description: String::new(),
+                acceptance_criteria: "Tests pass".into(),
+                assignee_ref: None,
+            })
+            .expect("review work");
+        let review_started = store
+            .start_attempt_with_record(&review.id, review.revision)
+            .expect("review attempt");
+        let review_ready = store
+            .mark_attempt_ready_for_review(&review.id, review_started.work.revision)
+            .expect("review ready");
+
+        let failed = store
+            .create_work(CreateWorkInput {
+                project_id: "proj_1".into(),
+                title: "Retry failure".into(),
+                description: String::new(),
+                acceptance_criteria: String::new(),
+                assignee_ref: None,
+            })
+            .expect("failed work");
+        let failed_started = store
+            .start_attempt_with_record(&failed.id, failed.revision)
+            .expect("failed attempt");
+        let failed_ready = store
+            .finish_attempt_by_id(
+                &failed_started.attempt.id,
+                AttemptPhase::Failed,
+                r#"{"kind":"failed"}"#,
+            )
+            .expect("finish failed attempt");
+
+        store
+            .ensure_project("proj_2", "Other", "/tmp/other")
+            .expect("other project");
+        let other = store
+            .create_work(CreateWorkInput {
+                project_id: "proj_2".into(),
+                title: "Other project review".into(),
+                description: String::new(),
+                acceptance_criteria: String::new(),
+                assignee_ref: None,
+            })
+            .expect("other project work");
+        let other_started = store
+            .start_attempt_with_record(&other.id, other.revision)
+            .expect("other project attempt");
+        store
+            .mark_attempt_ready_for_review(&other.id, other_started.work.revision)
+            .expect("other project review ready");
+
+        store
+            .connection
+            .lock()
+            .expect("connection")
+            .execute(
+                "UPDATE work_items SET blocker = ?1 WHERE id = ?2",
+                params!["Need a human decision", review.id],
+            )
+            .expect("set blocker source");
+        {
+            let connection = store.connection.lock().expect("connection");
+            connection
+                .execute(
+                    "UPDATE attempts SET updated_at_ms = 200 WHERE id = ?1",
+                    params![review_started.attempt.id],
+                )
+                .expect("set review ordering time");
+            connection
+                .execute(
+                    "UPDATE work_items SET updated_at_ms = 200 WHERE id = ?1",
+                    params![review.id],
+                )
+                .expect("set blocker ordering time");
+            connection
+                .execute(
+                    "UPDATE attempts SET updated_at_ms = 300 WHERE id = ?1",
+                    params![failed_started.attempt.id],
+                )
+                .expect("set failure ordering time");
+        }
+
+        let rows = store.list_work_inbox("proj_1").expect("project Inbox");
+        assert_eq!(rows.len(), 3);
+        assert_eq!(
+            rows.iter().map(|row| row.kind).collect::<Vec<_>>(),
+            vec![
+                WorkInboxKind::FailedAttempt,
+                WorkInboxKind::Blocked,
+                WorkInboxKind::ReviewRequired,
+            ]
+        );
+        assert!(rows.iter().all(|row| row.work_id != other.id));
+        assert!(rows.iter().any(|row| {
+            row.kind == WorkInboxKind::ReviewRequired
+                && row.work_id == review.id
+                && row.attempt_id.as_deref() == Some(review_started.attempt.id.as_str())
+        }));
+        assert!(rows.iter().any(|row| {
+            row.kind == WorkInboxKind::FailedAttempt
+                && row.work_id == failed.id
+                && row.attempt_id.as_deref() == Some(failed_started.attempt.id.as_str())
+        }));
+        assert!(rows.iter().any(|row| {
+            row.kind == WorkInboxKind::Blocked
+                && row.work_id == review.id
+                && row.why == "Blocked: Need a human decision"
+        }));
+        assert!(rows.iter().all(|row| {
+            row.kind != WorkInboxKind::Approval && row.kind != WorkInboxKind::Question
+        }));
+
+        let returned = store
+            .human_review(&review.id, review_ready.revision, false, "Address the blocker")
+            .expect("return review");
+        store
+            .start_attempt(&failed.id, failed_ready.revision)
+            .expect("retry failed work");
+
+        let remaining = store
+            .list_work_inbox("proj_1")
+            .expect("partially resolved Inbox");
+        assert_eq!(remaining.len(), 1);
+        assert_eq!(remaining[0].kind, WorkInboxKind::Blocked);
+        assert_eq!(remaining[0].work_id, review.id);
+
+        store
+            .transition(&review.id, returned.revision, WorkState::Cancelled)
+            .expect("cancel blocked Work");
+
+        assert!(store
+            .list_work_inbox("proj_1")
+            .expect("resolved Inbox")
+            .is_empty());
         let _ = std::fs::remove_file(path);
     }
 

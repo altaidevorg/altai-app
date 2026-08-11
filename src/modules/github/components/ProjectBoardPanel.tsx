@@ -1,8 +1,16 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { invoke } from "@tauri-apps/api/core";
 import {
   NewWorkDialog,
   OperationsNavigationShell,
+  formatRelativeTime,
   WorkDetail,
   WorkInbox,
   WorkList,
@@ -14,6 +22,8 @@ import {
   type WorkListRow,
   WORK_OS_VIEWS,
 } from "@altai/agent-ui";
+import type { WorkInboxItem } from "@altai/host-contract";
+import { WorkInboxRequestGate } from "@/modules/ai/lib/workInboxAttention";
 import type { ProjectBoardNavigation } from "@/modules/tabs";
 import {
   dispatchToSessionWithRunRef,
@@ -134,7 +144,12 @@ export function ProjectBoardPanel({ repoRoot, navigation }: Props) {
   );
   const [filter, setFilter] = useState<WorkListFilterId>("my_active");
   const [rows, setRows] = useState<WorkListRow[]>([]);
-  const [inboxRows] = useState<WorkInboxRow[]>([]);
+  const [inboxRows, setInboxRows] = useState<WorkInboxRow[]>([]);
+  const [inboxStatus, setInboxStatus] = useState<
+    "loading" | "ready" | "error"
+  >("loading");
+  const [inboxError, setInboxError] = useState<string | null>(null);
+  const inboxRequestGate = useRef(new WorkInboxRequestGate(repoRoot));
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [detail, setDetail] = useState<WorkItemDto | null>(null);
   const [attempts, setAttempts] = useState<WorkAttemptDto[]>([]);
@@ -179,6 +194,48 @@ export function ProjectBoardPanel({ repoRoot, navigation }: Props) {
     }
   }, [filter, reconcileAttempts, repoRoot, workspaceName]);
 
+  const refreshInbox = useCallback(async () => {
+    const request = inboxRequestGate.current.begin(repoRoot);
+    if (!inboxRequestGate.current.isCurrent(request)) return;
+    setInboxStatus("loading");
+    try {
+      await reconcileAttempts();
+      const items = await invoke<WorkInboxItem[]>("work_inbox_list", {
+        workspacePath: repoRoot,
+      });
+      if (!inboxRequestGate.current.isCurrent(request)) return;
+      setInboxRows(
+        items.map((item) => ({
+          id: item.id,
+          workId: item.workId,
+          kind: item.kind,
+          title: item.title,
+          why: item.why,
+          ageLabel: formatRelativeTime(item.createdAtMs),
+        })),
+      );
+      setInboxError(null);
+      setInboxStatus("ready");
+      window.dispatchEvent(new CustomEvent("altai:work-inbox-changed"));
+    } catch (error) {
+      if (!inboxRequestGate.current.isCurrent(request)) return;
+      setInboxError(error instanceof Error ? error.message : String(error));
+      setInboxStatus("error");
+    }
+  }, [reconcileAttempts, repoRoot]);
+
+  useLayoutEffect(() => {
+    inboxRequestGate.current.reset(repoRoot);
+    setInboxRows([]);
+    setInboxError(null);
+    setInboxStatus("loading");
+    return () => {
+      if (inboxRequestGate.current.ownsWorkspace(repoRoot)) {
+        inboxRequestGate.current.reset(repoRoot);
+      }
+    };
+  }, [repoRoot]);
+
   const loadDetail = useCallback(
     async (workId: string) => {
       setDetailStatus("loading");
@@ -219,12 +276,17 @@ export function ProjectBoardPanel({ repoRoot, navigation }: Props) {
   }, [refresh]);
 
   useEffect(() => {
+    if (view === "inbox") void refreshInbox();
+  }, [refreshInbox, view]);
+
+  useEffect(() => {
     if (selectedId) void loadDetail(selectedId);
   }, [selectedId, loadDetail]);
 
   useEffect(() => {
     const journaledTerminal = () => {
       void refresh();
+      void refreshInbox();
       if (selectedId) void loadDetail(selectedId);
     };
     window.addEventListener(
@@ -236,7 +298,7 @@ export function ProjectBoardPanel({ repoRoot, navigation }: Props) {
         "altai:agent-terminal-journaled",
         journaledTerminal,
       );
-  }, [loadDetail, refresh, selectedId]);
+  }, [loadDetail, refresh, refreshInbox, selectedId]);
 
   useEffect(() => {
     const reconcileTimer = window.setInterval(() => {
@@ -244,6 +306,7 @@ export function ProjectBoardPanel({ repoRoot, navigation }: Props) {
         .then((result) => {
           if (!result.changedWorkIds.length) return;
           void refresh();
+          void refreshInbox();
           if (selectedId) void loadDetail(selectedId);
         })
         .catch((error) => {
@@ -251,7 +314,7 @@ export function ProjectBoardPanel({ repoRoot, navigation }: Props) {
         });
     }, 5_000);
     return () => window.clearInterval(reconcileTimer);
-  }, [loadDetail, reconcileAttempts, refresh, selectedId]);
+  }, [loadDetail, reconcileAttempts, refresh, refreshInbox, selectedId]);
 
   useEffect(() => {
     if (!navigation) return;
@@ -432,6 +495,7 @@ export function ProjectBoardPanel({ repoRoot, navigation }: Props) {
           setDetailStatus("ready");
         }
         await refresh();
+        await refreshInbox();
       } catch (error) {
         setLoadError(error instanceof Error ? error.message : String(error));
       } finally {
@@ -445,6 +509,7 @@ export function ProjectBoardPanel({ repoRoot, navigation }: Props) {
       loadDetail,
       reconcileAttempts,
       refresh,
+      refreshInbox,
       repoRoot,
     ],
   );
@@ -461,7 +526,7 @@ export function ProjectBoardPanel({ repoRoot, navigation }: Props) {
       availableViews={AVAILABLE_VIEWS}
       ariaLabel="Work"
     >
-      {loadError ? (
+      {view === "work" && loadError ? (
         <p className="text-sm text-amber-600 px-3 py-2" role="status">
           Work store: {loadError}
         </p>
@@ -523,7 +588,7 @@ export function ProjectBoardPanel({ repoRoot, navigation }: Props) {
       ) : null}
       {view === "inbox" ? (
         <WorkInbox
-          status="ready"
+          status={inboxStatus}
           rows={inboxRows}
           onOpenWork={(id) => {
             setView("work");
@@ -532,6 +597,10 @@ export function ProjectBoardPanel({ repoRoot, navigation }: Props) {
           onGoToWork={() => {
             setSelectedId(null);
             setView("work");
+          }}
+          errorMessage={inboxError ?? undefined}
+          onRetry={() => {
+            void refreshInbox();
           }}
         />
       ) : null}

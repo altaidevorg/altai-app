@@ -106,6 +106,11 @@ enum Commands {
         #[command(subcommand)]
         command: WorkCommands,
     },
+    /// List source-backed Work conditions that need a human.
+    Inbox {
+        #[command(subcommand)]
+        command: InboxCommands,
+    },
 }
 
 #[derive(Debug, Args)]
@@ -143,6 +148,21 @@ enum WorkCommands {
     ReadyForReview(WorkRevisionArgs),
     /// Accept or Return Work that is in_review.
     Review(WorkReviewArgs),
+}
+
+#[derive(Debug, Subcommand)]
+enum InboxCommands {
+    /// List actionable Work conditions in the current workspace.
+    List(InboxListArgs),
+}
+
+#[derive(Debug, Args)]
+struct InboxListArgs {
+    /// Workspace path. Defaults to the current directory.
+    path: Option<PathBuf>,
+    /// Print the canonical Work Inbox rows as a JSON array.
+    #[arg(long)]
+    json: bool,
 }
 
 #[derive(Debug, Args)]
@@ -553,6 +573,7 @@ fn run() -> Result<(), CliError> {
         Some(Commands::Open(args)) => open_desktop(args),
         Some(Commands::Journal { command }) => journal(command),
         Some(Commands::Work { command }) => work_command(command),
+        Some(Commands::Inbox { command }) => inbox_command(command),
     }
 }
 
@@ -646,6 +667,12 @@ fn work_command(command: WorkCommands) -> Result<(), CliError> {
         WorkCommands::Start(args) => work_start(args),
         WorkCommands::ReadyForReview(args) => work_ready_for_review(args),
         WorkCommands::Review(args) => work_review(args),
+    }
+}
+
+fn inbox_command(command: InboxCommands) -> Result<(), CliError> {
+    match command {
+        InboxCommands::List(args) => inbox_list(args),
     }
 }
 
@@ -748,6 +775,46 @@ fn work_list(args: WorkListArgs) -> Result<(), CliError> {
     }
     for item in &items {
         print_work_item(item, false)?;
+    }
+    Ok(())
+}
+
+fn work_inbox_value(item: &altai_core::WorkInboxRecord) -> serde_json::Value {
+    serde_json::json!({
+        "id": item.id,
+        "workId": item.work_id,
+        "kind": item.kind.as_str(),
+        "title": item.title,
+        "why": item.why,
+        "createdAtMs": item.created_at_ms,
+        "attemptId": item.attempt_id,
+        "chatId": item.chat_id,
+        "runId": item.run_id,
+    })
+}
+
+fn format_work_inbox_row(item: &altai_core::WorkInboxRecord) -> String {
+    format!(
+        "{}\t{}\t{}\t{}",
+        item.kind.as_str(),
+        item.work_id,
+        item.title,
+        item.why
+    )
+}
+
+fn inbox_list(args: InboxListArgs) -> Result<(), CliError> {
+    let (project_id, store) = open_workspace_work(args.path.as_deref())?;
+    let items = store
+        .list_work_inbox(&project_id)
+        .map_err(|error| CliError::Message(error.to_string()))?;
+    if args.json {
+        let rows = items.iter().map(work_inbox_value).collect::<Vec<_>>();
+        println!("{}", serde_json::to_string_pretty(&rows).unwrap_or_default());
+    } else {
+        for item in &items {
+            println!("{}", format_work_inbox_row(item));
+        }
     }
     Ok(())
 }
@@ -2051,6 +2118,54 @@ mod tests {
         };
         assert_eq!(args.path, Some(PathBuf::from(".")));
         assert!(args.json);
+    }
+
+    #[test]
+    fn canonical_inbox_list_contract_parses_workspace_and_json() {
+        let cli = Cli::try_parse_from(["altai-cli", "inbox", "list", ".", "--json"])
+            .expect("canonical Inbox command should parse");
+        let Some(Commands::Inbox {
+            command: InboxCommands::List(args),
+        }) = cli.command
+        else {
+            panic!("Inbox list command should parse");
+        };
+        assert_eq!(args.path, Some(PathBuf::from(".")));
+        assert!(args.json);
+    }
+
+    #[test]
+    fn canonical_inbox_router_lists_an_empty_workspace() {
+        let workspace = tempfile::tempdir().expect("workspace");
+        inbox_command(InboxCommands::List(InboxListArgs {
+            path: Some(workspace.path().to_path_buf()),
+            json: false,
+        }))
+        .expect("Inbox list router");
+    }
+
+    #[test]
+    fn canonical_inbox_output_is_direct_camel_case_and_human_readable() {
+        let item = altai_core::WorkInboxRecord {
+            id: "review_required:work_1".into(),
+            work_id: "work_1".into(),
+            kind: altai_core::WorkInboxKind::ReviewRequired,
+            title: "Review Work".into(),
+            why: "Attempt finished — decide Accept or Return".into(),
+            created_at_ms: 42,
+            attempt_id: Some("attempt_1".into()),
+            chat_id: Some("chat_1".into()),
+            run_id: Some("run_1".into()),
+        };
+        let output = serde_json::Value::Array(vec![work_inbox_value(&item)]);
+        assert_eq!(output[0]["workId"], "work_1");
+        assert_eq!(output[0]["kind"], "review_required");
+        assert_eq!(output[0]["createdAtMs"], 42);
+        assert!(output[0].get("work_id").is_none());
+        assert_eq!(
+            format_work_inbox_row(&item),
+            "review_required\twork_1\tReview Work\tAttempt finished — decide Accept or Return"
+        );
     }
 
     #[test]

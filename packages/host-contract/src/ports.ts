@@ -40,6 +40,7 @@ import type {
   TerminalContext,
   TextRange,
   WorkCreateInput,
+  WorkInboxItem,
   WorkItem,
   WorkListFilter,
   WorkReviewInput,
@@ -142,6 +143,9 @@ export interface WorkPort {
 }
 
 export interface InboxPort {
+  /** Canonical Work OS Inbox projection. Not notification ownership. */
+  listWorkInbox(): Promise<WorkInboxItem[]>;
+  /** Legacy agent notification methods retained during screen migration. */
   listNotifications(): Promise<NotificationInfo[]>;
   markNotificationSeen(id: string): Promise<void>;
   resolveNotification(id: string): Promise<void>;

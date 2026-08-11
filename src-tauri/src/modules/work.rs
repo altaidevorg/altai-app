@@ -7,7 +7,7 @@ use std::path::Path;
 
 use altai_core::{
     resolve_workspace_from, AttemptPhase, AttemptReconcileMode, AttemptRecord, CreateWorkInput,
-    WorkAttemptStart, WorkItemRecord, WorkListFilter, WorkState, WorkStore,
+    WorkAttemptStart, WorkInboxRecord, WorkItemRecord, WorkListFilter, WorkState, WorkStore,
 };
 use serde::{Deserialize, Serialize};
 use tauri::State;
@@ -103,6 +103,36 @@ impl From<WorkAttemptStart> for WorkStartResultDto {
         Self {
             work: value.work.into(),
             attempt: value.attempt.into(),
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkInboxItemDto {
+    pub id: String,
+    pub work_id: String,
+    pub kind: String,
+    pub title: String,
+    pub why: String,
+    pub created_at_ms: u64,
+    pub attempt_id: Option<String>,
+    pub chat_id: Option<String>,
+    pub run_id: Option<String>,
+}
+
+impl From<WorkInboxRecord> for WorkInboxItemDto {
+    fn from(value: WorkInboxRecord) -> Self {
+        Self {
+            id: value.id,
+            work_id: value.work_id,
+            kind: value.kind.as_str().to_string(),
+            title: value.title,
+            why: value.why,
+            created_at_ms: value.created_at_ms,
+            attempt_id: value.attempt_id,
+            chat_id: value.chat_id,
+            run_id: value.run_id,
         }
     }
 }
@@ -208,6 +238,19 @@ pub fn work_list(
         .list_work(&project_id, parse_filter(filter.as_deref())?)
         .map_err(|error| error.to_string())?;
     Ok(listed.into_iter().map(WorkItemDto::from).collect())
+}
+
+#[tauri::command]
+pub fn work_inbox_list(
+    registry: State<'_, WorkspaceRegistry>,
+    workspace_path: String,
+) -> Result<Vec<WorkInboxItemDto>, String> {
+    let workspace = authorized_workspace(&workspace_path, &registry)?;
+    let (project_id, store) = open_store(&workspace)?;
+    let listed = store
+        .list_work_inbox(&project_id)
+        .map_err(|error| error.to_string())?;
+    Ok(listed.into_iter().map(WorkInboxItemDto::from).collect())
 }
 
 #[tauri::command]
@@ -428,4 +471,33 @@ pub fn work_review(
         )
         .map_err(|error| error.to_string())?;
     Ok(updated.into())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::WorkInboxItemDto;
+    use altai_core::{WorkInboxKind, WorkInboxRecord};
+
+    #[test]
+    fn work_inbox_dto_is_camel_case_and_keeps_nullable_source_refs() {
+        let dto = WorkInboxItemDto::from(WorkInboxRecord {
+            id: "review_required:work_1".into(),
+            work_id: "work_1".into(),
+            kind: WorkInboxKind::ReviewRequired,
+            title: "Review Work".into(),
+            why: "Attempt finished".into(),
+            created_at_ms: 42,
+            attempt_id: Some("attempt_1".into()),
+            chat_id: None,
+            run_id: None,
+        });
+        let value = serde_json::to_value(dto).expect("serialize Work Inbox DTO");
+        assert_eq!(value["workId"], "work_1");
+        assert_eq!(value["createdAtMs"], 42);
+        assert_eq!(value["attemptId"], "attempt_1");
+        assert!(value["chatId"].is_null());
+        assert!(value["runId"].is_null());
+        assert!(value.get("work_id").is_none());
+        assert!(value.get("created_at_ms").is_none());
+    }
 }

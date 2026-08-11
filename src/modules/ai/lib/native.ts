@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import type {
   WorkCreateInput,
+  WorkInboxItem,
   WorkItem,
   WorkListFilter,
   WorkReviewInput,
@@ -595,6 +596,14 @@ export const native = {
     invoke<WorkItem[]>("work_list", {
       workspacePath: currentWorkspaceEnv(),
       filter,
+    }),
+  workInboxList: (workspacePath?: string | null) =>
+    invoke<WorkInboxItem[]>("work_inbox_list", {
+      workspacePath: workspacePath ?? currentWorkspaceEnv(),
+    }),
+  workAttemptReconcile: (workspacePath?: string | null) =>
+    invoke<{ changedWorkIds: string[] }>("work_attempt_reconcile", {
+      workspacePath: workspacePath ?? currentWorkspaceEnv(),
     }),
   workGet: (workId: string) =>
     invoke<WorkItem | null>("work_get", {
