@@ -193,6 +193,102 @@ fn config_update_persists_a_non_secret_model_setting() {
 }
 
 #[test]
+fn canonical_work_rpc_is_advertised_and_persists_across_host_restart() {
+    let workspace = tempfile::tempdir().expect("workspace");
+    let work_id = {
+        let mut process = ServeProcess::spawn(workspace.path(), false);
+        process.frame(initialize(json!(1)));
+        let initialized = process.next();
+        let capabilities = initialized["result"]["capabilities"]
+            .as_array()
+            .expect("capabilities array");
+        for method in [
+            "work/list",
+            "work/get",
+            "work/create",
+            "work/transition",
+            "work/start",
+            "work/ready-for-review",
+            "work/review",
+        ] {
+            assert!(
+                capabilities.iter().any(|value| value.as_str() == Some(method)),
+                "initialize must advertise {method}: {initialized}"
+            );
+        }
+
+        process.frame(json!({
+            "jsonrpc":"2.0",
+            "id":2,
+            "method":"work/create",
+            "params":{
+                "title":"Durable stdio Work",
+                "description":"Created through canonical RPC",
+                "acceptanceCriteria":"Survives host restart",
+                "assigneeRef":"agent:altai"
+            }
+        }));
+        let created = process.next();
+        assert_eq!(created["id"], 2);
+        assert_eq!(
+            created["result"]["state"],
+            "backlog",
+            "work/create response: {created}"
+        );
+        assert_eq!(
+            created["result"]["acceptanceCriteria"],
+            "Survives host restart"
+        );
+        assert!(created["result"].get("acceptance_criteria").is_none());
+        let work_id = created["result"]["id"]
+            .as_str()
+            .expect("created Work id")
+            .to_string();
+
+        process.frame(json!({
+            "jsonrpc":"2.0",
+            "id":3,
+            "method":"work/list",
+            "params":{"filter":"backlog"}
+        }));
+        let listed = process.next();
+        let list = listed["result"].as_array().expect("Work list array");
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0]["id"], work_id);
+
+        process.frame(json!({
+            "jsonrpc":"2.0",
+            "id":4,
+            "method":"work/get",
+            "params":{"workId":work_id}
+        }));
+        let fetched = process.next();
+        assert_eq!(fetched["result"], created["result"]);
+
+        process.frame(json!({"jsonrpc":"2.0","id":5,"method":"shutdown"}));
+        assert_eq!(process.next()["id"], 5);
+        let _stderr = process.shutdown();
+        work_id
+    };
+
+    let mut restarted = ServeProcess::spawn(workspace.path(), false);
+    restarted.frame(initialize(json!(6)));
+    assert_eq!(restarted.next()["id"], 6);
+    restarted.frame(json!({
+        "jsonrpc":"2.0",
+        "id":7,
+        "method":"work/get",
+        "params":{"workId":work_id}
+    }));
+    let persisted = restarted.next();
+    assert_eq!(persisted["result"]["id"], work_id);
+    assert_eq!(persisted["result"]["title"], "Durable stdio Work");
+    restarted.frame(json!({"jsonrpc":"2.0","id":8,"method":"shutdown"}));
+    assert_eq!(restarted.next()["id"], 8);
+    let _stderr = restarted.shutdown();
+}
+
+#[test]
 fn provider_credentials_are_host_owned_and_never_returned_over_stdio() {
     let workspace = tempfile::tempdir().expect("workspace");
     let mut process = ServeProcess::spawn(workspace.path(), false);

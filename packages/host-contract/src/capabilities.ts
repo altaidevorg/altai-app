@@ -55,6 +55,7 @@ export type CapabilityId =
   | "review.restoreCheckpoint"
   | "review.editProposal"
   // Work / Inbox
+  | "work.items"
   | "work.taskRuns"
   | "work.automations"
   | "inbox.notifications"
@@ -140,7 +141,12 @@ export const CHAT_PANEL_ACTIONS: readonly ChatPanelAction[] = [
   { action: "context.gitDiff", surface: "context", capability: "workspace.gitDiff" },
   { action: "context.terminal", surface: "context", capability: "workspace.terminalContext" },
 
-  { action: "work.open", surface: "work", capability: "work.taskRuns" },
+  { action: "work.open", surface: "work", capability: "work.items" },
+  { action: "work.create", surface: "work", capability: "work.items" },
+  { action: "work.transition", surface: "work", capability: "work.items" },
+  { action: "work.start", surface: "work", capability: "work.items" },
+  { action: "work.readyForReview", surface: "work", capability: "work.items" },
+  { action: "work.review", surface: "work", capability: "work.items" },
   { action: "work.createTaskRun", surface: "work", capability: "work.taskRuns" },
   { action: "work.cancelTaskRun", surface: "work", capability: "work.taskRuns" },
   { action: "work.retryTaskRun", surface: "work", capability: "work.taskRuns" },
@@ -221,7 +227,8 @@ export const DEFAULT_CAPABILITY_MATRIX: readonly CapabilityEntry[] = [
       "Native hosts advertise available when review/proposals/apply+deny exist (Wave 1)",
   },
 
-  { id: "work.taskRuns", availability: "deferred", note: "Requires TASK-012 / protocol Work domain" },
+  { id: "work.items", availability: "deferred", note: "Requires canonical Work host adapter" },
+  { id: "work.taskRuns", availability: "deferred", note: "Legacy run surface during Work migration" },
   { id: "work.automations", availability: "deferred", note: "Requires TASK-012 / protocol Automations domain" },
   { id: "inbox.notifications", availability: "deferred", note: "Requires TASK-012 / protocol Work domain" },
 

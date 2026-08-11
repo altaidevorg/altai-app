@@ -180,6 +180,13 @@ fn request_method(method: &str) -> bool {
             | "mcp/servers/restart"
             | "skills/list"
             | "skills/install"
+            | "work/list"
+            | "work/get"
+            | "work/create"
+            | "work/transition"
+            | "work/start"
+            | "work/ready-for-review"
+            | "work/review"
             | "work/tasks/list"
             | "work/tasks/create"
             | "work/tasks/cancel"
@@ -411,5 +418,26 @@ mod tests {
                 .reason,
             "response_error_shape_invalid"
         );
+    }
+
+    #[test]
+    fn accepts_canonical_work_requests() {
+        for method in [
+            "work/list",
+            "work/get",
+            "work/create",
+            "work/transition",
+            "work/start",
+            "work/ready-for-review",
+            "work/review",
+        ] {
+            let message = validate_message(json!({
+                "jsonrpc": "2.0",
+                "id": method,
+                "method": method,
+                "params": {}
+            }));
+            assert!(message.is_ok(), "canonical Work request rejected: {method}");
+        }
     }
 }

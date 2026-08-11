@@ -69,6 +69,7 @@ export function createTauriHostPorts(
             hostName: HOST_NAME,
             hostVersion,
             overrides: {
+              "work.items": "available",
               "review.checkpoints": "available",
               "review.restoreCheckpoint": "available",
               "review.editProposal": "available",
@@ -208,6 +209,13 @@ export function createTauriHostPorts(
     work: withUnsupportedDefaults(
       "work",
       [
+        "listWork",
+        "getWork",
+        "createWork",
+        "transitionWork",
+        "startWork",
+        "markWorkReadyForReview",
+        "reviewWork",
         "listTaskRuns",
         "createTaskRun",
         "cancelTaskRun",
@@ -220,7 +228,16 @@ export function createTauriHostPorts(
         "pauseAutomation",
         "deleteAutomation",
       ],
-      {},
+      {
+        listWork: (filter) => native.workList(filter),
+        getWork: (workId) => native.workGet(workId),
+        createWork: (input) => native.workCreate(input),
+        transitionWork: (input) => native.workTransition(input),
+        startWork: (input) => native.workStart(input),
+        markWorkReadyForReview: (input) =>
+          native.workReadyForReview(input),
+        reviewWork: (input) => native.workReview(input),
+      },
     ),
     inbox: withUnsupportedDefaults(
       "inbox",

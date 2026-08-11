@@ -17,6 +17,13 @@ vi.mock("../lib/native", () => ({
     delete: vi.fn(async () => undefined),
     agentListSkills: vi.fn(async () => []),
     agentInstallSkill: vi.fn(async () => []),
+    workList: vi.fn(async () => []),
+    workGet: vi.fn(async () => null),
+    workCreate: vi.fn(),
+    workTransition: vi.fn(),
+    workStart: vi.fn(),
+    workReadyForReview: vi.fn(),
+    workReview: vi.fn(),
   },
 }));
 
@@ -48,10 +55,54 @@ describe("createTauriHostPorts", () => {
     expect(
       capabilities.capabilities.some(
         (entry) =>
+          entry.id === "work.items" && entry.availability === "available",
+      ),
+    ).toBe(true);
+    expect(
+      capabilities.capabilities.some(
+        (entry) =>
           entry.id === "review.editProposal" &&
           entry.availability === "available",
       ),
     ).toBe(true);
+  });
+
+  it("maps canonical Work methods through the durable native host", async () => {
+    const item = {
+      id: "work-1",
+      projectId: "project",
+      title: "Ship Work OS",
+      description: "",
+      acceptanceCriteria: "All surfaces share an id",
+      state: "ready" as const,
+      revision: 2,
+      createdAtMs: 1,
+      updatedAtMs: 2,
+    };
+    vi.mocked(native.workList).mockResolvedValue([item]);
+    vi.mocked(native.workGet).mockResolvedValue(item);
+    vi.mocked(native.workReview).mockResolvedValue({
+      ...item,
+      state: "done",
+      revision: 3,
+    });
+
+    const ports = createTauriHostPorts();
+    await expect(ports.work.listWork("my_active")).resolves.toEqual([item]);
+    await expect(ports.work.getWork(item.id)).resolves.toEqual(item);
+    await expect(
+      ports.work.reviewWork({
+        workId: item.id,
+        expectedRevision: item.revision,
+        accept: true,
+      }),
+    ).resolves.toMatchObject({ state: "done", revision: 3 });
+    expect(native.workList).toHaveBeenCalledWith("my_active");
+    expect(native.workReview).toHaveBeenCalledWith({
+      workId: item.id,
+      expectedRevision: item.revision,
+      accept: true,
+    });
   });
 
   it("throws for deferred startRun until store DI lands", async () => {
