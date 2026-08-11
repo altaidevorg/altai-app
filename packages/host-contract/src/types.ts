@@ -299,6 +299,26 @@ export type WorkReviewInput = WorkRevisionInput & {
   guidance?: string;
 };
 
+export type WorkInboxKind =
+  | "review_required"
+  | "approval"
+  | "question"
+  | "failed_attempt"
+  | "blocked";
+
+/** Source-backed Work attention condition; resolving the source removes it. */
+export type WorkInboxItem = {
+  id: string;
+  workId: string;
+  kind: WorkInboxKind;
+  title: string;
+  why: string;
+  createdAtMs: number;
+  attemptId?: string | null;
+  chatId?: string | null;
+  runId?: string | null;
+};
+
 export type AutomationInfo = {
   id: string;
   /** Conversation that owns the scheduled agent turn. */

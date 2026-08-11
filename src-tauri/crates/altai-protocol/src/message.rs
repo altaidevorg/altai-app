@@ -187,6 +187,7 @@ fn request_method(method: &str) -> bool {
             | "work/start"
             | "work/ready-for-review"
             | "work/review"
+            | "work/inbox/list"
             | "work/tasks/list"
             | "work/tasks/create"
             | "work/tasks/cancel"
@@ -430,6 +431,7 @@ mod tests {
             "work/start",
             "work/ready-for-review",
             "work/review",
+            "work/inbox/list",
         ] {
             let message = validate_message(json!({
                 "jsonrpc": "2.0",

@@ -120,6 +120,7 @@ pub async fn run(workspace: WorkspacePaths) -> Result<(), String> {
                                 "work/start",
                                 "work/ready-for-review",
                                 "work/review",
+                                "work/inbox/list",
                                 "work/tasks/list",
                                 "work/tasks/create",
                                 "work/tasks/cancel",

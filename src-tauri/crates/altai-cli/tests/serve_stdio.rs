@@ -210,6 +210,7 @@ fn canonical_work_rpc_is_advertised_and_persists_across_host_restart() {
             "work/start",
             "work/ready-for-review",
             "work/review",
+            "work/inbox/list",
         ] {
             assert!(
                 capabilities.iter().any(|value| value.as_str() == Some(method)),
@@ -265,26 +266,48 @@ fn canonical_work_rpc_is_advertised_and_persists_across_host_restart() {
         let fetched = process.next();
         assert_eq!(fetched["result"], created["result"]);
 
-        process.frame(json!({"jsonrpc":"2.0","id":5,"method":"shutdown"}));
-        assert_eq!(process.next()["id"], 5);
+        process.frame(json!({
+            "jsonrpc":"2.0", "id":5, "method":"work/start",
+            "params":{"workId":work_id,"expectedRevision":created["result"]["revision"]}
+        }));
+        let started = process.next();
+        process.frame(json!({
+            "jsonrpc":"2.0", "id":6, "method":"work/ready-for-review",
+            "params":{"workId":work_id,"expectedRevision":started["result"]["revision"]}
+        }));
+        let review_ready = process.next();
+        assert_eq!(review_ready["result"]["state"], "in_review");
+
+        process.frame(json!({"jsonrpc":"2.0","id":7,"method":"work/inbox/list","params":{}}));
+        let inbox = process.next();
+        assert_eq!(inbox["result"][0]["workId"], work_id);
+        assert_eq!(inbox["result"][0]["kind"], "review_required");
+        assert!(inbox["result"][0].get("work_id").is_none());
+
+        process.frame(json!({"jsonrpc":"2.0","id":8,"method":"shutdown"}));
+        assert_eq!(process.next()["id"], 8);
         let _stderr = process.shutdown();
         work_id
     };
 
     let mut restarted = ServeProcess::spawn(workspace.path(), false);
-    restarted.frame(initialize(json!(6)));
-    assert_eq!(restarted.next()["id"], 6);
+    restarted.frame(initialize(json!(9)));
+    assert_eq!(restarted.next()["id"], 9);
     restarted.frame(json!({
         "jsonrpc":"2.0",
-        "id":7,
+        "id":10,
         "method":"work/get",
         "params":{"workId":work_id}
     }));
     let persisted = restarted.next();
     assert_eq!(persisted["result"]["id"], work_id);
     assert_eq!(persisted["result"]["title"], "Durable stdio Work");
-    restarted.frame(json!({"jsonrpc":"2.0","id":8,"method":"shutdown"}));
-    assert_eq!(restarted.next()["id"], 8);
+    restarted.frame(json!({"jsonrpc":"2.0","id":11,"method":"work/inbox/list","params":{}}));
+    let persisted_inbox = restarted.next();
+    assert_eq!(persisted_inbox["result"][0]["workId"], work_id);
+    assert_eq!(persisted_inbox["result"][0]["kind"], "review_required");
+    restarted.frame(json!({"jsonrpc":"2.0","id":12,"method":"shutdown"}));
+    assert_eq!(restarted.next()["id"], 12);
     let _stderr = restarted.shutdown();
 }
 

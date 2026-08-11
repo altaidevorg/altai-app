@@ -70,6 +70,7 @@ export function createTauriHostPorts(
             hostVersion,
             overrides: {
               "work.items": "available",
+              "work.inbox": "available",
               "review.checkpoints": "available",
               "review.restoreCheckpoint": "available",
               "review.editProposal": "available",
@@ -242,12 +243,15 @@ export function createTauriHostPorts(
     inbox: withUnsupportedDefaults(
       "inbox",
       [
+        "listWorkInbox",
         "listNotifications",
         "markNotificationSeen",
         "resolveNotification",
         "dismissNotification",
       ],
-      {},
+      {
+        listWorkInbox: () => native.workInboxList(),
+      },
     ),
     mcpSkills: withUnsupportedDefaults(
       "mcpSkills",

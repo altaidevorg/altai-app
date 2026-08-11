@@ -24,6 +24,7 @@ vi.mock("../lib/native", () => ({
     workStart: vi.fn(),
     workReadyForReview: vi.fn(),
     workReview: vi.fn(),
+    workInboxList: vi.fn(async () => []),
   },
 }));
 
@@ -56,6 +57,12 @@ describe("createTauriHostPorts", () => {
       capabilities.capabilities.some(
         (entry) =>
           entry.id === "work.items" && entry.availability === "available",
+      ),
+    ).toBe(true);
+    expect(
+      capabilities.capabilities.some(
+        (entry) =>
+          entry.id === "work.inbox" && entry.availability === "available",
       ),
     ).toBe(true);
     expect(
@@ -103,6 +110,8 @@ describe("createTauriHostPorts", () => {
       expectedRevision: item.revision,
       accept: true,
     });
+    await expect(ports.inbox.listWorkInbox()).resolves.toEqual([]);
+    expect(native.workInboxList).toHaveBeenCalledOnce();
   });
 
   it("throws for deferred startRun until store DI lands", async () => {

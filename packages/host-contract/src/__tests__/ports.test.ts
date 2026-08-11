@@ -28,6 +28,7 @@ type AssertEqual<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : fa
 
 type RequiredRuntimeMethods = keyof AgentRuntimePort;
 type RequiredWorkspaceMethods = keyof WorkspacePort;
+type RequiredInboxMethods = keyof InboxPort;
 
 const _runtimeMethodsOk: AssertEqual<
   RequiredRuntimeMethods,
@@ -58,6 +59,17 @@ const _workspaceMethodsOk: AssertEqual<
 
 void _runtimeMethodsOk;
 void _workspaceMethodsOk;
+
+const _inboxMethodsOk: AssertEqual<
+  RequiredInboxMethods,
+  | "listWorkInbox"
+  | "listNotifications"
+  | "markNotificationSeen"
+  | "resolveNotification"
+  | "dismissNotification"
+> = true;
+
+void _inboxMethodsOk;
 
 function unimplemented(): never {
   throw new Error("not implemented");
@@ -150,6 +162,7 @@ function createStubPorts(): HostPorts {
   };
 
   const inbox: InboxPort = {
+    listWorkInbox: unimplemented,
     listNotifications: unimplemented,
     markNotificationSeen: unimplemented,
     resolveNotification: unimplemented,
