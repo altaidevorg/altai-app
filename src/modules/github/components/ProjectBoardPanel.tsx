@@ -3,9 +3,11 @@ import { invoke } from "@tauri-apps/api/core";
 import {
   NewWorkDialog,
   OperationsNavigationShell,
+  WorkDetail,
   WorkInbox,
   WorkList,
   type OperationsView,
+  type WorkDetailPrimaryAction,
   type WorkInboxRow,
   type WorkListFilterId,
   type WorkListRow,
@@ -36,7 +38,7 @@ type WorkItemDto = {
 };
 
 function stateLabel(state: string): string {
-  return state.replaceAll("_", " ");
+  return state.split("_").join(" ");
 }
 
 function toListRow(item: WorkItemDto, projectLabel: string): WorkListRow {
@@ -50,8 +52,26 @@ function toListRow(item: WorkItemDto, projectLabel: string): WorkListRow {
   };
 }
 
+function primaryActionsFor(state: string): WorkDetailPrimaryAction[] {
+  switch (state) {
+    case "backlog":
+      return ["ready", "start"];
+    case "ready":
+      return ["start"];
+    case "in_progress":
+      return ["open_run"];
+    case "in_review":
+      return ["accept", "return"];
+    case "done":
+    case "cancelled":
+      return ["reopen"];
+    default:
+      return [];
+  }
+}
+
 /**
- * Work OS tab — list/inbox backed by host `work_*` IPC (work.db).
+ * Work OS tab — list/detail/inbox backed by host `work_*` IPC (work.db).
  */
 export function ProjectBoardPanel({ repoRoot, navigation }: Props) {
   const [view, setView] = useState<OperationsView>(
@@ -60,10 +80,16 @@ export function ProjectBoardPanel({ repoRoot, navigation }: Props) {
   const [filter, setFilter] = useState<WorkListFilterId>("my_active");
   const [rows, setRows] = useState<WorkListRow[]>([]);
   const [inboxRows] = useState<WorkInboxRow[]>([]);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [detail, setDetail] = useState<WorkItemDto | null>(null);
+  const [detailStatus, setDetailStatus] = useState<
+    "loading" | "ready" | "error" | "not_found"
+  >("ready");
   const [newWorkOpen, setNewWorkOpen] = useState(
     navigation?.action === "new-work",
   );
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [actionBusy, setActionBusy] = useState(false);
 
   const workspaceName =
     repoRoot.split(/[\\/]/).filter(Boolean).pop() ?? "Local workspace";
@@ -88,19 +114,51 @@ export function ProjectBoardPanel({ repoRoot, navigation }: Props) {
     }
   }, [filter, repoRoot, workspaceName]);
 
+  const loadDetail = useCallback(
+    async (workId: string) => {
+      setDetailStatus("loading");
+      try {
+        const item = await invoke<WorkItemDto | null>("work_get", {
+          workspacePath: repoRoot,
+          workId,
+        });
+        if (!item) {
+          setDetail(null);
+          setDetailStatus("not_found");
+          return;
+        }
+        setDetail(item);
+        setDetailStatus("ready");
+        setLoadError(null);
+      } catch (error) {
+        setDetail(null);
+        setDetailStatus("error");
+        setLoadError(error instanceof Error ? error.message : String(error));
+      }
+    },
+    [repoRoot],
+  );
+
   useEffect(() => {
     void refresh();
   }, [refresh]);
 
   useEffect(() => {
+    if (selectedId) void loadDetail(selectedId);
+  }, [selectedId, loadDetail]);
+
+  useEffect(() => {
     if (!navigation) return;
     if (navigation.action === "new-work") {
       setView("work");
+      setSelectedId(null);
       setNewWorkOpen(true);
       return;
     }
-    if (navigation.view === "inbox") setView("inbox");
-    else if (navigation.view === "work" || navigation.view === "overview") {
+    if (navigation.view === "inbox") {
+      setView("inbox");
+      setSelectedId(null);
+    } else if (navigation.view === "work" || navigation.view === "overview") {
       setView("work");
     } else if (navigation.view === "runs") {
       setView("work");
@@ -109,10 +167,87 @@ export function ProjectBoardPanel({ repoRoot, navigation }: Props) {
 
   const filteredRows = useMemo(() => rows, [rows]);
 
+  const runAction = useCallback(
+    async (action: WorkDetailPrimaryAction) => {
+      if (!detail || actionBusy) return;
+      setActionBusy(true);
+      try {
+        let next: WorkItemDto | null = null;
+        if (action === "ready") {
+          next = await invoke<WorkItemDto>("work_transition", {
+            workspacePath: repoRoot,
+            workId: detail.id,
+            expectedRevision: detail.revision,
+            nextState: "ready",
+          });
+        } else if (action === "start") {
+          next = await invoke<WorkItemDto>("work_start", {
+            workspacePath: repoRoot,
+            workId: detail.id,
+            expectedRevision: detail.revision,
+          });
+        } else if (action === "open_run") {
+          // Until IsanAgent run binding lands, mark attempt ready for review
+          // so Accept/Return can be exercised end-to-end.
+          next = await invoke<WorkItemDto>("work_ready_for_review", {
+            workspacePath: repoRoot,
+            workId: detail.id,
+            expectedRevision: detail.revision,
+          });
+        } else if (action === "accept") {
+          next = await invoke<WorkItemDto>("work_review", {
+            workspacePath: repoRoot,
+            workId: detail.id,
+            expectedRevision: detail.revision,
+            accept: true,
+            guidance: "",
+          });
+        } else if (action === "return") {
+          const guidance =
+            window.prompt("Return guidance (required for the next attempt):") ??
+            "";
+          if (!guidance.trim()) {
+            setActionBusy(false);
+            return;
+          }
+          next = await invoke<WorkItemDto>("work_review", {
+            workspacePath: repoRoot,
+            workId: detail.id,
+            expectedRevision: detail.revision,
+            accept: false,
+            guidance: guidance.trim(),
+          });
+        } else if (action === "reopen") {
+          next = await invoke<WorkItemDto>("work_transition", {
+            workspacePath: repoRoot,
+            workId: detail.id,
+            expectedRevision: detail.revision,
+            nextState: "ready",
+          });
+        }
+        if (next) {
+          setDetail(next);
+          setDetailStatus("ready");
+        }
+        await refresh();
+      } catch (error) {
+        setLoadError(error instanceof Error ? error.message : String(error));
+      } finally {
+        setActionBusy(false);
+      }
+    },
+    [actionBusy, detail, refresh, repoRoot],
+  );
+
+  const showDetail = view === "work" && selectedId !== null;
+
   return (
     <OperationsNavigationShell
       view={view}
-      onViewChange={setView}
+      onViewChange={(next) => {
+        setView(next);
+        setSelectedId(null);
+      }}
       availableViews={AVAILABLE_VIEWS}
       ariaLabel="Work"
     >
@@ -121,25 +256,65 @@ export function ProjectBoardPanel({ repoRoot, navigation }: Props) {
           Work store: {loadError}
         </p>
       ) : null}
-      {view === "work" ? (
+      {view === "work" && !showDetail ? (
         <WorkList
           status="ready"
           filter={filter}
           onFilterChange={setFilter}
           rows={filteredRows}
-          onOpenWork={() => {
-            /* Work detail host wiring next. */
-          }}
+          onOpenWork={(id) => setSelectedId(id)}
           onNewWork={() => setNewWorkOpen(true)}
-          onOpenInbox={() => setView("inbox")}
+          onOpenInbox={() => {
+            setSelectedId(null);
+            setView("inbox");
+          }}
+        />
+      ) : null}
+      {showDetail ? (
+        <WorkDetail
+          status={detailStatus}
+          title={detail?.title}
+          stateLabel={detail ? stateLabel(detail.state) : undefined}
+          projectLabel={workspaceName}
+          description={detail?.description}
+          acceptanceCriteria={detail?.acceptanceCriteria}
+          blocker={detail?.blocker}
+          primaryActions={
+            detail && !actionBusy ? primaryActionsFor(detail.state) : []
+          }
+          onPrimaryAction={(action) => {
+            void runAction(action);
+          }}
+          onBack={() => setSelectedId(null)}
+          onCopyId={
+            detail
+              ? () => {
+                  void navigator.clipboard.writeText(detail.id);
+                }
+              : undefined
+          }
+          onRetry={
+            selectedId
+              ? () => {
+                  void loadDetail(selectedId);
+                }
+              : undefined
+          }
+          errorMessage={loadError ?? undefined}
         />
       ) : null}
       {view === "inbox" ? (
         <WorkInbox
           status="ready"
           rows={inboxRows}
-          onOpenWork={() => setView("work")}
-          onGoToWork={() => setView("work")}
+          onOpenWork={(id) => {
+            setView("work");
+            setSelectedId(id);
+          }}
+          onGoToWork={() => {
+            setSelectedId(null);
+            setView("work");
+          }}
         />
       ) : null}
       <NewWorkDialog
@@ -149,7 +324,7 @@ export function ProjectBoardPanel({ repoRoot, navigation }: Props) {
         onCreate={({ title, description, acceptanceCriteria }) => {
           void (async () => {
             try {
-              await invoke<WorkItemDto>("work_create", {
+              const created = await invoke<WorkItemDto>("work_create", {
                 args: {
                   workspacePath: repoRoot,
                   title,
@@ -160,6 +335,7 @@ export function ProjectBoardPanel({ repoRoot, navigation }: Props) {
               setFilter("backlog");
               setNewWorkOpen(false);
               await refresh();
+              setSelectedId(created.id);
             } catch (error) {
               setLoadError(
                 error instanceof Error ? error.message : String(error),
