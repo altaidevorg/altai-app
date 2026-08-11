@@ -16,9 +16,70 @@ struct CanonicalEntry {
     inserted_at: Instant,
 }
 
+#[derive(Clone, PartialEq, Eq)]
+struct WorkspaceRootIdentity {
+    #[cfg(unix)]
+    device: u64,
+    #[cfg(unix)]
+    inode: u64,
+    #[cfg(windows)]
+    volume_serial: Option<u32>,
+    #[cfg(windows)]
+    file_index: Option<u64>,
+    #[cfg(not(any(unix, windows)))]
+    modified: Option<std::time::SystemTime>,
+}
+
+#[derive(Clone)]
+pub struct OpenedWorkspaceGrant {
+    canonical: PathBuf,
+    identity: WorkspaceRootIdentity,
+}
+
+impl OpenedWorkspaceGrant {
+    pub fn path(&self) -> &Path {
+        &self.canonical
+    }
+}
+
+impl WorkspaceRootIdentity {
+    fn from_metadata(metadata: &std::fs::Metadata) -> Option<Self> {
+        if !metadata.is_dir() {
+            return None;
+        }
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::MetadataExt;
+            Some(Self {
+                device: metadata.dev(),
+                inode: metadata.ino(),
+            })
+        }
+        #[cfg(windows)]
+        {
+            use std::os::windows::fs::MetadataExt;
+            Some(Self {
+                volume_serial: metadata.volume_serial_number(),
+                file_index: metadata.file_index(),
+            })
+        }
+        #[cfg(not(any(unix, windows)))]
+        {
+            Some(Self {
+                modified: metadata.modified().ok(),
+            })
+        }
+    }
+
+    fn matches(&self, metadata: &std::fs::Metadata) -> bool {
+        Self::from_metadata(metadata).as_ref() == Some(self)
+    }
+}
+
 #[derive(Default)]
 pub struct WorkspaceRegistry {
     roots: Mutex<HashSet<PathBuf>>,
+    opened_roots: Mutex<HashMap<PathBuf, WorkspaceRootIdentity>>,
     canonical_cache: Mutex<HashMap<PathBuf, CanonicalEntry>>,
 }
 
@@ -28,6 +89,81 @@ impl WorkspaceRegistry {
         let mut set = self.roots.lock().expect("workspace registry poisoned");
         set.insert(canonical.clone());
         Ok(canonical)
+    }
+
+    /// Grant an exact workspace selected/opened by the user. Broad bootstrap
+    /// roots (notably HOME) intentionally do not enter this set.
+    pub fn authorize_opened<P: AsRef<Path>>(&self, path: P) -> std::io::Result<PathBuf> {
+        let canonical = self.authorize(path)?;
+        let metadata = canonical.metadata()?;
+        let identity = WorkspaceRootIdentity::from_metadata(&metadata).ok_or_else(|| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "opened workspace must be a directory",
+            )
+        })?;
+        let mut opened = self
+            .opened_roots
+            .lock()
+            .expect("workspace registry poisoned");
+        // There is one active user-opened workspace. Switching replaces the
+        // exact grant instead of leaving historical projects previewable.
+        opened.clear();
+        opened.insert(canonical.clone(), identity);
+        Ok(canonical)
+    }
+
+    /// Revoke every exact user-opened workspace grant. Broad roots used by
+    /// shell/filesystem compatibility remain authorized separately.
+    pub fn revoke_opened(&self) {
+        self.opened_roots
+            .lock()
+            .expect("workspace registry poisoned")
+            .clear();
+    }
+
+    pub fn capture_opened_exact<P: AsRef<Path>>(
+        &self,
+        path: P,
+    ) -> std::io::Result<OpenedWorkspaceGrant> {
+        let canonical = std::fs::canonicalize(path)?;
+        let metadata = canonical.metadata()?;
+        let current = WorkspaceRootIdentity::from_metadata(&metadata).ok_or_else(|| {
+            std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                "workspace identity is not an exact opened grant",
+            )
+        })?;
+        let opened = self
+            .opened_roots
+            .lock()
+            .expect("workspace registry poisoned")
+            .get(&canonical)
+            .cloned();
+        if opened.as_ref() != Some(&current) {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                "workspace identity is not an exact opened grant",
+            ));
+        }
+        Ok(OpenedWorkspaceGrant {
+            canonical,
+            identity: current,
+        })
+    }
+
+    pub fn is_opened_grant_current(&self, grant: &OpenedWorkspaceGrant) -> bool {
+        let opened = self
+            .opened_roots
+            .lock()
+            .expect("workspace registry poisoned");
+        if opened.get(&grant.canonical) != Some(&grant.identity) {
+            return false;
+        }
+        let Ok(metadata) = grant.canonical.symlink_metadata() else {
+            return false;
+        };
+        !metadata.file_type().is_symlink() && grant.identity.matches(&metadata)
     }
 
     pub fn is_authorized(&self, target: &Path) -> bool {
@@ -128,10 +264,39 @@ pub async fn workspace_authorize(
     let workspace = WorkspaceEnv::from_option(workspace);
     let resolved = resolve_path(&path, &workspace);
     let canonical = registry.authorize(&resolved).map_err(|e| e.to_string())?;
-    // Mirror the registry grant into the asset protocol so previews work for
-    // files under any opened workspace, but nothing outside it.
+    // Mirror the registry grant into the asset protocol so asset previews work
+    // for files under any authorized workspace, but nothing outside it. This
+    // generic API deliberately does not create an exact user-opened grant.
     allow_asset_directory(&app, &canonical);
     Ok(canonical.to_string_lossy().replace('\\', "/"))
+}
+
+/// Promote exactly one folder only after the host UI has successfully opened,
+/// picked, or cloned it. Startup HOME grants, environment switches, and recent
+/// probes must continue to use `workspace_authorize` instead.
+#[tauri::command]
+pub async fn workspace_authorize_opened(
+    path: String,
+    workspace: Option<WorkspaceEnv>,
+    registry: tauri::State<'_, WorkspaceRegistry>,
+    app: tauri::AppHandle,
+) -> Result<String, String> {
+    let workspace = WorkspaceEnv::from_option(workspace);
+    let resolved = resolve_path(&path, &workspace);
+    let canonical = registry
+        .authorize_opened(&resolved)
+        .map_err(|e| e.to_string())?;
+    allow_asset_directory(&app, &canonical);
+    Ok(canonical.to_string_lossy().replace('\\', "/"))
+}
+
+/// Drop exact preview authority when the UI closes or changes workspace.
+#[tauri::command]
+pub async fn workspace_revoke_opened(
+    registry: tauri::State<'_, WorkspaceRegistry>,
+) -> Result<(), String> {
+    registry.revoke_opened();
+    Ok(())
 }
 
 #[tauri::command]
@@ -704,5 +869,67 @@ mod auth_tests {
         let err = authorize_spawn_cwd(&reg, Some(&s), &WorkspaceEnv::Local)
             .expect_err("symlink-escape must be rejected");
         assert!(err.contains("outside"), "got: {err}");
+    }
+
+    #[test]
+    fn startup_home_and_recent_probe_authorization_are_not_exact_opened_grants() {
+        let root = tempdir("bootstrap-only");
+        let probe = tempdir("recent-probe");
+        let reg = WorkspaceRegistry::default();
+        let canonical = reg.authorize(&root).expect("bootstrap root");
+        let canonical_probe = reg.authorize(&probe).expect("recent probe");
+        assert!(reg.is_authorized(&canonical));
+        assert!(reg.is_authorized(&canonical_probe));
+        assert!(reg.capture_opened_exact(&canonical).is_err());
+        assert!(reg.capture_opened_exact(&canonical_probe).is_err());
+    }
+
+    #[test]
+    fn opened_workspace_grant_is_exact_and_does_not_cover_children() {
+        let root = tempdir("opened-exact");
+        let child = root.join("child");
+        fs::create_dir_all(&child).expect("child");
+        let canonical_child = child.canonicalize().expect("canonical child");
+        let reg = WorkspaceRegistry::default();
+        let canonical_root = reg.authorize_opened(&root).expect("opened root");
+        assert!(reg.capture_opened_exact(&canonical_root).is_ok());
+        assert!(reg.capture_opened_exact(&canonical_child).is_err());
+    }
+
+    #[test]
+    fn opened_workspace_grant_rejects_a_replaced_root_identity() {
+        let parent = tempdir("opened-swap-parent");
+        let root = parent.join("workspace");
+        let moved = parent.join("workspace-original");
+        fs::create_dir(&root).expect("workspace");
+        let reg = WorkspaceRegistry::default();
+        let canonical = reg.authorize_opened(&root).expect("opened root");
+
+        fs::rename(&root, &moved).expect("move original root");
+        fs::create_dir(&root).expect("replacement root");
+
+        assert!(reg.capture_opened_exact(&canonical).is_err());
+        assert!(reg.capture_opened_exact(&root).is_err());
+    }
+
+    #[test]
+    fn opening_or_revoking_a_workspace_invalidates_the_prior_exact_grant() {
+        let first = tempdir("opened-first");
+        let second = tempdir("opened-second");
+        let reg = WorkspaceRegistry::default();
+
+        let first = reg.authorize_opened(&first).expect("first opened root");
+        let first_grant = reg.capture_opened_exact(&first).expect("first grant");
+        assert!(reg.is_opened_grant_current(&first_grant));
+
+        let second = reg.authorize_opened(&second).expect("second opened root");
+        assert!(reg.capture_opened_exact(&first).is_err());
+        assert!(!reg.is_opened_grant_current(&first_grant));
+        let second_grant = reg.capture_opened_exact(&second).expect("second grant");
+        assert!(reg.is_opened_grant_current(&second_grant));
+
+        reg.revoke_opened();
+        assert!(reg.capture_opened_exact(&second).is_err());
+        assert!(!reg.is_opened_grant_current(&second_grant));
     }
 }

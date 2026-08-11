@@ -4,7 +4,7 @@ mod modules;
 use altai::agent::commands as agent_commands;
 use modules::{
     app_menu, fs, git, github, lsp_install, mcp, net, notebook, orchestration, os_menu, proc, pty,
-    secrets, shell, webview, work, workspace,
+    secrets, shell, webview, work, work_import, workspace,
 };
 use serde::{Deserialize, Serialize};
 use std::sync::Mutex;
@@ -768,6 +768,8 @@ pub fn run() {
             workspace::wsl_default_distro,
             workspace::wsl_home,
             workspace::workspace_authorize,
+            workspace::workspace_authorize_opened,
+            workspace::workspace_revoke_opened,
             workspace::workspace_current_dir,
             get_pending_launches,
             env_get_flag,
@@ -801,6 +803,7 @@ pub fn run() {
             work::work_attempt_reconcile,
             work::work_ready_for_review,
             work::work_review,
+            work_import::work_legacy_import_preview,
             net::lm_ping,
             net::ai_http_request,
             net::ai_http_stream,

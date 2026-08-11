@@ -624,6 +624,10 @@ export default function App() {
         return;
       }
 
+      // Environment changes are not a user-opened project action. Drop the
+      // previous exact preview grant before exposing the new broad HOME root.
+      await native.workspaceRevokeOpened();
+
       for (const id of liveLeavesRef.current) disposeSession(id);
       searchAddons.current.clear();
       terminalRefs.current.clear();
@@ -786,7 +790,7 @@ export default function App() {
       if (payload.type === "folder") {
         const path = payload.paths[0];
         if (path) {
-          useWorkspaceFolderStore.getState().setFolder(path);
+          void useWorkspaceFolderStore.getState().openFolder(path);
         }
       } else if (payload.type === "file" || payload.type === "multi_file") {
         openStudio();
@@ -1123,12 +1127,12 @@ export default function App() {
     },
     [resetWorkspace, setSessionWorkspace],
   );
-  const clearWorkspaceTarget = useCallback(() => {
+  const clearWorkspaceTarget = useCallback(async () => {
     const sessionId = useChatStore.getState().activeSessionId;
     if (sessionId) {
       setSessionWorkspace(sessionId, { path: null, kind: null });
     }
-    closeFolder();
+    await closeFolder();
     resetWorkspace();
   }, [closeFolder, resetWorkspace, setSessionWorkspace]);
 
@@ -1139,16 +1143,18 @@ export default function App() {
     if (!fromUrl) return;
     const folderState = useWorkspaceFolderStore.getState();
     if (folderState.folder === fromUrl) return;
-    folderState.setFolder(fromUrl);
-    resetWorkspace(fromUrl);
+    void folderState.switchFolder(fromUrl).then((canonical) => {
+      resetWorkspace(canonical);
+    });
   }, [appMode, workspaceHydrated, resetWorkspace]);
 
   useEffect(() => {
     const folderState = useWorkspaceFolderStore.getState();
     if (activeChatWorkspacePath) {
       if (folderState.folder !== activeChatWorkspacePath) {
-        folderState.setFolder(activeChatWorkspacePath);
-        resetWorkspace(activeChatWorkspacePath);
+        void folderState.switchFolder(activeChatWorkspacePath).then((canonical) => {
+          resetWorkspace(canonical);
+        });
       }
       return;
     }
@@ -1157,8 +1163,7 @@ export default function App() {
     // active chat is project-free — otherwise Open IDE looks empty/black.
     if (appMode === "studio") return;
     if (folderState.folder) {
-      folderState.closeFolder();
-      resetWorkspace();
+      void folderState.closeFolder().then(() => resetWorkspace());
     }
   }, [activeChatWorkspacePath, resetWorkspace, appMode]);
 
@@ -2040,7 +2045,7 @@ export default function App() {
         }
         break;
       case "file.closeWorkspace":
-        clearWorkspaceTarget();
+        void clearWorkspaceTarget();
         break;
       case "file.save":
         editorRefs.current.get(activeId)?.save();
