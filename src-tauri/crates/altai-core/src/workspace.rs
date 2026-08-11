@@ -20,6 +20,13 @@ impl WorkspacePaths {
             .join(".system_generated")
             .join("agent_event_journal.db")
     }
+
+    /// User/workspace Work OS database (projects, work_items, attempts, reviews).
+    pub fn work_db(&self) -> PathBuf {
+        self.isanagent_state
+            .join(".system_generated")
+            .join("work.db")
+    }
 }
 
 /// A user-correctable workspace resolution failure.
@@ -149,6 +156,13 @@ mod tests {
                 .isanagent_state
                 .join(".system_generated")
                 .join("agent_event_journal.db")
+        );
+        assert_eq!(
+            paths.work_db(),
+            paths
+                .isanagent_state
+                .join(".system_generated")
+                .join("work.db")
         );
     }
 

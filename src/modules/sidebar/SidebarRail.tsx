@@ -26,7 +26,7 @@ export function SidebarRail({
   const items: RailItem[] = [
     { id: "explorer", label: "Files" },
     { id: "github", label: "GitHub" },
-    { id: "projects", label: "Operations" },
+    { id: "projects", label: "Work" },
   ];
 
   return (

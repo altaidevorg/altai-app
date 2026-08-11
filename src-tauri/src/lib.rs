@@ -4,7 +4,7 @@ mod modules;
 use altai::agent::commands as agent_commands;
 use modules::{
     app_menu, fs, git, github, lsp_install, mcp, net, notebook, orchestration, os_menu, proc, pty,
-    secrets, shell, webview, workspace,
+    secrets, shell, webview, work, workspace,
 };
 use serde::{Deserialize, Serialize};
 use std::sync::Mutex;
@@ -787,6 +787,14 @@ pub fn run() {
             secrets::secrets_set,
             secrets::secrets_delete,
             secrets::secrets_get_all,
+            // ALTAI — Work OS (Milestone 1)
+            work::work_create,
+            work::work_list,
+            work::work_get,
+            work::work_transition,
+            work::work_start,
+            work::work_ready_for_review,
+            work::work_review,
             net::lm_ping,
             net::ai_http_request,
             net::ai_http_stream,

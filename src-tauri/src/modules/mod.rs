@@ -16,4 +16,5 @@ pub mod pty;
 pub mod secrets;
 pub mod shell;
 pub mod webview;
+pub mod work;
 pub mod workspace;
