@@ -6,11 +6,13 @@
 use std::path::Path;
 
 use altai_core::{
-    resolve_workspace_from, CreateWorkInput, WorkItemRecord, WorkListFilter, WorkState, WorkStore,
+    resolve_workspace_from, AttemptPhase, AttemptReconcileMode, AttemptRecord, CreateWorkInput,
+    WorkAttemptStart, WorkItemRecord, WorkListFilter, WorkState, WorkStore,
 };
 use serde::{Deserialize, Serialize};
 use tauri::State;
 
+use crate::altai::agent::runtime::{self, AgentRuntime};
 use crate::modules::workspace::WorkspaceRegistry;
 
 #[derive(Debug, Serialize)]
@@ -43,6 +45,64 @@ impl From<WorkItemRecord> for WorkItemDto {
             revision: value.revision,
             created_at_ms: value.created_at_ms,
             updated_at_ms: value.updated_at_ms,
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkAttemptDto {
+    pub id: String,
+    pub work_id: String,
+    pub number: i64,
+    pub role: String,
+    pub phase: String,
+    pub chat_id: Option<String>,
+    pub session_id: Option<String>,
+    pub run_id: Option<String>,
+    pub input_json: Option<String>,
+    pub result_json: Option<String>,
+    pub created_at_ms: u64,
+    pub updated_at_ms: u64,
+}
+
+impl From<AttemptRecord> for WorkAttemptDto {
+    fn from(value: AttemptRecord) -> Self {
+        Self {
+            id: value.id,
+            work_id: value.work_id,
+            number: value.number,
+            role: value.role,
+            phase: value.phase.as_str().to_string(),
+            chat_id: value.chat_id,
+            session_id: value.session_id,
+            run_id: value.run_id,
+            input_json: value.input_json,
+            result_json: value.result_json,
+            created_at_ms: value.created_at_ms,
+            updated_at_ms: value.updated_at_ms,
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkStartResultDto {
+    pub work: WorkItemDto,
+    pub attempt: WorkAttemptDto,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkReconcileResultDto {
+    pub changed_work_ids: Vec<String>,
+}
+
+impl From<WorkAttemptStart> for WorkStartResultDto {
+    fn from(value: WorkAttemptStart) -> Self {
+        Self {
+            work: value.work.into(),
+            attempt: value.attempt.into(),
         }
     }
 }
@@ -106,6 +166,15 @@ fn parse_filter(raw: Option<&str>) -> Result<WorkListFilter, String> {
 
 fn parse_state(raw: &str) -> Result<WorkState, String> {
     WorkState::parse(raw).ok_or_else(|| format!("unknown work state: {raw}"))
+}
+
+fn parse_terminal_phase(raw: &str) -> Result<AttemptPhase, String> {
+    match raw.trim() {
+        "succeeded" => Ok(AttemptPhase::Succeeded),
+        "failed" => Ok(AttemptPhase::Failed),
+        "cancelled" => Ok(AttemptPhase::Cancelled),
+        other => Err(format!("unknown terminal attempt phase: {other}")),
+    }
 }
 
 #[tauri::command]
@@ -188,6 +257,140 @@ pub fn work_start(
         .start_attempt(work_id.trim(), expected_revision)
         .map_err(|error| error.to_string())?;
     Ok(updated.into())
+}
+
+async fn reconcile_store<'a>(
+    agent_runtime: &'a AgentRuntime,
+    workspace: &str,
+    store: &WorkStore,
+) -> Result<(Vec<String>, runtime::WorkRecoveryLease<'a>), String> {
+    let lease = runtime::work_recovery_lease(agent_runtime, workspace).await?;
+    let mode = if lease.first_recovery_pass {
+        AttemptReconcileMode::RestartRecovery
+    } else {
+        AttemptReconcileMode::Live
+    };
+    let changed_work_ids = store
+        .reconcile_attempts_from_journal(&lease.event_journal, mode)
+        .map_err(|error| error.to_string())?;
+    Ok((changed_work_ids, lease))
+}
+
+#[tauri::command]
+pub async fn work_start_attempt(
+    agent_runtime: State<'_, AgentRuntime>,
+    registry: State<'_, WorkspaceRegistry>,
+    workspace_path: String,
+    work_id: String,
+    expected_revision: i64,
+    chat_id: String,
+    session_id: Option<String>,
+) -> Result<WorkStartResultDto, String> {
+    let workspace = authorized_workspace(&workspace_path, &registry)?;
+    let (_project_id, store) = open_store(&workspace)?;
+    // A direct Start may be the first Work command in this host process. Run
+    // the one restart-recovery pass before creating current-process state so
+    // that the new cold dispatch can never be mistaken for an inherited orphan.
+    let (_changed_work_ids, recovery_lease) =
+        reconcile_store(&agent_runtime, &workspace, &store).await?;
+    let chat_id = chat_id.trim();
+    if chat_id.is_empty() {
+        return Err("chatId is required before starting a Desktop Attempt".into());
+    }
+    let started = store
+        .start_attempt_with_dispatch(
+            work_id.trim(),
+            expected_revision,
+            Some(chat_id),
+            session_id.as_deref(),
+        )
+        .map_err(|error| error.to_string())?;
+    let result = started.into();
+    recovery_lease.commit();
+    Ok(result)
+}
+
+#[tauri::command]
+pub async fn work_attempt_reconcile(
+    agent_runtime: State<'_, AgentRuntime>,
+    registry: State<'_, WorkspaceRegistry>,
+    workspace_path: String,
+) -> Result<WorkReconcileResultDto, String> {
+    let workspace = authorized_workspace(&workspace_path, &registry)?;
+    let (_project_id, store) = open_store(&workspace)?;
+    let (changed_work_ids, recovery_lease) =
+        reconcile_store(&agent_runtime, &workspace, &store).await?;
+    recovery_lease.commit();
+    Ok(WorkReconcileResultDto { changed_work_ids })
+}
+
+#[tauri::command]
+pub fn work_attempts(
+    registry: State<'_, WorkspaceRegistry>,
+    workspace_path: String,
+    work_id: String,
+) -> Result<Vec<WorkAttemptDto>, String> {
+    let workspace = authorized_workspace(&workspace_path, &registry)?;
+    let (_project_id, store) = open_store(&workspace)?;
+    let attempts = store
+        .list_attempts(work_id.trim())
+        .map_err(|error| error.to_string())?;
+    Ok(attempts.into_iter().map(WorkAttemptDto::from).collect())
+}
+
+#[tauri::command]
+pub fn work_attempt_bind(
+    registry: State<'_, WorkspaceRegistry>,
+    workspace_path: String,
+    attempt_id: String,
+    chat_id: String,
+    session_id: Option<String>,
+    run_id: String,
+) -> Result<WorkAttemptDto, String> {
+    let workspace = authorized_workspace(&workspace_path, &registry)?;
+    let (_project_id, store) = open_store(&workspace)?;
+    let attempt = store
+        .bind_attempt_run(
+            attempt_id.trim(),
+            chat_id.trim(),
+            session_id.as_deref(),
+            run_id.trim(),
+        )
+        .map_err(|error| error.to_string())?;
+    Ok(attempt.into())
+}
+
+#[tauri::command]
+pub fn work_attempt_finish(
+    registry: State<'_, WorkspaceRegistry>,
+    workspace_path: String,
+    attempt_id: Option<String>,
+    run_id: Option<String>,
+    phase: String,
+    result_json: Option<String>,
+) -> Result<Option<WorkItemDto>, String> {
+    let workspace = authorized_workspace(&workspace_path, &registry)?;
+    let (_project_id, store) = open_store(&workspace)?;
+    let phase = parse_terminal_phase(&phase)?;
+    let result_json = result_json.as_deref().unwrap_or("{}");
+    let updated = match (
+        attempt_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|id| !id.is_empty()),
+        run_id.as_deref().map(str::trim).filter(|id| !id.is_empty()),
+    ) {
+        (Some(id), None) => Some(
+            store
+                .finish_attempt_by_id(id, phase, result_json)
+                .map_err(|error| error.to_string())?,
+        ),
+        (None, Some(id)) => store
+            .finish_attempt_by_run(id, phase, result_json)
+            .map_err(|error| error.to_string())?,
+        _ => return Err("exactly one attemptId or runId is required".into()),
+    };
+    Ok(updated.map(WorkItemDto::from))
 }
 
 #[tauri::command]

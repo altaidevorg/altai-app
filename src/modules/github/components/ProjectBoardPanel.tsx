@@ -7,6 +7,7 @@ import {
   WorkInbox,
   WorkList,
   type OperationsView,
+  type WorkDetailAttemptRow,
   type WorkDetailPrimaryAction,
   type WorkInboxRow,
   type WorkListFilterId,
@@ -14,6 +15,11 @@ import {
   WORK_OS_VIEWS,
 } from "@altai/agent-ui";
 import type { ProjectBoardNavigation } from "@/modules/tabs";
+import {
+  dispatchToSessionWithRunRef,
+  requestStop,
+  useChatStore,
+} from "@/modules/ai/store/chatStore";
 
 type Props = {
   repoRoot: string;
@@ -35,6 +41,30 @@ type WorkItemDto = {
   revision: number;
   createdAtMs: number;
   updatedAtMs: number;
+};
+
+type WorkAttemptDto = {
+  id: string;
+  workId: string;
+  number: number;
+  role: string;
+  phase: string;
+  chatId?: string | null;
+  sessionId?: string | null;
+  runId?: string | null;
+  inputJson?: string | null;
+  resultJson?: string | null;
+  createdAtMs: number;
+  updatedAtMs: number;
+};
+
+type WorkStartResultDto = {
+  work: WorkItemDto;
+  attempt: WorkAttemptDto;
+};
+
+type WorkReconcileResultDto = {
+  changedWorkIds: string[];
 };
 
 function stateLabel(state: string): string {
@@ -70,6 +100,31 @@ function primaryActionsFor(state: string): WorkDetailPrimaryAction[] {
   }
 }
 
+function attemptPrompt(item: WorkItemDto): string {
+  const sections = [`Deliver this Work outcome: ${item.title}`];
+  if (item.description.trim()) {
+    sections.push(`Description:\n${item.description.trim()}`);
+  }
+  if (item.acceptanceCriteria.trim()) {
+    sections.push(
+      `Acceptance criteria:\n${item.acceptanceCriteria.trim()}`,
+    );
+  }
+  sections.push(
+    "Work in the current workspace, verify the result, and report the evidence. Do not mark the Work accepted; human review owns that decision.",
+  );
+  return sections.join("\n\n");
+}
+
+function openAttemptRun(attempt: WorkAttemptDto, workspacePath: string): void {
+  if (!attempt.chatId || !attempt.runId) return;
+  window.dispatchEvent(
+    new CustomEvent("altai:open-agent-run", {
+      detail: { workspacePath, chatId: attempt.chatId, runId: attempt.runId },
+    }),
+  );
+}
+
 /**
  * Work OS tab — list/detail/inbox backed by host `work_*` IPC (work.db).
  */
@@ -82,6 +137,7 @@ export function ProjectBoardPanel({ repoRoot, navigation }: Props) {
   const [inboxRows] = useState<WorkInboxRow[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [detail, setDetail] = useState<WorkItemDto | null>(null);
+  const [attempts, setAttempts] = useState<WorkAttemptDto[]>([]);
   const [detailStatus, setDetailStatus] = useState<
     "loading" | "ready" | "error" | "not_found"
   >("ready");
@@ -94,8 +150,17 @@ export function ProjectBoardPanel({ repoRoot, navigation }: Props) {
   const workspaceName =
     repoRoot.split(/[\\/]/).filter(Boolean).pop() ?? "Local workspace";
 
+  const reconcileAttempts = useCallback(
+    () =>
+      invoke<WorkReconcileResultDto>("work_attempt_reconcile", {
+        workspacePath: repoRoot,
+      }),
+    [repoRoot],
+  );
+
   const refresh = useCallback(async () => {
     try {
+      await reconcileAttempts();
       const items = await invoke<WorkItemDto[]>("work_list", {
         workspacePath: repoRoot,
         filter:
@@ -112,31 +177,41 @@ export function ProjectBoardPanel({ repoRoot, navigation }: Props) {
     } catch (error) {
       setLoadError(error instanceof Error ? error.message : String(error));
     }
-  }, [filter, repoRoot, workspaceName]);
+  }, [filter, reconcileAttempts, repoRoot, workspaceName]);
 
   const loadDetail = useCallback(
     async (workId: string) => {
       setDetailStatus("loading");
       try {
-        const item = await invoke<WorkItemDto | null>("work_get", {
-          workspacePath: repoRoot,
-          workId,
-        });
+        await reconcileAttempts();
+        const [item, attemptRows] = await Promise.all([
+          invoke<WorkItemDto | null>("work_get", {
+            workspacePath: repoRoot,
+            workId,
+          }),
+          invoke<WorkAttemptDto[]>("work_attempts", {
+            workspacePath: repoRoot,
+            workId,
+          }),
+        ]);
         if (!item) {
           setDetail(null);
+          setAttempts([]);
           setDetailStatus("not_found");
           return;
         }
         setDetail(item);
+        setAttempts(attemptRows);
         setDetailStatus("ready");
         setLoadError(null);
       } catch (error) {
         setDetail(null);
+        setAttempts([]);
         setDetailStatus("error");
         setLoadError(error instanceof Error ? error.message : String(error));
       }
     },
-    [repoRoot],
+    [reconcileAttempts, repoRoot],
   );
 
   useEffect(() => {
@@ -146,6 +221,37 @@ export function ProjectBoardPanel({ repoRoot, navigation }: Props) {
   useEffect(() => {
     if (selectedId) void loadDetail(selectedId);
   }, [selectedId, loadDetail]);
+
+  useEffect(() => {
+    const journaledTerminal = () => {
+      void refresh();
+      if (selectedId) void loadDetail(selectedId);
+    };
+    window.addEventListener(
+      "altai:agent-terminal-journaled",
+      journaledTerminal,
+    );
+    return () =>
+      window.removeEventListener(
+        "altai:agent-terminal-journaled",
+        journaledTerminal,
+      );
+  }, [loadDetail, refresh, selectedId]);
+
+  useEffect(() => {
+    const reconcileTimer = window.setInterval(() => {
+      void reconcileAttempts()
+        .then((result) => {
+          if (!result.changedWorkIds.length) return;
+          void refresh();
+          if (selectedId) void loadDetail(selectedId);
+        })
+        .catch((error) => {
+          setLoadError(error instanceof Error ? error.message : String(error));
+        });
+    }, 5_000);
+    return () => window.clearInterval(reconcileTimer);
+  }, [loadDetail, reconcileAttempts, refresh, selectedId]);
 
   useEffect(() => {
     if (!navigation) return;
@@ -181,19 +287,115 @@ export function ProjectBoardPanel({ repoRoot, navigation }: Props) {
             nextState: "ready",
           });
         } else if (action === "start") {
-          next = await invoke<WorkItemDto>("work_start", {
-            workspacePath: repoRoot,
-            workId: detail.id,
-            expectedRevision: detail.revision,
+          const chat = useChatStore.getState();
+          const chatId = chat.createBackgroundSession(detail.title);
+          chat.setSessionWorkspace(chatId, {
+            path: repoRoot,
+            kind: "local",
           });
+          let started: WorkStartResultDto;
+          try {
+            started = await invoke<WorkStartResultDto>(
+              "work_start_attempt",
+              {
+                workspacePath: repoRoot,
+                workId: detail.id,
+                expectedRevision: detail.revision,
+                chatId,
+                sessionId: chatId,
+              },
+            );
+          } catch (error) {
+            chat.deleteSession(chatId);
+            throw error;
+          }
+          next = started.work;
+          setDetail(started.work);
+          setAttempts((current) => [
+            started.attempt,
+            ...current.filter((attempt) => attempt.id !== started.attempt.id),
+          ]);
+          const run = await dispatchToSessionWithRunRef(
+            attemptPrompt(detail),
+            chatId,
+            { workspacePath: repoRoot },
+          );
+          if (!run) {
+            chat.deleteSession(chatId);
+            next = await invoke<WorkItemDto | null>("work_attempt_finish", {
+              workspacePath: repoRoot,
+              attemptId: started.attempt.id,
+              runId: null,
+              phase: "failed",
+              resultJson: JSON.stringify({
+                kind: "failed",
+                failure: "runtime rejected the Work attempt",
+              }),
+            });
+            if (next) setDetail(next);
+            void refresh();
+            void loadDetail(detail.id);
+            throw new Error(
+              "Couldn't start the agent run — check the selected model and API key.",
+            );
+          }
+
+          let bound: WorkAttemptDto;
+          try {
+            bound = await invoke<WorkAttemptDto>("work_attempt_bind", {
+              workspacePath: repoRoot,
+              attemptId: started.attempt.id,
+              chatId: run.chatId,
+              sessionId: run.chatId,
+              runId: run.runId,
+            });
+          } catch (error) {
+            await requestStop(chatId).catch(() => false);
+            await invoke<WorkItemDto | null>("work_attempt_finish", {
+              workspacePath: repoRoot,
+              attemptId: started.attempt.id,
+              runId: null,
+              phase: "failed",
+              resultJson: JSON.stringify({
+                kind: "failed",
+                failure: "could not bind the accepted agent run",
+              }),
+            }).catch(() => null);
+            void refresh();
+            void loadDetail(detail.id);
+            throw error;
+          }
+          setAttempts((current) => [
+            bound,
+            ...current.filter((attempt) => attempt.id !== bound.id),
+          ]);
+
+          // Journal delivery may beat either IPC acknowledgement. Ask the
+          // host to reconcile the explicit workspace after the idempotent
+          // bind; renderer memory is not the completion source of truth.
+          const reconciled = await reconcileAttempts();
+          if (reconciled.changedWorkIds.includes(detail.id)) {
+            const [updated, attemptRows] = await Promise.all([
+              invoke<WorkItemDto | null>("work_get", {
+                workspacePath: repoRoot,
+                workId: detail.id,
+              }),
+              invoke<WorkAttemptDto[]>("work_attempts", {
+                workspacePath: repoRoot,
+                workId: detail.id,
+              }),
+            ]);
+            setAttempts(attemptRows);
+            if (updated) next = updated;
+          }
         } else if (action === "open_run") {
-          // Until IsanAgent run binding lands, mark attempt ready for review
-          // so Accept/Return can be exercised end-to-end.
-          next = await invoke<WorkItemDto>("work_ready_for_review", {
-            workspacePath: repoRoot,
-            workId: detail.id,
-            expectedRevision: detail.revision,
-          });
+          const currentAttempt = attempts.find(
+            (attempt) => attempt.chatId && attempt.runId,
+          );
+          if (!currentAttempt) {
+            throw new Error("This Attempt has no bound run yet.");
+          }
+          openAttemptRun(currentAttempt, repoRoot);
         } else if (action === "accept") {
           next = await invoke<WorkItemDto>("work_review", {
             workspacePath: repoRoot,
@@ -236,7 +438,15 @@ export function ProjectBoardPanel({ repoRoot, navigation }: Props) {
         setActionBusy(false);
       }
     },
-    [actionBusy, detail, refresh, repoRoot],
+    [
+      actionBusy,
+      attempts,
+      detail,
+      loadDetail,
+      reconcileAttempts,
+      refresh,
+      repoRoot,
+    ],
   );
 
   const showDetail = view === "work" && selectedId !== null;
@@ -279,6 +489,14 @@ export function ProjectBoardPanel({ repoRoot, navigation }: Props) {
           description={detail?.description}
           acceptanceCriteria={detail?.acceptanceCriteria}
           blocker={detail?.blocker}
+          attempts={attempts.map<WorkDetailAttemptRow>((attempt) => ({
+            id: attempt.id,
+            label: `#${attempt.number} ${attempt.role}`,
+            phaseLabel: stateLabel(attempt.phase),
+            ...(attempt.chatId && attempt.runId
+              ? { onOpenRun: () => openAttemptRun(attempt, repoRoot) }
+              : {}),
+          }))}
           primaryActions={
             detail && !actionBusy ? primaryActionsFor(detail.state) : []
           }

@@ -13,7 +13,11 @@ import {
   parseTodoWriteItems,
 } from "@altai/agent-ui";
 import { useChatStore } from "../store/chatStore";
-import { useAgentRunsStore } from "../store/agentRunsStore";
+import {
+  reduceAgentRunState,
+  useAgentRunsStore,
+  type RunState,
+} from "../store/agentRunsStore";
 import { useTodosStore } from "../store/todoStore";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import { appendBackgroundMessage } from "./backgroundTranscript";
@@ -186,6 +190,25 @@ export type RunOutcome =
       kind: "budget_exhausted";
       budget: RunBudgetSnapshot;
     };
+
+function notifyJournaledRunTerminal(payload: ParsedAgentEvent): void {
+  if (
+    payload.type !== "run_terminated" ||
+    !payload.chat_id ||
+    !payload.run_id ||
+    typeof window === "undefined"
+  ) {
+    return;
+  }
+  // Delivery happens only after the Rust journal append. Work surfaces use
+  // their explicit workspace root to ask the host to reconcile that journal;
+  // no mutable frontend chat→workspace lookup owns terminal routing.
+  window.dispatchEvent(
+    new CustomEvent("altai:agent-terminal-journaled", {
+      detail: { chatId: payload.chat_id, runId: payload.run_id },
+    }),
+  );
+}
 
 export function isRetryableRunOutcome(
   outcome: RunOutcome | null | undefined,
@@ -612,6 +635,10 @@ export function ingestAgentEventEnvelope(
       const accepted = useAgentRunsStore.getState().ingest(payload.chat_id, payload);
       if (!accepted) return;
     }
+    // Work surfaces reconcile their explicit workspace journal for both live
+    // and replayed terminals. The Rust store ignores unrelated chats and
+    // deduplicates a terminal already applied before renderer restart.
+    notifyJournaledRunTerminal(payload);
     // Rebuild lifecycle state only. Transcript, approval, notebook, and tool
     // side effects have separate ownership; replaying them could duplicate UI
     // state or re-dispatch a mutation. Both paths still use this parser and the
@@ -1037,6 +1064,68 @@ export async function replayRestoredAgentRuns(
       projectRecoveredRun(chatId);
     }),
   );
+}
+
+export type AgentRunDeepLink = {
+  workspacePath: string;
+  chatId: string;
+  runId: string;
+};
+
+export function resolveAgentRunDeepLink(detail: unknown): AgentRunDeepLink | null {
+  if (!detail || typeof detail !== "object") return null;
+  const value = detail as Record<string, unknown>;
+  const workspacePath =
+    typeof value.workspacePath === "string" ? value.workspacePath.trim() : "";
+  const chatId = typeof value.chatId === "string" ? value.chatId.trim() : "";
+  const runId = typeof value.runId === "string" ? value.runId.trim() : "";
+  return workspacePath && chatId && runId
+    ? { workspacePath, chatId, runId }
+    : null;
+}
+
+/** Hydrate one exact persisted run for an Attempt deep-link into an isolated
+ * snapshot. The chat-keyed live registry is deliberately not mutated. */
+export async function hydratePersistedAgentRun(
+  workspacePath: string,
+  chatId: string,
+  runId: string,
+): Promise<RunState> {
+  let snapshot: RunState | undefined;
+  let afterSeq = 0;
+  while (true) {
+    const previousSeq = afterSeq;
+    const events = await native.agentReplayEvents(
+      chatId,
+      runId,
+      afterSeq,
+      workspacePath,
+    );
+    if (!events.length) break;
+    for (const event of events) {
+      const parsed = parseAgentEventPayload(event);
+      if (
+        parsed?.scope !== "run" ||
+        parsed.chat_id !== chatId ||
+        parsed.run_id !== runId
+      ) {
+        throw new Error("The persisted run replay returned another run identity.");
+      }
+      const next = reduceAgentRunState(snapshot, parsed);
+      if (next.lastSeq !== event.seq || next.runId !== runId) {
+        throw new Error("The persisted run replay contains a sequence gap.");
+      }
+      snapshot = next;
+      afterSeq = Math.max(afterSeq, event.seq);
+    }
+    if (afterSeq === previousSeq) {
+      throw new Error("The persisted run replay did not advance.");
+    }
+  }
+  if (!snapshot || snapshot.runId !== runId) {
+    throw new Error(`Persisted run ${runId} was not found for chat ${chatId}.`);
+  }
+  return snapshot;
 }
 
 export async function initAgentEventBridge(): Promise<UnlistenFn> {

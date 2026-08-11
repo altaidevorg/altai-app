@@ -114,13 +114,17 @@ import {
   stop as stopAgent,
   useChatStore,
 } from "../store/chatStore";
-import { useAgentRunsStore } from "../store/agentRunsStore";
+import { useAgentRunsStore, type RunState } from "../store/agentRunsStore";
 import {
   continueBudgetSegmentPrompt,
   continueStuckPrompt,
+  describeTerminalOutcomeAttention,
   describeRunWarning,
   dismissRunAttention,
+  hydratePersistedAgentRun,
   isRetryableRunOutcome,
+  resolveAgentRunDeepLink,
+  type AgentRunDeepLink,
 } from "../lib/agentEventBridge";
 import { useAgentsStore } from "../store/agentsStore";
 import { usePlanStore, type AppliedPlanEdit } from "../store/planStore";
@@ -142,6 +146,12 @@ import {
 // todos yet; allocating `[]` inside the selector triggers React's external
 // store loop detector and can blank the whole renderer.
 const EMPTY_TODOS: Array<{ id: string; title: string; status: string }> = [];
+
+type PersistedRunSelection = AgentRunDeepLink & {
+  snapshot: RunState | null;
+  loading: boolean;
+  error: string | null;
+};
 
 function readPanelWidth(
   key: string,
@@ -236,6 +246,10 @@ export function AiSidePanel({
   }, [onClose]);
 
   const [activeSurface, setActiveSurface] = useState<SidePanelChromeSurface>(null);
+  const [persistedRun, setPersistedRun] = useState<PersistedRunSelection | null>(
+    null,
+  );
+  const persistedRunGeneration = useRef(0);
   const [openChatIds, setOpenChatIds] = useState<string[]>([]);
   const [reviewOpen, setReviewOpen] = useState(false);
   const [targetDialogOpen, setTargetDialogOpen] = useState(false);
@@ -261,6 +275,8 @@ export function AiSidePanel({
     hasSession: Boolean(sessionId),
   });
   const toggleSurface = (surface: Exclude<SidePanelChromeSurface, null>) => {
+    persistedRunGeneration.current += 1;
+    setPersistedRun(null);
     setReviewOpen(false);
     setActiveSurface((current) => toggleSidePanelChromeSurface(current, surface));
   };
@@ -304,6 +320,64 @@ export function AiSidePanel({
     return () => window.removeEventListener("altai:open-ai-surface", openSurface);
   }, []);
 
+  useEffect(() => {
+    const openAgentRun = (event: Event) => {
+      const detail = resolveAgentRunDeepLink(
+        (event as CustomEvent<unknown>).detail,
+      );
+      if (!detail) {
+        window.alert("Couldn't open run: workspace, chat, or run ID is missing.");
+        return;
+      }
+      const session = chatSessions.find((item) => item.id === detail.chatId);
+      if (!session || session.workspacePath !== detail.workspacePath) {
+        window.alert(
+          `Couldn't open run ${detail.runId}: its persisted workspace chat is unavailable.`,
+        );
+        return;
+      }
+      const generation = persistedRunGeneration.current + 1;
+      persistedRunGeneration.current = generation;
+      switchSession(detail.chatId);
+      setReviewOpen(false);
+      setActiveSurface("inspector");
+      setPersistedRun({
+        ...detail,
+        snapshot: null,
+        loading: true,
+        error: null,
+      });
+      void hydratePersistedAgentRun(
+        detail.workspacePath,
+        detail.chatId,
+        detail.runId,
+      )
+        .then((snapshot) => {
+          if (persistedRunGeneration.current !== generation) return;
+          setPersistedRun({
+            ...detail,
+            snapshot,
+            loading: false,
+            error: null,
+          });
+        })
+        .catch((error) => {
+          if (persistedRunGeneration.current !== generation) return;
+          setPersistedRun({
+            ...detail,
+            snapshot: null,
+            loading: false,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        });
+    };
+    window.addEventListener("altai:open-agent-run", openAgentRun);
+    return () => {
+      persistedRunGeneration.current += 1;
+      window.removeEventListener("altai:open-agent-run", openAgentRun);
+    };
+  }, [chatSessions, switchSession]);
+
   // Session history and open chat tabs are deliberately separate. Selecting a
   // conversation from history opens it in a tab; closing that tab keeps the
   // local conversation available in history instead of deleting it.
@@ -334,6 +408,12 @@ export function AiSidePanel({
       switchSession(result.focusSessionId);
     }
     setOpenChatIds(result.openIds);
+    setActiveSurface(null);
+  };
+
+  const closeRunInspector = () => {
+    persistedRunGeneration.current += 1;
+    setPersistedRun(null);
     setActiveSurface(null);
   };
 
@@ -453,7 +533,8 @@ export function AiSidePanel({
                     <div className="absolute inset-0 z-20 flex bg-card">
                       <RunInspector
                         className="flex w-full"
-                        onClose={() => setActiveSurface(null)}
+                        persistedRun={persistedRun}
+                        onClose={closeRunInspector}
                       />
                     </div>
                   ) : null}
@@ -506,7 +587,8 @@ export function AiSidePanel({
               >
                 <RunInspector
                   className="flex h-full w-full min-w-0 overflow-hidden"
-                  onClose={() => setActiveSurface(null)}
+                  persistedRun={persistedRun}
+                  onClose={closeRunInspector}
                 />
               </ResizablePanel>
             </>
@@ -840,7 +922,148 @@ function WorkspaceTopbar({
   );
 }
 
-function RunInspector({ className, onClose }: { className?: string; onClose?: () => void }) {
+function RunInspector({
+  className,
+  onClose,
+  persistedRun,
+}: {
+  className?: string;
+  onClose?: () => void;
+  persistedRun?: PersistedRunSelection | null;
+}) {
+  return persistedRun ? (
+    <PersistedRunInspector
+      className={className}
+      onClose={onClose}
+      selection={persistedRun}
+    />
+  ) : (
+    <LiveRunInspector className={className} onClose={onClose} />
+  );
+}
+
+function PersistedRunInspector({
+  className,
+  onClose,
+  selection,
+}: {
+  className?: string;
+  onClose?: () => void;
+  selection: PersistedRunSelection;
+}) {
+  const snapshot = selection.snapshot;
+  const outcomeKind = snapshot?.outcome?.kind ?? null;
+  const error = selection.error ?? describeTerminalOutcomeAttention(snapshot?.outcome);
+  const running = Boolean(snapshot && !snapshot.completed && isAgentRunBusy(snapshot.status));
+  const tokenTotal = snapshot
+    ? sumRunTokens({ input: snapshot.tokens.input, output: snapshot.tokens.output })
+    : 0;
+  const statusLabel = selection.loading
+    ? "Loading persisted run…"
+    : snapshot?.completed
+      ? `Persisted ${outcomeKind ?? "terminal"} run`
+      : snapshot
+        ? `Persisted ${snapshot.status} run`
+        : "Persisted run unavailable";
+
+  return (
+    <AiRunInspectorFrame
+      aria-label={SIDE_PANEL_RUN_DETAILS_ARIA}
+      className={className}
+      header={
+        <RunDetailsHeader
+          subtitle={`${statusLabel} · ${selection.runId}`}
+          status={error ? "blocked" : running ? "running" : "idle"}
+          onClose={onClose}
+        />
+      }
+      summary={
+        <RunOverviewCard
+          statusPill={
+            <span className="rounded bg-muted px-1.5 py-0.5 text-[9px] font-medium text-muted-foreground">
+              {selection.loading
+                ? "Loading"
+                : outcomeKind ?? snapshot?.status ?? "Unavailable"}
+            </span>
+          }
+          tokenLabel={runInspectorUsageTokenLabel(tokenTotal)}
+          step={snapshot?.step ?? null}
+          metrics={[
+            {
+              label: INSPECTOR_METRIC_PLAN,
+              value: String(snapshot?.verifications.length ?? 0),
+            },
+            {
+              label: INSPECTOR_METRIC_CHANGES,
+              value: String(snapshot?.changes.length ?? 0),
+            },
+            { label: INSPECTOR_METRIC_APPROVALS, value: "0" },
+            {
+              label: INSPECTOR_METRIC_SUBAGENTS,
+              value: String(snapshot?.subagents.length ?? 0),
+            },
+          ]}
+        />
+      }
+    >
+      {selection.loading ? (
+        <InspectorEmpty>Loading the exact persisted run…</InspectorEmpty>
+      ) : null}
+      {error ? <RunBlockedBanner message={error} /> : null}
+      {snapshot ? (
+        <>
+          <InspectorSection title="Run identity" summary={selection.runId} count={1} defaultOpen>
+            <dl className="space-y-1 text-[10px] text-muted-foreground">
+              <div><dt className="inline font-medium text-foreground">Workspace: </dt><dd className="inline break-all">{selection.workspacePath}</dd></div>
+              <div><dt className="inline font-medium text-foreground">Chat: </dt><dd className="inline break-all">{selection.chatId}</dd></div>
+              <div><dt className="inline font-medium text-foreground">Run: </dt><dd className="inline break-all">{selection.runId}</dd></div>
+            </dl>
+          </InspectorSection>
+          <InspectorSection
+            title="Run evidence"
+            summary="Persisted verifications and changes"
+            count={snapshot.verifications.length + snapshot.changes.length}
+            defaultOpen
+          >
+            {snapshot.verifications.map((verification) => (
+              <p key={verification.id} className="text-[10px] text-muted-foreground">
+                {verification.status} · {verification.label}
+              </p>
+            ))}
+            {snapshot.changes.map((change) => (
+              <p key={`${change.path}:${change.hunkId ?? change.source}`} className="break-all text-[10px] text-muted-foreground">
+                {change.path}
+              </p>
+            ))}
+            {!snapshot.verifications.length && !snapshot.changes.length ? (
+              <InspectorEmpty>No persisted verification or change evidence.</InspectorEmpty>
+            ) : null}
+          </InspectorSection>
+          <InspectorSection
+            title="Result"
+            summary="Persisted terminal output"
+            count={(snapshot.lastResult ? 1 : 0) + snapshot.failures.length}
+            defaultOpen
+          >
+            {snapshot.lastResult ? (
+              <p className="whitespace-pre-wrap text-[10px] text-muted-foreground">
+                {snapshot.lastResult}
+              </p>
+            ) : null}
+            {snapshot.failures.map((failure) => (
+              <p key={failure} className="text-[10px] text-destructive">{failure}</p>
+            ))}
+            {!snapshot.lastResult && !snapshot.failures.length ? (
+              <InspectorEmpty>No persisted result text.</InspectorEmpty>
+            ) : null}
+          </InspectorSection>
+        </>
+      ) : null}
+    </AiRunInspectorFrame>
+  );
+}
+
+function LiveRunInspector({ className, onClose }: { className?: string; onClose?: () => void }) {
   const [activityQuery, setActivityQuery] = useState("");
   const meta = useChatStore((s) => s.agentMeta);
   const respondToApproval = useChatStore((s) => s.respondToApproval);
