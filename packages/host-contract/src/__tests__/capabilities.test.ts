@@ -33,6 +33,7 @@ describe("capability catalog", () => {
     expect(isCapabilityEnabled(caps, "desktop.gitPanelMutations")).toBe(false);
     expect(isCapabilityEnabled(caps, "desktop.orchestration")).toBe(false);
     expect(isCapabilityEnabled(caps, "desktop.studioWindow")).toBe(false);
+    expect(isCapabilityEnabled(caps, "work.attemptRuns")).toBe(false);
     expect(isCapabilityEnabled(caps, "runtime.initialize")).toBe(true);
   });
 

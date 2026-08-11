@@ -74,6 +74,7 @@ struct AutomationPayload {
 pub struct StdioHost {
     workspace: WorkspacePaths,
     event_sink: Arc<dyn AgentEventSink>,
+    session_shared: Arc<SharedWorkspaceServices>,
     workspace_services_by_root: tokio::sync::Mutex<HashMap<String, Arc<StdioWorkspaceServices>>>,
     cron_routes: Arc<tokio::sync::Mutex<HashMap<String, mpsc::Sender<BusMessage>>>>,
     mcp_statuses: altai_agent_service::mcp::McpStatusRegistry,
@@ -84,10 +85,12 @@ impl StdioHost {
         workspace: WorkspacePaths,
         event_sink: Arc<dyn AgentEventSink>,
         _run_coordinator: SharedRunCoordinator,
+        session_shared: Arc<SharedWorkspaceServices>,
     ) -> Self {
         Self {
             workspace,
             event_sink,
+            session_shared,
             workspace_services_by_root: tokio::sync::Mutex::new(HashMap::new()),
             cron_routes: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
             mcp_statuses: altai_agent_service::mcp::McpStatusRegistry::new(),
@@ -513,10 +516,6 @@ impl StdioHost {
         &self,
         workspace_root: &str,
     ) -> Result<Arc<StdioWorkspaceServices>, String> {
-        let mut guard = self.workspace_services_by_root.lock().await;
-        if let Some(existing) = guard.get(workspace_root) {
-            return Ok(existing.clone());
-        }
         let fallback = self.workspace.root.to_string_lossy();
         let ws_opt = if workspace_root.is_empty() {
             Some(fallback.as_ref())
@@ -524,10 +523,20 @@ impl StdioHost {
             Some(workspace_root)
         };
         let dir = resolve_workspace_root(ws_opt);
-        let shared = Arc::new(
-            SharedWorkspaceServices::open(&dir)
-                .map_err(|error| format!("Failed to initialize workspace services: {error}"))?,
-        );
+        let service_key = dir.to_string_lossy().to_string();
+        let mut guard = self.workspace_services_by_root.lock().await;
+        if let Some(existing) = guard.get(&service_key) {
+            return Ok(existing.clone());
+        }
+        let shared = if dir == self.session_shared.root() {
+            self.session_shared.clone()
+        } else {
+            Arc::new(
+                SharedWorkspaceServices::open(&dir).map_err(|error| {
+                    format!("Failed to initialize workspace services: {error}")
+                })?,
+            )
+        };
         let db_path = shared.memory_db_path();
         let db_path_str = db_path
             .to_str()
@@ -619,7 +628,7 @@ impl StdioHost {
                 forwarder: cron_forwarder,
             },
         });
-        guard.insert(workspace_root.to_string(), services.clone());
+        guard.insert(service_key, services.clone());
         Ok(services)
     }
 }
@@ -713,10 +722,18 @@ impl HostAdapter for StdioHost {
     }
 
     async fn retain_workspace_bundles(&self, keep_root: &str) {
+        let fallback = self.workspace.root.to_string_lossy();
+        let keep_root = resolve_workspace_root(Some(if keep_root.is_empty() {
+            fallback.as_ref()
+        } else {
+            keep_root
+        }))
+            .to_string_lossy()
+            .to_string();
         self.workspace_services_by_root
             .lock()
             .await
-            .retain(|k, _| k == keep_root);
+            .retain(|k, _| k == &keep_root);
     }
 
     async fn on_chat_bound(
@@ -772,3 +789,67 @@ fn dirs_checkpoint_root() -> Option<PathBuf> {
 
 #[allow(dead_code)]
 fn _path_marker(_: &Path) {}
+
+#[cfg(test)]
+mod tests {
+    use super::StdioHost;
+    use altai_agent_service::{
+        AgentEventEnvelope, AgentEventSink, AgentEventSinkError, RunCoordinator,
+        WorkspaceServices,
+    };
+    use altai_core::{resolve_workspace_from, JournalEvent};
+    use serde_json::json;
+    use std::path::Path;
+    use std::sync::{Arc, Mutex};
+
+    struct AcceptingSink;
+
+    impl AgentEventSink for AcceptingSink {
+        fn try_send(&self, _event: AgentEventEnvelope) -> Result<(), AgentEventSinkError> {
+            Ok(())
+        }
+    }
+
+    #[tokio::test]
+    async fn canonical_workspace_cache_never_restart_classifies_a_live_process_run() {
+        let temporary = tempfile::tempdir().expect("workspace");
+        let workspace = resolve_workspace_from(Some(temporary.path()), Path::new("/unused"))
+            .expect("workspace paths");
+        let shared = Arc::new(
+            WorkspaceServices::open(&workspace.isanagent_state).expect("workspace service"),
+        );
+        let startup = shared.event_journal();
+        let host = StdioHost::new(
+            workspace.clone(),
+            Arc::new(AcceptingSink),
+            Arc::new(Mutex::new(RunCoordinator::default())),
+            shared,
+        );
+
+        startup
+            .append(&JournalEvent::now(
+                1,
+                "run-live",
+                1,
+                "chat-live",
+                "run_started",
+                json!({"type":"run_started","run_id":"run-live"}),
+            ))
+            .expect("incomplete same-process run");
+
+        let runtime_services = host
+            .workspace_bundle_inner(workspace.isanagent_state.to_str().expect("UTF-8 root"))
+            .await
+            .expect("runtime services");
+        assert!(Arc::ptr_eq(&startup, &runtime_services.event_journal));
+        assert_eq!(
+            startup
+                .run_summary("run-live")
+                .expect("run summary")
+                .expect("live run")
+                .terminal_seq,
+            None,
+            "opening the runtime route must not classify a same-process run as abandoned"
+        );
+    }
+}

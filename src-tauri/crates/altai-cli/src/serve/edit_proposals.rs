@@ -327,9 +327,8 @@ fn write_atomic(target: &Path, content: &[u8]) -> std::io::Result<()> {
         file.write_all(content)?;
         file.sync_all()?;
     }
-    fs::rename(&temp_path, target).map_err(|error| {
+    fs::rename(&temp_path, target).inspect_err(|_error| {
         let _ = fs::remove_file(&temp_path);
-        error
     })?;
     Ok(())
 }

@@ -146,6 +146,8 @@ function createStubPorts(): HostPorts {
     createWork: unimplemented,
     transitionWork: unimplemented,
     startWork: unimplemented,
+    startWorkRun: unimplemented,
+    listWorkAttempts: unimplemented,
     markWorkReadyForReview: unimplemented,
     reviewWork: unimplemented,
     listTaskRuns: unimplemented,

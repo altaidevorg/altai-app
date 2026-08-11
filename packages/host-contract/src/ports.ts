@@ -45,6 +45,8 @@ import type {
   WorkListFilter,
   WorkReviewInput,
   WorkRevisionInput,
+  WorkAttempt,
+  WorkStartRunResult,
   WorkTransitionInput,
   WorkspaceInfo,
 } from "./types.js";
@@ -118,6 +120,9 @@ export interface WorkPort {
   createWork(input: WorkCreateInput): Promise<WorkItem>;
   transitionWork(input: WorkTransitionInput): Promise<WorkItem>;
   startWork(input: WorkRevisionInput): Promise<WorkItem>;
+  /** Start and bind the canonical Work Attempt to a real host-owned run. */
+  startWorkRun(input: WorkRevisionInput): Promise<WorkStartRunResult>;
+  listWorkAttempts(workId: string): Promise<WorkAttempt[]>;
   markWorkReadyForReview(input: WorkRevisionInput): Promise<WorkItem>;
   reviewWork(input: WorkReviewInput): Promise<WorkItem>;
   /** Legacy Task Run and Automation methods retained during screen migration. */

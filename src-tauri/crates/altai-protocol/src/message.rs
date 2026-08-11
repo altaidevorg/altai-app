@@ -185,6 +185,8 @@ fn request_method(method: &str) -> bool {
             | "work/create"
             | "work/transition"
             | "work/start"
+            | "work/start-run"
+            | "work/attempts/list"
             | "work/ready-for-review"
             | "work/review"
             | "work/inbox/list"
@@ -429,6 +431,8 @@ mod tests {
             "work/create",
             "work/transition",
             "work/start",
+            "work/start-run",
+            "work/attempts/list",
             "work/ready-for-review",
             "work/review",
             "work/inbox/list",

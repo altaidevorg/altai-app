@@ -294,6 +294,35 @@ export type WorkRevisionInput = {
   expectedRevision: number;
 };
 
+export type WorkAttemptPhase =
+  | "queued"
+  | "running"
+  | "waiting"
+  | "succeeded"
+  | "failed"
+  | "cancelled";
+
+/** Durable execution identity for one canonical Work attempt. */
+export type WorkAttempt = {
+  id: string;
+  workId: string;
+  number: number;
+  role: string;
+  phase: WorkAttemptPhase;
+  chatId?: string | null;
+  sessionId?: string | null;
+  runId?: string | null;
+  inputJson?: string | null;
+  resultJson?: string | null;
+  createdAtMs: number;
+  updatedAtMs: number;
+};
+
+export type WorkStartRunResult = {
+  work: WorkItem;
+  attempt: WorkAttempt;
+};
+
 export type WorkReviewInput = WorkRevisionInput & {
   accept: boolean;
   guidance?: string;
