@@ -245,6 +245,7 @@ impl WorkStore {
             let _ = std::fs::OpenOptions::new()
                 .write(true)
                 .create(true)
+                .truncate(false)
                 .mode(0o600)
                 .open(path)?;
         }
@@ -283,7 +284,7 @@ impl WorkStore {
         let now = now_ms();
         let id = new_id("work");
         let mut connection = self.connection.lock().expect("work store mutex");
-        let mut tx = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let tx = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
         tx.execute(
             r#"
             INSERT INTO work_items (
@@ -301,7 +302,7 @@ impl WorkStore {
                 now as i64
             ],
         )?;
-        append_event(&mut tx, &id, "created", "{}")?;
+        append_event(&tx, &id, "created", "{}")?;
         tx.commit()?;
         drop(connection);
         self.get_work(&id)?
@@ -347,7 +348,7 @@ impl WorkStore {
     pub fn transition(&self, id: &str, expected_revision: i64, next: WorkState) -> Result<WorkItemRecord> {
         let now = now_ms();
         let mut connection = self.connection.lock().expect("work store mutex");
-        let mut tx = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let tx = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
         let current: (String, i64) = tx.query_row(
             "SELECT state, revision FROM work_items WHERE id = ?1",
             params![id],
@@ -374,7 +375,7 @@ impl WorkStore {
             from.as_str(),
             next.as_str()
         );
-        append_event(&mut tx, id, "state_changed", &payload)?;
+        append_event(&tx, id, "state_changed", &payload)?;
         tx.commit()?;
         drop(connection);
         self.get_work(id)?
@@ -386,7 +387,7 @@ impl WorkStore {
     pub fn start_attempt(&self, id: &str, expected_revision: i64) -> Result<WorkItemRecord> {
         let now = now_ms();
         let mut connection = self.connection.lock().expect("work store mutex");
-        let mut tx = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let tx = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
         let current: (String, i64) = tx.query_row(
             "SELECT state, revision FROM work_items WHERE id = ?1",
             params![id],
@@ -421,7 +422,7 @@ impl WorkStore {
                 params![now as i64, id],
             )?;
             append_event(
-                &mut tx,
+                &tx,
                 id,
                 "state_changed",
                 r#"{"from":"backlog","to":"ready"}"#,
@@ -443,7 +444,7 @@ impl WorkStore {
                 params![now as i64, id],
             )?;
             let payload = format!(r#"{{"from":"{prior}","to":"in_progress"}}"#);
-            append_event(&mut tx, id, "state_changed", &payload)?;
+            append_event(&tx, id, "state_changed", &payload)?;
         }
 
         let next_number: i64 = tx.query_row(
@@ -461,7 +462,7 @@ impl WorkStore {
             params![attempt_id, id, next_number, now as i64],
         )?;
         let payload = format!(r#"{{"attemptId":"{attempt_id}","number":{next_number}}}"#);
-        append_event(&mut tx, id, "attempt_started", &payload)?;
+        append_event(&tx, id, "attempt_started", &payload)?;
         tx.commit()?;
         drop(connection);
         self.get_work(id)?
@@ -477,7 +478,7 @@ impl WorkStore {
     ) -> Result<WorkItemRecord> {
         let now = now_ms();
         let mut connection = self.connection.lock().expect("work store mutex");
-        let mut tx = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let tx = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
         let current: (String, i64) = tx.query_row(
             "SELECT state, revision FROM work_items WHERE id = ?1",
             params![id],
@@ -518,7 +519,7 @@ impl WorkStore {
             params![now as i64, id],
         )?;
         append_event(
-            &mut tx,
+            &tx,
             id,
             "state_changed",
             r#"{"from":"in_progress","to":"in_review"}"#,
@@ -539,7 +540,7 @@ impl WorkStore {
     ) -> Result<WorkItemRecord> {
         let now = now_ms();
         let mut connection = self.connection.lock().expect("work store mutex");
-        let mut tx = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let tx = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
         let current: (String, i64) = tx.query_row(
             "SELECT state, revision FROM work_items WHERE id = ?1",
             params![id],
@@ -599,7 +600,7 @@ impl WorkStore {
             r#"{{"reviewId":"{review_id}","to":"{}"}}"#,
             next.as_str()
         );
-        append_event(&mut tx, id, kind, &payload)?;
+        append_event(&tx, id, kind, &payload)?;
         tx.commit()?;
         drop(connection);
         self.get_work(id)?
