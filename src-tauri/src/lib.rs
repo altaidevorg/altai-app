@@ -48,6 +48,35 @@ pub(crate) fn create_window_off_ipc_thread(work: impl FnOnce() + Send + 'static)
     }
 }
 
+/// Run WebView window create/config on the platform-correct thread.
+///
+/// - macOS: `WKWebViewConfiguration` must be built on the main thread. Async
+///   Tauri commands run on a tokio worker, so we hop via `run_on_main_thread`.
+/// - Windows: keep off the IPC thread (caller is already async / spawned) —
+///   building WebView2 inline on the IPC thread deadlocks.
+fn run_webview_window_work<T>(
+    app: &tauri::AppHandle,
+    work: impl FnOnce() -> Result<T, String> + Send + 'static,
+) -> Result<T, String>
+where
+    T: Send + 'static,
+{
+    #[cfg(target_os = "macos")]
+    {
+        let (tx, rx) = std::sync::mpsc::channel();
+        app.run_on_main_thread(move || {
+            let _ = tx.send(work());
+        })
+        .map_err(|error| error.to_string())?;
+        rx.recv().map_err(|error| error.to_string())?
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = app;
+        work()
+    }
+}
+
 /// Per-window WebView2 profile dir. Windows requires a distinct data directory
 /// when multiple webviews use `additional_browser_args`, otherwise the second
 /// window can hang as a black/blank surface.
@@ -74,15 +103,13 @@ fn sanitize_webview_profile_label(label: &str) -> String {
 const WINDOW_BACKGROUND: tauri::webview::Color = tauri::webview::Color(10, 10, 10, 255);
 
 fn restored_window_state_flags() -> StateFlags {
-    // Window chrome is an application/platform invariant, not user state. In
-    // 0.6.7 Windows stored `decorated: false`; restoring that snapshot happens
-    // in the plugin's `on_window_ready` hook, after our builder and setup code,
-    // and therefore removed the native recovery controls again in 0.6.8/0.6.9.
+    // Window chrome is an application/platform invariant, not user state.
+    // Never restore DECORATIONS — older snapshots may disagree with the
+    // current Cursor-style frameless chrome on Windows/Linux.
     let flags = StateFlags::all() & !StateFlags::VISIBLE & !StateFlags::DECORATIONS;
 
-    // A white WebView2 restored directly into fullscreen has no native close
-    // affordance. Keep fullscreen opt-in per session on Windows so every cold
-    // start has a recoverable OS frame even if the renderer cannot paint.
+    // Keep fullscreen opt-in per session on Windows so a cold start never
+    // traps the user in an undecorated fullscreen frame.
     #[cfg(target_os = "windows")]
     let flags = flags & !StateFlags::FULLSCREEN;
 
@@ -296,14 +323,14 @@ pub(crate) fn show_or_create_settings_window(
         .traffic_light_position(tauri::LogicalPosition::new(16.0, 16.0))
         .with_webview_configuration(modules::macos_webview::config_without_writing_tools());
 
-    // Linux renders app-owned chrome. Windows deliberately keeps its native
-    // frame so close/minimize remain available even if WebView2 fails to paint.
+    // App-owned chrome (Cursor-style): no classic OS title bar on Linux/Windows.
+    // Windows stays opaque — WebView2 + transparent frames are unreliable.
     #[cfg(target_os = "linux")]
     let builder = builder.decorations(false).transparent(true);
     #[cfg(target_os = "windows")]
     let builder = {
         let builder = builder
-            .decorations(true)
+            .decorations(false)
             .transparent(false)
             .additional_browser_args(&windows_webview_args());
         match windows_webview_data_dir(app, label) {
@@ -313,14 +340,10 @@ pub(crate) fn show_or_create_settings_window(
     };
 
     let window = builder.build().map_err(|e| e.to_string())?;
-    // Some Linux window managers ignore the builder-time decorations flag.
-    #[cfg(target_os = "linux")]
+    // Some WMs ignore builder-time decorations; re-assert frameless chrome.
+    #[cfg(any(target_os = "linux", target_os = "windows"))]
     {
         let _ = window.set_decorations(false);
-    }
-    #[cfg(target_os = "windows")]
-    {
-        let _ = window.set_decorations(true);
     }
     let _ = focus_webview_window(&window);
     Ok(())
@@ -329,13 +352,17 @@ pub(crate) fn show_or_create_settings_window(
 #[tauri::command]
 async fn open_settings_window(app: tauri::AppHandle, tab: Option<String>) -> Result<(), String> {
     // async: WebView2 deadlocks if build() runs in a sync command on Windows.
-    show_or_create_settings_window(
-        &app,
-        "settings",
-        "ALTAI Studio Settings",
-        "app",
-        tab.as_deref(),
-    )
+    // macOS still needs the main thread for WKWebViewConfiguration.
+    let handle = app.clone();
+    run_webview_window_work(&app, move || {
+        show_or_create_settings_window(
+            &handle,
+            "settings",
+            "ALTAI Studio Settings",
+            "app",
+            tab.as_deref(),
+        )
+    })
 }
 
 /// Percent-encode a filesystem path for use as a query parameter value.
@@ -410,14 +437,14 @@ pub(crate) fn build_ide_window(
         .traffic_light_position(tauri::LogicalPosition::new(16.0, 22.0))
         .with_webview_configuration(modules::macos_webview::config_without_writing_tools());
 
-    // Linux: app-owned chrome. Windows: keep the native frame so close /
-    // minimize remain available even if the renderer fails to paint.
+    // App-owned chrome (Cursor-style): no classic OS title bar on Linux/Windows.
+    // Windows stays opaque — WebView2 + transparent frames are unreliable.
     #[cfg(target_os = "linux")]
     let builder = builder.decorations(false).transparent(true);
     #[cfg(target_os = "windows")]
     let builder = {
         let builder = builder
-            .decorations(true)
+            .decorations(false)
             .transparent(false)
             .additional_browser_args(&windows_webview_args());
         match windows_webview_data_dir(app, label) {
@@ -427,13 +454,9 @@ pub(crate) fn build_ide_window(
     };
 
     let window = builder.build().map_err(|e| e.to_string())?;
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "windows"))]
     {
         let _ = window.set_decorations(false);
-    }
-    #[cfg(target_os = "windows")]
-    {
-        let _ = window.set_decorations(true);
     }
     Ok(window)
 }
@@ -459,9 +482,13 @@ pub(crate) fn show_or_create_studio_window(
 #[tauri::command]
 async fn open_studio_window(app: tauri::AppHandle, folder: Option<String>) -> Result<(), String> {
     // async: WebView2 deadlocks if build() runs in a sync command on Windows.
-    // That is the root cause of the black IDE window + app freeze on Windows
-    // (macOS is unaffected). See Tauri WebviewWindowBuilder known issues.
-    show_or_create_studio_window(&app, folder.as_deref())
+    // That is the root cause of the black IDE window + app freeze on Windows.
+    // macOS still needs the main thread for WKWebViewConfiguration — without
+    // the hop below, Open IDE panics on a tokio worker (`MainThreadMarker`).
+    let handle = app.clone();
+    run_webview_window_work(&app, move || {
+        show_or_create_studio_window(&handle, folder.as_deref())
+    })
 }
 
 /// Renderer-to-native startup checkpoint used by logs and the Windows release
@@ -594,16 +621,13 @@ pub fn run() {
             #[cfg(not(target_os = "macos"))]
             let builder = WebviewWindowBuilder::from_config(app.handle(), &window_cfg)?;
 
-    // Keep the Windows HWND opaque and natively decorated. If the
-            // renderer or GPU process fails during startup, the user must still
-            // be able to move, minimize, restore, and close the application.
-            // Users with a confirmed GPU-driver issue can opt into software
-            // rendering with ALTAI_DISABLE_GPU=1; it is unsafe as a universal
-            // default because WebView2 can fail to composite on other systems.
+            // Cursor-style frameless chrome on Windows. Opaque surface keeps
+            // WebView2 compositing stable; users with a confirmed GPU-driver
+            // issue can opt into software rendering with ALTAI_DISABLE_GPU=1.
             #[cfg(target_os = "windows")]
             let builder = {
                 let builder = builder
-                    .decorations(true)
+                    .decorations(false)
                     .transparent(false)
                     .additional_browser_args(&windows_webview_args());
                 // Pin the primary window to an explicit profile so secondary
@@ -618,10 +642,9 @@ pub fn run() {
             let window = builder.build()?;
             #[cfg(target_os = "windows")]
             {
-                // Defensive re-assertion after WebView2 creates the HWND. The
-                // window-state plugin is also forbidden from restoring chrome,
-                // so an older `decorated: false` snapshot cannot undo this.
-                let _ = window.set_decorations(true);
+                // Re-assert after WebView2 creates the HWND; window-state must
+                // not restore an older decorated snapshot over frameless chrome.
+                let _ = window.set_decorations(false);
             }
             let _ = focus_webview_window(&window);
 

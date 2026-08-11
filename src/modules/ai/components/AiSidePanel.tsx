@@ -753,36 +753,38 @@ function WorkspaceTopbar({
   };
 
   if (variant === "sidebar") {
+    // Sits under the full-width app Header, beside Files/tabs (single h-10 row).
     return (
       <AiPanelTopbar
         aria-label="ALTAI panel chrome"
-        primary={<div className="flex h-10 min-w-0 items-center gap-1.5 px-2.5">
-          {historyControl}
-          <ChatTabStripBridge
-            embedded
-            openChatIds={openChatIds}
-            onSelect={onSelectChat}
-            onCloseChat={onCloseChat}
-            onNewChat={onNewChat}
-          />
-          {onClose ? (
-            <IconTooltip label={SIDE_PANEL_CLOSE_LABEL}>
-              <button
-                type="button"
-                onClick={onClose}
-                aria-label={SIDE_PANEL_CLOSE_LABEL}
-                className="inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground"
-              >
-                <HugeiconsIcon icon={Cancel01Icon} size={13} strokeWidth={1.75} />
-              </button>
-            </IconTooltip>
-          ) : null}
-        </div>}
-        secondary={<div className="flex h-9 min-w-0 items-center gap-1.5 border-t border-border-subtle/70 px-2.5">
-          {workspaceActions}
-          <div className="min-w-0 flex-1" />
-          {todoSummary}
-        </div>}
+        className="bg-raised"
+        primary={
+          <div className="flex h-10 min-w-0 items-center gap-1.5 px-2">
+            {historyControl}
+            <ChatTabStripBridge
+              embedded
+              openChatIds={openChatIds}
+              onSelect={onSelectChat}
+              onCloseChat={onCloseChat}
+              onNewChat={onNewChat}
+            />
+            <div className="min-w-0 flex-1" />
+            {todoSummary}
+            {workspaceActions}
+            {onClose ? (
+              <IconTooltip label={SIDE_PANEL_CLOSE_LABEL}>
+                <button
+                  type="button"
+                  onClick={onClose}
+                  aria-label={SIDE_PANEL_CLOSE_LABEL}
+                  className="inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground"
+                >
+                  <HugeiconsIcon icon={Cancel01Icon} size={13} strokeWidth={1.75} />
+                </button>
+              </IconTooltip>
+            ) : null}
+          </div>
+        }
       />
     );
   }

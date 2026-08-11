@@ -497,9 +497,8 @@
   50% { opacity: 0.58; transform: scale(0.8); }
 }
 
-/* Linux uses a transparent borderless surface, so paint its outer shape.
- * Windows deliberately keeps an opaque native frame: OS window controls must
- * remain available even if WebView2 fails before the React shell mounts. */
+/* Linux/Windows use borderless app chrome. Linux is transparent so the outer
+ * rounded shape paints; Windows stays opaque for WebView2 stability. */
 html[data-chrome="borderless"],
 html[data-chrome="borderless"] body {
   background: transparent !important;

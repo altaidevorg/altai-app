@@ -11,16 +11,16 @@ import {
 } from "./platform";
 
 describe("Windows window chrome", () => {
-  it("keeps native recovery controls on Windows", () => {
+  it("uses app-owned controls on Windows (no classic OS title bar)", () => {
     expect(IS_WINDOWS).toBe(true);
-    expect(USE_CUSTOM_WINDOW_CONTROLS).toBe(false);
-    expect(usesCustomWindowControls("windows")).toBe(false);
+    expect(USE_CUSTOM_WINDOW_CONTROLS).toBe(true);
+    expect(usesCustomWindowControls("windows")).toBe(true);
   });
 
-  it("retains custom controls only for Linux", () => {
+  it("uses custom controls on Linux and Windows, not macOS", () => {
     expect(usesCustomWindowControls("linux")).toBe(true);
+    expect(usesCustomWindowControls("windows")).toBe(true);
     expect(usesCustomWindowControls("macos")).toBe(false);
     expect(usesCustomWindowControls("")).toBe(false);
   });
 });
-

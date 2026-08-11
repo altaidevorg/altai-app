@@ -1,4 +1,4 @@
-export { Header } from "./Header";
+export { Header, HeaderTabRow } from "./Header";
 export {
   SearchInline,
   type SearchInlineHandle,

@@ -8,8 +8,8 @@ describe("ProviderConnectBanner", () => {
     const html = renderToStaticMarkup(
       createElement(ProviderConnectBanner, { onAdd: () => {} }),
     );
-    expect(html).toContain("Connect any AI provider");
-    expect(html).toContain("Connect provider");
+    expect(html).toContain("No provider connected");
+    expect(html).toContain("Connect");
     expect(html).toContain("<svg");
   });
 

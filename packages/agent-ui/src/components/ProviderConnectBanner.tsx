@@ -13,13 +13,13 @@ export type ProviderConnectBannerProps = {
  */
 export function ProviderConnectBanner({
   onAdd,
-  message = "Connect any AI provider (or use local models) - your key stays in your OS keychain.",
-  actionLabel = "Connect provider",
+  message = "No provider connected",
+  actionLabel = "Connect",
 }: ProviderConnectBannerProps) {
   return (
     <div className="altai-provider-connect-banner shrink-0 border-t border-border-subtle bg-raised">
       <div className="flex h-10 items-center justify-between gap-3 px-3 text-xs">
-        <span className="text-muted-foreground">{message}</span>
+        <span className="min-w-0 truncate text-muted-foreground">{message}</span>
         <button
           type="button"
           onClick={onAdd}
