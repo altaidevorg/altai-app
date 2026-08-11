@@ -1564,11 +1564,21 @@ async function sendViaIsanAgent(
   }
 }
 
-export async function dispatchToSession(
+export type BackgroundRunRef = {
+  chatId: string;
+  runId: string;
+};
+
+/**
+ * Dispatch one background turn and return the exact runtime identity. Work
+ * binds this acknowledgement to its durable Attempt; legacy assignment
+ * callers keep the boolean wrapper below.
+ */
+export async function dispatchToSessionWithRunRef(
   text: string,
   chatId: string,
   runConfig?: AssignmentRunConfig,
-): Promise<boolean> {
+): Promise<BackgroundRunRef | null> {
   const store = useChatStore.getState();
   const prefs = usePreferencesStore.getState();
   const targetInputs = {
@@ -1591,7 +1601,7 @@ export async function dispatchToSession(
     prompt: text,
   });
   const resolution = resolveIsanAgentTarget(selectedModelId, store.apiKeys, targetInputs);
-  if (!resolution.ok) return false;
+  if (!resolution.ok) return null;
   const { providerName, apiKey, modelName, baseUrl } = resolution.target;
   const workspacePath =
     runConfig?.workspacePath ?? workspacePathForChat(chatId);
@@ -1660,19 +1670,32 @@ export async function dispatchToSession(
       config,
     );
     if (acknowledgement.chatId !== chatId || acknowledgement.queued) {
-      return false;
+      return null;
     }
     if (
       !useAgentRunsStore
         .getState()
         .admitAccepted(chatId, acknowledgement.runId)
     ) {
-      return false;
+      return null;
     }
-    return true;
+    return {
+      chatId: acknowledgement.chatId,
+      runId: acknowledgement.runId,
+    };
   } catch {
-    return false;
+    return null;
   }
+}
+
+export async function dispatchToSession(
+  text: string,
+  chatId: string,
+  runConfig?: AssignmentRunConfig,
+): Promise<boolean> {
+  return Boolean(
+    await dispatchToSessionWithRunRef(text, chatId, runConfig),
+  );
 }
 
 function buildEnvBlock(live: Live): string | null {

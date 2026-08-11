@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex as StdMutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tauri::async_runtime;
@@ -15,8 +15,9 @@ use altai_agent_service::{
     redacted_event_payload, AgentEventEnvelope, RunAdmission, RunEventDeliveryError,
     RunEventTransition, RunTransitionError,
 };
+use super::event_journal::EventJournal;
 #[cfg(test)]
-use super::event_journal::{EventJournal, JournalEvent};
+use super::event_journal::JournalEvent;
 use super::desktop_host::{DesktopHost, DesktopWorkspaceServices};
 
 use isanagent::bus::BusMessage;
@@ -164,6 +165,41 @@ impl WorkspaceDispatcher {
 /// Desktop retains HostAdapter seams (Tauri channel, MCP, workspace actors).
 pub struct AgentRuntime {
     pub service: AgentService<DesktopHost>,
+    work_recovery_workspaces: tokio::sync::Mutex<HashSet<String>>,
+}
+
+/// Serializes the first Work recovery pass with current-process Attempt
+/// creation. Keeping this lease alive prevents a concurrent recovery command
+/// from classifying a newly-created cold dispatch as an inherited orphan.
+pub(crate) struct WorkRecoveryLease<'a> {
+    pub event_journal: Arc<EventJournal>,
+    pub first_recovery_pass: bool,
+    workspace_root: String,
+    guard: tokio::sync::MutexGuard<'a, HashSet<String>>,
+}
+
+impl WorkRecoveryLease<'_> {
+    /// Commit restart recovery only after the whole reconcile/start critical
+    /// section succeeds. Dropping an uncommitted first lease leaves no marker,
+    /// so the next caller retries restart recovery instead of switching Live.
+    pub(crate) fn commit(mut self) {
+        self.guard.insert(self.workspace_root.clone());
+    }
+}
+
+async fn reserve_work_recovery<'a>(
+    recovered_workspaces: &'a tokio::sync::Mutex<HashSet<String>>,
+    workspace_root: String,
+    event_journal: Arc<EventJournal>,
+) -> WorkRecoveryLease<'a> {
+    let guard = recovered_workspaces.lock().await;
+    let first_recovery_pass = !guard.contains(&workspace_root);
+    WorkRecoveryLease {
+        event_journal,
+        first_recovery_pass,
+        workspace_root,
+        guard,
+    }
 }
 
 pub fn init(app: AppHandle) -> Result<(), Box<dyn std::error::Error>> {
@@ -171,6 +207,7 @@ pub fn init(app: AppHandle) -> Result<(), Box<dyn std::error::Error>> {
     let host = Arc::new(DesktopHost::new(app.clone(), run_coordinator.clone()));
     app.manage(AgentRuntime {
         service: AgentService::with_coordinator(host, run_coordinator),
+        work_recovery_workspaces: tokio::sync::Mutex::new(HashSet::new()),
     });
 
     Ok(())
@@ -187,6 +224,27 @@ async fn ensure_workspace_services(
         .host()
         .workspace_services(workspace_root)
         .await
+}
+
+/// Open the canonical workspace services and take the workspace's one
+/// process-lifetime Work recovery pass. `first_recovery_pass` is true exactly
+/// once after startup, after inherited journal runs have been classified.
+/// Later live reconciles must never infer an orphan from elapsed wall time.
+pub(crate) async fn work_recovery_lease<'a>(
+    runtime: &'a AgentRuntime,
+    workspace_path: &str,
+) -> Result<WorkRecoveryLease<'a>, String> {
+    let workspace_root = format!("{}/.isanagent", workspace_path.trim_end_matches('/'));
+    let journal = ensure_workspace_services(runtime, &workspace_root)
+        .await?
+        .event_journal
+        .clone();
+    Ok(reserve_work_recovery(
+        &runtime.work_recovery_workspaces,
+        workspace_root,
+        journal,
+    )
+    .await)
 }
 
 /// Compatibility helper for history/inbox calls while they are migrated to
@@ -1383,6 +1441,50 @@ pub async fn reply_to_clarification_ticket(
 // Instance construction lives in altai_agent_service::build_shared_instance.
 // DesktopHost::build_instance / augment_tools own the Tauri MCP + checkpoint seams.
 
+#[cfg(test)]
+mod work_recovery_lease_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn failed_first_recovery_is_retried_before_live_mode() {
+        let recovered = tokio::sync::Mutex::new(HashSet::new());
+        let directory = tempfile::tempdir().expect("journal directory");
+        let journal = Arc::new(
+            EventJournal::open(directory.path().join("events.db")).expect("journal"),
+        );
+        let first = reserve_work_recovery(
+            &recovered,
+            "/workspace/.isanagent".to_string(),
+            journal.clone(),
+        )
+        .await;
+        assert!(first.first_recovery_pass);
+
+        // The lease itself is the in-flight reservation: another first pass
+        // cannot overtake the active reconcile/start critical section.
+        assert!(recovered.try_lock().is_err());
+
+        // Simulate reconciliation failure. Drop unlocks without recording a
+        // successful recovery, so the next command must retry restart mode.
+        drop(first);
+        let retry = reserve_work_recovery(
+            &recovered,
+            "/workspace/.isanagent".to_string(),
+            journal.clone(),
+        )
+        .await;
+        assert!(retry.first_recovery_pass);
+        retry.commit();
+
+        let live = reserve_work_recovery(
+            &recovered,
+            "/workspace/.isanagent".to_string(),
+            journal,
+        )
+        .await;
+        assert!(!live.first_recovery_pass);
+    }
+}
 
 #[cfg(test)]
 mod run_event_tests {

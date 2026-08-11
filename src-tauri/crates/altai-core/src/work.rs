@@ -3,13 +3,16 @@
 //! User-scoped SQLite beside the existing host — not a separate control-plane
 //! daemon. Schema matches `altaidevorg/altai-agent-work-os` ENGINEERING.md.
 
+use crate::journal::{EventJournal, JournalError, RunJournalSummary};
 use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
 use std::fmt;
 use std::path::Path;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-const SCHEMA_VERSION: i64 = 1;
+const SCHEMA_VERSION: i64 = 2;
+static NEXT_ID_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 
 const MIGRATION_V1: &str = r#"
 CREATE TABLE IF NOT EXISTS projects (
@@ -96,6 +99,16 @@ CREATE INDEX IF NOT EXISTS work_events_work_time
     ON work_events (work_id, created_at_ms DESC);
 "#;
 
+const MIGRATION_V2: &str = r#"
+CREATE UNIQUE INDEX IF NOT EXISTS attempts_one_active_per_work
+    ON attempts (work_id)
+    WHERE phase IN ('queued', 'running', 'waiting');
+
+CREATE UNIQUE INDEX IF NOT EXISTS attempts_one_binding_per_run
+    ON attempts (run_id)
+    WHERE run_id IS NOT NULL;
+"#;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WorkState {
     Backlog,
@@ -141,6 +154,12 @@ pub enum AttemptPhase {
     Cancelled,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AttemptReconcileMode {
+    Live,
+    RestartRecovery,
+}
+
 impl AttemptPhase {
     pub fn as_str(self) -> &'static str {
         match self {
@@ -182,6 +201,28 @@ pub struct WorkItemRecord {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AttemptRecord {
+    pub id: String,
+    pub work_id: String,
+    pub number: i64,
+    pub role: String,
+    pub phase: AttemptPhase,
+    pub chat_id: Option<String>,
+    pub session_id: Option<String>,
+    pub run_id: Option<String>,
+    pub input_json: Option<String>,
+    pub result_json: Option<String>,
+    pub created_at_ms: u64,
+    pub updated_at_ms: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WorkAttemptStart {
+    pub work: WorkItemRecord,
+    pub attempt: AttemptRecord,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CreateWorkInput {
     pub project_id: String,
     pub title: String,
@@ -194,6 +235,7 @@ pub struct CreateWorkInput {
 pub enum WorkStoreError {
     Io(std::io::Error),
     Sqlite(rusqlite::Error),
+    Journal(JournalError),
     UnsupportedSchema(i64),
     NotFound(String),
     InvalidState(&'static str),
@@ -204,6 +246,7 @@ impl fmt::Display for WorkStoreError {
         match self {
             Self::Io(error) => write!(f, "work store io: {error}"),
             Self::Sqlite(error) => write!(f, "work store sqlite: {error}"),
+            Self::Journal(error) => write!(f, "work attempt journal: {error}"),
             Self::UnsupportedSchema(version) => {
                 write!(f, "work store schema version {version} is newer than supported")
             }
@@ -218,6 +261,12 @@ impl std::error::Error for WorkStoreError {}
 impl From<rusqlite::Error> for WorkStoreError {
     fn from(value: rusqlite::Error) -> Self {
         Self::Sqlite(value)
+    }
+}
+
+impl From<JournalError> for WorkStoreError {
+    fn from(value: JournalError) -> Self {
+        Self::Journal(value)
     }
 }
 
@@ -324,6 +373,38 @@ impl WorkStore {
         Ok(row)
     }
 
+    pub fn get_attempt(&self, id: &str) -> Result<Option<AttemptRecord>> {
+        let connection = self.connection.lock().expect("work store mutex");
+        let mut statement = connection.prepare(
+            r#"
+            SELECT id, work_id, number, role, phase, chat_id, session_id,
+                   run_id, input_json, result_json, created_at_ms, updated_at_ms
+            FROM attempts WHERE id = ?1
+            "#,
+        )?;
+        Ok(statement
+            .query_row(params![id], map_attempt_row)
+            .optional()?)
+    }
+
+    pub fn list_attempts(&self, work_id: &str) -> Result<Vec<AttemptRecord>> {
+        let connection = self.connection.lock().expect("work store mutex");
+        let mut statement = connection.prepare(
+            r#"
+            SELECT id, work_id, number, role, phase, chat_id, session_id,
+                   run_id, input_json, result_json, created_at_ms, updated_at_ms
+            FROM attempts WHERE work_id = ?1
+            ORDER BY number DESC
+            "#,
+        )?;
+        let rows = statement.query_map(params![work_id], map_attempt_row)?;
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(row?);
+        }
+        Ok(out)
+    }
+
     pub fn list_work(&self, project_id: &str, filter: WorkListFilter) -> Result<Vec<WorkItemRecord>> {
         let connection = self.connection.lock().expect("work store mutex");
         let (clause, params_vec) = filter.sql(project_id);
@@ -359,6 +440,21 @@ impl WorkStore {
         }
         let from = WorkState::parse(&current.0)
             .ok_or(WorkStoreError::InvalidState("unknown current state"))?;
+        let has_active_attempt: bool = tx.query_row(
+            r#"
+            SELECT EXISTS(
+                SELECT 1 FROM attempts
+                WHERE work_id = ?1 AND phase IN ('queued', 'running', 'waiting')
+            )
+            "#,
+            params![id],
+            |row| row.get(0),
+        )?;
+        if has_active_attempt {
+            return Err(WorkStoreError::InvalidState(
+                "an active attempt owns the Work transition",
+            ));
+        }
         if !is_allowed_transition(from, next) {
             return Err(WorkStoreError::InvalidState("transition not allowed"));
         }
@@ -385,19 +481,75 @@ impl WorkStore {
     /// Move Work into `in_progress` and open attempt N+1 (queued).
     /// Backlog is promoted through ready in the same transaction.
     pub fn start_attempt(&self, id: &str, expected_revision: i64) -> Result<WorkItemRecord> {
+        Ok(self.start_attempt_with_record(id, expected_revision)?.work)
+    }
+
+    /// CLI-compatible start without a preallocated execution session.
+    pub fn start_attempt_with_record(
+        &self,
+        id: &str,
+        expected_revision: i64,
+    ) -> Result<WorkAttemptStart> {
+        self.start_attempt_with_dispatch(id, expected_revision, None, None)
+    }
+
+    /// Start an Attempt with its execution session durably recorded before
+    /// dispatch. A renderer crash can then recover the acknowledged run from
+    /// the workspace journal instead of relying on volatile IPC state.
+    pub fn start_attempt_with_dispatch(
+        &self,
+        id: &str,
+        expected_revision: i64,
+        chat_id: Option<&str>,
+        session_id: Option<&str>,
+    ) -> Result<WorkAttemptStart> {
+        let normalized_chat = chat_id.map(str::trim).filter(|value| !value.is_empty());
+        let normalized_session = session_id.map(str::trim).filter(|value| !value.is_empty());
+        if normalized_session.is_some() && normalized_chat.is_none() {
+            return Err(WorkStoreError::InvalidState(
+                "an Attempt session requires a chat id",
+            ));
+        }
         let now = now_ms();
         let mut connection = self.connection.lock().expect("work store mutex");
         let tx = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let current: (String, i64) = tx.query_row(
-            "SELECT state, revision FROM work_items WHERE id = ?1",
+        let current: (String, i64, String, String, String) = tx.query_row(
+            r#"
+            SELECT state, revision, title, description, acceptance_criteria
+            FROM work_items WHERE id = ?1
+            "#,
             params![id],
-            |row| Ok((row.get(0)?, row.get(1)?)),
+            |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                ))
+            },
         )?;
         if current.1 != expected_revision {
             return Err(WorkStoreError::InvalidState("revision mismatch"));
         }
         let from = WorkState::parse(&current.0)
             .ok_or(WorkStoreError::InvalidState("unknown current state"))?;
+        let active_attempt: Option<String> = tx
+            .query_row(
+                r#"
+                SELECT id FROM attempts
+                WHERE work_id = ?1 AND phase IN ('queued', 'running', 'waiting')
+                LIMIT 1
+                "#,
+                params![id],
+                |row| row.get(0),
+            )
+            .optional()?;
+        if active_attempt.is_some() {
+            return Err(WorkStoreError::InvalidState(
+                "work already has an active attempt",
+            ));
+        }
         match from {
             WorkState::InReview => {
                 return Err(WorkStoreError::InvalidState(
@@ -409,7 +561,12 @@ impl WorkStore {
                     "cannot start an attempt from a terminal state",
                 ));
             }
-            WorkState::Backlog | WorkState::Ready | WorkState::InProgress => {}
+            WorkState::InProgress => {
+                return Err(WorkStoreError::InvalidState(
+                    "work is already in progress",
+                ));
+            }
+            WorkState::Backlog | WorkState::Ready => {}
         }
 
         if from == WorkState::Backlog {
@@ -453,20 +610,345 @@ impl WorkStore {
             |row| row.get(0),
         )?;
         let attempt_id = new_id("attempt");
+        let input_json = serde_json::json!({
+            "title": current.2,
+            "description": current.3,
+            "acceptanceCriteria": current.4,
+        })
+        .to_string();
         tx.execute(
             r#"
             INSERT INTO attempts (
-                id, work_id, number, role, phase, created_at_ms, updated_at_ms
-            ) VALUES (?1, ?2, ?3, 'executor', 'queued', ?4, ?4)
+                id, work_id, number, role, phase, chat_id, session_id, input_json,
+                created_at_ms, updated_at_ms
+            ) VALUES (?1, ?2, ?3, 'executor', 'queued', ?4, ?5, ?6, ?7, ?7)
             "#,
-            params![attempt_id, id, next_number, now as i64],
+            params![
+                attempt_id,
+                id,
+                next_number,
+                normalized_chat,
+                normalized_session,
+                input_json,
+                now as i64
+            ],
         )?;
         let payload = format!(r#"{{"attemptId":"{attempt_id}","number":{next_number}}}"#);
         append_event(&tx, id, "attempt_started", &payload)?;
         tx.commit()?;
         drop(connection);
-        self.get_work(id)?
-            .ok_or_else(|| WorkStoreError::NotFound(id.to_string()))
+        let work = self
+            .get_work(id)?
+            .ok_or_else(|| WorkStoreError::NotFound(id.to_string()))?;
+        let attempt = self
+            .get_attempt(&attempt_id)?
+            .ok_or_else(|| WorkStoreError::NotFound(attempt_id.clone()))?;
+        Ok(WorkAttemptStart { work, attempt })
+    }
+
+    /// Bind a queued Attempt to the exact execution identity acknowledged by
+    /// IsanAgent. Repeating the same bind is a no-op; rebinding is rejected.
+    pub fn bind_attempt_run(
+        &self,
+        attempt_id: &str,
+        chat_id: &str,
+        session_id: Option<&str>,
+        run_id: &str,
+    ) -> Result<AttemptRecord> {
+        if chat_id.trim().is_empty() || run_id.trim().is_empty() {
+            return Err(WorkStoreError::InvalidState(
+                "chat and run ids are required",
+            ));
+        }
+        let now = now_ms();
+        let mut connection = self.connection.lock().expect("work store mutex");
+        let tx = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let current: (
+            String,
+            String,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+        ) = tx.query_row(
+            r#"
+                SELECT work_id, phase, chat_id, session_id, run_id
+                FROM attempts WHERE id = ?1
+                "#,
+            params![attempt_id],
+            |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                ))
+            },
+        )?;
+        let normalized_session = session_id.map(str::trim).filter(|value| !value.is_empty());
+        if current.2.as_deref() == Some(chat_id)
+            && current.3.as_deref() == normalized_session
+            && current.4.as_deref() == Some(run_id)
+        {
+            tx.commit()?;
+            drop(connection);
+            return self
+                .get_attempt(attempt_id)?
+                .ok_or_else(|| WorkStoreError::NotFound(attempt_id.to_string()));
+        }
+        if current.4.is_some()
+            || current.2.as_deref().is_some_and(|bound| bound != chat_id)
+            || (current.2.is_some() && current.3.as_deref() != normalized_session)
+        {
+            return Err(WorkStoreError::InvalidState(
+                "attempt is already bound to another run",
+            ));
+        }
+        let phase = AttemptPhase::parse(&current.1)
+            .ok_or(WorkStoreError::InvalidState("unknown attempt phase"))?;
+        if phase != AttemptPhase::Queued {
+            return Err(WorkStoreError::InvalidState(
+                "only a queued attempt can bind a run",
+            ));
+        }
+        let duplicate: Option<String> = tx
+            .query_row(
+                "SELECT id FROM attempts WHERE run_id = ?1 LIMIT 1",
+                params![run_id],
+                |row| row.get(0),
+            )
+            .optional()?;
+        if duplicate.is_some() {
+            return Err(WorkStoreError::InvalidState(
+                "run is already bound to another attempt",
+            ));
+        }
+        tx.execute(
+            r#"
+            UPDATE attempts
+            SET phase = 'running', chat_id = ?1, session_id = ?2, run_id = ?3,
+                updated_at_ms = ?4
+            WHERE id = ?5
+            "#,
+            params![chat_id, normalized_session, run_id, now as i64, attempt_id],
+        )?;
+        let payload = serde_json::json!({
+            "attemptId": attempt_id,
+            "chatId": chat_id,
+            "sessionId": normalized_session,
+            "runId": run_id,
+        })
+        .to_string();
+        append_event(&tx, &current.0, "attempt_run_bound", &payload)?;
+        tx.commit()?;
+        drop(connection);
+        self.get_attempt(attempt_id)?
+            .ok_or_else(|| WorkStoreError::NotFound(attempt_id.to_string()))
+    }
+
+    pub fn finish_attempt_by_id(
+        &self,
+        attempt_id: &str,
+        phase: AttemptPhase,
+        result_json: &str,
+    ) -> Result<WorkItemRecord> {
+        self.finish_attempt(Some(attempt_id), None, phase, result_json)?
+            .ok_or_else(|| WorkStoreError::NotFound(attempt_id.to_string()))
+    }
+
+    /// Apply a typed run terminal. Unknown run ids are ignored because every
+    /// agent run passes through the shared event bridge, not only Work runs.
+    pub fn finish_attempt_by_run(
+        &self,
+        run_id: &str,
+        phase: AttemptPhase,
+        result_json: &str,
+    ) -> Result<Option<WorkItemRecord>> {
+        self.finish_attempt(None, Some(run_id), phase, result_json)
+    }
+
+    fn finish_attempt(
+        &self,
+        attempt_id: Option<&str>,
+        run_id: Option<&str>,
+        phase: AttemptPhase,
+        result_json: &str,
+    ) -> Result<Option<WorkItemRecord>> {
+        if !matches!(
+            phase,
+            AttemptPhase::Succeeded | AttemptPhase::Failed | AttemptPhase::Cancelled
+        ) {
+            return Err(WorkStoreError::InvalidState(
+                "attempt finish requires a terminal phase",
+            ));
+        }
+        let (column, value) = match (attempt_id, run_id) {
+            (Some(id), None) if !id.trim().is_empty() => ("id", id),
+            (None, Some(id)) if !id.trim().is_empty() => ("run_id", id),
+            _ => {
+                return Err(WorkStoreError::InvalidState(
+                    "exactly one attempt or run id is required",
+                ))
+            }
+        };
+        let now = now_ms();
+        let mut connection = self.connection.lock().expect("work store mutex");
+        let tx = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let sql = format!("SELECT id, work_id, phase FROM attempts WHERE {column} = ?1 LIMIT 1");
+        let current: Option<(String, String, String)> = tx
+            .query_row(&sql, params![value], |row| {
+                Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+            })
+            .optional()?;
+        let Some((resolved_attempt_id, work_id, current_phase_raw)) = current else {
+            tx.commit()?;
+            return Ok(None);
+        };
+        let current_phase = AttemptPhase::parse(&current_phase_raw)
+            .ok_or(WorkStoreError::InvalidState("unknown attempt phase"))?;
+        if matches!(
+            current_phase,
+            AttemptPhase::Succeeded | AttemptPhase::Failed | AttemptPhase::Cancelled
+        ) {
+            if current_phase != phase {
+                return Err(WorkStoreError::InvalidState(
+                    "attempt already finished with another phase",
+                ));
+            }
+            tx.commit()?;
+            drop(connection);
+            return self.get_work(&work_id);
+        }
+
+        let work_state_raw: String = tx.query_row(
+            "SELECT state FROM work_items WHERE id = ?1",
+            params![work_id],
+            |row| row.get(0),
+        )?;
+        let work_state = WorkState::parse(&work_state_raw)
+            .ok_or(WorkStoreError::InvalidState("unknown current state"))?;
+        if work_state != WorkState::InProgress {
+            return Err(WorkStoreError::InvalidState(
+                "only in_progress work can finish an attempt",
+            ));
+        }
+        tx.execute(
+            r#"
+            UPDATE attempts
+            SET phase = ?1, result_json = ?2, updated_at_ms = ?3
+            WHERE id = ?4
+            "#,
+            params![phase.as_str(), result_json, now as i64, resolved_attempt_id],
+        )?;
+        let next = if phase == AttemptPhase::Succeeded {
+            WorkState::InReview
+        } else {
+            WorkState::Ready
+        };
+        tx.execute(
+            r#"
+            UPDATE work_items
+            SET state = ?1, revision = revision + 1, updated_at_ms = ?2
+            WHERE id = ?3
+            "#,
+            params![next.as_str(), now as i64, work_id],
+        )?;
+        let payload = serde_json::json!({
+            "attemptId": resolved_attempt_id,
+            "phase": phase.as_str(),
+            "from": work_state.as_str(),
+            "to": next.as_str(),
+        })
+        .to_string();
+        append_event(&tx, &work_id, "attempt_finished", &payload)?;
+        tx.commit()?;
+        drop(connection);
+        self.get_work(&work_id)
+    }
+
+    /// Reconcile every active Attempt against the workspace-owned durable
+    /// agent journal. The host must open the journal through its long-lived
+    /// workspace services first so inherited runs are restart-classified once.
+    /// Only the process-lifetime `RestartRecovery` pass may fail a prebound
+    /// Attempt with no journal run; live passes tolerate cold dispatch latency.
+    pub fn reconcile_attempts_from_journal(
+        &self,
+        journal: &EventJournal,
+        mode: AttemptReconcileMode,
+    ) -> Result<Vec<String>> {
+        let attempts = self.list_active_attempts()?;
+        let mut changed_work_ids = Vec::new();
+        for attempt in attempts {
+            let Some(chat_id) = attempt.chat_id.as_deref() else {
+                // CLI-created Attempts intentionally remain manually managed.
+                continue;
+            };
+            let summary = if let Some(run_id) = attempt.run_id.as_deref() {
+                journal.run_summary(run_id)?
+            } else {
+                journal.latest_run_summary_for_chat(chat_id)?
+            };
+            let Some(summary) = summary else {
+                if mode == AttemptReconcileMode::RestartRecovery {
+                    self.finish_attempt_by_id(
+                        &attempt.id,
+                        AttemptPhase::Failed,
+                        &serde_json::json!({
+                            "kind": "failed",
+                            "failure": "No durable agent run was recorded for this Attempt.",
+                            "retryable": true,
+                        })
+                        .to_string(),
+                    )?;
+                    push_unique(&mut changed_work_ids, &attempt.work_id);
+                }
+                continue;
+            };
+            if summary.chat_id != chat_id {
+                return Err(WorkStoreError::InvalidState(
+                    "journal run does not belong to the Attempt chat",
+                ));
+            }
+            if let Some(bound_run_id) = attempt.run_id.as_deref() {
+                if bound_run_id != summary.run_id {
+                    return Err(WorkStoreError::InvalidState(
+                        "journal run does not match the Attempt binding",
+                    ));
+                }
+            } else {
+                self.bind_attempt_run(
+                    &attempt.id,
+                    chat_id,
+                    attempt.session_id.as_deref(),
+                    &summary.run_id,
+                )?;
+                push_unique(&mut changed_work_ids, &attempt.work_id);
+            }
+            if let Some((phase, result_json)) = terminal_attempt_outcome(&summary)? {
+                self.finish_attempt_by_run(&summary.run_id, phase, &result_json)?;
+                push_unique(&mut changed_work_ids, &attempt.work_id);
+            }
+        }
+        Ok(changed_work_ids)
+    }
+
+    fn list_active_attempts(&self) -> Result<Vec<AttemptRecord>> {
+        let connection = self.connection.lock().expect("work store mutex");
+        let mut statement = connection.prepare(
+            r#"
+            SELECT id, work_id, number, role, phase, chat_id, session_id,
+                   run_id, input_json, result_json, created_at_ms, updated_at_ms
+            FROM attempts
+            WHERE phase IN ('queued', 'running', 'waiting')
+            ORDER BY created_at_ms ASC, id ASC
+            "#,
+        )?;
+        let rows = statement.query_map([], map_attempt_row)?;
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(row?);
+        }
+        Ok(out)
     }
 
     /// Mark the latest attempt succeeded and move Work to `in_review`.
@@ -494,21 +976,39 @@ impl WorkStore {
                 "only in_progress work can enter review",
             ));
         }
-        let attempt_id: String = tx.query_row(
+        let attempt: (String, String, Option<String>, Option<String>, Option<String>) = tx.query_row(
             r#"
-            SELECT id FROM attempts WHERE work_id = ?1
+            SELECT id, phase, chat_id, session_id, run_id
+            FROM attempts WHERE work_id = ?1
             ORDER BY number DESC LIMIT 1
             "#,
             params![id],
-            |row| row.get(0),
+            |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                ))
+            },
         )?;
+        if attempt.1 != AttemptPhase::Queued.as_str()
+            || attempt.2.is_some()
+            || attempt.3.is_some()
+            || attempt.4.is_some()
+        {
+            return Err(WorkStoreError::InvalidState(
+                "a bound Attempt can only finish from its typed run terminal",
+            ));
+        }
         tx.execute(
             r#"
             UPDATE attempts
             SET phase = 'succeeded', updated_at_ms = ?1
             WHERE id = ?2
             "#,
-            params![now as i64, attempt_id],
+            params![now as i64, attempt.0],
         )?;
         tx.execute(
             r#"
@@ -639,6 +1139,49 @@ impl WorkListFilter {
     }
 }
 
+fn terminal_attempt_outcome(
+    summary: &RunJournalSummary,
+) -> Result<Option<(AttemptPhase, String)>> {
+    if summary.terminal_seq.is_none() {
+        return Ok(None);
+    }
+    if summary.terminal_kind.as_deref() != Some("run_terminated") {
+        return Err(WorkStoreError::InvalidState(
+            "journal terminal is not a typed run termination",
+        ));
+    }
+    let outcome = summary
+        .terminal_payload
+        .as_ref()
+        .and_then(|payload| payload.get("outcome"))
+        .ok_or(WorkStoreError::InvalidState(
+            "journal run termination has no outcome",
+        ))?;
+    let kind = outcome
+        .get("kind")
+        .and_then(serde_json::Value::as_str)
+        .ok_or(WorkStoreError::InvalidState(
+            "journal run termination has no outcome kind",
+        ))?;
+    let phase = match kind {
+        "completed" => AttemptPhase::Succeeded,
+        "cancelled" => AttemptPhase::Cancelled,
+        "failed" | "stuck" | "budget_exhausted" => AttemptPhase::Failed,
+        _ => {
+            return Err(WorkStoreError::InvalidState(
+                "journal run termination has an unknown outcome kind",
+            ))
+        }
+    };
+    Ok(Some((phase, outcome.to_string())))
+}
+
+fn push_unique(values: &mut Vec<String>, value: &str) {
+    if !values.iter().any(|current| current == value) {
+        values.push(value.to_string());
+    }
+}
+
 fn is_allowed_transition(from: WorkState, to: WorkState) -> bool {
     use WorkState::*;
     matches!(
@@ -673,6 +1216,25 @@ fn map_work_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<WorkItemRecord> {
         revision: row.get(8)?,
         created_at_ms: row.get::<_, i64>(9)? as u64,
         updated_at_ms: row.get::<_, i64>(10)? as u64,
+    })
+}
+
+fn map_attempt_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<AttemptRecord> {
+    let phase_raw: String = row.get(4)?;
+    let phase = AttemptPhase::parse(&phase_raw).unwrap_or(AttemptPhase::Queued);
+    Ok(AttemptRecord {
+        id: row.get(0)?,
+        work_id: row.get(1)?,
+        number: row.get(2)?,
+        role: row.get(3)?,
+        phase,
+        chat_id: row.get(5)?,
+        session_id: row.get(6)?,
+        run_id: row.get(7)?,
+        input_json: row.get(8)?,
+        result_json: row.get(9)?,
+        created_at_ms: row.get::<_, i64>(10)? as u64,
+        updated_at_ms: row.get::<_, i64>(11)? as u64,
     })
 }
 
@@ -719,6 +1281,34 @@ fn migrate(connection: &mut Connection) -> Result<()> {
             params![now_ms() as i64],
         )?;
     }
+    if current < 2 {
+        // Repair duplicate active Attempts created by the pre-v2 InProgress
+        // retry bug, preserving only the newest Attempt as the recovery owner.
+        tx.execute(
+            r#"
+            UPDATE attempts
+            SET phase = 'failed',
+                result_json = COALESCE(
+                    result_json,
+                    '{"kind":"failed","failure":"Superseded by a newer active Attempt during schema repair.","retryable":true}'
+                ),
+                updated_at_ms = ?1
+            WHERE phase IN ('queued', 'running', 'waiting')
+              AND EXISTS (
+                  SELECT 1 FROM attempts AS newer
+                  WHERE newer.work_id = attempts.work_id
+                    AND newer.phase IN ('queued', 'running', 'waiting')
+                    AND newer.number > attempts.number
+              )
+            "#,
+            params![now_ms() as i64],
+        )?;
+        tx.execute_batch(MIGRATION_V2)?;
+        tx.execute(
+            "INSERT INTO work_store_migrations (version, applied_at_ms) VALUES (2, ?1)",
+            params![now_ms() as i64],
+        )?;
+    }
     tx.commit()?;
     Ok(())
 }
@@ -733,13 +1323,19 @@ fn now_ms() -> u64 {
 
 fn new_id(prefix: &str) -> String {
     let millis = now_ms();
-    let rand = (millis ^ (millis << 13)) % 1_000_000;
-    format!("{prefix}_{millis}_{rand:06}")
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos() as u64;
+    let sequence = NEXT_ID_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+    let nonce = nanos ^ sequence.rotate_left(17);
+    format!("{prefix}_{millis}_{nonce:016x}")
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::journal::JournalEvent;
     use std::time::{SystemTime, UNIX_EPOCH};
 
     fn temp_db() -> std::path::PathBuf {
@@ -831,6 +1427,447 @@ mod tests {
         assert_eq!(returned.state, WorkState::Ready);
 
         let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn attempt_run_binding_and_success_are_durable_and_idempotent() {
+        let path = temp_db();
+        let store = WorkStore::open(&path).expect("open");
+        store
+            .ensure_project("proj_1", "Demo", "/tmp/demo")
+            .expect("project");
+        let created = store
+            .create_work(CreateWorkInput {
+                project_id: "proj_1".into(),
+                title: "Bind a real run".into(),
+                description: "Use IsanAgent".into(),
+                acceptance_criteria: "Run id survives restart".into(),
+                assignee_ref: None,
+            })
+            .expect("create");
+        let started = store
+            .start_attempt_with_record(&created.id, created.revision)
+            .expect("start");
+        assert_eq!(started.work.state, WorkState::InProgress);
+        assert_eq!(started.attempt.phase, AttemptPhase::Queued);
+        assert!(started
+            .attempt
+            .input_json
+            .as_deref()
+            .is_some_and(|json| json.contains("Run id survives restart")));
+
+        let bound = store
+            .bind_attempt_run(
+                &started.attempt.id,
+                "chat-work",
+                Some("chat-work"),
+                "run-work",
+            )
+            .expect("bind");
+        assert_eq!(bound.phase, AttemptPhase::Running);
+        assert_eq!(bound.run_id.as_deref(), Some("run-work"));
+        let rebound = store
+            .bind_attempt_run(
+                &started.attempt.id,
+                "chat-work",
+                Some("chat-work"),
+                "run-work",
+            )
+            .expect("same bind is idempotent");
+        assert_eq!(rebound, bound);
+        assert!(store
+            .bind_attempt_run(
+                &started.attempt.id,
+                "another-chat",
+                Some("another-chat"),
+                "another-run",
+            )
+            .is_err());
+
+        drop(store);
+        let reopened = WorkStore::open(&path).expect("reopen");
+        let attempts = reopened.list_attempts(&created.id).expect("attempts");
+        assert_eq!(attempts.len(), 1);
+        assert_eq!(attempts[0].run_id.as_deref(), Some("run-work"));
+
+        let in_review = reopened
+            .finish_attempt_by_run(
+                "run-work",
+                AttemptPhase::Succeeded,
+                r#"{"kind":"completed"}"#,
+            )
+            .expect("finish")
+            .expect("bound work");
+        assert_eq!(in_review.state, WorkState::InReview);
+        let revision = in_review.revision;
+        let repeated = reopened
+            .finish_attempt_by_run(
+                "run-work",
+                AttemptPhase::Succeeded,
+                r#"{"kind":"completed"}"#,
+            )
+            .expect("repeat finish")
+            .expect("bound work");
+        assert_eq!(repeated.revision, revision);
+        assert_eq!(repeated.state, WorkState::InReview);
+        let finished_attempt = reopened
+            .get_attempt(&started.attempt.id)
+            .expect("get attempt")
+            .expect("finished attempt");
+        assert_eq!(finished_attempt.phase, AttemptPhase::Succeeded);
+        assert_eq!(
+            finished_attempt.result_json.as_deref(),
+            Some(r#"{"kind":"completed"}"#)
+        );
+        assert!(reopened
+            .finish_attempt_by_run(
+                "not-a-work-run",
+                AttemptPhase::Succeeded,
+                r#"{"kind":"completed"}"#,
+            )
+            .expect("unknown agent run is ignored")
+            .is_none());
+
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn failed_attempt_returns_work_to_ready_without_done() {
+        let path = temp_db();
+        let store = WorkStore::open(&path).expect("open");
+        store
+            .ensure_project("proj_1", "Demo", "/tmp/demo")
+            .expect("project");
+        let created = store
+            .create_work(CreateWorkInput {
+                project_id: "proj_1".into(),
+                title: "Retry failure".into(),
+                description: String::new(),
+                acceptance_criteria: String::new(),
+                assignee_ref: None,
+            })
+            .expect("create");
+        let started = store
+            .start_attempt_with_record(&created.id, created.revision)
+            .expect("start");
+        let ready = store
+            .finish_attempt_by_id(
+                &started.attempt.id,
+                AttemptPhase::Failed,
+                r#"{"kind":"failed"}"#,
+            )
+            .expect("fail attempt");
+        assert_eq!(ready.state, WorkState::Ready);
+        let attempts = store.list_attempts(&created.id).expect("attempts");
+        assert_eq!(attempts[0].phase, AttemptPhase::Failed);
+
+        let retried = store
+            .start_attempt_with_record(&ready.id, ready.revision)
+            .expect("retry");
+        assert_eq!(retried.attempt.number, 2);
+        assert_eq!(retried.work.state, WorkState::InProgress);
+
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn active_attempt_owns_in_progress_and_has_a_database_backstop() {
+        let path = temp_db();
+        let store = WorkStore::open(&path).expect("open");
+        store
+            .ensure_project("proj_1", "Demo", "/tmp/demo")
+            .expect("project");
+        let created = store
+            .create_work(CreateWorkInput {
+                project_id: "proj_1".into(),
+                title: "Only one active attempt".into(),
+                description: String::new(),
+                acceptance_criteria: String::new(),
+                assignee_ref: None,
+            })
+            .expect("create");
+        let started = store
+            .start_attempt_with_dispatch(
+                &created.id,
+                created.revision,
+                Some("chat-owned"),
+                Some("chat-owned"),
+            )
+            .expect("start");
+
+        assert!(store
+            .start_attempt_with_record(&created.id, started.work.revision)
+            .is_err());
+        assert!(store
+            .transition(&created.id, started.work.revision, WorkState::Ready)
+            .is_err());
+        assert!(store
+            .mark_attempt_ready_for_review(&created.id, started.work.revision)
+            .is_err());
+
+        let connection = store.connection.lock().expect("work store mutex");
+        let duplicate = connection.execute(
+            r#"
+            INSERT INTO attempts (
+                id, work_id, number, role, phase, created_at_ms, updated_at_ms
+            ) VALUES ('attempt-duplicate', ?1, 2, 'executor', 'queued', 1, 1)
+            "#,
+            params![created.id],
+        );
+        assert!(duplicate.is_err());
+        drop(connection);
+
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn schema_v2_repairs_duplicate_active_attempts_before_unique_index() {
+        let path = temp_db();
+        let connection = Connection::open(&path).expect("legacy db");
+        connection
+            .execute_batch(
+                r#"
+                CREATE TABLE work_store_migrations (
+                    version INTEGER PRIMARY KEY,
+                    applied_at_ms INTEGER NOT NULL
+                );
+                INSERT INTO work_store_migrations VALUES (1, 1);
+                "#,
+            )
+            .expect("migration table");
+        connection.execute_batch(MIGRATION_V1).expect("v1 schema");
+        connection
+            .execute(
+                r#"
+                INSERT INTO projects
+                    (id, name, workspace_ref, created_at_ms, updated_at_ms)
+                VALUES ('proj_1', 'Demo', '/tmp/demo', 1, 1)
+                "#,
+                [],
+            )
+            .expect("project");
+        connection
+            .execute(
+                r#"
+                INSERT INTO work_items (
+                    id, project_id, title, description, acceptance_criteria,
+                    state, revision, created_at_ms, updated_at_ms
+                ) VALUES ('work_1', 'proj_1', 'Repair', '', '', 'in_progress', 2, 1, 1)
+                "#,
+                [],
+            )
+            .expect("work");
+        for (id, number) in [("attempt_old", 1), ("attempt_new", 2)] {
+            connection
+                .execute(
+                    r#"
+                    INSERT INTO attempts (
+                        id, work_id, number, role, phase, created_at_ms, updated_at_ms
+                    ) VALUES (?1, 'work_1', ?2, 'executor', 'queued', 1, 1)
+                    "#,
+                    params![id, number],
+                )
+                .expect("legacy active attempt");
+        }
+        drop(connection);
+
+        let store = WorkStore::open(&path).expect("migrate v2");
+        let attempts = store.list_attempts("work_1").expect("attempts");
+        assert_eq!(attempts[0].phase, AttemptPhase::Queued);
+        assert_eq!(attempts[1].phase, AttemptPhase::Failed);
+        let connection = store.connection.lock().expect("work store mutex");
+        assert!(connection
+            .execute(
+                r#"
+                INSERT INTO attempts (
+                    id, work_id, number, role, phase, created_at_ms, updated_at_ms
+                ) VALUES ('attempt_third', 'work_1', 3, 'executor', 'queued', 1, 1)
+                "#,
+                [],
+            )
+            .is_err());
+        drop(connection);
+
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn journal_reconcile_recovers_binding_terminal_and_orphan() {
+        let path = temp_db();
+        let journal_path = path.with_extension("journal.db");
+        let store = WorkStore::open(&path).expect("open");
+        store
+            .ensure_project("proj_1", "Demo", "/tmp/demo")
+            .expect("project");
+        let created = store
+            .create_work(CreateWorkInput {
+                project_id: "proj_1".into(),
+                title: "Recover from journal".into(),
+                description: String::new(),
+                acceptance_criteria: String::new(),
+                assignee_ref: None,
+            })
+            .expect("create");
+        let started = store
+            .start_attempt_with_dispatch(
+                &created.id,
+                created.revision,
+                Some("chat-recovery"),
+                Some("chat-recovery"),
+            )
+            .expect("start");
+        assert_eq!(started.attempt.chat_id.as_deref(), Some("chat-recovery"));
+        assert!(started.attempt.run_id.is_none());
+        drop(store);
+
+        let journal = EventJournal::open(&journal_path).expect("journal");
+        let reopened = WorkStore::open(&path).expect("reopen");
+        reopened
+            .connection
+            .lock()
+            .expect("work store mutex")
+            .execute(
+                "UPDATE attempts SET created_at_ms = 1, updated_at_ms = 1 WHERE id = ?1",
+                params![started.attempt.id],
+            )
+            .expect("age cold dispatch beyond the former timeout");
+        assert!(reopened
+            .reconcile_attempts_from_journal(&journal, AttemptReconcileMode::Live)
+            .expect("current-process cold dispatch remains queued")
+            .is_empty());
+        assert_eq!(
+            reopened
+                .get_attempt(&started.attempt.id)
+                .expect("attempt")
+                .expect("cold attempt")
+                .phase,
+            AttemptPhase::Queued
+        );
+        journal
+            .append(&JournalEvent::now(
+                1,
+                "run-recovery",
+                1,
+                "chat-recovery",
+                "run_started",
+                serde_json::json!({
+                    "type": "run_started",
+                    "run_id": "run-recovery"
+                }),
+            ))
+            .expect("start event");
+
+        let changed = reopened
+            .reconcile_attempts_from_journal(&journal, AttemptReconcileMode::Live)
+            .expect("bind from journal");
+        assert_eq!(changed, vec![created.id.clone()]);
+        let bound = reopened
+            .get_attempt(&started.attempt.id)
+            .expect("attempt")
+            .expect("bound attempt");
+        assert_eq!(bound.phase, AttemptPhase::Running);
+        assert_eq!(bound.run_id.as_deref(), Some("run-recovery"));
+
+        journal
+            .append_terminal(&JournalEvent::now(
+                1,
+                "run-recovery",
+                2,
+                "chat-recovery",
+                "run_terminated",
+                serde_json::json!({
+                    "type": "run_terminated",
+                    "run_id": "run-recovery",
+                    "outcome": { "kind": "completed" }
+                }),
+            ))
+            .expect("terminal event");
+        reopened
+            .reconcile_attempts_from_journal(&journal, AttemptReconcileMode::Live)
+            .expect("finish from journal");
+        let reviewed = reopened
+            .get_work(&created.id)
+            .expect("work")
+            .expect("reviewed work");
+        assert_eq!(reviewed.state, WorkState::InReview);
+        assert!(reopened
+            .reconcile_attempts_from_journal(&journal, AttemptReconcileMode::Live)
+            .expect("idempotent reconcile")
+            .is_empty());
+
+        let returned = reopened
+            .human_review(&reviewed.id, reviewed.revision, false, "retry")
+            .expect("return");
+        let orphan = reopened
+            .start_attempt_with_dispatch(
+                &returned.id,
+                returned.revision,
+                Some("chat-orphan"),
+                Some("chat-orphan"),
+            )
+            .expect("orphan start");
+        assert!(reopened
+            .reconcile_attempts_from_journal(&journal, AttemptReconcileMode::Live)
+            .expect("live pass tolerates unjournaled dispatch")
+            .is_empty());
+        assert_eq!(
+            reopened
+                .get_attempt(&orphan.attempt.id)
+                .expect("attempt")
+                .expect("live orphan")
+                .phase,
+            AttemptPhase::Queued
+        );
+        reopened
+            .reconcile_attempts_from_journal(
+                &journal,
+                AttemptReconcileMode::RestartRecovery,
+            )
+            .expect("fail orphan");
+        let recovered = reopened
+            .get_work(&created.id)
+            .expect("work")
+            .expect("ready work");
+        assert_eq!(recovered.state, WorkState::Ready);
+        assert_eq!(
+            reopened
+                .get_attempt(&orphan.attempt.id)
+                .expect("attempt")
+                .expect("orphan attempt")
+                .phase,
+            AttemptPhase::Failed
+        );
+
+        let _ = std::fs::remove_file(path);
+        let _ = std::fs::remove_file(journal_path);
+    }
+
+    #[test]
+    fn typed_journal_terminals_map_to_attempt_phases() {
+        for (kind, expected) in [
+            ("completed", AttemptPhase::Succeeded),
+            ("cancelled", AttemptPhase::Cancelled),
+            ("failed", AttemptPhase::Failed),
+            ("stuck", AttemptPhase::Failed),
+            ("budget_exhausted", AttemptPhase::Failed),
+        ] {
+            let summary = RunJournalSummary {
+                run_id: "run-1".into(),
+                chat_id: "chat-1".into(),
+                last_seq: 2,
+                terminal_seq: Some(2),
+                terminal_kind: Some("run_terminated".into()),
+                terminal_payload: Some(serde_json::json!({
+                    "type": "run_terminated",
+                    "run_id": "run-1",
+                    "outcome": { "kind": kind }
+                })),
+            };
+            let (actual, _) = terminal_attempt_outcome(&summary)
+                .expect("typed terminal")
+                .expect("terminal outcome");
+            assert_eq!(actual, expected);
+        }
     }
 
     #[test]

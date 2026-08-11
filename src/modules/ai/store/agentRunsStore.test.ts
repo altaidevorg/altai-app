@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import type { ParsedAgentEvent } from "../lib/agentEventBridge";
-import { useAgentRunsStore } from "./agentRunsStore";
+import { reduceAgentRunState, useAgentRunsStore } from "./agentRunsStore";
 
 const event = (seq: number, value: object, runId = "run-1") =>
   ({
@@ -14,6 +14,27 @@ const event = (seq: number, value: object, runId = "run-1") =>
 
 describe("agentRunsStore lifecycle admission", () => {
   beforeEach(() => useAgentRunsStore.setState({ runs: {} }));
+
+  it("folds an isolated exact-run snapshot without touching the registry", () => {
+    const started = reduceAgentRunState(
+      undefined,
+      event(1, { type: "run_started" }, "run-history"),
+    );
+    const completed = reduceAgentRunState(
+      started,
+      event(
+        2,
+        { type: "run_terminated", outcome: { kind: "completed" } },
+        "run-history",
+      ),
+    );
+    expect(completed).toMatchObject({
+      runId: "run-history",
+      lastSeq: 2,
+      completed: true,
+    });
+    expect(useAgentRunsStore.getState().runs).toEqual({});
+  });
 
   it("advances sequence and rejects duplicate and out-of-order events", () => {
     const ingest = useAgentRunsStore.getState().ingest;

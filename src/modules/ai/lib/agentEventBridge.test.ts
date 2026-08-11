@@ -1,12 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   describeTerminalOutcomeAttention,
+  hydratePersistedAgentRun,
   ingestAgentEventEnvelope,
   isRecoverableAttentionMessage,
   isRecoverableRunOutcome,
   isRetryableRunOutcome,
   parseAgentEventPayload,
   replayRestoredAgentRuns,
+  resolveAgentRunDeepLink,
   resetBudgetSegmentAutoContinues,
 } from "./agentEventBridge";
 import { native } from "./native";
@@ -27,7 +29,152 @@ describe("durable event replay", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     useAgentRunsStore.setState({ runs: {} });
-    useChatStore.setState({ activeSessionId: "chat-1", nativeMessages: [] });
+    useChatStore.setState({
+      activeSessionId: "chat-1",
+      nativeMessages: [],
+      sessions: [],
+    });
+  });
+
+  it("announces the typed terminal after journal-backed delivery", () => {
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("window", { dispatchEvent });
+    vi.stubGlobal(
+      "CustomEvent",
+      class TestCustomEvent {
+        constructor(
+          public type: string,
+          public init: { detail: unknown },
+        ) {}
+      },
+    );
+
+    ingestAgentEventEnvelope(
+      envelope({ type: "run_started", run_id: "run-1" }),
+    );
+    ingestAgentEventEnvelope(
+      envelope(
+        {
+          type: "run_terminated",
+          run_id: "run-1",
+          outcome: { kind: "completed" },
+        },
+        { seq: 2 },
+      ),
+    );
+
+    expect(dispatchEvent).toHaveBeenCalledTimes(1);
+    expect(dispatchEvent.mock.calls[0]?.[0]).toMatchObject({
+      type: "altai:agent-terminal-journaled",
+      init: { detail: { chatId: "chat-1", runId: "run-1" } },
+    });
+    vi.unstubAllGlobals();
+  });
+
+  it("hydrates the exact persisted run without mutating the chat-keyed live run", async () => {
+    ingestAgentEventEnvelope(
+      envelope(
+        { type: "run_started", run_id: "run-latest" },
+        { runId: "run-latest" },
+      ),
+    );
+    ingestAgentEventEnvelope(
+      envelope(
+        {
+          type: "run_terminated",
+          run_id: "run-latest",
+          outcome: { kind: "completed" },
+        },
+        { runId: "run-latest", seq: 2 },
+      ),
+    );
+    const replay = vi.spyOn(native, "agentReplayEvents").mockImplementation(
+      async (chatId, runId, afterSeq, workspacePath) => {
+        expect({ chatId, runId, workspacePath }).toEqual({
+          chatId: "chat-1",
+          runId: "run-history",
+          workspacePath: "/workspace-a",
+        });
+        if (afterSeq === 0) {
+          return [
+            envelope(
+              { type: "run_started", run_id: runId },
+              { chatId, runId, seq: 1 },
+            ),
+            envelope(
+              { type: "thinking", content: "historical step" },
+              { chatId, runId, seq: 2 },
+            ),
+          ];
+        }
+        if (afterSeq === 2) {
+          return [
+            envelope(
+              {
+                type: "run_terminated",
+                run_id: runId,
+                outcome: { kind: "completed" },
+              },
+              { chatId, runId, seq: 3 },
+            ),
+          ];
+        }
+        return [];
+      },
+    );
+
+    const snapshot = await hydratePersistedAgentRun(
+      "/workspace-a",
+      "chat-1",
+      "run-history",
+    );
+
+    expect(snapshot).toMatchObject({
+      runId: "run-history",
+      lastSeq: 3,
+      completed: true,
+      outcome: { kind: "completed" },
+    });
+    expect(useAgentRunsStore.getState().runs["chat-1"]).toMatchObject({
+      runId: "run-latest",
+      lastSeq: 2,
+    });
+    expect(replay).toHaveBeenNthCalledWith(
+      1,
+      "chat-1",
+      "run-history",
+      0,
+      "/workspace-a",
+    );
+  });
+
+  it("rejects a persisted replay sequence gap", async () => {
+    vi.spyOn(native, "agentReplayEvents").mockResolvedValueOnce([
+      envelope({ type: "run_started", run_id: "run-gap" }, { runId: "run-gap" }),
+      envelope(
+        { type: "thinking", content: "skipped" },
+        { runId: "run-gap", seq: 3 },
+      ),
+    ]);
+
+    await expect(
+      hydratePersistedAgentRun("/workspace", "chat-1", "run-gap"),
+    ).rejects.toThrow("sequence gap");
+  });
+
+  it("requires workspace, chat, and run for an exact deep-link", () => {
+    expect(
+      resolveAgentRunDeepLink({
+        workspacePath: " /workspace ",
+        chatId: " chat-1 ",
+        runId: " run-1 ",
+      }),
+    ).toEqual({
+      workspacePath: "/workspace",
+      chatId: "chat-1",
+      runId: "run-1",
+    });
+    expect(resolveAgentRunDeepLink({ chatId: "chat-1", runId: "run-1" })).toBeNull();
   });
 
   it("recovers a persisted-before-delivery run without replaying UI mutations", async () => {

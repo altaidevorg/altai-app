@@ -63,6 +63,17 @@ const EMPTY: RunState = {
   completed: false,
 };
 
+function emptyRunState(): RunState {
+  return {
+    ...EMPTY,
+    tokens: { ...EMPTY.tokens },
+    subagents: [],
+    verifications: [],
+    changes: [],
+    failures: [],
+  };
+}
+
 type State = {
   runs: Record<string, RunState>;
   admitAccepted: (chatId: string, runId: string) => boolean;
@@ -105,8 +116,8 @@ export const useAgentRunsStore = create<State>((set) => ({
   ingest: (chatId, ev) => {
     let accepted = false;
     set((s) => {
-      const cur = s.runs[chatId] ?? EMPTY;
-      const next = reduce(cur, ev);
+      const cur = s.runs[chatId] ?? emptyRunState();
+      const next = reduceAgentRunState(cur, ev);
       if (next === cur) return s;
       accepted = true;
       return { runs: { ...s.runs, [chatId]: next } };
@@ -155,7 +166,11 @@ export const useAgentRunsStore = create<State>((set) => ({
     }),
 }));
 
-function reduce(cur: RunState, ev: ParsedAgentEvent): RunState {
+export function reduceAgentRunState(
+  current: RunState | undefined,
+  ev: ParsedAgentEvent,
+): RunState {
+  let cur = current ?? emptyRunState();
   if (ev.version === 1) {
     if (ev.type === "run_started") {
       const confirmsAcceptedRun =
