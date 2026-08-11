@@ -1,15 +1,18 @@
 use altai_core::{
-    CreateWorkInput, WorkInboxRecord, WorkItemRecord, WorkListFilter, WorkState, WorkStore,
+    AttemptPhase, AttemptReconcileMode, AttemptRecord, CreateWorkInput, EventJournal,
+    WorkAttemptStart, WorkInboxRecord, WorkItemRecord, WorkListFilter, WorkState, WorkStore,
     WorkStoreError, WorkspacePaths,
 };
 use serde_json::{json, Map, Value};
 
-pub(super) const CAPABILITIES: [&str; 8] = [
+pub(super) const CAPABILITIES: [&str; 10] = [
     "work/list",
     "work/get",
     "work/create",
     "work/transition",
     "work/start",
+    "work/start-run",
+    "work/attempts/list",
     "work/ready-for-review",
     "work/review",
     "work/inbox/list",
@@ -109,6 +112,13 @@ pub(super) fn dispatch(
                 .map(work_item_value)
                 .map_err(store_error)
         }
+        "work/attempts/list" => {
+            let work_id = required_string(&params, "workId")?;
+            store
+                .list_attempts(work_id)
+                .map(|attempts| Value::Array(attempts.into_iter().map(attempt_value).collect()))
+                .map_err(store_error)
+        }
         "work/ready-for-review" => {
             let work_id = required_string(&params, "workId")?;
             let expected_revision = required_revision(&params)?;
@@ -149,6 +159,93 @@ fn open_store(workspace: &WorkspacePaths) -> Result<(String, WorkStore), RpcErro
         .ensure_project(&project_id, &project_id, &workspace.root.to_string_lossy())
         .map_err(store_error)?;
     Ok((project_id, store))
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub(super) struct StartRunRequest {
+    pub work_id: String,
+    pub expected_revision: i64,
+}
+
+pub(super) fn parse_start_run(params: Option<Value>) -> Result<StartRunRequest, RpcError> {
+    let params = object_params(params)?;
+    Ok(StartRunRequest {
+        work_id: required_string(&params, "workId")?.to_string(),
+        expected_revision: required_revision(&params)?,
+    })
+}
+
+pub(super) fn reconcile(
+    workspace: &WorkspacePaths,
+    journal: &EventJournal,
+    mode: AttemptReconcileMode,
+) -> Result<(), RpcError> {
+    let (_, store) = open_store(workspace)?;
+    store
+        .reconcile_attempts_from_journal(journal, mode)
+        .map(|_| ())
+        .map_err(store_error)
+}
+
+pub(super) fn begin_start_run(
+    workspace: &WorkspacePaths,
+    request: &StartRunRequest,
+    chat_id: &str,
+) -> Result<WorkAttemptStart, RpcError> {
+    let (_, store) = open_store(workspace)?;
+    store
+        .start_attempt_with_dispatch(
+            &request.work_id,
+            request.expected_revision,
+            Some(chat_id),
+            Some(chat_id),
+        )
+        .map_err(store_error)
+}
+
+pub(super) fn bind_start_run(
+    workspace: &WorkspacePaths,
+    attempt_id: &str,
+    chat_id: &str,
+    run_id: &str,
+) -> Result<AttemptRecord, RpcError> {
+    let (_, store) = open_store(workspace)?;
+    store
+        .bind_attempt_run(attempt_id, chat_id, Some(chat_id), run_id)
+        .map_err(store_error)
+}
+
+pub(super) fn fail_start_run(
+    workspace: &WorkspacePaths,
+    attempt_id: &str,
+    failure: &str,
+) -> Result<(), RpcError> {
+    let (_, store) = open_store(workspace)?;
+    store
+        .finish_attempt_by_id(
+            attempt_id,
+            AttemptPhase::Failed,
+            &json!({"kind": "failed", "failure": failure, "retryable": true}).to_string(),
+        )
+        .map(|_| ())
+        .map_err(store_error)
+}
+
+pub(super) fn start_run_result(
+    workspace: &WorkspacePaths,
+    work_id: &str,
+    attempt_id: &str,
+) -> Result<Value, RpcError> {
+    let (_, store) = open_store(workspace)?;
+    let work = store
+        .get_work(work_id)
+        .map_err(store_error)?
+        .ok_or_else(|| RpcError::internal("work_missing_after_start"))?;
+    let attempt = store
+        .get_attempt(attempt_id)
+        .map_err(store_error)?
+        .ok_or_else(|| RpcError::internal("attempt_missing_after_start"))?;
+    Ok(json!({"work": work_item_value(work), "attempt": attempt_value(attempt)}))
 }
 
 fn object_params(params: Option<Value>) -> Result<Map<String, Value>, RpcError> {
@@ -238,9 +335,29 @@ fn work_inbox_value(item: WorkInboxRecord) -> Value {
     })
 }
 
+fn attempt_value(attempt: AttemptRecord) -> Value {
+    json!({
+        "id": attempt.id,
+        "workId": attempt.work_id,
+        "number": attempt.number,
+        "role": attempt.role,
+        "phase": attempt.phase.as_str(),
+        "chatId": attempt.chat_id,
+        "sessionId": attempt.session_id,
+        "runId": attempt.run_id,
+        "inputJson": attempt.input_json,
+        "resultJson": attempt.result_json,
+        "createdAtMs": attempt.created_at_ms,
+        "updatedAtMs": attempt.updated_at_ms,
+    })
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{dispatch, handles, CAPABILITIES};
+    use super::{
+        begin_start_run, dispatch, fail_start_run, handles, start_run_result, StartRunRequest,
+        CAPABILITIES,
+    };
     use altai_core::resolve_workspace_from;
     use serde_json::{json, Value};
     use std::path::Path;
@@ -343,9 +460,11 @@ mod tests {
 
     #[test]
     fn router_exposes_only_canonical_methods_and_rejects_snake_case_params() {
-        assert_eq!(CAPABILITIES.len(), 8);
+        assert_eq!(CAPABILITIES.len(), 10);
         assert!(handles("work/ready-for-review"));
         assert!(handles("work/inbox/list"));
+        assert!(handles("work/start-run"));
+        assert!(handles("work/attempts/list"));
         assert!(!handles("work/tasks/list"));
 
         let temporary = tempfile::tempdir().expect("temporary workspace");
@@ -368,5 +487,36 @@ mod tests {
             .expect("missing Work is nullable"),
             Value::Null
         );
+    }
+
+    #[test]
+    fn failed_run_admission_closes_the_attempt_and_returns_work_to_ready() {
+        let temporary = tempfile::tempdir().expect("temporary workspace");
+        let workspace = resolve_workspace_from(Some(temporary.path()), Path::new("/unused"))
+            .expect("resolved workspace");
+        let created = dispatch(
+            &workspace,
+            "work/create",
+            Some(json!({"title":"Admission must fail durably"})),
+        )
+        .expect("create Work");
+        let request = StartRunRequest {
+            work_id: created["id"].as_str().expect("work id").to_string(),
+            expected_revision: created["revision"].as_i64().expect("revision"),
+        };
+        let started = begin_start_run(&workspace, &request, "chat-admission")
+            .expect("prebound Attempt");
+        fail_start_run(
+            &workspace,
+            &started.attempt.id,
+            "The agent run could not be started.",
+        )
+        .expect("close failed Attempt");
+        let result = start_run_result(&workspace, &request.work_id, &started.attempt.id)
+            .expect("durable failed result");
+        assert_eq!(result["work"]["state"], "ready");
+        assert_eq!(result["attempt"]["phase"], "failed");
+        assert_eq!(result["attempt"]["chatId"], "chat-admission");
+        assert!(result["attempt"]["runId"].is_null());
     }
 }

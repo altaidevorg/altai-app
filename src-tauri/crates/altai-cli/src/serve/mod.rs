@@ -1,11 +1,15 @@
 use std::io;
 use std::sync::{Arc, Mutex};
 
-use altai_agent_service::{coordinator_guard, AgentService, DocumentPart, RunCoordinator, SharedRunCoordinator};
+use altai_agent_service::{
+    coordinator_guard, AgentService, DocumentPart, RunCoordinator, SendAck, SharedRunCoordinator,
+    WorkspaceServices,
+};
 use altai_agent_service::mcp::McpServerConfig;
 use base64::Engine;
-use altai_core::EventJournal;
-use altai_core::WorkspacePaths;
+use altai_core::{
+    AttemptReconcileMode, ConfigSource, EventJournal, ResolvedConfig, WorkspacePaths,
+};
 use altai_protocol::{
     validate_message, FrameDecoder, FrameLimits, ProtocolMessage, PROTOCOL_VERSION,
 };
@@ -33,6 +37,14 @@ const MAX_RUN_ATTACHMENT_ENCODED_BYTES: usize = 2 * 1024 * 1024;
 const MAX_RUN_ATTACHMENTS_ENCODED_BYTES: usize = 3 * 1024 * 1024;
 
 pub async fn run(workspace: WorkspacePaths) -> Result<(), String> {
+    // Open and restart-classify the durable journal before stdin admission.
+    // Memory/logger/cron actors stay lazy; every runtime bundle for the session
+    // workspace reuses this exact classified service.
+    let session_shared = Arc::new(
+        WorkspaceServices::open(&workspace.isanagent_state)
+            .map_err(|error| format!("could not initialize workspace journal: {error}"))?,
+    );
+    let work_journal = session_shared.event_journal();
     let writer: Writer = Arc::new(Mutex::new(io::stdout()));
     let event_sink = Arc::new(StdioEventSink::new(writer.clone()));
     let run_coordinator: SharedRunCoordinator =
@@ -41,6 +53,7 @@ pub async fn run(workspace: WorkspacePaths) -> Result<(), String> {
         workspace.clone(),
         event_sink.clone() as Arc<dyn altai_agent_service::AgentEventSink>,
         run_coordinator.clone(),
+        session_shared,
     ));
     let service = Arc::new(AgentService::with_coordinator(
         host.clone(),
@@ -51,6 +64,7 @@ pub async fn run(workspace: WorkspacePaths) -> Result<(), String> {
     let mut stdin = tokio::io::stdin();
     let mut decoder = FrameDecoder::new(FrameLimits::default());
     let mut initialized = false;
+    let mut work_recovery_pending = true;
     let mut buffer = [0_u8; 4096];
     loop {
         let count = stdin.read(&mut buffer).await.map_err(|e| e.to_string())?;
@@ -118,6 +132,8 @@ pub async fn run(workspace: WorkspacePaths) -> Result<(), String> {
                                 "work/create",
                                 "work/transition",
                                 "work/start",
+                                "work/start-run",
+                                "work/attempts/list",
                                 "work/ready-for-review",
                                 "work/review",
                                 "work/inbox/list",
@@ -483,13 +499,21 @@ pub async fn run(workspace: WorkspacePaths) -> Result<(), String> {
                     Ok(configuration) => {
                         let provider_id = configuration
                             .provider
-                            .map(|value| value.value)
+                            .as_ref()
+                            .map(|value| value.value.clone())
                             .unwrap_or_else(|| "openai".to_string());
+                        let route = secure_provider_route(
+                            &provider_id,
+                            configuration.provider.as_ref(),
+                            configuration.base_url.as_ref(),
+                        )
+                        .ok();
                         // The native host exposes only the boolean outcome of
                         // credential resolution; raw keys never cross stdio.
-                        let connected = resolve_provider_credential(&provider_id)
-                            .map(|credential| !credential.trim().is_empty())
-                            .unwrap_or(false);
+                        let connected = route
+                            .as_ref()
+                            .and_then(|route| resolve_provider_credential(&provider_id, route).ok())
+                            .is_some_and(|credential| !credential.trim().is_empty());
                         respond(
                             &writer,
                             id,
@@ -665,6 +689,20 @@ pub async fn run(workspace: WorkspacePaths) -> Result<(), String> {
                     }
                 }
                 method if initialized && work::handles(method) => {
+                    let recovery_mode = if work_recovery_pending {
+                        AttemptReconcileMode::RestartRecovery
+                    } else {
+                        AttemptReconcileMode::Live
+                    };
+                    if let Err(error) = work::reconcile(&workspace, &work_journal, recovery_mode) {
+                        respond(&writer, id, None, Some(error_value(error.code, &error.message))).await?;
+                        continue;
+                    }
+                    work_recovery_pending = false;
+                    if method == "work/start-run" {
+                        handle_work_start_run(&service, &workspace, &work_journal, &writer, id, params).await?;
+                        continue;
+                    }
                     match work::dispatch(&workspace, method, params) {
                         Ok(result) => respond(&writer, id, Some(result), None).await?,
                         Err(error) => {
@@ -1847,31 +1885,6 @@ async fn handle_run_start(
         .await;
     }
 
-    let configuration = load_run_configuration(workspace).unwrap_or_default();
-    let provider_name = configuration
-        .provider
-        .map(|value| value.value)
-        .unwrap_or_else(|| "openai".to_string());
-    let model_name = model
-        .map(str::to_string)
-        .or_else(|| configuration.model.map(|value| value.value))
-        .unwrap_or_else(|| "gpt-4o-mini".to_string());
-    let api_key = resolve_provider_credential(&provider_name).unwrap_or_default();
-    // Scripted CI/test runs intentionally omit provider credentials.
-    let scripted =
-        cfg!(debug_assertions) && std::env::var_os("ALTAI_CLI_TEST_SCRIPTED_RESPONSE").is_some();
-    if api_key.trim().is_empty() && !scripted {
-        return respond(
-            writer,
-            id,
-            None,
-            Some(error_value(-32603, "api_key_not_configured")),
-        )
-        .await;
-    }
-    let workspace_path = workspace.root.to_str().map(str::to_string);
-    let base_url = configuration.base_url.map(|value| value.value);
-    let permission = permission.to_string();
     let queue = params
         .get("queue")
         .and_then(Value::as_bool)
@@ -1893,27 +1906,23 @@ async fn handle_run_start(
         Ok(attachments) => attachments,
         Err(error) => return respond(writer, id, None, Some(error_value(-32602, error))).await,
     };
+    let route = match resolve_run_route(workspace, model, Some(permission), true) {
+        Ok(route) => route,
+        Err(reason) => {
+            return respond(writer, id, None, Some(error_value(-32603, reason))).await;
+        }
+    };
 
     // Admission returns once the user message is on the bus; the agent loop
     // continues in the background and emits framed `run/event` notifications.
-    match service
-        .route_send(
-            &provider_name,
-            &api_key,
-            &model_name,
-            None,
-            base_url.as_deref(),
-            workspace_path.as_deref(),
-            Some(&permission),
-            None,
-            None,
-            prompt,
-            images,
-            documents,
-            chat_id.clone(),
-            queue,
-        )
-        .await
+    match dispatch_configured_run(service, workspace, route, ConfiguredRunRequest {
+        chat_id: chat_id.clone(),
+        prompt,
+        queue,
+        images,
+        documents,
+    })
+    .await
     {
         Ok(ack) => {
             if let Some(title) = task_title {
@@ -1966,6 +1975,308 @@ async fn handle_run_start(
                 Some(error_value(-32603, "run_start_failed")),
             )
             .await
+        }
+    }
+}
+
+struct ConfiguredRunRequest {
+    chat_id: String,
+    prompt: String,
+    queue: bool,
+    images: Vec<String>,
+    documents: Vec<DocumentPart>,
+}
+
+struct ResolvedRunRoute {
+    provider_name: String,
+    api_key: String,
+    model_name: String,
+    permission: String,
+    base_url: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ProviderCredentialScope {
+    Official,
+    EnvironmentTuple,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct SecureProviderRoute {
+    base_url: String,
+    credential_scope: ProviderCredentialScope,
+}
+
+fn resolve_run_route(
+    workspace: &WorkspacePaths,
+    requested_model: Option<&str>,
+    requested_permission: Option<&str>,
+    allow_explicit_bypass: bool,
+) -> Result<ResolvedRunRoute, &'static str> {
+    let configuration = load_run_configuration(workspace)
+        .map_err(|_| "configuration_unavailable")?;
+    let provider_name = configuration
+        .provider
+        .as_ref()
+        .map(|value| value.value.clone())
+        .unwrap_or_else(|| "openai".to_string());
+    provider_credentials::validate_provider_id(&provider_name)
+        .map_err(|_| "invalid_provider_route")?;
+    let model_name = requested_model
+        .map(str::to_string)
+        .or_else(|| configuration.model.as_ref().map(|value| value.value.clone()))
+        .unwrap_or_else(|| "gpt-4o-mini".to_string());
+    let permission = requested_permission
+        .map(str::to_string)
+        .or_else(|| {
+            configuration
+                .permission_mode
+                .as_ref()
+                .map(|value| value.value.clone())
+        })
+        .unwrap_or_else(|| "plan".to_string());
+    let permission_allowed = matches!(permission.as_str(), "ask" | "auto-edit" | "auto_edit" | "plan")
+        || (allow_explicit_bypass
+            && requested_permission == Some("bypass")
+            && permission == "bypass");
+    if !permission_allowed {
+        return Err("invalid_permission_configuration");
+    }
+    let provider_route = secure_provider_route(
+        &provider_name,
+        configuration.provider.as_ref(),
+        configuration.base_url.as_ref(),
+    )?;
+    let api_key = match resolve_provider_credential(&provider_name, &provider_route) {
+        Ok(value) => value,
+        Err(error) if error == "api_key_not_configured" => String::new(),
+        Err(_) => return Err("credential_unavailable"),
+    };
+    let scripted =
+        cfg!(debug_assertions) && std::env::var_os("ALTAI_CLI_TEST_SCRIPTED_RESPONSE").is_some();
+    if api_key.trim().is_empty() && !scripted {
+        return Err("api_key_not_configured");
+    }
+    Ok(ResolvedRunRoute {
+        provider_name,
+        api_key,
+        model_name,
+        permission,
+        base_url: provider_route.base_url,
+    })
+}
+
+async fn dispatch_configured_run(
+    service: &Arc<AgentService<StdioHost>>,
+    workspace: &WorkspacePaths,
+    route: ResolvedRunRoute,
+    request: ConfiguredRunRequest,
+) -> Result<SendAck, &'static str> {
+    service
+        .route_send(
+            &route.provider_name,
+            &route.api_key,
+            &route.model_name,
+            None,
+            Some(&route.base_url),
+            workspace.root.to_str(),
+            Some(&route.permission),
+            None,
+            None,
+            request.prompt,
+            request.images,
+            request.documents,
+            request.chat_id,
+            request.queue,
+        )
+        .await
+        .map_err(|_| "run_start_failed")
+}
+
+fn canonical_provider_base_url(provider_id: &str) -> Option<&'static str> {
+    match provider_id {
+        "openai" => Some("https://api.openai.com/v1/chat/completions"),
+        "anthropic" => Some("https://api.anthropic.com/v1/messages"),
+        "google" => Some(
+            "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
+        ),
+        "xai" => Some("https://api.x.ai/v1/chat/completions"),
+        "cerebras" => Some("https://api.cerebras.ai/v1/chat/completions"),
+        "groq" => Some("https://api.groq.com/openai/v1/chat/completions"),
+        "deepseek" => Some("https://api.deepseek.com/v1/chat/completions"),
+        "mistral" => Some("https://api.mistral.ai/v1/chat/completions"),
+        "zai" => Some("https://api.z.ai/api/paas/v4/chat/completions"),
+        "zai-coding-plan" => Some("https://api.z.ai/api/coding/paas/v4/chat/completions"),
+        "openrouter" => Some("https://openrouter.ai/api/v1/chat/completions"),
+        _ => None,
+    }
+}
+
+fn secure_provider_route(
+    provider_id: &str,
+    configured_provider: Option<&ResolvedConfig<String>>,
+    configured: Option<&ResolvedConfig<String>>,
+) -> Result<SecureProviderRoute, &'static str> {
+    let official = canonical_provider_base_url(provider_id);
+    if let Some(configured) = configured {
+        let value = configured.value.trim();
+        if official == Some(value) {
+            return Ok(SecureProviderRoute {
+                base_url: value.to_string(),
+                credential_scope: ProviderCredentialScope::Official,
+            });
+        }
+
+        // A noncanonical endpoint is trusted only as one host-owned environment
+        // tuple. Independent field resolution must never combine a repository
+        // provider with an environment URL and reuse the provider store secret.
+        let provider_is_environment = configured_provider.is_some_and(|provider| {
+            provider.source == ConfigSource::Environment && provider.value.trim() == provider_id
+        });
+        let environment_tuple_matches = configured.source == ConfigSource::Environment
+            && provider_is_environment
+            && std::env::var("ALTAI_PROVIDER").ok().as_deref() == Some(provider_id)
+            && std::env::var("ALTAI_BASE_URL")
+                .ok()
+                .is_some_and(|base_url| base_url.trim() == value);
+        if !environment_tuple_matches {
+            return Err("untrusted_base_url");
+        }
+        if value.len() > 2_048
+            || !value.starts_with("https://")
+            || value.contains('@')
+            || value.contains('#')
+        {
+            return Err("invalid_provider_route");
+        }
+        return Ok(SecureProviderRoute {
+            base_url: value.to_string(),
+            credential_scope: ProviderCredentialScope::EnvironmentTuple,
+        });
+    }
+    official
+        .map(|base_url| SecureProviderRoute {
+            base_url: base_url.to_string(),
+            credential_scope: ProviderCredentialScope::Official,
+        })
+        .ok_or("unsupported_provider_route")
+}
+
+fn work_session_title(title: &str) -> &str {
+    let mut end = title.len().min(256);
+    while !title.is_char_boundary(end) {
+        end -= 1;
+    }
+    &title[..end]
+}
+
+fn test_work_start_fault() -> Option<String> {
+    cfg!(debug_assertions)
+        .then(|| std::env::var("ALTAI_CLI_TEST_WORK_START_FAULT").ok())
+        .flatten()
+}
+
+async fn handle_work_start_run(
+    service: &Arc<AgentService<StdioHost>>,
+    workspace: &WorkspacePaths,
+    journal: &EventJournal,
+    writer: &Writer,
+    id: Value,
+    params: Option<Value>,
+) -> Result<(), String> {
+    let request = match work::parse_start_run(params) {
+        Ok(request) => request,
+        Err(error) => {
+            return respond(writer, id, None, Some(error_value(error.code, &error.message))).await
+        }
+    };
+    // Resolve the credential route before mutating Work. Repository-controlled
+    // configuration must not create an Attempt or session when it is unsafe.
+    let route = match resolve_run_route(workspace, None, None, false) {
+        Ok(route) => route,
+        Err(reason) => {
+            return respond(writer, id, None, Some(error_value(-32603, reason))).await;
+        }
+    };
+    let chat_id = format!("work-{}", uuid::Uuid::new_v4());
+    let started = match work::begin_start_run(workspace, &request, &chat_id) {
+        Ok(started) => started,
+        Err(error) => {
+            return respond(writer, id, None, Some(error_value(error.code, &error.message))).await
+        }
+    };
+    let attempt_id = started.attempt.id.clone();
+    if let Err(error) = journal.create_session(&chat_id, work_session_title(&started.work.title)) {
+        eprintln!("altai-cli serve: could not create Work run session: {error}");
+        let _ = work::fail_start_run(workspace, &attempt_id, "Could not create the run session.");
+        return respond(writer, id, None, Some(error_value(-32603, "journal_unavailable"))).await;
+    }
+
+    let mut prompt = format!("Deliver this Work outcome:\n\n{}", started.work.title);
+    if !started.work.description.trim().is_empty() {
+        prompt.push_str("\n\nDescription:\n");
+        prompt.push_str(&started.work.description);
+    }
+    if !started.work.acceptance_criteria.trim().is_empty() {
+        prompt.push_str("\n\nAcceptance criteria:\n");
+        prompt.push_str(&started.work.acceptance_criteria);
+    }
+    prompt.push_str(
+        "\n\nStay within the workspace and report concrete evidence for the acceptance criteria.",
+    );
+
+    let dispatch = if test_work_start_fault().as_deref() == Some("admission") {
+        Err("run_start_failed")
+    } else {
+        dispatch_configured_run(service, workspace, route, ConfiguredRunRequest {
+            chat_id: chat_id.clone(),
+            prompt,
+            queue: false,
+            images: Vec::new(),
+            documents: Vec::new(),
+        })
+        .await
+    };
+    let ack = match dispatch {
+        Ok(ack) if ack.chat_id == chat_id && !ack.queued => ack,
+        Ok(ack) => {
+            let _ = service.route_cancel(ack.chat_id, ack.run_id).await;
+            let _ = work::fail_start_run(
+                workspace,
+                &attempt_id,
+                "Run admission returned an invalid identity.",
+            );
+            return respond(writer, id, None, Some(error_value(-32603, "run_start_failed"))).await;
+        }
+        Err(reason) => {
+            let _ = work::fail_start_run(
+                workspace,
+                &attempt_id,
+                "The agent run could not be started.",
+            );
+            return respond(writer, id, None, Some(error_value(-32603, reason))).await;
+        }
+    };
+
+    if let Err(error) = work::bind_start_run(workspace, &attempt_id, &chat_id, &ack.run_id) {
+        eprintln!("altai-cli serve: could not bind Work Attempt run: {}", error.message);
+        let _ = service.route_cancel(chat_id.clone(), ack.run_id).await;
+        let _ = work::reconcile(workspace, journal, AttemptReconcileMode::Live);
+        let _ = work::fail_start_run(
+            workspace,
+            &attempt_id,
+            "The agent run binding could not be persisted.",
+        );
+        return respond(writer, id, None, Some(error_value(-32603, "work_run_bind_failed"))).await;
+    }
+    if let Err(error) = work::reconcile(workspace, journal, AttemptReconcileMode::Live) {
+        eprintln!("altai-cli serve: could not reconcile started Work run: {}", error.message);
+        return respond(writer, id, None, Some(error_value(error.code, &error.message))).await;
+    }
+    match work::start_run_result(workspace, &request.work_id, &attempt_id) {
+        Ok(result) => respond(writer, id, Some(result), None).await,
+        Err(error) => {
+            respond(writer, id, None, Some(error_value(error.code, &error.message))).await
         }
     }
 }
@@ -2579,18 +2890,74 @@ fn valid_base_url(value: &str) -> bool {
     value.len() <= 2_048 && (value.starts_with("https://") || value.starts_with("http://"))
 }
 
-fn resolve_provider_credential(provider_id: &str) -> Result<String, String> {
-    std::env::var("ALTAI_API_KEY")
-        .or_else(|_| std::env::var("OPENAI_API_KEY"))
-        .ok()
-        .filter(|value| !value.trim().is_empty())
-        .map(Ok)
-        .unwrap_or_else(|| provider_credentials::get(provider_id)?.ok_or_else(|| "api_key_not_configured".to_string()))
+fn resolve_provider_credential(
+    provider_id: &str,
+    route: &SecureProviderRoute,
+) -> Result<String, String> {
+    if route.credential_scope == ProviderCredentialScope::EnvironmentTuple {
+        let tuple_matches = std::env::var("ALTAI_PROVIDER").ok().as_deref() == Some(provider_id)
+            && std::env::var("ALTAI_BASE_URL")
+                .ok()
+                .is_some_and(|base_url| base_url.trim() == route.base_url);
+        if tuple_matches {
+            return std::env::var("ALTAI_API_KEY")
+                .ok()
+                .filter(|value| !value.trim().is_empty())
+                .ok_or_else(|| "api_key_not_configured".to_string());
+        }
+        return Err("api_key_not_configured".to_string());
+    }
+
+    let official = canonical_provider_base_url(provider_id);
+    let provider_env = provider_api_key_env(provider_id);
+    if Some(route.base_url.as_str()) == official {
+        if let Some(value) = provider_env
+            .and_then(|name| std::env::var(name).ok())
+            .filter(|value| !value.trim().is_empty())
+        {
+            return Ok(value);
+        }
+    }
+    let altai_tuple_matches = std::env::var("ALTAI_PROVIDER").ok().as_deref() == Some(provider_id)
+        && match std::env::var("ALTAI_BASE_URL").ok() {
+            Some(configured) => configured.trim() == route.base_url,
+            None => Some(route.base_url.as_str()) == official,
+        };
+    if altai_tuple_matches {
+        if let Some(value) = std::env::var("ALTAI_API_KEY")
+            .ok()
+            .filter(|value| !value.trim().is_empty())
+        {
+            return Ok(value);
+        }
+    }
+    provider_credentials::get(provider_id)?
+        .ok_or_else(|| "api_key_not_configured".to_string())
+}
+
+fn provider_api_key_env(provider_id: &str) -> Option<&'static str> {
+    match provider_id {
+        "openai" => Some("OPENAI_API_KEY"),
+        "anthropic" => Some("ANTHROPIC_API_KEY"),
+        "google" => Some("GOOGLE_API_KEY"),
+        "xai" => Some("XAI_API_KEY"),
+        "cerebras" => Some("CEREBRAS_API_KEY"),
+        "groq" => Some("GROQ_API_KEY"),
+        "deepseek" => Some("DEEPSEEK_API_KEY"),
+        "mistral" => Some("MISTRAL_API_KEY"),
+        "zai" | "zai-coding-plan" => Some("ZAI_API_KEY"),
+        "openrouter" => Some("OPENROUTER_API_KEY"),
+        _ => None,
+    }
 }
 
 #[cfg(test)]
 mod config_patch_tests {
-    use super::normalize_config_patch;
+    use super::{
+        canonical_provider_base_url, normalize_config_patch, provider_api_key_env,
+        secure_provider_route, work_session_title, ProviderCredentialScope, SecureProviderRoute,
+    };
+    use altai_core::{ConfigSource, ResolvedConfig};
     use serde_json::{json, Map, Value};
 
     #[test]
@@ -2618,5 +2985,58 @@ mod config_patch_tests {
         let mut noise = Map::new();
         noise.insert("foo".into(), json!(1));
         assert!(normalize_config_patch(&noise).is_empty());
+    }
+
+    #[test]
+    fn work_session_title_is_utf8_safe_and_journal_bounded() {
+        let title = format!("{}é", "a".repeat(255));
+        assert_eq!(work_session_title(&title), "a".repeat(255));
+        assert!(work_session_title(&"x".repeat(400)).len() <= 256);
+    }
+
+    #[test]
+    fn provider_routes_are_official_and_reject_mixed_config_sources() {
+        assert_eq!(
+            secure_provider_route("openai", None, None),
+            Ok(SecureProviderRoute {
+                base_url: "https://api.openai.com/v1/chat/completions".to_string(),
+                credential_scope: ProviderCredentialScope::Official,
+            })
+        );
+        let malicious = ResolvedConfig {
+            value: "https://api.openai.com.evil.invalid/collect".to_string(),
+            source: ConfigSource::ProjectConfig,
+        };
+        assert_eq!(
+            secure_provider_route("openai", None, Some(&malicious)),
+            Err("untrusted_base_url")
+        );
+        let repository_provider = ResolvedConfig {
+            value: "openai".to_string(),
+            source: ConfigSource::ProjectConfig,
+        };
+        let environment_endpoint = ResolvedConfig {
+            value: "https://trusted-relay.example/v1/chat/completions".to_string(),
+            source: ConfigSource::Environment,
+        };
+        assert_eq!(
+            secure_provider_route(
+                "openai",
+                Some(&repository_provider),
+                Some(&environment_endpoint),
+            ),
+            Err("untrusted_base_url")
+        );
+    }
+
+    #[test]
+    fn environment_credentials_are_provider_scoped() {
+        assert_eq!(provider_api_key_env("openai"), Some("OPENAI_API_KEY"));
+        assert_eq!(
+            provider_api_key_env("anthropic"),
+            Some("ANTHROPIC_API_KEY")
+        );
+        assert_eq!(provider_api_key_env("openai-compatible"), None);
+        assert_eq!(canonical_provider_base_url("unknown"), None);
     }
 }

@@ -56,6 +56,7 @@ export type CapabilityId =
   | "review.editProposal"
   // Work / Inbox
   | "work.items"
+  | "work.attemptRuns"
   | "work.inbox"
   | "work.taskRuns"
   | "work.automations"
@@ -146,6 +147,8 @@ export const CHAT_PANEL_ACTIONS: readonly ChatPanelAction[] = [
   { action: "work.create", surface: "work", capability: "work.items" },
   { action: "work.transition", surface: "work", capability: "work.items" },
   { action: "work.start", surface: "work", capability: "work.items" },
+  { action: "work.startRun", surface: "work", capability: "work.attemptRuns" },
+  { action: "work.openRun", surface: "work", capability: "work.attemptRuns" },
   { action: "work.readyForReview", surface: "work", capability: "work.items" },
   { action: "work.review", surface: "work", capability: "work.items" },
   { action: "work.createTaskRun", surface: "work", capability: "work.taskRuns" },
@@ -229,6 +232,11 @@ export const DEFAULT_CAPABILITY_MATRIX: readonly CapabilityEntry[] = [
   },
 
   { id: "work.items", availability: "deferred", note: "Requires canonical Work host adapter" },
+  {
+    id: "work.attemptRuns",
+    availability: "deferred",
+    note: "Requires bound Work start, attempt history, replay, and cancellation",
+  },
   { id: "work.inbox", availability: "deferred", note: "Requires source-backed Work Inbox query" },
   { id: "work.taskRuns", availability: "deferred", note: "Legacy run surface during Work migration" },
   { id: "work.automations", availability: "deferred", note: "Requires TASK-012 / protocol Automations domain" },
