@@ -68,6 +68,7 @@ import {
 } from "@/modules/explorer";
 import {
   Header,
+  HeaderTabRow,
   type SearchInlineHandle,
   type SearchTarget,
 } from "@/modules/header";
@@ -1764,6 +1765,8 @@ export default function App() {
       workHubView?: "runs" | "scheduled";
     },
   ) => {
+    // Operations lives in the IDE surface — surface it before opening the tab.
+    openStudio();
     const known = sourceControl.hasRepo ? sourceControl.repo : null;
     if (known) {
       setSidebarRailItem("projects");
@@ -1775,7 +1778,8 @@ export default function App() {
       });
       return;
     }
-    const localRoot = explorerRoot ?? sourceControlContextPath;
+    const localRoot =
+      explorerRoot ?? activeChatWorkspacePath ?? sourceControlContextPath;
     if (!localRoot) return;
     try {
       const repo = await native.gitResolveRepo(localRoot);
@@ -1798,8 +1802,10 @@ export default function App() {
       });
     }
   }, [
+    activeChatWorkspacePath,
     explorerRoot,
     openProjectBoardTab,
+    openStudio,
     sourceControl.hasRepo,
     sourceControl.repo,
     sourceControlContextPath,
@@ -2532,6 +2538,34 @@ export default function App() {
             id="altai-main"
             className="zoom-content flex min-h-0 flex-1 flex-col"
           >
+            {/* App toolbar spans the full window (IDE + AI). The AI sidebar
+                chrome starts on the row below — beside Files/tabs, not beside
+                this toolbar. */}
+            {appMode === "studio" && studioHasOpened ? (
+              <Header
+                tabs={mainTabs}
+                activeId={activeId}
+                onSelect={setActiveId}
+                onNew={openNewTab}
+                onNewPrivate={openNewPrivateTab}
+                onNewPreview={() => openPreviewTab("")}
+                onNewEditor={() => setNewEditorOpen(true)}
+                onNewGitGraph={openGitGraphFromContext}
+                onClose={handleClose}
+                onPin={pinTab}
+                onToggleSidebar={toggleSidebar}
+                sidebarActive={!sidebarCollapsed}
+                onOpenShortcuts={() => setShortcutsOpen(true)}
+                onOpenSettings={openSettingsForCurrentSurface}
+                onOpenAgentWorkspace={returnToAgentWorkspace}
+                onToggleAgentSidebar={togglePanelAndFocus}
+                agentSidebarActive={miniOpen}
+                agentSidebarAvailable={true}
+                searchTarget={searchTarget}
+                searchRef={searchInlineRef}
+                showTabRow={false}
+              />
+            ) : null}
             <ResizablePanelGroup
               orientation="horizontal"
               className="min-h-0 flex-1"
@@ -2561,28 +2595,6 @@ export default function App() {
                     )}
                     aria-hidden={appMode !== "studio"}
                   >
-                    <Header
-                      tabs={mainTabs}
-                      activeId={activeId}
-                      onSelect={setActiveId}
-                      onNew={openNewTab}
-                      onNewPrivate={openNewPrivateTab}
-                      onNewPreview={() => openPreviewTab("")}
-                      onNewEditor={() => setNewEditorOpen(true)}
-                      onNewGitGraph={openGitGraphFromContext}
-                      onClose={handleClose}
-                      onPin={pinTab}
-                      onToggleSidebar={toggleSidebar}
-                      sidebarActive={!sidebarCollapsed}
-                      onOpenShortcuts={() => setShortcutsOpen(true)}
-                      onOpenSettings={openSettingsForCurrentSurface}
-                      onOpenAgentWorkspace={returnToAgentWorkspace}
-                      onToggleAgentSidebar={togglePanelAndFocus}
-                      agentSidebarActive={miniOpen}
-                      agentSidebarAvailable={true}
-                      searchTarget={searchTarget}
-                      searchRef={searchInlineRef}
-                    />
                     <div className="min-h-0 flex-1">
                       <ResizablePanelGroup
                         orientation="horizontal"
@@ -2682,9 +2694,24 @@ export default function App() {
                 title="Resize workspace sidebar (use arrow keys for precise control)"
               />
               <ResizablePanel id="workspace" defaultSize="78%" minSize="30%">
+                <div className="flex h-full min-h-0 flex-col overflow-hidden">
+                  <HeaderTabRow
+                    tabs={mainTabs}
+                    activeId={activeId}
+                    onSelect={setActiveId}
+                    onNew={openNewTab}
+                    onNewPrivate={openNewPrivateTab}
+                    onNewPreview={() => openPreviewTab("")}
+                    onNewEditor={() => setNewEditorOpen(true)}
+                    onNewGitGraph={openGitGraphFromContext}
+                    onClose={handleClose}
+                    onPin={pinTab}
+                    searchTarget={searchTarget}
+                    searchRef={searchInlineRef}
+                  />
                 <ResizablePanelGroup
                   orientation="vertical"
-                  className="h-full min-h-0 overflow-hidden"
+                  className="min-h-0 flex-1 overflow-hidden"
                 >
                   <ResizablePanel id="workspace-main" minSize="20%">
                     <div className="relative h-full min-h-0 overflow-hidden">
@@ -2727,6 +2754,7 @@ export default function App() {
                     {terminalDrawer}
                   </ResizablePanel>
                 </ResizablePanelGroup>
+                </div>
               </ResizablePanel>
                       </ResizablePanelGroup>
                     </div>

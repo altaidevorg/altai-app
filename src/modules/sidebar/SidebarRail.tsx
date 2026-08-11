@@ -1,6 +1,8 @@
 import { cn } from "@/lib/utils";
 
-export const SIDEBAR_RAIL_HEIGHT = 36;
+/** Matches Header / AI topbar row height so chrome dividers align across columns. */
+export const SIDEBAR_RAIL_HEIGHT = 40;
+
 /** Top-rail destinations. Local source control lives inside GitHub (CommitBox)
  *  and remains available via the Source Control shortcut. */
 export type SidebarRailItemId = "explorer" | "github" | "projects";
@@ -31,7 +33,7 @@ export function SidebarRail({
     <nav
       aria-label="Workspace views"
       style={{ height: SIDEBAR_RAIL_HEIGHT }}
-      className="flex shrink-0 items-stretch gap-1 border-b border-border-subtle bg-card/85 px-1.5 py-1 backdrop-blur"
+      className="flex shrink-0 items-stretch gap-1 border-b border-border-subtle bg-raised px-1.5"
     >
       {items.map((item) => {
         const isActive = item.id === activeItem;
@@ -45,7 +47,7 @@ export function SidebarRail({
             aria-pressed={isActive}
             onClick={() => onSelectItem(item.id)}
             className={cn(
-              "group relative flex min-w-0 flex-1 cursor-pointer items-center justify-center gap-1 rounded-md px-2.5 text-[10.5px] font-medium outline-none transition-colors duration-150",
+              "group relative flex min-w-0 flex-1 cursor-pointer items-center justify-center gap-1 rounded-md px-1.5 text-[10.5px] font-medium outline-none transition-colors duration-150",
               "focus-visible:ring-2 focus-visible:ring-ring/40",
               isActive
                 ? "bg-accent text-foreground"

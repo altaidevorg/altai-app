@@ -26,7 +26,7 @@ import {
   type SearchTarget,
 } from "./SearchInline";
 
-type Props = {
+type TabRowProps = {
   tabs: Tab[];
   activeId: number;
   onSelect: (id: number) => void;
@@ -36,8 +36,13 @@ type Props = {
   onNewEditor: () => void;
   onNewGitGraph: () => void;
   onClose: (id: number) => void;
-  /** Promote a preview (transient) tab to persistent. */
   onPin: (id: number) => void;
+  searchTarget: SearchTarget;
+  searchRef: RefObject<SearchInlineHandle | null>;
+  className?: string;
+};
+
+type Props = TabRowProps & {
   onToggleSidebar: () => void;
   sidebarActive?: boolean;
   onOpenShortcuts: () => void;
@@ -47,10 +52,13 @@ type Props = {
   onToggleAgentSidebar?: () => void;
   agentSidebarActive?: boolean;
   agentSidebarAvailable?: boolean;
-  searchTarget: SearchTarget;
-  searchRef: RefObject<SearchInlineHandle | null>;
   /** True when another app-level titlebar already owns the native chrome row. */
   embedded?: boolean;
+  /**
+   * When false, only the window chrome row is rendered. The tab strip lives
+   * beside the Files/GitHub/Operations rail in the content row instead.
+   */
+  showTabRow?: boolean;
 };
 
 const COMPACT_WIDTH = 720;
@@ -62,6 +70,64 @@ const COMPACT_WIDTH = 720;
  * while still meeting the 24px WCAG 2.5.8 minimum hit area. */
 const CHROME_BTN = "size-6 translate-y-[0.5px]";
 const CHROME_ICON = 12;
+
+/** Editor tab strip — sits on the same row as the Files/GitHub/Operations rail. */
+export function HeaderTabRow({
+  tabs,
+  activeId,
+  onSelect,
+  onNew,
+  onNewPrivate,
+  onNewPreview,
+  onNewEditor,
+  onNewGitGraph,
+  onClose,
+  onPin,
+  searchTarget,
+  searchRef,
+  className,
+}: TabRowProps) {
+  const rootRef = useRef<HTMLDivElement>(null);
+  const [compact, setCompact] = useState(false);
+
+  useEffect(() => {
+    const el = rootRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver((entries) => {
+      const w = entries[0]?.contentRect.width ?? 0;
+      setCompact(w < COMPACT_WIDTH);
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  return (
+    <div
+      ref={rootRef}
+      className={cn(
+        "flex h-10 shrink-0 items-center gap-2 border-b border-border-subtle bg-raised px-2",
+        className,
+      )}
+    >
+      <div className="min-w-0 flex-1">
+        <TabBar
+          tabs={tabs}
+          activeId={activeId}
+          onSelect={onSelect}
+          onNew={onNew}
+          onNewPrivate={onNewPrivate}
+          onNewPreview={onNewPreview}
+          onNewEditor={onNewEditor}
+          onNewGitGraph={onNewGitGraph}
+          onClose={onClose}
+          onPin={onPin}
+          compact={compact}
+        />
+      </div>
+      <SearchInline ref={searchRef} target={searchTarget} compact={compact} />
+    </div>
+  );
+}
 
 export function Header({
   tabs,
@@ -85,9 +151,8 @@ export function Header({
   searchTarget,
   searchRef,
   embedded = false,
+  showTabRow = true,
 }: Props) {
-  const rootRef = useRef<HTMLDivElement>(null);
-  const [compact, setCompact] = useState(false);
   const userShortcuts = usePreferencesStore((s) => s.shortcuts);
 
   const tokensFor = (id: ShortcutId): string => {
@@ -104,16 +169,12 @@ export function Header({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userShortcuts]);
 
-  useEffect(() => {
-    const el = rootRef.current;
-    if (!el) return;
-    const ro = new ResizeObserver((entries) => {
-      const w = entries[0]?.contentRect.width ?? 0;
-      setCompact(w < COMPACT_WIDTH);
-    });
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, []);
+  const toggleWindowMaximize = () => {
+    // Tauri's drag-region attribute handles dragging, but it does not restore
+    // the native titlebar's familiar double-click maximize behavior.
+    if (!hasTauriWindowMetadata()) return;
+    void getCurrentWindow().toggleMaximize().catch(() => undefined);
+  };
 
   const shortcutsButton = (
     <ToolbarIconButton
@@ -182,16 +243,8 @@ export function Header({
     </button>
   ) : null;
 
-  const toggleWindowMaximize = () => {
-    // Tauri's drag-region attribute handles dragging, but it does not restore
-    // the native titlebar's familiar double-click maximize behavior.
-    if (!hasTauriWindowMetadata()) return;
-    void getCurrentWindow().toggleMaximize().catch(() => undefined);
-  };
-
   return (
     <header
-      ref={rootRef}
       role="banner"
       aria-label="Workspace toolbar"
       className="flex shrink-0 flex-col border-b border-border-subtle bg-raised select-none"
@@ -232,9 +285,16 @@ export function Header({
 
         {agentWorkspaceButton}
         {IS_MAC ? (
-          <>{shortcutsButton}{agentSidebarButton}{settingsButton}</>
+          <>
+            {shortcutsButton}
+            {agentSidebarButton}
+            {settingsButton}
+          </>
         ) : (
-          <>{agentSidebarButton}{settingsButton}</>
+          <>
+            {agentSidebarButton}
+            {settingsButton}
+          </>
         )}
         {USE_CUSTOM_WINDOW_CONTROLS && (
           <>
@@ -244,24 +304,23 @@ export function Header({
         )}
       </div>
 
-      <div className="flex h-10 min-w-0 items-center gap-2 border-t border-border-subtle/70 px-2">
-        <div className="min-w-0 flex-1">
-          <TabBar
-            tabs={tabs}
-            activeId={activeId}
-            onSelect={onSelect}
-            onNew={onNew}
-            onNewPrivate={onNewPrivate}
-            onNewPreview={onNewPreview}
-            onNewEditor={onNewEditor}
-            onNewGitGraph={onNewGitGraph}
-            onClose={onClose}
-            onPin={onPin}
-            compact={compact}
-          />
-        </div>
-        <SearchInline ref={searchRef} target={searchTarget} compact={compact} />
-      </div>
+      {showTabRow ? (
+        <HeaderTabRow
+          tabs={tabs}
+          activeId={activeId}
+          onSelect={onSelect}
+          onNew={onNew}
+          onNewPrivate={onNewPrivate}
+          onNewPreview={onNewPreview}
+          onNewEditor={onNewEditor}
+          onNewGitGraph={onNewGitGraph}
+          onClose={onClose}
+          onPin={onPin}
+          searchTarget={searchTarget}
+          searchRef={searchRef}
+          className="border-b-0 border-t border-border-subtle/70"
+        />
+      ) : null}
     </header>
   );
 }
