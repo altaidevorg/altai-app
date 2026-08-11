@@ -197,10 +197,11 @@ struct WorkListArgs {
 
 #[derive(Debug, Args)]
 struct WorkShowArgs {
-    /// Workspace path. Defaults to the current directory.
-    path: Option<PathBuf>,
     /// Work id.
     id: String,
+    /// Workspace path. Defaults to the current directory.
+    #[arg(long, value_name = "PATH")]
+    workspace: Option<PathBuf>,
     /// Print machine-readable JSON.
     #[arg(long)]
     json: bool,
@@ -208,10 +209,11 @@ struct WorkShowArgs {
 
 #[derive(Debug, Args)]
 struct WorkStartArgs {
-    /// Workspace path. Defaults to the current directory.
-    path: Option<PathBuf>,
     /// Work id.
     id: String,
+    /// Workspace path. Defaults to the current directory.
+    #[arg(long, value_name = "PATH")]
+    workspace: Option<PathBuf>,
     /// Expected revision (optimistic concurrency).
     #[arg(long)]
     revision: i64,
@@ -222,10 +224,11 @@ struct WorkStartArgs {
 
 #[derive(Debug, Args)]
 struct WorkRevisionArgs {
-    /// Workspace path. Defaults to the current directory.
-    path: Option<PathBuf>,
     /// Work id.
     id: String,
+    /// Workspace path. Defaults to the current directory.
+    #[arg(long, value_name = "PATH")]
+    workspace: Option<PathBuf>,
     /// Expected revision (optimistic concurrency).
     #[arg(long)]
     revision: i64,
@@ -236,10 +239,11 @@ struct WorkRevisionArgs {
 
 #[derive(Debug, Args)]
 struct WorkReviewArgs {
-    /// Workspace path. Defaults to the current directory.
-    path: Option<PathBuf>,
     /// Work id.
     id: String,
+    /// Workspace path. Defaults to the current directory.
+    #[arg(long, value_name = "PATH")]
+    workspace: Option<PathBuf>,
     /// Expected revision (optimistic concurrency).
     #[arg(long)]
     revision: i64,
@@ -820,7 +824,7 @@ fn inbox_list(args: InboxListArgs) -> Result<(), CliError> {
 }
 
 fn work_show(args: WorkShowArgs) -> Result<(), CliError> {
-    let (_project_id, store) = open_workspace_work(args.path.as_deref())?;
+    let (_project_id, store) = open_workspace_work(args.workspace.as_deref())?;
     let item = store
         .get_work(&args.id)
         .map_err(|error| CliError::Message(error.to_string()))?
@@ -829,7 +833,7 @@ fn work_show(args: WorkShowArgs) -> Result<(), CliError> {
 }
 
 fn work_start(args: WorkStartArgs) -> Result<(), CliError> {
-    let (_project_id, store) = open_workspace_work(args.path.as_deref())?;
+    let (_project_id, store) = open_workspace_work(args.workspace.as_deref())?;
     let item = store
         .start_attempt(&args.id, args.revision)
         .map_err(|error| CliError::Message(error.to_string()))?;
@@ -837,7 +841,7 @@ fn work_start(args: WorkStartArgs) -> Result<(), CliError> {
 }
 
 fn work_ready_for_review(args: WorkRevisionArgs) -> Result<(), CliError> {
-    let (_project_id, store) = open_workspace_work(args.path.as_deref())?;
+    let (_project_id, store) = open_workspace_work(args.workspace.as_deref())?;
     let item = store
         .mark_attempt_ready_for_review(&args.id, args.revision)
         .map_err(|error| CliError::Message(error.to_string()))?;
@@ -855,7 +859,7 @@ fn work_review(args: WorkReviewArgs) -> Result<(), CliError> {
             "pass only one of --accept or --return".into(),
         ));
     }
-    let (_project_id, store) = open_workspace_work(args.path.as_deref())?;
+    let (_project_id, store) = open_workspace_work(args.workspace.as_deref())?;
     let item = store
         .human_review(&args.id, args.revision, args.accept, &args.message)
         .map_err(|error| CliError::Message(error.to_string()))?;
@@ -2132,6 +2136,110 @@ mod tests {
         };
         assert_eq!(args.path, Some(PathBuf::from(".")));
         assert!(args.json);
+    }
+
+    #[test]
+    fn work_id_commands_use_an_unambiguous_named_workspace_or_default_cwd() {
+        let show = Cli::try_parse_from(["altai-cli", "work", "show", "work_1", "--json"])
+            .expect("show should default to cwd");
+        let Some(Commands::Work {
+            command: WorkCommands::Show(show),
+        }) = show.command
+        else {
+            panic!("work show command should parse");
+        };
+        assert_eq!(show.id, "work_1");
+        assert_eq!(show.workspace, None);
+        assert!(show.json);
+
+        let show = Cli::try_parse_from([
+            "altai-cli",
+            "work",
+            "show",
+            "work_1",
+            "--workspace",
+            "/tmp/project",
+        ])
+        .expect("show named workspace");
+        let Some(Commands::Work {
+            command: WorkCommands::Show(show),
+        }) = show.command
+        else {
+            panic!("work show command should parse");
+        };
+        assert_eq!(show.workspace, Some(PathBuf::from("/tmp/project")));
+
+        let start = Cli::try_parse_from([
+            "altai-cli",
+            "work",
+            "start",
+            "work_1",
+            "--revision",
+            "2",
+        ])
+        .expect("start should default to cwd");
+        let Some(Commands::Work {
+            command: WorkCommands::Start(start),
+        }) = start.command
+        else {
+            panic!("work start command should parse");
+        };
+        assert_eq!(start.workspace, None);
+        assert_eq!(start.revision, 2);
+
+        let ready = Cli::try_parse_from([
+            "altai-cli",
+            "work",
+            "ready-for-review",
+            "work_1",
+            "--workspace",
+            "/tmp/project",
+            "--revision",
+            "3",
+        ])
+        .expect("ready-for-review named workspace");
+        let Some(Commands::Work {
+            command: WorkCommands::ReadyForReview(ready),
+        }) = ready.command
+        else {
+            panic!("work ready-for-review command should parse");
+        };
+        assert_eq!(ready.workspace, Some(PathBuf::from("/tmp/project")));
+        assert_eq!(ready.revision, 3);
+
+        let review = Cli::try_parse_from([
+            "altai-cli",
+            "work",
+            "review",
+            "work_1",
+            "--workspace",
+            "/tmp/project",
+            "--revision",
+            "4",
+            "--return",
+            "--message",
+            "Add coverage",
+        ])
+        .expect("review named workspace");
+        let Some(Commands::Work {
+            command: WorkCommands::Review(review),
+        }) = review.command
+        else {
+            panic!("work review command should parse");
+        };
+        assert_eq!(review.workspace, Some(PathBuf::from("/tmp/project")));
+        assert_eq!(review.revision, 4);
+        assert!(review.r#return);
+        assert_eq!(review.message, "Add coverage");
+
+        assert!(Cli::try_parse_from([
+            "altai-cli",
+            "work",
+            "show",
+            "work_1",
+            "/tmp/project",
+        ])
+        .is_err());
     }
 
     #[test]
