@@ -1,0 +1,41 @@
+{
+  "assignments": [
+    {
+      "id": "asg-running",
+      "source": { "kind": "task", "prompt": "Keep working" },
+      "sessionId": "session-running",
+      "title": "Running assignment",
+      "status": "running",
+      "origin": "manual",
+      "runConfig": { "workspacePath": "__WORKSPACE__" },
+      "createdAt": 100,
+      "updatedAt": 200
+    },
+    {
+      "id": "asg-done",
+      "source": { "kind": "issue", "owner": "altai", "repo": "app", "number": 42, "url": "https://example.invalid/42" },
+      "sessionId": "session-done",
+      "title": "Successful assignment",
+      "status": "done",
+      "runConfig": { "workspacePath": "__WORKSPACE__" },
+      "createdAt": 300,
+      "updatedAt": 400
+    },
+    {
+      "id": "asg-failed",
+      "source": { "kind": "todo", "todoId": "todo-7" },
+      "sessionId": "session-failed",
+      "title": "Failed assignment",
+      "status": "failed",
+      "origin": "orchestrator",
+      "orchestration": {
+        "workspaceKey": "__WORKSPACE__",
+        "taskSessionId": "session-a",
+        "taskKey": "todo-7",
+        "attempt": 1
+      },
+      "createdAt": 500,
+      "updatedAt": 600
+    }
+  ]
+}

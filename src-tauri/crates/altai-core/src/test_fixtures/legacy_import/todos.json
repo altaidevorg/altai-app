@@ -1,0 +1,8 @@
+{
+  "todos:session-a": [
+    { "id": "manual-pending", "title": "Manual backlog", "status": "pending", "origin": "manual" },
+    { "id": "manual-complete", "title": "Manual completed", "description": "Verify me", "status": "completed", "origin": "manual" },
+    { "id": "agent-plan", "title": "Agent plan step", "status": "in_progress", "origin": "agent" },
+    { "id": "legacy-plan", "title": "Origin-less run plan", "status": "pending" }
+  ]
+}

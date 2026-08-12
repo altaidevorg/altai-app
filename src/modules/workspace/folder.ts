@@ -74,6 +74,10 @@ type State = {
   clearJustCloned: () => void;
   hydrate: () => Promise<void>;
   setFolder: (path: string) => void;
+  /** Open one user-selected folder and replace the exact preview grant. */
+  openFolder: (path: string) => Promise<string>;
+  /** Switch from metadata/restored context without creating an exact grant. */
+  switchFolder: (path: string) => Promise<string>;
   /** Open the native directory picker; adds + returns the chosen path. */
   pickFolder: () => Promise<string | null>;
   /**
@@ -94,7 +98,7 @@ type State = {
   /**
    * Clear the transient folder mirror while keeping the recent-project list.
    */
-  closeFolder: () => void;
+  closeFolder: () => Promise<void>;
 };
 
 export const useWorkspaceFolderStore = create<State>((set, get) => ({
@@ -145,6 +149,19 @@ export const useWorkspaceFolderStore = create<State>((set, get) => ({
       await store.save();
     })();
   },
+  openFolder: async (path) => {
+    const canonical = await native.workspaceAuthorizeOpened(path);
+    get().setFolder(canonical);
+    return canonical;
+  },
+  switchFolder: async (path) => {
+    // Automatic metadata/URL/environment switches are not user-open proof.
+    // Revoke the prior exact grant, then retain only broad filesystem access.
+    await native.workspaceRevokeOpened();
+    const canonical = await native.workspaceAuthorize(path);
+    get().setFolder(canonical);
+    return canonical;
+  },
   pickFolder: async () => {
     const selected = await open({
       directory: true,
@@ -152,8 +169,7 @@ export const useWorkspaceFolderStore = create<State>((set, get) => ({
       title: "Select workspace folder",
     });
     if (typeof selected === "string") {
-      get().setFolder(selected);
-      return selected;
+      return get().openFolder(selected);
     }
     return null;
   },
@@ -167,9 +183,9 @@ export const useWorkspaceFolderStore = create<State>((set, get) => ({
     });
     if (typeof parent !== "string") return null; // cancelled
     const dest = await native.gitClone(trimmed, parent);
+    const canonical = await get().openFolder(dest);
     set({ justCloned: true });
-    get().setFolder(dest);
-    return dest;
+    return canonical;
   },
   removeRecent: (path) => {
     const recents = get().recents.filter((p) => p !== path);
@@ -182,7 +198,9 @@ export const useWorkspaceFolderStore = create<State>((set, get) => ({
   },
   openRecent: async (path) => {
     if (await folderIsAccessible(path)) {
-      get().setFolder(path);
+      // The probe above is intentionally broad-only. Clicking a valid recent
+      // entry is the actual open action that replaces the exact grant.
+      await get().openFolder(path);
       return true;
     }
     // Folder is gone — confirm before pruning so a temporarily-unplugged drive
@@ -194,12 +212,11 @@ export const useWorkspaceFolderStore = create<State>((set, get) => ({
     if (remove) get().removeRecent(path);
     return false;
   },
-  closeFolder: () => {
+  closeFolder: async () => {
+    await native.workspaceRevokeOpened();
     set({ folder: null });
-    void (async () => {
-      await store.delete(KEY_FOLDER);
-      await store.save();
-    })();
+    await store.delete(KEY_FOLDER);
+    await store.save();
   },
 }));
 

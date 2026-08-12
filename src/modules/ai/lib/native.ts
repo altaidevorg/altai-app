@@ -645,6 +645,14 @@ export const native = {
       path,
       workspace: currentWorkspaceEnv(),
     }),
+  /** Exact grant for a folder the user has successfully opened/picked/cloned. */
+  workspaceAuthorizeOpened: (path: string) =>
+    invoke<string>("workspace_authorize_opened", {
+      path,
+      workspace: currentWorkspaceEnv(),
+    }),
+  /** Revoke exact preview authority when the active workspace closes/switches. */
+  workspaceRevokeOpened: () => invoke<void>("workspace_revoke_opened"),
   listWorkspaceFiles: (
     root: string,
     options?: { showHidden?: boolean; limit?: number; maxDepth?: number },

@@ -5,6 +5,7 @@ pub mod compaction;
 pub mod config;
 pub mod event;
 pub mod journal;
+pub mod legacy_import;
 pub mod legacy_mapping;
 #[cfg(test)]
 mod legacy_mapping_tests;
@@ -24,6 +25,14 @@ pub use event::{EventEnvelope, EVENT_SCHEMA_VERSION};
 pub use journal::{
     AppendStatus, ChatJournalSummary, EventJournal, JournalError, JournalEvent, JournalResult,
     RunJournalSummary, SessionJournalMetadata, TaskRunJournalMetadata,
+};
+pub use legacy_import::{
+    legacy_assignment_source_key, legacy_task_run_source_key, legacy_todo_source_key,
+    parse_legacy_assignments, parse_legacy_todos, preview_legacy_import, LegacyImportDisposition,
+    LegacyImportPreviewItem, LegacyImportPreviewPaths, LegacyImportPreviewReport,
+    LegacyImportSource, LegacyImportSourceKind, LegacySourceIdentity, LegacySqliteSource,
+    LegacyWorkspaceRoot, LEGACY_IMPORT_EVENT_KIND, LEGACY_IMPORT_SOURCE_KEY_FIELD,
+    LEGACY_IMPORT_SOURCE_KEY_MAX_BYTES,
 };
 pub use palette::{
     load_terminal_palette, resolve_terminal_appearance, resolve_terminal_appearance_from_env,
