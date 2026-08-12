@@ -22,6 +22,7 @@ vi.mock("../lib/native", () => ({
     workCreate: vi.fn(),
     workTransition: vi.fn(),
     workStart: vi.fn(),
+    workAttempts: vi.fn(async () => []),
     workReadyForReview: vi.fn(),
     workReview: vi.fn(),
     workInboxList: vi.fn(async () => []),
@@ -63,6 +64,13 @@ describe("createTauriHostPorts", () => {
       capabilities.capabilities.some(
         (entry) =>
           entry.id === "work.inbox" && entry.availability === "available",
+      ),
+    ).toBe(true);
+    expect(
+      capabilities.capabilities.some(
+        (entry) =>
+          entry.id === "work.attemptRuns" &&
+          entry.availability === "available",
       ),
     ).toBe(true);
     expect(
@@ -112,6 +120,34 @@ describe("createTauriHostPorts", () => {
     });
     await expect(ports.inbox.listWorkInbox()).resolves.toEqual([]);
     expect(native.workInboxList).toHaveBeenCalledOnce();
+  });
+
+  it("lists Work attempts through the durable native host", async () => {
+    const attempt = {
+      id: "attempt-1",
+      workId: "work-1",
+      number: 1,
+      role: "executor",
+      phase: "succeeded" as const,
+      chatId: "chat-1",
+      runId: "run-1",
+      createdAtMs: 1,
+      updatedAtMs: 2,
+    };
+    vi.mocked(native.workAttempts).mockResolvedValue([attempt]);
+
+    const ports = createTauriHostPorts();
+    await expect(ports.work.listWorkAttempts("work-1")).resolves.toEqual([
+      attempt,
+    ]);
+    expect(native.workAttempts).toHaveBeenCalledWith("work-1");
+  });
+
+  it("keeps startWorkRun unsupported because Desktop owns session orchestration", async () => {
+    const ports = createTauriHostPorts();
+    await expect(
+      ports.work.startWorkRun({ workId: "work-1", expectedRevision: 1 }),
+    ).rejects.toThrow(/startWorkRun/);
   });
 
   it("throws for deferred startRun until store DI lands", async () => {
