@@ -44,8 +44,8 @@ export function ChatHistoryPanel({
   searchInputRef,
 }: ChatHistoryPanelProps) {
   return (
-    <div className="altai-ai-history flex min-h-0 flex-1 flex-col bg-card">
-      <div className="flex shrink-0 flex-col gap-2 border-b border-border-subtle px-2.5 py-2">
+    <div className="altai-ai-history flex h-full min-h-0 w-full min-w-0 flex-1 flex-col overflow-hidden bg-card">
+      <div className="flex min-w-0 shrink-0 flex-col gap-2 border-b border-border-subtle px-2 py-2 @[22rem]:px-2.5">
         <div className="flex items-center gap-1.5">
           <button
             type="button"
@@ -56,7 +56,7 @@ export function ChatHistoryPanel({
             New chat
           </button>
         </div>
-        <div className="altai-ai-history-search flex items-center gap-2 border border-border bg-muted px-2">
+        <div className="altai-ai-history-search flex min-w-0 items-center gap-2 border border-border bg-muted px-2">
           <HugeiconsIcon
             icon={Search01Icon}
             size={13}

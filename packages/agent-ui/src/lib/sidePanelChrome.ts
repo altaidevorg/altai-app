@@ -15,7 +15,7 @@ export const SIDE_PANEL_RESIZE_HISTORY_LABEL = "Resize chat history sidebar";
 export const SIDE_PANEL_RESIZE_INSPECTOR_LABEL =
   "Resize run inspector sidebar";
 
-export const SIDE_PANEL_RUN_DETAILS_ARIA = "Run details";
+export const SIDE_PANEL_RUN_DETAILS_ARIA = "Details";
 
 export const SIDE_PANEL_LOCAL_WORKSPACE_FALLBACK = "Local workspace";
 

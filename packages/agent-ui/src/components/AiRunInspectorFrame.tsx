@@ -6,7 +6,7 @@ export type AiRunInspectorFrameVariant = "sidebar" | "compact";
 export type AiRunInspectorFrameProps = {
   /** Host-wired run header (usually `RunDetailsHeader`). */
   header: ReactNode;
-  /** Optional overview card immediately below the header. */
+  /** Optional overview strip immediately below the header. */
   summary?: ReactNode;
   /** Inspector sections or compact follow-on detail content. */
   children?: ReactNode;
@@ -18,9 +18,7 @@ export type AiRunInspectorFrameProps = {
 };
 
 /**
- * Shared run-details composition frame. Hosts retain stores, RPC callbacks,
- * and detail sections while the common header → overview → content structure
- * stays identical across Desktop and VS Code.
+ * Shared Details composition: raised header → metric strip → flat sections.
  */
 export function AiRunInspectorFrame({
   header,
@@ -30,19 +28,21 @@ export function AiRunInspectorFrame({
   className,
   bodyClassName,
   summaryClassName,
-  "aria-label": ariaLabel = "Run details",
+  "aria-label": ariaLabel = "Details",
 }: AiRunInspectorFrameProps) {
   const body = (
     <div
       className={cn(
         variant === "sidebar"
-          ? "min-h-0 flex-1 space-y-2.5 overflow-y-auto p-2.5"
+          ? "min-h-0 min-w-0 flex-1 overflow-y-auto"
           : undefined,
         bodyClassName,
       )}
     >
       {summary ? (
-        <div className={summaryClassName}>{summary}</div>
+        <div className={cn("sticky top-0 z-10 bg-card", summaryClassName)}>
+          {summary}
+        </div>
       ) : null}
       {children}
     </div>

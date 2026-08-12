@@ -61,7 +61,7 @@ export function SessionRow({
         }
       }}
       className={cn(
-        "group relative flex cursor-pointer items-start gap-2 rounded-md px-2 py-1.5 text-left transition-colors",
+        "group relative flex w-full min-w-0 cursor-pointer items-start gap-2 overflow-hidden rounded-md px-2 py-1.5 text-left transition-colors",
         active ? "bg-accent text-foreground" : "hover:bg-accent/50",
       )}
     >
@@ -124,7 +124,7 @@ export function SessionRow({
           </RowIconButton>
         </div>
       ) : (
-        <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
+        <div className="absolute right-1 top-1 flex items-center gap-0.5 rounded-md bg-card/90 p-0.5 opacity-0 shadow-sm backdrop-blur-sm transition-opacity group-focus-within:opacity-100 group-hover:opacity-100">
           <RowIconButton
             title="Rename"
             onClick={(e) => {

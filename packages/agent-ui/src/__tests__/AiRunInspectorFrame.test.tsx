@@ -15,7 +15,7 @@ describe("AiRunInspectorFrame", () => {
 
     expect(html).toContain("data-ai-run-inspector-frame");
     expect(html).toContain('data-variant="sidebar"');
-    expect(html).toContain('aria-label="Run details"');
+    expect(html).toContain('aria-label="Details"');
     expect(html).toContain("Summary");
     expect(html).toContain("Sections");
   });

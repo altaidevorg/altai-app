@@ -22,7 +22,7 @@ export function ComposerConfigRow({
     <div
       className={cn(
         "altai-composer-config-row grid w-full min-w-0 gap-1 border-t border-border-subtle px-2.5 py-1.5",
-        showAgent ? "grid-cols-2" : "grid-cols-1",
+        showAgent ? "grid-cols-1 @[18rem]:grid-cols-2" : "grid-cols-1",
         className,
       )}
       aria-label="Chat configuration"

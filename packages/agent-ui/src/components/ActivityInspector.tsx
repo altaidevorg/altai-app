@@ -65,7 +65,7 @@ export function ActivityInspector({
             <div className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
               Run state
             </div>
-            <div className="mt-2 grid grid-cols-2 gap-2 text-[11px]">
+            <div className="mt-2 grid grid-cols-1 gap-2 text-[11px] @[18rem]:grid-cols-2">
               <RunStateMetric
                 label="Approvals"
                 value={String(approvalsPending)}
@@ -91,38 +91,35 @@ export function ActivityInspector({
           ) : null}
         </>
       ) : null}
-      <section
-        className={cn(
-          "rounded-md border border-border bg-muted/30 p-2.5",
-          compact && "border-0 bg-transparent p-0",
-        )}
-      >
-        <div className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-          Timeline
-        </div>
+      <section className={cn(!compact && "mt-1")}>
+        {!compact ? (
+          <div className="mb-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+            Timeline
+          </div>
+        ) : null}
         {events.length ? (
-          <div className="mt-2 space-y-2">
+          <ul className="divide-y divide-border-subtle">
             {[...events].reverse().map((item) => (
-              <div key={item.id} className="flex gap-2">
+              <li key={item.id} className="flex gap-2 py-2">
                 <span
                   className={cn(
                     "mt-1.5 size-1.5 shrink-0 rounded-full",
                     item.tone === "success"
-                      ? "bg-success"
+                      ? "bg-foreground"
                       : item.tone === "warning"
-                        ? "bg-warning"
+                        ? "bg-foreground/70"
                         : item.tone === "error"
                           ? "bg-destructive"
-                          : "bg-info",
+                          : "bg-muted-foreground/50",
                   )}
                 />
                 <div className="min-w-0 flex-1">
                   <div className="flex items-baseline gap-2">
-                    <span className="min-w-0 flex-1 truncate text-[10.5px] text-foreground">
+                    <span className="min-w-0 flex-1 truncate text-[11px] text-foreground">
                       {item.label}
                     </span>
                     <time
-                      className="shrink-0 text-[9px] tabular-nums text-muted-foreground"
+                      className="shrink-0 text-[10.5px] tabular-nums text-muted-foreground"
                       dateTime={new Date(item.createdAt).toISOString()}
                     >
                       {new Date(item.createdAt).toLocaleTimeString([], {
@@ -132,16 +129,16 @@ export function ActivityInspector({
                     </time>
                   </div>
                   {item.detail ? (
-                    <div className="mt-0.5 line-clamp-2 text-[9.5px] leading-relaxed text-muted-foreground">
+                    <div className="mt-0.5 line-clamp-2 text-[10.5px] leading-relaxed text-muted-foreground">
                       {item.detail}
                     </div>
                   ) : null}
                 </div>
-              </div>
+              </li>
             ))}
-          </div>
+          </ul>
         ) : (
-          <p className="mt-2 text-[10.5px] leading-relaxed text-muted-foreground">
+          <p className="py-1 text-[11px] leading-relaxed text-muted-foreground">
             {hasQuery
               ? "No timeline events match this search."
               : "Run events will appear here as the agent works."}

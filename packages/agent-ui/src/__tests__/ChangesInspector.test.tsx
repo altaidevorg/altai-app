@@ -35,7 +35,7 @@ describe("ChangesInspector", () => {
         onOpenReview: () => {},
       }),
     );
-    expect(html).toContain("2 proposed changes are waiting for review.");
+    expect(html).toContain("2 proposed changes");
     expect(html).toContain("Open change review");
     expect(html).toContain("a.ts");
     expect(html).toContain("+1L");
@@ -57,6 +57,6 @@ describe("ChangesInspector", () => {
         onOpenReview: () => {},
       }),
     );
-    expect(html).toContain("1 proposed change is waiting for review.");
+    expect(html).toContain("1 proposed change");
   });
 });

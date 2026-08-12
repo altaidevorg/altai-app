@@ -125,8 +125,8 @@ export function GeneralSection({
         title="General"
         description={
           isApp
-            ? "Appearance, startup, and agent behavior for ALTAI Studio."
-            : "Appearance, editor, and startup."
+            ? "Appearance, startup, and agent behavior for Desktop Agents."
+            : "Desktop IDE appearance, editor, terminal, and startup — not Desktop Agents or the VS Code extension."
         }
       />
 

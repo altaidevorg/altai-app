@@ -30,6 +30,9 @@ describe("WorkList", () => {
     expect(html).toContain("New Work");
     expect(html).toContain("My active");
     expect(html).toContain("Ship Work list");
+    expect(html).toContain('role="radiogroup"');
+    expect(html).toContain('role="radio"');
+    expect(html).toContain('aria-checked="true"');
   });
 
   it("renders empty copy for my active", () => {
@@ -46,6 +49,24 @@ describe("WorkList", () => {
     );
     expect(html).toContain("Nothing active");
     expect(html).toContain("Inbox");
+  });
+
+  it("supports the compact Home projection without filter tabs", () => {
+    const html = renderToStaticMarkup(
+      createElement(WorkList, {
+        status: "ready",
+        filter: "my_active",
+        onFilterChange: () => {},
+        rows: [],
+        onOpenWork: () => {},
+        onNewWork: () => {},
+        showFilters: false,
+        title: "My active",
+      }),
+    );
+    expect(html).toContain("My active");
+    expect(html).not.toContain('aria-label="Work filters"');
+    expect(html).not.toContain("Backlog");
   });
 });
 

@@ -34,9 +34,15 @@ export function SurfaceHeader({
   className?: string;
 }) {
   return (
-    <header className={cn(HEADER, "min-h-[58px] px-3.5 py-2.5", className)}>
+    <header
+      className={cn(
+        HEADER,
+        "min-h-[58px] min-w-0 px-2 py-2.5 @[22rem]:px-3.5",
+        className,
+      )}
+    >
       {icon ? (
-        <span className="inline-flex size-8 shrink-0 items-center justify-center rounded-lg border border-border bg-muted text-muted-foreground">
+        <span className="hidden size-8 shrink-0 items-center justify-center rounded-lg border border-border bg-muted text-muted-foreground @[17rem]:inline-flex">
           <HugeiconsIcon icon={icon} size={15} strokeWidth={1.75} />
         </span>
       ) : null}

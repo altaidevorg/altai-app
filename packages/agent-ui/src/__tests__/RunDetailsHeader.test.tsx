@@ -11,7 +11,7 @@ describe("RunDetailsHeader", () => {
         status: "idle",
       }),
     );
-    expect(html).toContain("Run details");
+    expect(html).toContain("Details");
     expect(html).toContain("Idle");
     expect(html).not.toContain("Stop run");
   });

@@ -12,9 +12,9 @@ describe("ActivityInspector", () => {
         compact: true,
       }),
     );
-    expect(html).toContain("Timeline");
     expect(html).toContain("No timeline events match this search.");
     expect(html).not.toContain("Run state");
+    expect(html).not.toContain("Timeline");
   });
 
   it("renders newest events first with tone and detail", () => {
@@ -41,7 +41,7 @@ describe("ActivityInspector", () => {
     );
     expect(html.indexOf("Newer")).toBeLessThan(html.indexOf("Older"));
     expect(html).toContain("done");
-    expect(html).toContain("bg-success");
+    expect(html).toContain("bg-foreground");
   });
 
   it("renders non-compact run state when requested", () => {

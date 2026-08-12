@@ -12,8 +12,7 @@ export type InspectorSectionProps = {
 };
 
 /**
- * Collapsible section chrome for the run inspector. Purely presentational;
- * uses a local open toggle (no Radix) so hosts stay dependency-light.
+ * Flat collapsible section — History-style group header, no nested card chrome.
  */
 export function InspectorSection({
   title,
@@ -25,31 +24,31 @@ export function InspectorSection({
   const [open, setOpen] = useState(defaultOpen);
 
   return (
-    <div className="overflow-hidden rounded-lg border border-border bg-card">
+    <section className="border-b border-border-subtle">
       <button
         type="button"
         onClick={() => setOpen((value) => !value)}
         aria-expanded={open}
-        className="group flex w-full items-center gap-2 px-3 py-2.5 text-left hover:bg-accent/60"
+        className="group flex w-full items-center gap-2 px-2.5 py-2 text-left transition-colors hover:bg-foreground/[0.03]"
       >
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5">
-            <span className="text-[10.5px] font-semibold text-foreground">
+            <span className="text-[11px] font-medium text-foreground">
               {title}
             </span>
             {count ? (
-              <span className="rounded bg-foreground/[0.06] px-1.5 text-[8.5px] tabular-nums text-muted-foreground">
+              <span className="rounded bg-foreground/[0.06] px-1.5 text-[10px] tabular-nums text-muted-foreground">
                 {count}
               </span>
             ) : null}
           </div>
-          <div className="mt-0.5 truncate text-[9px] text-muted-foreground">
+          <div className="mt-0.5 truncate text-[10.5px] text-muted-foreground">
             {summary}
           </div>
         </div>
         <HugeiconsIcon
           icon={ArrowDown01Icon}
-          size={11}
+          size={12}
           strokeWidth={2}
           className={cn(
             "shrink-0 text-muted-foreground transition-transform",
@@ -57,11 +56,7 @@ export function InspectorSection({
           )}
         />
       </button>
-      {open ? (
-        <div className="border-t border-border-subtle bg-muted/10 p-2.5">
-          {children}
-        </div>
-      ) : null}
-    </div>
+      {open ? <div className="px-2.5 pb-2.5 pt-0.5">{children}</div> : null}
+    </section>
   );
 }

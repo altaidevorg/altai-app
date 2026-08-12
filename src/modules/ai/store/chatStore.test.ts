@@ -21,6 +21,10 @@ vi.mock("../lib/sessions", () => ({
   mergeBackendSessions: vi.fn(async () => ({ merged: [], recoveredIds: [] })),
   newSessionId: () => `s-${Math.random().toString(36).slice(2, 8)}`,
   deriveTitle: () => "New chat",
+  getChatHistorySurface: () => "agent" as const,
+  getChatHistoryWorkspaceScope: () => null,
+  setChatHistorySurface: vi.fn(),
+  setChatHistoryWorkspaceScope: vi.fn(),
 }));
 
 // `native` wraps Tauri IPC — stub everything to no-op resolves.

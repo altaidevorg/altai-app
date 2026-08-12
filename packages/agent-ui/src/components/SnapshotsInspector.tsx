@@ -23,8 +23,7 @@ export type SnapshotsInspectorProps = {
 };
 
 /**
- * Run-inspector snapshots panel: reviewed plan edits and pre-edit agent
- * checkpoints. Purely presentational; the host owns restore transport.
+ * Recovery snapshots as flat grouped lists.
  */
 export function SnapshotsInspector({
   applied,
@@ -44,39 +43,47 @@ export function SnapshotsInspector({
   }
 
   return (
-    <div className="space-y-2">
+    <div>
       {applied.length ? (
-        <section className="space-y-2">
-          <div className="px-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+        <section>
+          <div className="px-0.5 pb-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
             Plan review
           </div>
-          {[...applied].reverse().map((item) => (
-            <HistoryRow
-              key={item.id}
-              path={item.path}
-              detail={`Accepted change · ${item.isNewFile ? "removes new file" : "restores prior content"}`}
-              restoring={restoringId === item.id}
-              onRestore={() => onRestoreApplied(item.id)}
-            />
-          ))}
+          <ul className="divide-y divide-border-subtle">
+            {[...applied].reverse().map((item) => (
+              <li key={item.id}>
+                <HistoryRow
+                  path={item.path}
+                  detail={`Accepted change · ${item.isNewFile ? "removes new file" : "restores prior content"}`}
+                  restoring={restoringId === item.id}
+                  onRestore={() => onRestoreApplied(item.id)}
+                />
+              </li>
+            ))}
+          </ul>
         </section>
       ) : null}
       {items.length ? (
-        <div className="px-1 pt-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-          Agent edits
-        </div>
+        <section className={applied.length ? "mt-2" : undefined}>
+          <div className="px-0.5 pb-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+            Agent edits
+          </div>
+          <ul className="divide-y divide-border-subtle">
+            {items.map((item) => (
+              <li key={item.id}>
+                <HistoryRow
+                  path={item.path}
+                  detail={item.label}
+                  restoring={restoringId === item.id}
+                  onRestore={() => onRestoreCheckpoint(item.id)}
+                />
+              </li>
+            ))}
+          </ul>
+        </section>
       ) : null}
-      {items.map((item) => (
-        <HistoryRow
-          key={item.id}
-          path={item.path}
-          detail={item.label}
-          restoring={restoringId === item.id}
-          onRestore={() => onRestoreCheckpoint(item.id)}
-        />
-      ))}
       {error ? (
-        <div className="border border-destructive/30 bg-destructive/[0.06] p-2 text-[10.5px] text-destructive">
+        <div className="mt-2 border border-destructive/20 bg-destructive/[0.05] px-2 py-1.5 text-[11px] text-destructive">
           {error}
         </div>
       ) : null}

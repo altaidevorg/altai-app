@@ -15,6 +15,7 @@ export const ALTAI_RECOVERY_COMMANDS = [
   "altai.openExtensionSettings",
   "altai.askAboutProblems",
   "altai.pickProjectRoot",
+  "altai.closeSidePanel",
   "workbench.action.manageWorkspaceTrust",
   "workbench.action.files.openFolder",
   "workbench.action.openGlobalKeybindings",

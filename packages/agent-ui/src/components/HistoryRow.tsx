@@ -14,9 +14,7 @@ function basename(p: string): string {
 }
 
 /**
- * Restore-point row used by the plan diff review history panel. Renders the
- * file basename with a tooltip of the full path and a Restore button. The
- * host owns the restore orchestration (native checkpoint restore, stores).
+ * Restore-point row used by recovery / plan history.
  */
 export function HistoryRow({
   path,
@@ -25,7 +23,7 @@ export function HistoryRow({
   onRestore,
 }: HistoryRowProps) {
   return (
-    <div className="flex items-center gap-2 rounded-md border border-border bg-muted/30 px-2.5 py-2">
+    <div className="flex items-center gap-2 py-2">
       <HugeiconsIcon
         icon={FileEditIcon}
         size={12}
@@ -40,7 +38,7 @@ export function HistoryRow({
           {basename(path)}
         </div>
         <div
-          className="truncate text-[9.5px] text-muted-foreground"
+          className="truncate text-[10.5px] text-muted-foreground"
           title={detail}
         >
           {detail}
@@ -50,7 +48,7 @@ export function HistoryRow({
         type="button"
         disabled={restoring}
         onClick={onRestore}
-        className="h-6 rounded px-1.5 text-[10px] text-foreground hover:bg-foreground/[0.055] disabled:opacity-40"
+        className="inline-flex h-7 items-center rounded-md px-2 text-[11px] text-foreground transition-colors hover:bg-foreground/[0.06] disabled:opacity-40"
       >
         {restoring ? "Restoring…" : "Restore"}
       </button>

@@ -45,6 +45,8 @@ import { EMPTY_PROVIDER_KEYS, type ProviderKeys } from "../lib/keyring";
 import {
   deleteSessionData,
   deriveTitle,
+  getChatHistorySurface,
+  getChatHistoryWorkspaceScope,
   loadAll,
   loadMessages,
   mergeBackendSessions,
@@ -53,6 +55,7 @@ import {
   saveDeletedIds,
   saveMessages,
   saveSessionsList,
+  type ChatHistorySurface,
   type SessionMeta,
 } from "../lib/sessions";
 import { pushRecentModel } from "../lib/modelPrefs";
@@ -320,6 +323,10 @@ type StoreState = {
 
   // Sessions
   sessionsHydrated: boolean;
+  /** Surface whose list is currently loaded (`agent` Desktop vs `studio` IDE). */
+  hydratedChatSurface: ChatHistorySurface | null;
+  /** Studio folder scope currently loaded (`null` = agent or studio with no folder). */
+  hydratedChatWorkspaceScope: string | null;
   sessions: SessionMeta[];
   activeSessionId: string | null;
   hydrateSessions: () => Promise<void>;
@@ -834,11 +841,32 @@ export const useChatStore = create<StoreState>((set, get) => ({
   setPaperImportOpen: (open) => set({ paperImportOpen: open }),
 
   sessionsHydrated: false,
+  hydratedChatSurface: null,
+  hydratedChatWorkspaceScope: null,
   sessions: [],
   activeSessionId: null,
 
   hydrateSessions: async () => {
-    if (get().sessionsHydrated) return;
+    const surface = getChatHistorySurface();
+    const workspaceScope = getChatHistoryWorkspaceScope();
+    if (
+      get().sessionsHydrated &&
+      get().hydratedChatSurface === surface &&
+      get().hydratedChatWorkspaceScope === workspaceScope
+    ) {
+      return;
+    }
+
+    // Switching Desktop ↔ IDE or IDE folder: flush the list we are leaving.
+    if (
+      get().sessionsHydrated &&
+      (get().hydratedChatSurface !== surface ||
+        get().hydratedChatWorkspaceScope !== workspaceScope)
+    ) {
+      const prevId = get().activeSessionId;
+      if (prevId) flushPersist(prevId);
+    }
+
     let { sessions, activeId, deletedIds } = await loadAll();
     deletedSessionIds.clear();
     for (const id of deletedIds) deletedSessionIds.add(id);
@@ -848,7 +876,7 @@ export const useChatStore = create<StoreState>((set, get) => ({
     // exist in the agent's history are recovered here so they reappear in the
     // chat-history list (Claude Code / Cursor behavior). Best-effort:
     // a backend error must not block hydration. Permanently-deleted ids are
-    // suppressed so they don't come back.
+    // suppressed so they don't come back. Recovery is surface-/folder-scoped.
     const { merged, recoveredIds } = await mergeBackendSessions(
       sessions,
       [...deletedSessionIds],
@@ -857,6 +885,16 @@ export const useChatStore = create<StoreState>((set, get) => ({
     if (recoveredIds.length > 0) {
       void saveSessionsList(merged);
     }
+
+    const stampStudioWorkspace = (meta: SessionMeta): SessionMeta => {
+      if (surface !== "studio" || !workspaceScope) return meta;
+      if (meta.workspacePath) return meta;
+      return {
+        ...meta,
+        workspacePath: workspaceScope,
+        workspaceKind: meta.workspaceKind ?? "local",
+      };
+    };
 
     // Pick the session to land on after restart. Prefer the last-used one
     // (persisted activeId) if it still exists, so the user returns to their
@@ -867,11 +905,26 @@ export const useChatStore = create<StoreState>((set, get) => ({
       sessions,
       activeId,
       () =>
-        createUntitledSessionMeta(newSessionId()) as SessionMeta,
+        stampStudioWorkspace(
+          createUntitledSessionMeta(newSessionId()) as SessionMeta,
+        ),
     );
-    const active = resolved.active;
-    const nextSessions = resolved.nextSessions as SessionMeta[];
-    if (resolved.created) {
+    const active = stampStudioWorkspace(resolved.active as SessionMeta);
+    let nextSessions = resolved.nextSessions as SessionMeta[];
+    let listDirty = resolved.created;
+    if (surface === "studio" && workspaceScope) {
+      const stamped = nextSessions.map(stampStudioWorkspace);
+      if (
+        stamped.some(
+          (session, index) =>
+            session.workspacePath !== nextSessions[index]?.workspacePath,
+        )
+      ) {
+        listDirty = true;
+      }
+      nextSessions = stamped;
+    }
+    if (listDirty) {
       void saveSessionsList(nextSessions);
     }
     const activeSessionId = active.id;
@@ -881,6 +934,13 @@ export const useChatStore = create<StoreState>((set, get) => ({
       sessions: nextSessions,
       activeSessionId,
       sessionsHydrated: true,
+      hydratedChatSurface: surface,
+      hydratedChatWorkspaceScope: workspaceScope,
+      agentMeta: IDLE_META,
+      nativeMessages: [],
+      currentAssistantTurnId: null,
+      pendingChoices: null,
+      pendingEditDiff: null,
     });
 
     // Restore the active session's thread so the conversation reappears on
@@ -888,6 +948,8 @@ export const useChatStore = create<StoreState>((set, get) => ({
     // lands elsewhere before this resolves wins (same shape as switchSession).
     void loadMessages(activeSessionId).then((m) => {
       if (get().activeSessionId !== activeSessionId) return;
+      if (get().hydratedChatSurface !== surface) return;
+      if (get().hydratedChatWorkspaceScope !== workspaceScope) return;
       const loaded = m ?? [];
       loadedMessagesRefs.add(loaded);
       set({ nativeMessages: loaded });
@@ -896,11 +958,18 @@ export const useChatStore = create<StoreState>((set, get) => ({
 
   newSession: () => {
     const id = newSessionId();
+    const studioScope =
+      getChatHistorySurface() === "studio"
+        ? getChatHistoryWorkspaceScope()
+        : null;
     const meta: SessionMeta = {
       id,
       title: DEFAULT_SESSION_TITLE,
       createdAt: Date.now(),
       updatedAt: Date.now(),
+      ...(studioScope
+        ? { workspacePath: studioScope, workspaceKind: "local" as const }
+        : {}),
     };
     const current = get().sessions;
     const next = insertSessionAfterActive(
@@ -924,11 +993,18 @@ export const useChatStore = create<StoreState>((set, get) => ({
 
   createBackgroundSession: (title) => {
     const id = newSessionId();
+    const studioScope =
+      getChatHistorySurface() === "studio"
+        ? getChatHistoryWorkspaceScope()
+        : null;
     const meta: SessionMeta = {
       id,
       title,
       createdAt: Date.now(),
       updatedAt: Date.now(),
+      ...(studioScope
+        ? { workspacePath: studioScope, workspaceKind: "local" as const }
+        : {}),
     };
     const next = [...get().sessions, meta];
     set({ sessions: next });

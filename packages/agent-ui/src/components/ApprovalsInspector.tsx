@@ -22,8 +22,7 @@ export function approvalPreview(payload: unknown): string {
 }
 
 /**
- * Run-inspector panel for pending tool approvals. Purely presentational;
- * the host supplies approvals and the respond callback.
+ * Pending tool approvals with Deny / Approve actions.
  */
 export function ApprovalsInspector({
   approvals,
@@ -38,39 +37,36 @@ export function ApprovalsInspector({
     );
   }
   return (
-    <div className="space-y-2">
+    <ul className="divide-y divide-border-subtle">
       {approvals.map((approval) => (
-        <div
-          key={approval.id}
-          className="rounded-md border border-warning/30 bg-warning/[0.06] p-2.5"
-        >
+        <li key={approval.id} className="py-2 first:pt-0 last:pb-0">
           <div className="flex items-center gap-2">
-            <span className="size-1.5 animate-pulse rounded-full bg-warning" />
-            <span className="min-w-0 flex-1 truncate text-[11px] font-medium">
+            <span className="size-1.5 shrink-0 animate-pulse rounded-full bg-foreground/70" />
+            <span className="min-w-0 flex-1 truncate text-[11px] font-medium text-foreground">
               {approval.action}
             </span>
           </div>
-          <pre className="mt-2 max-h-24 max-w-full min-w-0 overflow-x-auto whitespace-pre-wrap break-words rounded-md bg-muted p-2 font-mono text-[9.5px] leading-relaxed text-muted-foreground [overflow-wrap:anywhere]">
+          <pre className="mt-1.5 max-h-24 max-w-full min-w-0 overflow-x-auto whitespace-pre-wrap break-words rounded-md bg-muted/60 px-2 py-1.5 font-mono text-[10.5px] leading-relaxed text-muted-foreground [overflow-wrap:anywhere]">
             {approvalPreview(approval.payload)}
           </pre>
           <div className="mt-2 flex justify-end gap-1.5">
             <button
               type="button"
               onClick={() => onRespond(approval.id, false)}
-              className="rounded-md px-2 py-1 text-[10px] font-medium text-muted-foreground hover:bg-muted hover:text-foreground"
+              className="inline-flex h-7 items-center rounded-md px-2 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground"
             >
               Deny
             </button>
             <button
               type="button"
               onClick={() => onRespond(approval.id, true)}
-              className="rounded-md bg-foreground px-2 py-1 text-[10px] font-medium text-background hover:bg-foreground/90"
+              className="inline-flex h-7 items-center rounded-md bg-foreground px-2 text-[11px] font-medium text-background transition-opacity hover:opacity-90"
             >
               Approve
             </button>
           </div>
-        </div>
+        </li>
       ))}
-    </div>
+    </ul>
   );
 }

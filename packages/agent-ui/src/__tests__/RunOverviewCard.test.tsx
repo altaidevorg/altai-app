@@ -33,6 +33,6 @@ describe("RunOverviewCard", () => {
       }),
     );
     expect(html).toContain("No usage yet");
-    expect(html).not.toContain("line-clamp-2");
+    expect(html).not.toContain("Editing files");
   });
 });

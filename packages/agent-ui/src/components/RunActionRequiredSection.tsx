@@ -6,16 +6,15 @@ export type RunActionRequiredSectionProps = {
 };
 
 /**
- * Warning-styled “Action required” wrapper above ApprovalsInspector in the
- * run details panel. Host supplies ApprovalsInspector + respond callbacks.
+ * Pinned “Action required” block above the section list.
  */
 export function RunActionRequiredSection({
   children,
   title = "Action required",
 }: RunActionRequiredSectionProps) {
   return (
-    <section>
-      <div className="mb-1.5 px-1 text-[9px] font-semibold uppercase tracking-[0.12em] text-warning">
+    <section className="border-b border-border-subtle bg-card px-2.5 py-2">
+      <div className="mb-1.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
         {title}
       </div>
       {children}

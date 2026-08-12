@@ -14,8 +14,7 @@ export type McpInspectorProps = {
 };
 
 /**
- * Run-inspector panel for MCP server call activity. Purely presentational;
- * the host supplies the filtered event list.
+ * MCP call activity as a flat list.
  */
 export function McpInspector({ events }: McpInspectorProps) {
   if (!events.length) {
@@ -26,43 +25,42 @@ export function McpInspector({ events }: McpInspectorProps) {
     );
   }
   return (
-    <div className="space-y-2">
+    <ul className="divide-y divide-border-subtle">
       {[...events].reverse().map((item) => (
-        <div
-          key={item.id}
-          className="rounded-md border border-border bg-muted/30 px-2.5 py-2"
-        >
-          <div className="flex items-center gap-2">
-            <span
-              className={cn(
-                "size-1.5 shrink-0 rounded-full",
-                item.tone === "error"
-                  ? "bg-destructive"
-                  : item.tone === "success"
-                    ? "bg-success"
-                    : "bg-muted-foreground",
-              )}
-            />
-            <span className="min-w-0 flex-1 truncate text-[11px] font-medium">
-              {item.label}
-            </span>
-            <time
-              className="text-[9px] tabular-nums text-muted-foreground"
-              dateTime={new Date(item.createdAt).toISOString()}
-            >
-              {new Date(item.createdAt).toLocaleTimeString([], {
-                hour: "2-digit",
-                minute: "2-digit",
-              })}
-            </time>
-          </div>
-          {item.detail ? (
-            <div className="mt-1 pl-3.5 text-[10px] text-muted-foreground">
-              {item.detail}
+        <li key={item.id} className="flex gap-2 py-2">
+          <span
+            className={cn(
+              "mt-1.5 size-1.5 shrink-0 rounded-full",
+              item.tone === "error"
+                ? "bg-destructive"
+                : item.tone === "success"
+                  ? "bg-foreground"
+                  : "bg-muted-foreground/50",
+            )}
+          />
+          <div className="min-w-0 flex-1">
+            <div className="flex items-baseline gap-2">
+              <span className="min-w-0 flex-1 truncate text-[11px] font-medium text-foreground">
+                {item.label}
+              </span>
+              <time
+                className="shrink-0 text-[10.5px] tabular-nums text-muted-foreground"
+                dateTime={new Date(item.createdAt).toISOString()}
+              >
+                {new Date(item.createdAt).toLocaleTimeString([], {
+                  hour: "2-digit",
+                  minute: "2-digit",
+                })}
+              </time>
             </div>
-          ) : null}
-        </div>
+            {item.detail ? (
+              <div className="mt-0.5 text-[10.5px] text-muted-foreground">
+                {item.detail}
+              </div>
+            ) : null}
+          </div>
+        </li>
       ))}
-    </div>
+    </ul>
   );
 }

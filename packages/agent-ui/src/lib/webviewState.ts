@@ -26,8 +26,16 @@ export type PersistedWebviewState = {
   surface?: PersistedAltaiSurface;
   operationsView?: PersistedOperationsView;
   workHubView?: PersistedWorkHubView;
-  /** Last Chat conversation focused from Operations or a run. */
+  /**
+   * Last Chat conversation focused for the current preferred root.
+   * Prefer `activeChatIdByRoot` for multi-root / workspace switches.
+   */
   activeChatId?: string;
+  /**
+   * Last focused chat id keyed by preferred workspace root URI so history
+   * focus does not leak across workspaces.
+   */
+  activeChatIdByRoot?: Record<string, string>;
   /**
    * Unsent Chat composer text. Presentation-only; never secrets.
    * Capped on parse/write so getState stays small.
@@ -42,6 +50,38 @@ export type PersistedWebviewState = {
   /** Last selected composer agent profile id (presentation only). */
   activeAgentId?: string;
 };
+
+/** Resolve the focused chat for a workspace root (map first, then legacy). */
+export function activeChatIdForRoot(
+  state: PersistedWebviewState,
+  rootUri: string | undefined | null,
+): string | undefined {
+  if (rootUri) {
+    const mapped = state.activeChatIdByRoot?.[rootUri];
+    if (mapped) return mapped;
+    if (state.preferredRootUri === rootUri && state.activeChatId) {
+      return state.activeChatId;
+    }
+    return undefined;
+  }
+  return state.activeChatId;
+}
+
+/** Build a patch that stores focus both legacy and per-root. */
+export function activeChatFocusPatch(
+  rootUri: string | undefined | null,
+  chatId: string | undefined | null,
+): PersistedWebviewState {
+  const id = typeof chatId === "string" ? chatId.trim() : "";
+  if (!rootUri) {
+    return { activeChatId: id };
+  }
+  return {
+    preferredRootUri: rootUri,
+    activeChatId: id,
+    activeChatIdByRoot: { [rootUri]: id },
+  };
+}
 
 /** Max characters retained for the reloadable composer draft. */
 export const MAX_COMPOSER_DRAFT_CHARS = 8_000;
@@ -138,12 +178,29 @@ export function parsePersistedWebviewState(
   ) {
     next.workHubView = record.workHubView as PersistedWorkHubView;
   }
+  const preferred = normalizePreferredRootUri(record.preferredRootUri);
+  if (preferred !== undefined) {
+    next.preferredRootUri = preferred;
+  }
   if (
     typeof record.activeChatId === "string" &&
     record.activeChatId.length > 0 &&
     record.activeChatId.length <= 512
   ) {
     next.activeChatId = record.activeChatId;
+  }
+  const byRoot = parseActiveChatIdByRoot(record.activeChatIdByRoot);
+  if (byRoot) {
+    next.activeChatIdByRoot = byRoot;
+    // Seed legacy field from preferred root when missing.
+    if (!next.activeChatId && next.preferredRootUri) {
+      const seeded = byRoot[next.preferredRootUri];
+      if (seeded) next.activeChatId = seeded;
+    }
+  } else if (next.activeChatId && next.preferredRootUri) {
+    next.activeChatIdByRoot = {
+      [next.preferredRootUri]: next.activeChatId,
+    };
   }
   const draft = normalizeComposerDraft(record.composerDraft);
   if (draft !== undefined) {
@@ -156,10 +213,6 @@ export function parsePersistedWebviewState(
     /^[a-z][a-z0-9-]*$/.test(record.settingsSection)
   ) {
     next.settingsSection = record.settingsSection;
-  }
-  const preferred = normalizePreferredRootUri(record.preferredRootUri);
-  if (preferred !== undefined) {
-    next.preferredRootUri = preferred;
   }
   if (
     typeof record.activeAgentId === "string" &&
@@ -196,6 +249,17 @@ export function mergePersistedWebviewState(
       next.activeChatId = id;
     }
   }
+  if (Object.prototype.hasOwnProperty.call(patch, "activeChatIdByRoot")) {
+    const merged = mergeActiveChatIdByRoot(
+      current.activeChatIdByRoot,
+      patch.activeChatIdByRoot,
+    );
+    if (!merged || Object.keys(merged).length === 0) {
+      delete next.activeChatIdByRoot;
+    } else {
+      next.activeChatIdByRoot = merged;
+    }
+  }
   if (Object.prototype.hasOwnProperty.call(patch, "preferredRootUri")) {
     const preferred = normalizePreferredRootUri(patch.preferredRootUri);
     if (preferred === undefined) {
@@ -226,6 +290,51 @@ export function mergePersistedWebviewState(
       delete next.activeAgentId;
     } else {
       next.activeAgentId = id;
+    }
+  }
+  return next;
+}
+
+function parseActiveChatIdByRoot(
+  value: unknown,
+): Record<string, string> | undefined {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return undefined;
+  }
+  const next: Record<string, string> = {};
+  for (const [root, chatId] of Object.entries(
+    value as Record<string, unknown>,
+  )) {
+    const preferred = normalizePreferredRootUri(root);
+    if (
+      !preferred ||
+      typeof chatId !== "string" ||
+      !chatId ||
+      chatId.length > 512
+    ) {
+      continue;
+    }
+    next[preferred] = chatId;
+  }
+  return Object.keys(next).length > 0 ? next : undefined;
+}
+
+function mergeActiveChatIdByRoot(
+  current: Record<string, string> | undefined,
+  patch: Record<string, string> | undefined,
+): Record<string, string> | undefined {
+  if (!patch) {
+    return current;
+  }
+  const next: Record<string, string> = { ...(current ?? {}) };
+  for (const [root, chatId] of Object.entries(patch)) {
+    const preferred = normalizePreferredRootUri(root);
+    if (!preferred) continue;
+    const id = typeof chatId === "string" ? chatId.trim() : "";
+    if (!id || id.length > 512) {
+      delete next[preferred];
+    } else {
+      next[preferred] = id;
     }
   }
   return next;

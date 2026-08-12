@@ -1846,6 +1846,8 @@ export {
 export {
   MAX_COMPOSER_DRAFT_CHARS,
   MAX_PREFERRED_ROOT_URI_CHARS,
+  activeChatFocusPatch,
+  activeChatIdForRoot,
   mergePersistedWebviewState,
   normalizeComposerDraft,
   normalizePreferredRootUri,

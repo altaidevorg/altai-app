@@ -12,8 +12,7 @@ export type AgentsInspectorProps = {
 };
 
 /**
- * Run-inspector panel listing active subagent tasks. Purely presentational;
- * the host supplies the task list from its agent meta store.
+ * Active subagent tasks as a flat list.
  */
 export function AgentsInspector({ tasks }: AgentsInspectorProps) {
   if (!tasks.length) {
@@ -24,23 +23,20 @@ export function AgentsInspector({ tasks }: AgentsInspectorProps) {
     );
   }
   return (
-    <div className="space-y-2">
+    <ul className="divide-y divide-border-subtle">
       {tasks.map((task) => (
-        <div
-          key={task.taskId}
-          className="rounded-md border border-border bg-muted/30 px-2.5 py-2"
-        >
-          <div className="flex items-center gap-2">
-            <span className="size-1.5 animate-pulse rounded-full bg-info" />
-            <span className="truncate text-[11px] font-medium">
+        <li key={task.taskId} className="flex gap-2 py-2">
+          <span className="mt-1.5 size-1.5 shrink-0 animate-pulse rounded-full bg-foreground/70" />
+          <div className="min-w-0 flex-1">
+            <div className="truncate text-[11px] font-medium text-foreground">
               {task.displayName ?? task.agentName ?? "Subagent"}
-            </span>
+            </div>
+            <div className="mt-0.5 truncate font-mono text-[10.5px] text-muted-foreground">
+              {task.childChatId}
+            </div>
           </div>
-          <div className="mt-1 truncate pl-3.5 font-mono text-[9.5px] text-muted-foreground">
-            {task.childChatId}
-          </div>
-        </div>
+        </li>
       ))}
-    </div>
+    </ul>
   );
 }

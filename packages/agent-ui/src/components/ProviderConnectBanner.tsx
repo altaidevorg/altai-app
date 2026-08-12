@@ -18,12 +18,12 @@ export function ProviderConnectBanner({
 }: ProviderConnectBannerProps) {
   return (
     <div className="altai-provider-connect-banner shrink-0 border-t border-border-subtle bg-raised">
-      <div className="flex h-10 items-center justify-between gap-3 px-3 text-xs">
+      <div className="flex h-8 items-center justify-between gap-3 px-3 text-[11px]">
         <span className="min-w-0 truncate text-muted-foreground">{message}</span>
         <button
           type="button"
           onClick={onAdd}
-          className="inline-flex h-7 shrink-0 items-center justify-center gap-1.5 rounded-md bg-primary px-2.5 text-[11px] font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+          className="inline-flex h-6 shrink-0 items-center justify-center gap-1.5 rounded-md bg-primary px-2 text-[10.5px] font-medium text-primary-foreground transition-colors hover:bg-primary/90"
         >
           <HugeiconsIcon icon={Key01Icon} size={13} strokeWidth={1.75} />
           {actionLabel}
