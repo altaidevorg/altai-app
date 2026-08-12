@@ -75,9 +75,9 @@ pub struct LegacySourceIdentity {
     #[cfg(unix)]
     inode: u64,
     #[cfg(windows)]
-    volume_serial: Option<u32>,
+    volume_serial: u32,
     #[cfg(windows)]
-    file_index: Option<u64>,
+    file_index: u64,
     #[cfg(not(any(unix, windows)))]
     modified: Option<std::time::SystemTime>,
 }
@@ -89,14 +89,15 @@ pub struct LegacyWorkspaceIdentity {
     #[cfg(unix)]
     inode: u64,
     #[cfg(windows)]
-    volume_serial: Option<u32>,
+    volume_serial: u32,
     #[cfg(windows)]
-    file_index: Option<u64>,
+    file_index: u64,
     #[cfg(not(any(unix, windows)))]
     modified: Option<std::time::SystemTime>,
 }
 
 impl LegacyWorkspaceIdentity {
+    #[cfg(not(windows))]
     fn from_metadata(metadata: &fs::Metadata) -> Option<Self> {
         if !metadata.is_dir() {
             return None;
@@ -109,14 +110,6 @@ impl LegacyWorkspaceIdentity {
                 inode: metadata.ino(),
             })
         }
-        #[cfg(windows)]
-        {
-            use std::os::windows::fs::MetadataExt;
-            Some(Self {
-                volume_serial: metadata.volume_serial_number(),
-                file_index: metadata.file_index(),
-            })
-        }
         #[cfg(not(any(unix, windows)))]
         {
             Some(Self {
@@ -125,8 +118,27 @@ impl LegacyWorkspaceIdentity {
         }
     }
 
-    fn matches(&self, metadata: &fs::Metadata) -> bool {
-        Self::from_metadata(metadata).as_ref() == Some(self)
+    #[cfg(windows)]
+    fn from_path(path: &Path) -> Option<Self> {
+        let file = open_windows_identity_handle(path, true)?;
+        let (volume_serial, file_index) = windows_file_identity(&file, true)?;
+        Some(Self {
+            volume_serial,
+            file_index,
+        })
+    }
+
+    fn matches_path(&self, path: &Path, metadata: &fs::Metadata) -> bool {
+        #[cfg(windows)]
+        {
+            let _ = metadata;
+            Self::from_path(path).as_ref() == Some(self)
+        }
+        #[cfg(not(windows))]
+        {
+            let _ = path;
+            Self::from_metadata(metadata).as_ref() == Some(self)
+        }
     }
 }
 
@@ -147,6 +159,10 @@ impl LegacyWorkspaceRoot {
         if metadata.file_type().is_symlink() {
             return Err("workspace_identity_changed".into());
         }
+        #[cfg(windows)]
+        let expected_identity = LegacyWorkspaceIdentity::from_path(&path)
+            .ok_or_else(|| "workspace_identity_changed".to_string())?;
+        #[cfg(not(windows))]
         let expected_identity = LegacyWorkspaceIdentity::from_metadata(&metadata)
             .ok_or_else(|| "workspace_identity_changed".to_string())?;
         Ok(Self {
@@ -157,12 +173,14 @@ impl LegacyWorkspaceRoot {
 
     pub fn is_current(&self) -> bool {
         self.path.symlink_metadata().is_ok_and(|metadata| {
-            !metadata.file_type().is_symlink() && self.expected_identity.matches(&metadata)
+            !metadata.file_type().is_symlink()
+                && self.expected_identity.matches_path(&self.path, &metadata)
         })
     }
 }
 
 impl LegacySourceIdentity {
+    #[cfg(not(windows))]
     pub fn from_metadata(metadata: &fs::Metadata) -> Option<Self> {
         if !metadata.is_file() {
             return None;
@@ -176,15 +194,6 @@ impl LegacySourceIdentity {
                 inode: metadata.ino(),
             })
         }
-        #[cfg(windows)]
-        {
-            use std::os::windows::fs::MetadataExt;
-            Some(Self {
-                len: metadata.len(),
-                volume_serial: metadata.volume_serial_number(),
-                file_index: metadata.file_index(),
-            })
-        }
         #[cfg(not(any(unix, windows)))]
         {
             Some(Self {
@@ -194,8 +203,46 @@ impl LegacySourceIdentity {
         }
     }
 
-    pub fn matches(&self, metadata: &fs::Metadata) -> bool {
-        Self::from_metadata(metadata).as_ref() == Some(self)
+    #[cfg(windows)]
+    fn from_file(file: &fs::File, metadata: &fs::Metadata) -> Option<Self> {
+        let (volume_serial, file_index) = windows_file_identity(file, false)?;
+        Some(Self {
+            len: metadata.len(),
+            volume_serial,
+            file_index,
+        })
+    }
+
+    fn matches_file(&self, file: &fs::File, metadata: &fs::Metadata) -> bool {
+        #[cfg(windows)]
+        {
+            Self::from_file(file, metadata).as_ref() == Some(self)
+        }
+        #[cfg(not(windows))]
+        {
+            let _ = file;
+            Self::from_metadata(metadata).as_ref() == Some(self)
+        }
+    }
+
+    fn matches_path(&self, path: &Path, metadata: &fs::Metadata) -> bool {
+        #[cfg(windows)]
+        {
+            let _ = metadata;
+            open_source_file_no_follow(path)
+                .ok()
+                .and_then(|file| {
+                    let opened = file.metadata().ok()?;
+                    Self::from_file(&file, &opened)
+                })
+                .as_ref()
+                == Some(self)
+        }
+        #[cfg(not(windows))]
+        {
+            let _ = path;
+            Self::from_metadata(metadata).as_ref() == Some(self)
+        }
     }
 
     fn len(&self) -> u64 {
@@ -227,9 +274,14 @@ impl LegacyImportSource {
         let opened = file
             .metadata()
             .map_err(|_error| "legacy_source_identity_unavailable".to_string())?;
+        #[cfg(windows)]
+        let identity = LegacySourceIdentity::from_file(&file, &opened)
+            .ok_or_else(|| "legacy_source_type_rejected".to_string())?;
+        #[cfg(not(windows))]
         let identity = LegacySourceIdentity::from_metadata(&opened)
             .ok_or_else(|| "legacy_source_type_rejected".to_string())?;
-        if !identity.matches(&metadata) {
+        #[cfg(not(windows))]
+        if !identity.matches_path(&path, &metadata) {
             return Err("legacy_source_identity_changed".into());
         }
         Ok(Self {
@@ -557,7 +609,7 @@ fn read_json_source(
         ));
         return;
     }
-    let file = match open_source_file_no_follow(&source.path) {
+    let mut file = match open_source_file_no_follow(&source.path) {
         Ok(file) => file,
         Err(reason) => {
             items.push(LegacyImportPreviewItem::error(source_kind, reason));
@@ -574,16 +626,19 @@ fn read_json_source(
             return;
         }
     };
-    if !expected_identity.matches(&opened) {
+    if !expected_identity.matches_file(&file, &opened) {
         items.push(LegacyImportPreviewItem::error(
             source_kind,
             "legacy_source_identity_changed",
         ));
         return;
     }
-    let mut bytes = Vec::new();
-    match file.take(MAX_LEGACY_JSON_BYTES + 1).read_to_end(&mut bytes) {
-        Ok(_) if bytes.len() as u64 > MAX_LEGACY_JSON_BYTES => {
+    let mut first_read = Vec::new();
+    match Read::by_ref(&mut file)
+        .take(MAX_LEGACY_JSON_BYTES + 1)
+        .read_to_end(&mut first_read)
+    {
+        Ok(_) if first_read.len() as u64 > MAX_LEGACY_JSON_BYTES => {
             items.push(LegacyImportPreviewItem::error(
                 source_kind,
                 format!(
@@ -591,7 +646,35 @@ fn read_json_source(
                 ),
             ));
         }
-        Ok(_) => items.extend(parser(&bytes, selected_workspace)),
+        Ok(_) => {
+            if file.rewind().is_err() {
+                items.push(LegacyImportPreviewItem::error(
+                    source_kind,
+                    "legacy_source_read_failed",
+                ));
+                return;
+            }
+            let mut second_read = Vec::with_capacity(first_read.len());
+            if Read::by_ref(&mut file)
+                .take(MAX_LEGACY_JSON_BYTES + 1)
+                .read_to_end(&mut second_read)
+                .is_err()
+            {
+                items.push(LegacyImportPreviewItem::error(
+                    source_kind,
+                    "legacy_source_read_failed",
+                ));
+                return;
+            }
+            if first_read != second_read {
+                items.push(LegacyImportPreviewItem::error(
+                    source_kind,
+                    "legacy_source_changed_during_read",
+                ));
+                return;
+            }
+            items.extend(parser(&first_read, selected_workspace));
+        }
         Err(_error) => items.push(LegacyImportPreviewItem::error(
             source_kind,
             "legacy_source_read_failed",
@@ -607,10 +690,79 @@ fn open_source_file_no_follow(path: &Path) -> Result<fs::File, String> {
         use std::os::unix::fs::OpenOptionsExt;
         options.custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW);
     }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        use windows_sys::Win32::Storage::FileSystem::{
+            FILE_FLAG_OPEN_REPARSE_POINT, FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE,
+        };
+        options
+            .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE)
+            .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT);
+    }
     let file = options
         .open(path)
         .map_err(|_error| "legacy_source_open_failed".to_string())?;
+    #[cfg(windows)]
+    if windows_file_identity(&file, false).is_none() {
+        return Err("legacy_source_type_rejected".into());
+    }
+    #[cfg(not(windows))]
+    if file
+        .metadata()
+        .map_err(|_error| "legacy_source_identity_unavailable".to_string())?
+        .file_type()
+        .is_symlink()
+    {
+        return Err("legacy_source_type_rejected".into());
+    }
     Ok(file)
+}
+
+#[cfg(windows)]
+fn open_windows_identity_handle(path: &Path, directory: bool) -> Option<fs::File> {
+    use std::os::windows::fs::OpenOptionsExt;
+    use windows_sys::Win32::Storage::FileSystem::{
+        FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT, FILE_SHARE_DELETE,
+        FILE_SHARE_READ, FILE_SHARE_WRITE,
+    };
+
+    let mut options = fs::OpenOptions::new();
+    options
+        .access_mode(0)
+        .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE)
+        .custom_flags(
+            FILE_FLAG_OPEN_REPARSE_POINT
+                | if directory {
+                    FILE_FLAG_BACKUP_SEMANTICS
+                } else {
+                    0
+                },
+        );
+    options.open(path).ok()
+}
+
+#[cfg(windows)]
+fn windows_file_identity(file: &fs::File, directory: bool) -> Option<(u32, u64)> {
+    use std::mem::MaybeUninit;
+    use std::os::windows::io::AsRawHandle;
+    use windows_sys::Win32::Storage::FileSystem::{
+        GetFileInformationByHandle, BY_HANDLE_FILE_INFORMATION, FILE_ATTRIBUTE_DIRECTORY,
+        FILE_ATTRIBUTE_REPARSE_POINT,
+    };
+
+    let mut info = MaybeUninit::<BY_HANDLE_FILE_INFORMATION>::zeroed();
+    if unsafe { GetFileInformationByHandle(file.as_raw_handle(), info.as_mut_ptr()) } == 0 {
+        return None;
+    }
+    let info = unsafe { info.assume_init() };
+    let is_directory = info.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY != 0;
+    let is_reparse_point = info.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT != 0;
+    if is_reparse_point || is_directory != directory {
+        return None;
+    }
+    let file_index = (u64::from(info.nFileIndexHigh) << 32) | u64::from(info.nFileIndexLow);
+    Some((info.dwVolumeSerialNumber, file_index))
 }
 
 fn valid_bounded_field(value: &str, max_bytes: usize) -> bool {
@@ -810,7 +962,9 @@ fn canonical_workspace_matches(
             candidate == selected_workspace.path
                 && candidate.symlink_metadata().is_ok_and(|metadata| {
                     !metadata.file_type().is_symlink()
-                        && selected_workspace.expected_identity.matches(&metadata)
+                        && selected_workspace
+                            .expected_identity
+                            .matches_path(&candidate, &metadata)
                 })
         })
 }
@@ -1115,7 +1269,7 @@ fn open_read_only(source: &LegacySqliteSource) -> Result<ReadOnlySqlite, String>
         .path
         .symlink_metadata()
         .map_err(|_error| "sqlite_source_inspection_failed".to_string())?;
-    if before.file_type().is_symlink() || !expected.matches(&before) {
+    if before.file_type().is_symlink() || !expected.matches_path(&source.main.path, &before) {
         return Err("sqlite_source_identity_changed".into());
     }
     validate_sqlite_sidecars(source)?;
@@ -1263,7 +1417,7 @@ fn open_captured_source(
     let opened = file
         .metadata()
         .map_err(|_error| identity_error.to_string())?;
-    if !expected.matches(&opened) {
+    if !expected.matches_file(&file, &opened) {
         return Err(identity_error.to_string());
     }
     Ok(CapturedSourceHandle {
@@ -1372,7 +1526,7 @@ fn validate_source_identity(source: &LegacyImportSource, code: &str) -> Result<(
         .path
         .symlink_metadata()
         .map_err(|_error| code.to_string())?;
-    if metadata.file_type().is_symlink() || !expected.matches(&metadata) {
+    if metadata.file_type().is_symlink() || !expected.matches_path(&source.path, &metadata) {
         return Err(code.to_string());
     }
     Ok(())
