@@ -1,4 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { HostPortUnsupportedError } from "@altai/agent-ui";
+import type { WorkAttempt } from "@altai/host-contract";
 
 vi.mock("@tauri-apps/api/event", () => ({
   listen: vi.fn(async () => () => {}),
@@ -69,10 +71,17 @@ describe("createTauriHostPorts", () => {
     expect(
       capabilities.capabilities.some(
         (entry) =>
-          entry.id === "work.attemptRuns" &&
+          entry.id === "work.attempts" &&
           entry.availability === "available",
       ),
     ).toBe(true);
+    expect(
+      capabilities.capabilities.some(
+        (entry) =>
+          entry.id === "work.attemptRuns" &&
+          entry.availability === "available",
+      ),
+    ).toBe(false);
     expect(
       capabilities.capabilities.some(
         (entry) =>
@@ -133,7 +142,7 @@ describe("createTauriHostPorts", () => {
       runId: "run-1",
       createdAtMs: 1,
       updatedAtMs: 2,
-    };
+    } satisfies WorkAttempt;
     vi.mocked(native.workAttempts).mockResolvedValue([attempt]);
 
     const ports = createTauriHostPorts();
@@ -147,14 +156,14 @@ describe("createTauriHostPorts", () => {
     const ports = createTauriHostPorts();
     await expect(
       ports.work.startWorkRun({ workId: "work-1", expectedRevision: 1 }),
-    ).rejects.toThrow(/startWorkRun/);
+    ).rejects.toBeInstanceOf(HostPortUnsupportedError);
   });
 
   it("throws for deferred startRun until store DI lands", async () => {
     const ports = createTauriHostPorts();
     await expect(
       ports.runtime.startRun({ prompt: "hi" }),
-    ).rejects.toThrow(/startRun/);
+    ).rejects.toBeInstanceOf(HostPortUnsupportedError);
   });
 
   it("maps getWorkspace through native", async () => {

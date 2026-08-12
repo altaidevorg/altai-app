@@ -71,6 +71,7 @@ export function createTauriHostPorts(
             overrides: {
               "work.items": "available",
               "work.inbox": "available",
+              "work.attempts": "available",
               "review.checkpoints": "available",
               "review.restoreCheckpoint": "available",
               "review.editProposal": "available",
@@ -215,6 +216,8 @@ export function createTauriHostPorts(
         "createWork",
         "transitionWork",
         "startWork",
+        "startWorkRun",
+        "listWorkAttempts",
         "markWorkReadyForReview",
         "reviewWork",
         "listTaskRuns",
@@ -235,6 +238,9 @@ export function createTauriHostPorts(
         createWork: (input) => native.workCreate(input),
         transitionWork: (input) => native.workTransition(input),
         startWork: (input) => native.workStart(input),
+        // startWorkRun intentionally absent: Desktop owns session creation,
+        // dispatch, and durable Attempt binding in ProjectBoardPanel.
+        listWorkAttempts: (workId) => native.workAttempts(workId),
         markWorkReadyForReview: (input) =>
           native.workReadyForReview(input),
         reviewWork: (input) => native.workReview(input),

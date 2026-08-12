@@ -56,6 +56,7 @@ export type CapabilityId =
   | "review.editProposal"
   // Work / Inbox
   | "work.items"
+  | "work.attempts"
   | "work.attemptRuns"
   | "work.inbox"
   | "work.taskRuns"
@@ -148,7 +149,7 @@ export const CHAT_PANEL_ACTIONS: readonly ChatPanelAction[] = [
   { action: "work.transition", surface: "work", capability: "work.items" },
   { action: "work.start", surface: "work", capability: "work.items" },
   { action: "work.startRun", surface: "work", capability: "work.attemptRuns" },
-  { action: "work.openRun", surface: "work", capability: "work.attemptRuns" },
+  { action: "work.openRun", surface: "work", capability: "work.attempts" },
   { action: "work.readyForReview", surface: "work", capability: "work.items" },
   { action: "work.review", surface: "work", capability: "work.items" },
   { action: "work.createTaskRun", surface: "work", capability: "work.taskRuns" },
@@ -232,6 +233,11 @@ export const DEFAULT_CAPABILITY_MATRIX: readonly CapabilityEntry[] = [
   },
 
   { id: "work.items", availability: "deferred", note: "Requires canonical Work host adapter" },
+  {
+    id: "work.attempts",
+    availability: "deferred",
+    note: "Requires durable Work attempt history and exact run replay",
+  },
   {
     id: "work.attemptRuns",
     availability: "deferred",
