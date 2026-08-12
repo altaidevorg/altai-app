@@ -225,7 +225,12 @@ impl LegacySourceIdentity {
         }
     }
 
-    fn matches_path(&self, path: &Path, metadata: &fs::Metadata) -> bool {
+    /// Revalidates this captured identity against the current path.
+    ///
+    /// Windows reopens `path` with `FILE_FLAG_OPEN_REPARSE_POINT` and rejects
+    /// every reparse-point type before comparing handle identity. Other
+    /// platforms compare the supplied no-follow metadata identity.
+    pub fn matches_path(&self, path: &Path, metadata: &fs::Metadata) -> bool {
         #[cfg(windows)]
         {
             let _ = metadata;

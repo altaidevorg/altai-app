@@ -41,7 +41,9 @@ fn contained_existing_source(
         .expected_identity
         .as_ref()
         .ok_or_else(|| "legacy_source_identity_unavailable".to_string())?;
-    if canonical_metadata.file_type().is_symlink() || !expected.matches(&canonical_metadata) {
+    if canonical_metadata.file_type().is_symlink()
+        || !expected.matches_path(&canonical_source, &canonical_metadata)
+    {
         return Err("legacy_source_identity_changed".into());
     }
     Ok(LegacyImportSource {

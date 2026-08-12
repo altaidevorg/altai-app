@@ -23,9 +23,9 @@ struct WorkspaceRootIdentity {
     #[cfg(unix)]
     inode: u64,
     #[cfg(windows)]
-    volume_serial: Option<u32>,
+    volume_serial: u32,
     #[cfg(windows)]
-    file_index: Option<u64>,
+    file_index: u64,
     #[cfg(not(any(unix, windows)))]
     modified: Option<std::time::SystemTime>,
 }
@@ -43,6 +43,7 @@ impl OpenedWorkspaceGrant {
 }
 
 impl WorkspaceRootIdentity {
+    #[cfg(not(windows))]
     fn from_metadata(metadata: &std::fs::Metadata) -> Option<Self> {
         if !metadata.is_dir() {
             return None;
@@ -55,14 +56,6 @@ impl WorkspaceRootIdentity {
                 inode: metadata.ino(),
             })
         }
-        #[cfg(windows)]
-        {
-            use std::os::windows::fs::MetadataExt;
-            Some(Self {
-                volume_serial: metadata.volume_serial_number(),
-                file_index: metadata.file_index(),
-            })
-        }
         #[cfg(not(any(unix, windows)))]
         {
             Some(Self {
@@ -71,8 +64,53 @@ impl WorkspaceRootIdentity {
         }
     }
 
-    fn matches(&self, metadata: &std::fs::Metadata) -> bool {
-        Self::from_metadata(metadata).as_ref() == Some(self)
+    #[cfg(windows)]
+    fn from_path(path: &Path) -> Option<Self> {
+        use std::os::windows::fs::OpenOptionsExt;
+        use std::os::windows::io::AsRawHandle;
+        use windows_sys::Win32::Storage::FileSystem::{
+            GetFileInformationByHandle, BY_HANDLE_FILE_INFORMATION, FILE_ATTRIBUTE_DIRECTORY,
+            FILE_ATTRIBUTE_REPARSE_POINT, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT,
+            FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE,
+        };
+
+        let mut options = std::fs::OpenOptions::new();
+        options
+            .access_mode(0)
+            .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE)
+            .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_BACKUP_SEMANTICS);
+        let file = options.open(path).ok()?;
+        let mut info = std::mem::MaybeUninit::<BY_HANDLE_FILE_INFORMATION>::zeroed();
+        if unsafe { GetFileInformationByHandle(file.as_raw_handle(), info.as_mut_ptr()) } == 0 {
+            return None;
+        }
+        let info = unsafe { info.assume_init() };
+        if info.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT != 0
+            || info.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY == 0
+        {
+            return None;
+        }
+        Some(Self {
+            volume_serial: info.dwVolumeSerialNumber,
+            file_index: (u64::from(info.nFileIndexHigh) << 32) | u64::from(info.nFileIndexLow),
+        })
+    }
+
+    fn from_path_and_metadata(path: &Path, metadata: &std::fs::Metadata) -> Option<Self> {
+        #[cfg(windows)]
+        {
+            let _ = metadata;
+            Self::from_path(path)
+        }
+        #[cfg(not(windows))]
+        {
+            let _ = path;
+            Self::from_metadata(metadata)
+        }
+    }
+
+    fn matches_path(&self, path: &Path, metadata: &std::fs::Metadata) -> bool {
+        Self::from_path_and_metadata(path, metadata).as_ref() == Some(self)
     }
 }
 
@@ -95,13 +133,20 @@ impl WorkspaceRegistry {
     /// roots (notably HOME) intentionally do not enter this set.
     pub fn authorize_opened<P: AsRef<Path>>(&self, path: P) -> std::io::Result<PathBuf> {
         let canonical = self.authorize(path)?;
-        let metadata = canonical.metadata()?;
-        let identity = WorkspaceRootIdentity::from_metadata(&metadata).ok_or_else(|| {
-            std::io::Error::new(
+        let metadata = canonical.symlink_metadata()?;
+        if metadata.file_type().is_symlink() {
+            return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidInput,
-                "opened workspace must be a directory",
-            )
-        })?;
+                "opened workspace must not be a symlink",
+            ));
+        }
+        let identity = WorkspaceRootIdentity::from_path_and_metadata(&canonical, &metadata)
+            .ok_or_else(|| {
+                std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    "opened workspace must be a directory",
+                )
+            })?;
         let mut opened = self
             .opened_roots
             .lock()
@@ -127,13 +172,20 @@ impl WorkspaceRegistry {
         path: P,
     ) -> std::io::Result<OpenedWorkspaceGrant> {
         let canonical = std::fs::canonicalize(path)?;
-        let metadata = canonical.metadata()?;
-        let current = WorkspaceRootIdentity::from_metadata(&metadata).ok_or_else(|| {
-            std::io::Error::new(
+        let metadata = canonical.symlink_metadata()?;
+        if metadata.file_type().is_symlink() {
+            return Err(std::io::Error::new(
                 std::io::ErrorKind::PermissionDenied,
                 "workspace identity is not an exact opened grant",
-            )
-        })?;
+            ));
+        }
+        let current = WorkspaceRootIdentity::from_path_and_metadata(&canonical, &metadata)
+            .ok_or_else(|| {
+                std::io::Error::new(
+                    std::io::ErrorKind::PermissionDenied,
+                    "workspace identity is not an exact opened grant",
+                )
+            })?;
         let opened = self
             .opened_roots
             .lock()
@@ -163,7 +215,14 @@ impl WorkspaceRegistry {
         let Ok(metadata) = grant.canonical.symlink_metadata() else {
             return false;
         };
-        !metadata.file_type().is_symlink() && grant.identity.matches(&metadata)
+        #[cfg(not(windows))]
+        if metadata.file_type().is_symlink() {
+            return false;
+        }
+        // On Windows, matches_path opens the directory itself and rejects all
+        // reparse points (including junctions), which is stronger than
+        // FileType::is_symlink().
+        grant.identity.matches_path(&grant.canonical, &metadata)
     }
 
     pub fn is_authorized(&self, target: &Path) -> bool {
