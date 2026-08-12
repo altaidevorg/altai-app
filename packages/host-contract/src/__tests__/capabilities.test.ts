@@ -23,6 +23,11 @@ describe("capability catalog", () => {
     }
   });
 
+  it("separates opening persisted attempts from starting new runs", () => {
+    expect(capabilityForAction("work.openRun")).toBe("work.attempts");
+    expect(capabilityForAction("work.startRun")).toBe("work.attemptRuns");
+  });
+
   it("never marks desktop-only IDE surfaces as available by default", () => {
     const caps = createCapabilities({
       protocolVersion: 1,
@@ -33,6 +38,7 @@ describe("capability catalog", () => {
     expect(isCapabilityEnabled(caps, "desktop.gitPanelMutations")).toBe(false);
     expect(isCapabilityEnabled(caps, "desktop.orchestration")).toBe(false);
     expect(isCapabilityEnabled(caps, "desktop.studioWindow")).toBe(false);
+    expect(isCapabilityEnabled(caps, "work.attempts")).toBe(false);
     expect(isCapabilityEnabled(caps, "work.attemptRuns")).toBe(false);
     expect(isCapabilityEnabled(caps, "runtime.initialize")).toBe(true);
   });
