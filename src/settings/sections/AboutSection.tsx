@@ -20,7 +20,12 @@ const PLATFORM_LABEL: Record<string, string> = {
   freebsd: "FreeBSD",
 };
 
-export function AboutSection() {
+export function AboutSection({
+  surface = "app",
+}: {
+  surface?: "app" | "ide";
+}) {
+  const isApp = surface === "app";
   const [version, setVersion] = useState("");
   const [name, setName] = useState("ALTAI");
   const [build, setBuild] = useState("");
@@ -66,16 +71,26 @@ export function AboutSection() {
 
   return (
     <div className="flex flex-col gap-6">
-      <SectionHeader title="About" description="" />
+      <SectionHeader
+        title="About"
+        description={
+          isApp
+            ? "Desktop Agents build info and updates."
+            : "Desktop IDE build info and updates — separate from Desktop Agents and the VS Code extension."
+        }
+      />
 
       <div className="flex items-center gap-4 rounded-xl border border-border/60 bg-card/60 p-5">
         <img src="/logo.png" alt="" className="size-12" draggable={false} />
         <div className="flex min-w-0 flex-col">
           <span className="text-[15px] font-semibold tracking-tight">
             {name}
+            {isApp ? "" : " IDE"}
           </span>
           <span className="text-[11px] text-muted-foreground">
-            Open-source AI-native terminal emulator
+            {isApp
+              ? "Desktop Agents — AI-native workspace app"
+              : "Desktop IDE — editor shell with integrated agent"}
           </span>
           <span className="mt-1 font-mono text-[11px] text-muted-foreground">
             v{version || "—"}

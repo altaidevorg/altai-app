@@ -16,7 +16,7 @@ export function ComposerPrimaryRow({
   submit,
 }: ComposerPrimaryRowProps) {
   return (
-    <div className="altai-ai-composer-primary flex w-full min-w-0 items-center gap-1 border-t border-border-subtle px-2.5 py-1.5">
+    <div className="altai-ai-composer-primary flex w-full min-w-0 flex-wrap items-center gap-1 border-t border-border-subtle px-2 py-1.5 @[22rem]:px-2.5">
       <div className="altai-ai-composer-tools flex min-w-0 shrink-0 items-center gap-0.5 rounded-md bg-foreground/[0.035] p-0.5">
         {tools}
       </div>

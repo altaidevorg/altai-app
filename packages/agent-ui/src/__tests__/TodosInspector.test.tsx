@@ -26,8 +26,8 @@ describe("TodosInspector", () => {
     expect(html).toContain("Done item");
     expect(html).toContain("Active item");
     expect(html).toContain("line-through");
-    expect(html).toContain("bg-success");
-    expect(html).toContain("bg-info");
+    expect(html).toContain("bg-foreground");
+    expect(html).toContain("bg-foreground/70");
   });
 
   it("sets progress bar width from done/total", () => {

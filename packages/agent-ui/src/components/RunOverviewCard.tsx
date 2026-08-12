@@ -14,8 +14,7 @@ export type RunOverviewCardProps = {
 };
 
 /**
- * Top summary card in the run details inspector: status, usage, step, metrics.
- * Host supplies status pill node and computed metric values.
+ * Slim status + metrics strip under the Details header (not a nested card).
  */
 export function RunOverviewCard({
   statusPill,
@@ -24,20 +23,22 @@ export function RunOverviewCard({
   metrics,
 }: RunOverviewCardProps) {
   return (
-    <section className="rounded-lg border border-border bg-muted/30 p-3">
-      <div className="flex items-center gap-2">
-        {statusPill}
-        <span className="ml-auto text-[9.5px] tabular-nums text-muted-foreground">
+    <section className="border-b border-border-subtle bg-card">
+      <div className="flex h-8 items-center gap-2 px-2.5">
+        <div className="min-w-0 shrink-0">{statusPill}</div>
+        {step ? (
+          <p className="min-w-0 flex-1 truncate text-[11px] text-muted-foreground">
+            {step}
+          </p>
+        ) : (
+          <div className="min-w-0 flex-1" />
+        )}
+        <span className="shrink-0 text-[10.5px] tabular-nums text-muted-foreground">
           {tokenLabel}
         </span>
       </div>
-      {step ? (
-        <p className="mt-2 line-clamp-2 text-[10.5px] leading-relaxed text-foreground">
-          {step}
-        </p>
-      ) : null}
       {metrics.length ? (
-        <div className="mt-3 grid grid-cols-2 gap-px overflow-hidden rounded-md border border-border bg-border">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-border-subtle px-2.5 py-1.5">
           {metrics.map((metric) => (
             <InspectorMetric
               key={metric.label}

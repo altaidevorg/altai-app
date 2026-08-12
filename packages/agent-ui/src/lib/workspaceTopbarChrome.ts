@@ -1,27 +1,22 @@
 /**
- * Pure helpers for capability-gating the shared WorkspaceTopbarActions
- * cluster (A6.95).
+ * Pure helpers for capability-gating the shared run-details control (A6.95).
+ * Work / Inbox destinations live in primary Desktop / Operations navigation.
  */
 
 export type WorkspaceTopbarFlags = {
   taskRuns: boolean;
   automations: boolean;
   inbox: boolean;
-  /** When true, Work/Inbox cluster is joined by an available inspector control. */
+  /** When true, the active chat may open the run inspector. */
   inspector?: boolean;
 };
 
 /**
- * Mount the Work / Inbox cluster only when at least one Operations domain
- * route is available, or a run inspector is available (no dead buttons).
+ * Mount run-details chrome when an inspector is available for the session.
+ * Legacy Operations flags remain for host capability matrices.
  */
 export function canMountWorkspaceTopbar(flags: WorkspaceTopbarFlags): boolean {
-  return (
-    flags.taskRuns ||
-    flags.automations ||
-    flags.inbox ||
-    Boolean(flags.inspector)
-  );
+  return Boolean(flags.inspector);
 }
 
 export function workspaceTopbarWorkOpen(

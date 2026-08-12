@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  activeChatFocusPatch,
+  activeChatIdForRoot,
   mergePersistedWebviewState,
   normalizeComposerDraft,
   parsePersistedWebviewState,
@@ -28,5 +30,21 @@ describe("webviewState", () => {
     expect(next.surface).toBe("chat");
     expect(next.operationsView).toBe("work");
     expect(next.composerDraft).toBeUndefined();
+  });
+
+  it("keeps active chat focus per workspace root", () => {
+    const parsed = parsePersistedWebviewState({
+      preferredRootUri: "file:///a",
+      activeChatId: "chat-a",
+    });
+    expect(parsed.activeChatIdByRoot).toEqual({ "file:///a": "chat-a" });
+
+    const merged = mergePersistedWebviewState(
+      parsed,
+      activeChatFocusPatch("file:///b", "chat-b"),
+    );
+    expect(activeChatIdForRoot(merged, "file:///a")).toBe("chat-a");
+    expect(activeChatIdForRoot(merged, "file:///b")).toBe("chat-b");
+    expect(merged.activeChatId).toBe("chat-b");
   });
 });

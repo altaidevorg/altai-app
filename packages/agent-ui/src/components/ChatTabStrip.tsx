@@ -42,16 +42,16 @@ export function ChatTabStrip({
   return (
     <div
       className={cn(
-        "altai-ai-chat-tabs flex h-10 min-w-0 items-center gap-1.5",
+        "altai-ai-chat-tabs flex h-10 min-w-0 items-center gap-1",
         embedded
-          ? "flex-1 bg-transparent"
-          : "shrink-0 border-b border-border-subtle bg-card px-2.5",
+          ? "min-w-0 flex-1 bg-transparent"
+          : "w-full shrink-0 border-b border-border-subtle bg-card px-2.5",
       )}
     >
       <div
         role="tablist"
         aria-label="Open chats"
-        className="flex min-w-0 shrink items-center gap-1 overflow-x-auto"
+        className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto"
       >
         {tabs.map((session) => {
           const title = session.title || "New chat";
@@ -60,7 +60,7 @@ export function ChatTabStrip({
             <div
               key={session.id}
               className={cn(
-                "group flex h-7 max-w-44 shrink-0 items-center rounded-lg border text-[10.5px] transition-colors",
+                "group flex h-7 min-w-0 max-w-[min(11rem,100%)] shrink-0 items-center rounded-md border text-[10.5px] transition-colors",
                 session.id === activeId
                   ? "border-border bg-muted/70 font-medium text-foreground"
                   : "border-transparent text-muted-foreground hover:border-border/60 hover:bg-accent hover:text-foreground",
@@ -74,7 +74,7 @@ export function ChatTabStrip({
                 aria-selected={session.id === activeId}
                 onClick={() => onSelect(session.id)}
                 title={title}
-                className="h-full min-w-0 truncate px-2.5 text-left outline-none"
+                className="h-full min-w-0 flex-1 truncate px-2 text-left outline-none"
               >
                 {title}
               </button>

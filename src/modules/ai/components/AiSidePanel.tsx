@@ -10,7 +10,6 @@ import {
 } from "@/components/ui/resizable";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import {
-  Cancel01Icon,
   Clock01Icon,
   CodeIcon,
   Settings01Icon,
@@ -20,7 +19,6 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   type ReactElement,
   useEffect,
-  useLayoutEffect,
   useRef,
   useState,
 } from "react";
@@ -87,7 +85,6 @@ import {
   runRecoveryPresentation,
   runRecoverySteerPrompt,
   historyToggleLabel,
-  SIDE_PANEL_CLOSE_LABEL,
   SIDE_PANEL_SETTINGS_LABEL,
   SIDE_PANEL_WINDOW_TITLE_BAR_LABEL,
   SIDE_PANEL_CHAT_SESSIONS_ARIA,
@@ -100,10 +97,8 @@ import {
   INSPECTOR_ACTIVITY_FILTER_PLACEHOLDER,
   INSPECTOR_CHANGES_TITLE,
   INSPECTOR_CHANGES_SUMMARY,
-  INSPECTOR_CHANGES_EMPTY,
   INSPECTOR_RESEARCH_TITLE,
   INSPECTOR_RESEARCH_SUMMARY,
-  INSPECTOR_RESEARCH_EMPTY,
   INSPECTOR_DELEGATED_TITLE,
   INSPECTOR_DELEGATED_SUMMARY,
   INSPECTOR_RECOVERY_TITLE,
@@ -143,11 +138,6 @@ import { AgentStatusPill } from "./AgentStatusPill";
 import { ChatHistoryPanel } from "./ChatHistoryPanel";
 import { PlanDiffReview } from "./PlanDiffReview";
 import { TodoSummaryChip } from "./TodoStrip";
-import {
-  loadWorkInboxAttentionCount,
-  WORK_INBOX_INVALIDATION_EVENTS,
-  WorkInboxRequestGate,
-} from "../lib/workInboxAttention";
 
 // Zustand selectors must return a stable reference when a session has no
 // todos yet; allocating `[]` inside the selector triggers React's external
@@ -190,6 +180,7 @@ export type AiSidePanelProps = {
   onClose?: () => void;
   hasComposer?: boolean;
   variant?: "workspace" | "sidebar";
+  showTopbar?: boolean;
   workspaceName?: string;
   workspacePath?: string | null;
   workspaceKind?: "local" | "github" | null;
@@ -204,6 +195,7 @@ export function AiSidePanel({
   onClose,
   hasComposer = true,
   variant = "sidebar",
+  showTopbar = true,
   workspaceName = SIDE_PANEL_LOCAL_WORKSPACE_FALLBACK,
   workspacePath = null,
   workspaceKind = null,
@@ -264,13 +256,7 @@ export function AiSidePanel({
   const [panelWidth, setPanelWidth] = useState(0);
   const historyOpen = activeSurface === "history";
   const inspectorOpen = activeSurface === "inspector";
-  // Work / Inbox open Operations; chrome never shows a pressed state for them.
-  const workOpen = false;
-  const inboxOpen = false;
-  // Run details is a stable destination for the active chat. Keep its control
-  // visible while History, Work, Inbox, or Review is open so switching surfaces
-  // never causes the toolbar geometry to jump. Breakpoints live in agent-ui so
-  // VS Code and Desktop share density decisions.
+  // Breakpoints live in agent-ui so VS Code and Desktop share density decisions.
   const {
     inspectorAvailable,
     showHistorySidebar,
@@ -405,6 +391,13 @@ export function AiSidePanel({
   };
 
   const closeChatTab = (chatId: string) => {
+    // Last open tab close → dismiss the side chat (not mint another empty tab).
+    const closingLastTab =
+      openChatIds.length === 1 && openChatIds[0] === chatId;
+    if (closingLastTab && onClose) {
+      onClose();
+      return;
+    }
     const result = closeChatTabSelection({
       openIds: openChatIds,
       closingId: chatId,
@@ -434,28 +427,19 @@ export function AiSidePanel({
     <AiSidePanelFrame
       ref={panelRootRef}
       variant={variant === "workspace" ? "workspace" : "sidebar"}
-      topbar={
+      topbar={showTopbar ? (
         <WorkspaceTopbar
           variant={variant}
-          workspacePath={workspacePath}
           onOpenStudio={onOpenStudio}
-          onClose={onClose}
           openChatIds={openChatIds}
           onSelectChat={() => setActiveSurface(null)}
           onCloseChat={closeChatTab}
           onNewChat={createChatTab}
           historyOpen={historyOpen}
           onToggleHistory={() => toggleSurface("history")}
-          inspectorOpen={inspectorOpen}
-          inspectorAvailable={inspectorAvailable}
-          onToggleInspector={() => toggleSurface("inspector")}
-          workOpen={workOpen}
-          onToggleWork={() => openOperationsSurface("work", "runs")}
-          inboxOpen={inboxOpen}
-          onToggleInbox={() => openOperationsSurface("inbox")}
           onOpenSettings={onOpenSettings}
         />
-      }
+      ) : null}
     >
         <ResizablePanelGroup
           orientation="horizontal"
@@ -500,7 +484,10 @@ export function AiSidePanel({
             </>
           ) : null}
 
-          <ResizablePanel id="ai-chat-main" minSize="240px">
+          <ResizablePanel
+            id="ai-chat-main"
+            minSize={variant === "sidebar" ? "0px" : "240px"}
+          >
             <main className="altai-ai-main relative z-0 flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-card">
               {historyOpen && !showHistorySidebar ? (
                 <div className="flex min-h-0 flex-1">
@@ -519,6 +506,9 @@ export function AiSidePanel({
                 >
                   <Body
                     hasComposer={hasComposer}
+                    inspectorOpen={inspectorOpen}
+                    inspectorAvailable={inspectorAvailable}
+                    onToggleInspector={() => toggleSurface("inspector")}
                     onOpenReview={() => {
                       setActiveSurface(null);
                       setReviewOpen(true);
@@ -747,104 +737,30 @@ function ChatTabStripBridge({
 }
 
 /**
- * The workspace topbar keeps the task context visible instead of treating the
- * chat as an isolated message list. Work and Inbox are durable destinations;
- * Run details is contextual to the current run.
+ * Chat chrome: history + open sessions. Work / Inbox live in primary Desktop
+ * navigation; Run details sits with the active chat column.
  */
 function WorkspaceTopbar({
   variant,
-  workspacePath,
   onOpenStudio,
-  onClose,
   openChatIds,
   onSelectChat,
   onCloseChat,
   onNewChat,
   historyOpen,
   onToggleHistory,
-  inspectorOpen,
-  inspectorAvailable,
-  onToggleInspector,
-  workOpen,
-  onToggleWork,
-  inboxOpen,
-  onToggleInbox,
   onOpenSettings,
 }: {
   variant: "workspace" | "sidebar";
-  workspacePath: string | null;
   onOpenStudio?: () => void;
-  onClose?: () => void;
   openChatIds: string[];
   onSelectChat: () => void;
   onCloseChat: (id: string) => void;
   onNewChat: () => void;
   historyOpen: boolean;
   onToggleHistory: () => void;
-  inspectorOpen: boolean;
-  inspectorAvailable: boolean;
-  onToggleInspector: () => void;
-  workOpen: boolean;
-  onToggleWork: () => void;
-  inboxOpen: boolean;
-  onToggleInbox: () => void;
   onOpenSettings?: () => void;
 }) {
-  const activeId = useChatStore((s) => s.activeSessionId);
-  const [inboxAttentionCount, setInboxAttentionCount] = useState(0);
-  const inboxRequestGate = useRef(
-    new WorkInboxRequestGate(workspacePath ?? ""),
-  );
-  const inboxWorkspace = workspacePath ?? "";
-
-  useLayoutEffect(() => {
-    inboxRequestGate.current.reset(inboxWorkspace);
-    setInboxAttentionCount(0);
-    return () => {
-      if (inboxRequestGate.current.ownsWorkspace(inboxWorkspace)) {
-        inboxRequestGate.current.reset(inboxWorkspace);
-      }
-    };
-  }, [inboxWorkspace]);
-
-  useEffect(() => {
-    let active = true;
-    const refreshInbox = () => {
-      if (!workspacePath) {
-        setInboxAttentionCount(0);
-        return;
-      }
-      const request = inboxRequestGate.current.begin(inboxWorkspace);
-      if (!inboxRequestGate.current.isCurrent(request)) return;
-      void loadWorkInboxAttentionCount({
-        reconcile: () => native.workAttemptReconcile(workspacePath),
-        list: () => native.workInboxList(workspacePath),
-      })
-        .then((count) => {
-          if (
-            active &&
-            count !== null &&
-            inboxRequestGate.current.isCurrent(request)
-          ) {
-            setInboxAttentionCount(count);
-          }
-        })
-        .catch(() => undefined);
-    };
-    refreshInbox();
-    const timer = window.setInterval(refreshInbox, 5_000);
-    for (const eventName of WORK_INBOX_INVALIDATION_EVENTS) {
-      window.addEventListener(eventName, refreshInbox);
-    }
-    return () => {
-      active = false;
-      window.clearInterval(timer);
-      for (const eventName of WORK_INBOX_INVALIDATION_EVENTS) {
-        window.removeEventListener(eventName, refreshInbox);
-      }
-    };
-  }, [inboxWorkspace, workspacePath]);
-
   const historyControl = (
     <IconTooltip label={historyToggleLabel(historyOpen)}>
       <button
@@ -863,26 +779,6 @@ function WorkspaceTopbar({
     </IconTooltip>
   );
 
-  const workspaceActions = (
-    <WorkspaceTopbarActions
-      variant={variant}
-      workOpen={workOpen}
-      inboxOpen={inboxOpen}
-      inboxAttentionCount={inboxAttentionCount}
-      inspectorOpen={inspectorOpen}
-      inspectorAvailable={inspectorAvailable}
-      onToggleWork={onToggleWork}
-      onToggleInbox={onToggleInbox}
-      onToggleInspector={onToggleInspector}
-      renderTooltip={(label, children) => (
-        <IconTooltip label={label}>{children}</IconTooltip>
-      )}
-    />
-  );
-
-  const todoSummary =
-    !historyOpen && activeId ? <TodoSummaryChip sessionId={activeId} /> : null;
-
   const toggleWindowMaximize = () => {
     if (!hasTauriWindowMetadata()) return;
     void getCurrentWindow().toggleMaximize().catch(() => undefined);
@@ -895,7 +791,7 @@ function WorkspaceTopbar({
         aria-label="ALTAI panel chrome"
         className="bg-raised"
         primary={
-          <div className="flex h-10 min-w-0 items-center gap-1.5 px-2">
+          <div className="flex h-10 min-w-0 items-center gap-1 px-1.5">
             {historyControl}
             <ChatTabStripBridge
               embedded
@@ -904,21 +800,6 @@ function WorkspaceTopbar({
               onCloseChat={onCloseChat}
               onNewChat={onNewChat}
             />
-            <div className="min-w-0 flex-1" />
-            {todoSummary}
-            {workspaceActions}
-            {onClose ? (
-              <IconTooltip label={SIDE_PANEL_CLOSE_LABEL}>
-                <button
-                  type="button"
-                  onClick={onClose}
-                  aria-label={SIDE_PANEL_CLOSE_LABEL}
-                  className="inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground"
-                >
-                  <HugeiconsIcon icon={Cancel01Icon} size={13} strokeWidth={1.75} />
-                </button>
-              </IconTooltip>
-            ) : null}
           </div>
         }
       />
@@ -941,8 +822,6 @@ function WorkspaceTopbar({
           aria-label={SIDE_PANEL_WINDOW_TITLE_BAR_LABEL}
         />
         {historyControl}
-        {todoSummary}
-        {workspaceActions}
         {onOpenSettings ? (
           <IconTooltip label={SIDE_PANEL_SETTINGS_LABEL}>
             <button
@@ -1066,51 +945,51 @@ function PersistedRunInspector({
       {error ? <RunBlockedBanner message={error} /> : null}
       {snapshot ? (
         <>
-          <InspectorSection title="Run identity" summary={selection.runId} count={1} defaultOpen>
-            <dl className="space-y-1 text-[10px] text-muted-foreground">
+          <InspectorSection title="Identity" summary={selection.runId} count={1} defaultOpen>
+            <dl className="space-y-1.5 text-[11px] text-muted-foreground">
               <div><dt className="inline font-medium text-foreground">Workspace: </dt><dd className="inline break-all">{selection.workspacePath}</dd></div>
               <div><dt className="inline font-medium text-foreground">Chat: </dt><dd className="inline break-all">{selection.chatId}</dd></div>
               <div><dt className="inline font-medium text-foreground">Run: </dt><dd className="inline break-all">{selection.runId}</dd></div>
             </dl>
           </InspectorSection>
-          <InspectorSection
-            title="Run evidence"
-            summary="Persisted verifications and changes"
-            count={snapshot.verifications.length + snapshot.changes.length}
-            defaultOpen
-          >
-            {snapshot.verifications.map((verification) => (
-              <p key={verification.id} className="text-[10px] text-muted-foreground">
-                {verification.status} · {verification.label}
-              </p>
-            ))}
-            {snapshot.changes.map((change) => (
-              <p key={`${change.path}:${change.hunkId ?? change.source}`} className="break-all text-[10px] text-muted-foreground">
-                {change.path}
-              </p>
-            ))}
-            {!snapshot.verifications.length && !snapshot.changes.length ? (
-              <InspectorEmpty>No persisted verification or change evidence.</InspectorEmpty>
-            ) : null}
-          </InspectorSection>
-          <InspectorSection
-            title="Result"
-            summary="Persisted terminal output"
-            count={(snapshot.lastResult ? 1 : 0) + snapshot.failures.length}
-            defaultOpen
-          >
-            {snapshot.lastResult ? (
-              <p className="whitespace-pre-wrap text-[10px] text-muted-foreground">
-                {snapshot.lastResult}
-              </p>
-            ) : null}
-            {snapshot.failures.map((failure) => (
-              <p key={failure} className="text-[10px] text-destructive">{failure}</p>
-            ))}
-            {!snapshot.lastResult && !snapshot.failures.length ? (
-              <InspectorEmpty>No persisted result text.</InspectorEmpty>
-            ) : null}
-          </InspectorSection>
+          {(snapshot.verifications.length > 0 || snapshot.changes.length > 0) ? (
+            <InspectorSection
+              title="Evidence"
+              summary="Verifications and changes"
+              count={snapshot.verifications.length + snapshot.changes.length}
+              defaultOpen
+            >
+              <ul className="divide-y divide-border-subtle">
+                {snapshot.verifications.map((verification) => (
+                  <li key={verification.id} className="py-1.5 text-[11px] text-muted-foreground">
+                    {verification.status} · {verification.label}
+                  </li>
+                ))}
+                {snapshot.changes.map((change) => (
+                  <li key={`${change.path}:${change.hunkId ?? change.source}`} className="break-all py-1.5 text-[11px] text-muted-foreground">
+                    {change.path}
+                  </li>
+                ))}
+              </ul>
+            </InspectorSection>
+          ) : null}
+          {(snapshot.lastResult || snapshot.failures.length > 0) ? (
+            <InspectorSection
+              title="Result"
+              summary="Terminal output"
+              count={(snapshot.lastResult ? 1 : 0) + snapshot.failures.length}
+              defaultOpen
+            >
+              {snapshot.lastResult ? (
+                <p className="whitespace-pre-wrap text-[11px] text-muted-foreground">
+                  {snapshot.lastResult}
+                </p>
+              ) : null}
+              {snapshot.failures.map((failure) => (
+                <p key={failure} className="text-[11px] text-destructive">{failure}</p>
+              ))}
+            </InspectorSection>
+          ) : null}
         </>
       ) : null}
     </AiRunInspectorFrame>
@@ -1197,14 +1076,16 @@ function LiveRunInspector({ className, onClose }: { className?: string; onClose?
           </RunActionRequiredSection>
         ) : null}
 
-        <InspectorSection
-          title="Plan"
-          summary={planInspectorSectionSummary(completedTodos, todos.length)}
-          count={todos.length}
-          defaultOpen={todos.length > 0 && running}
-        >
-          <TodosInspector done={completedTodos} total={todos.length} todos={todos} />
-        </InspectorSection>
+        {todos.length > 0 ? (
+          <InspectorSection
+            title="Plan"
+            summary={planInspectorSectionSummary(completedTodos, todos.length)}
+            count={todos.length}
+            defaultOpen={running}
+          >
+            <TodosInspector done={completedTodos} total={todos.length} todos={todos} />
+          </InspectorSection>
+        ) : null}
 
         <InspectorSection
           title={INSPECTOR_ACTIVITY_TITLE}
@@ -1216,7 +1097,7 @@ function LiveRunInspector({ className, onClose }: { className?: string; onClose?
             value={activityQuery}
             onChange={setActivityQuery}
             placeholder={INSPECTOR_ACTIVITY_FILTER_PLACEHOLDER}
-            className="mb-2"
+            className="mb-1.5"
           />
           <ActivityInspector
             events={filteredActivity}
@@ -1232,72 +1113,75 @@ function LiveRunInspector({ className, onClose }: { className?: string; onClose?
           />
         </InspectorSection>
 
-        <InspectorSection
-          title={INSPECTOR_CHANGES_TITLE}
-          summary={INSPECTOR_CHANGES_SUMMARY}
-          count={planQueue.length + meta.artifacts.length}
-          defaultOpen={planQueue.length > 0}
-        >
-          {planQueue.length ? (
-            <ChangesInspector
-              queue={planQueue}
-              onOpenReview={() =>
-                window.dispatchEvent(new CustomEvent("altai:open-change-review"))
-              }
+        {planQueue.length > 0 || meta.artifacts.length > 0 ? (
+          <InspectorSection
+            title={INSPECTOR_CHANGES_TITLE}
+            summary={INSPECTOR_CHANGES_SUMMARY}
+            count={planQueue.length + meta.artifacts.length}
+            defaultOpen={planQueue.length > 0}
+          >
+            {planQueue.length ? (
+              <ChangesInspector
+                queue={planQueue}
+                onOpenReview={() =>
+                  window.dispatchEvent(new CustomEvent("altai:open-change-review"))
+                }
+              />
+            ) : null}
+            {planQueue.length && meta.artifacts.length ? (
+              <div className="my-1.5 border-t border-border-subtle" />
+            ) : null}
+            {meta.artifacts.length ? (
+              <ArtifactsInspector
+                items={meta.artifacts}
+                onOpenFile={(path) =>
+                  window.dispatchEvent(
+                    new CustomEvent<string>("altai:open-file", { detail: path }),
+                  )
+                }
+              />
+            ) : null}
+          </InspectorSection>
+        ) : null}
+
+        {researchEvents.length > 0 || mcpEvents.length > 0 ? (
+          <InspectorSection
+            title={INSPECTOR_RESEARCH_TITLE}
+            summary={INSPECTOR_RESEARCH_SUMMARY}
+            count={researchEvents.length + mcpEvents.length}
+          >
+            {researchEvents.length ? <ResearchInspector events={researchEvents} /> : null}
+            {researchEvents.length && mcpEvents.length ? (
+              <div className="my-1.5 border-t border-border-subtle" />
+            ) : null}
+            {mcpEvents.length ? <McpInspector events={mcpEvents} /> : null}
+          </InspectorSection>
+        ) : null}
+
+        {meta.activeSubagents.length > 0 ? (
+          <InspectorSection
+            title={INSPECTOR_DELEGATED_TITLE}
+            summary={INSPECTOR_DELEGATED_SUMMARY}
+            count={meta.activeSubagents.length}
+            defaultOpen
+          >
+            <AgentsInspector tasks={meta.activeSubagents} />
+          </InspectorSection>
+        ) : null}
+
+        {checkpoints.length > 0 || appliedPlanEdits.length > 0 ? (
+          <InspectorSection
+            title={INSPECTOR_RECOVERY_TITLE}
+            summary={INSPECTOR_RECOVERY_SUMMARY}
+            count={checkpoints.length + appliedPlanEdits.length}
+          >
+            <SnapshotsInspectorBridge
+              items={checkpoints}
+              applied={appliedPlanEdits}
+              setItems={setCheckpoints}
             />
-          ) : null}
-          {planQueue.length && meta.artifacts.length ? (
-            <div className="my-2 border-t border-border-subtle" />
-          ) : null}
-          {meta.artifacts.length ? (
-            <ArtifactsInspector
-              items={meta.artifacts}
-              onOpenFile={(path) =>
-                window.dispatchEvent(
-                  new CustomEvent<string>("altai:open-file", { detail: path }),
-                )
-              }
-            />
-          ) : null}
-          {!planQueue.length && !meta.artifacts.length ? (
-            <InspectorEmpty>{INSPECTOR_CHANGES_EMPTY}</InspectorEmpty>
-          ) : null}
-        </InspectorSection>
-
-        <InspectorSection
-          title={INSPECTOR_RESEARCH_TITLE}
-          summary={INSPECTOR_RESEARCH_SUMMARY}
-          count={researchEvents.length + mcpEvents.length}
-        >
-          {researchEvents.length ? <ResearchInspector events={researchEvents} /> : null}
-          {researchEvents.length && mcpEvents.length ? (
-            <div className="my-2 border-t border-border-subtle" />
-          ) : null}
-          {mcpEvents.length ? <McpInspector events={mcpEvents} /> : null}
-          {!researchEvents.length && !mcpEvents.length ? (
-            <InspectorEmpty>{INSPECTOR_RESEARCH_EMPTY}</InspectorEmpty>
-          ) : null}
-        </InspectorSection>
-
-        <InspectorSection
-          title={INSPECTOR_DELEGATED_TITLE}
-          summary={INSPECTOR_DELEGATED_SUMMARY}
-          count={meta.activeSubagents.length}
-        >
-          <AgentsInspector tasks={meta.activeSubagents} />
-        </InspectorSection>
-
-        <InspectorSection
-          title={INSPECTOR_RECOVERY_TITLE}
-          summary={INSPECTOR_RECOVERY_SUMMARY}
-          count={checkpoints.length + appliedPlanEdits.length}
-        >
-          <SnapshotsInspectorBridge
-            items={checkpoints}
-            applied={appliedPlanEdits}
-            setItems={setCheckpoints}
-          />
-        </InspectorSection>
+          </InspectorSection>
+        ) : null}
     </AiRunInspectorFrame>
   );
 }
@@ -1353,10 +1237,16 @@ function SnapshotsInspectorBridge({
 
 function Body({
   hasComposer,
+  inspectorOpen,
+  inspectorAvailable,
+  onToggleInspector,
   onOpenReview,
   projectTarget,
 }: {
   hasComposer: boolean;
+  inspectorOpen: boolean;
+  inspectorAvailable: boolean;
+  onToggleInspector: () => void;
   onOpenReview: () => void;
   projectTarget?: {
     name: string;
@@ -1365,6 +1255,7 @@ function Body({
     onChange: () => void;
   };
 }) {
+  const sessionId = useChatStore((s) => s.activeSessionId);
   const nativeMessages = useChatStore((s) => s.nativeMessages);
   const agentStatus = useChatStore((s) => s.agentMeta.status);
   const errorText = useChatStore((s) => s.agentMeta.error);
@@ -1391,14 +1282,31 @@ function Body({
   return (
     <AiChatMainColumn
       planMode={
-        <PlanModeStrip
-          active={planModeActive}
-          queueLen={reviewQueueLen}
-          onReview={() =>
-            window.dispatchEvent(new CustomEvent("altai:open-change-review"))
-          }
-          onExit={() => disablePlanMode()}
-        />
+        <>
+          {sessionId || inspectorAvailable ? (
+            <div className="flex h-8 shrink-0 items-center gap-1 bg-card px-1.5">
+              <div className="min-w-0 flex-1">
+                {sessionId ? <TodoSummaryChip sessionId={sessionId} /> : null}
+              </div>
+              <WorkspaceTopbarActions
+                inspectorOpen={inspectorOpen}
+                inspectorAvailable={inspectorAvailable}
+                onToggleInspector={onToggleInspector}
+                renderTooltip={(label, children) => (
+                  <IconTooltip label={label}>{children}</IconTooltip>
+                )}
+              />
+            </div>
+          ) : null}
+          <PlanModeStrip
+            active={planModeActive}
+            queueLen={reviewQueueLen}
+            onReview={() =>
+              window.dispatchEvent(new CustomEvent("altai:open-change-review"))
+            }
+            onExit={() => disablePlanMode()}
+          />
+        </>
       }
       transcript={
         displayMessages.length === 0 ? (

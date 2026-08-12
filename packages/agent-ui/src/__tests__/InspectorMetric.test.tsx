@@ -10,7 +10,7 @@ describe("InspectorMetric", () => {
     );
     expect(html).toContain("Plan");
     expect(html).toContain("3/5");
-    expect(html).toContain("uppercase");
+    expect(html).toContain("text-muted-foreground");
     expect(html).toContain("tabular-nums");
   });
 

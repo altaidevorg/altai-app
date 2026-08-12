@@ -106,6 +106,8 @@ export type ProjectBoardNavigation = {
   action?: "new-work";
   /** Canonical Operations secondary route. */
   view?: "overview" | "work" | "runs" | "inbox";
+  /** Opens a canonical Work detail directly from Home or Inbox. */
+  workId?: string;
   /** When `view` is `work`, optional Work hub secondary strip selection. */
   workHubView?: "runs" | "scheduled";
 };
@@ -753,6 +755,7 @@ export function useTabs(initial?: Partial<TerminalTab>) {
     repoRoot: string;
     newWork?: boolean;
     view?: ProjectBoardNavigation["view"];
+    workId?: string;
     workHubView?: ProjectBoardNavigation["workHubView"];
   }) => {
     const curr = tabsRef.current;
@@ -762,12 +765,14 @@ export function useTabs(initial?: Partial<TerminalTab>) {
     const wantsNav =
       Boolean(input.newWork) ||
       input.view !== undefined ||
+      input.workId !== undefined ||
       input.workHubView !== undefined;
     const navigation: ProjectBoardNavigation | undefined = wantsNav
       ? {
           key: Date.now(),
           ...(input.newWork ? { action: "new-work" as const } : {}),
           ...(input.view ? { view: input.view } : {}),
+          ...(input.workId ? { workId: input.workId } : {}),
           ...(input.workHubView ? { workHubView: input.workHubView } : {}),
         }
       : undefined;

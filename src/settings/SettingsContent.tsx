@@ -38,18 +38,20 @@ const TABS: {
   component: () => JSX.Element;
   surfaces: SettingsSurface[];
 }[] = [
+  // Desktop Agents (app) vs Desktop IDE (ide) catalogs stay intentionally split.
+  // The VS Code plugin uses its own hub — never this table.
   { id: "general", label: "General", icon: Settings01Icon, component: () => <GeneralSection />, surfaces: ["app", "ide"] },
   { id: "shortcuts", label: "Shortcuts", icon: KeyboardIcon, component: ShortcutsSection, surfaces: ["ide"] },
-  { id: "models", label: "Models", icon: AiScanIcon, component: ModelsSection, surfaces: ["app"] },
-  { id: "context", label: "Context", icon: Layers02Icon, component: ContextSection, surfaces: ["app"] },
-  { id: "agents", label: "Agents", icon: UserMultiple02Icon, component: AgentsSection, surfaces: ["app"] },
-  { id: "skills", label: "Skills", icon: PuzzleIcon, component: SkillsSection, surfaces: ["app"] },
+  { id: "models", label: "Models", icon: AiScanIcon, component: ModelsSection, surfaces: ["app", "ide"] },
+  { id: "context", label: "Context", icon: Layers02Icon, component: ContextSection, surfaces: ["app", "ide"] },
+  { id: "agents", label: "Agents", icon: UserMultiple02Icon, component: AgentsSection, surfaces: ["app", "ide"] },
+  { id: "skills", label: "Skills", icon: PuzzleIcon, component: SkillsSection, surfaces: ["app", "ide"] },
   { id: "github", label: "GitHub", icon: GithubIcon, component: GitHubSection, surfaces: ["app"] },
   { id: "language-servers", label: "Languages", icon: CodeSquareIcon, component: LanguageServersSection, surfaces: ["ide"] },
-  { id: "mcp", label: "MCP", icon: PlugIcon, component: McpSection, surfaces: ["app"] },
-  { id: "hooks", label: "Hooks", icon: CodeSquareIcon, component: HooksSection, surfaces: ["app"] },
-  { id: "accessibility", label: "Accessibility", icon: UniversalAccessIcon, component: AccessibilitySection, surfaces: ["app"] },
-  { id: "about", label: "About", icon: InformationCircleIcon, component: AboutSection, surfaces: ["app"] },
+  { id: "mcp", label: "MCP", icon: PlugIcon, component: McpSection, surfaces: ["app", "ide"] },
+  { id: "hooks", label: "Hooks", icon: CodeSquareIcon, component: HooksSection, surfaces: ["app", "ide"] },
+  { id: "accessibility", label: "Accessibility", icon: UniversalAccessIcon, component: AccessibilitySection, surfaces: ["app", "ide"] },
+  { id: "about", label: "About", icon: InformationCircleIcon, component: () => <AboutSection />, surfaces: ["app", "ide"] },
 ];
 
 export const VALID_SETTINGS_TABS: SettingsTab[] = TABS.map((t) => t.id);
@@ -69,7 +71,6 @@ export function normalizeSettingsTab(
     const tab = input as SettingsTab;
     if (
       !surface ||
-      surface === "ide" ||
       TABS.find((item) => item.id === tab)?.surfaces.includes(surface)
     ) {
       return tab;
@@ -96,12 +97,7 @@ export function SettingsContent({
   surface?: SettingsSurface;
 }) {
   const init = usePreferencesStore((s) => s.init);
-  // IDE keeps the complete legacy settings surface. Only the new standalone
-  // Studio window uses the narrower app-specific navigation.
-  const visibleTabs =
-    surface === "ide"
-      ? TABS
-      : TABS.filter((tab) => tab.surfaces.includes(surface));
+  const visibleTabs = TABS.filter((tab) => tab.surfaces.includes(surface));
   const normalizedActive = normalizeSettingsTab(active, surface);
   const ActiveSection = visibleTabs.find((t) => t.id === normalizedActive)?.component;
   const isApp = surface === "app";
@@ -113,7 +109,15 @@ export function SettingsContent({
   if (!isApp) {
     return (
       <div className="flex h-full min-h-0 flex-col overflow-hidden">
-        <div className="flex h-11 shrink-0 items-center border-b border-border/60 bg-card/30 px-3">
+        <div className="flex h-11 shrink-0 items-center gap-3 border-b border-border/60 bg-card/30 px-3">
+          <div className="hidden shrink-0 sm:block">
+            <div className="text-[11px] font-semibold leading-none">
+              Desktop IDE
+            </div>
+            <div className="mt-0.5 text-[10px] text-muted-foreground">
+              Editor + agent
+            </div>
+          </div>
           <Tabs
             value={normalizedActive}
             onValueChange={(v) => onActiveChange(v as SettingsTab)}
@@ -139,6 +143,8 @@ export function SettingsContent({
           <div className="mx-auto w-full max-w-160">
             {normalizedActive === "general" ? (
               <GeneralSection surface="ide" />
+            ) : normalizedActive === "about" ? (
+              <AboutSection surface="ide" />
             ) : ActiveSection ? (
               <ActiveSection />
             ) : null}
@@ -166,9 +172,11 @@ export function SettingsContent({
           </span>
           <div className="min-w-0">
             <div className="truncate text-[12px] font-semibold">
-              ALTAI Studio
+              ALTAI Desktop
             </div>
-            <div className="text-[10.5px] text-muted-foreground">Settings</div>
+            <div className="text-[10.5px] text-muted-foreground">
+              Agents settings
+            </div>
           </div>
         </div>
 
@@ -189,7 +197,8 @@ export function SettingsContent({
         </TabsList>
 
         <p className="mt-auto px-2 pt-4 text-[10px] leading-4 text-muted-foreground/70">
-          Agent, model, and app preferences.
+          Desktop Agents preferences — separate from Desktop IDE and the VS Code
+          extension.
         </p>
       </aside>
 
@@ -197,6 +206,8 @@ export function SettingsContent({
         <div className="mx-auto w-full max-w-160">
           {normalizedActive === "general" ? (
             <GeneralSection surface={surface} />
+          ) : normalizedActive === "about" ? (
+            <AboutSection surface={surface} />
           ) : ActiveSection ? (
             <ActiveSection />
           ) : null}

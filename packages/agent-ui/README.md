@@ -72,7 +72,7 @@ consumption of shared panel shells:
 | A4.54 | `ActivityInspector` (run activity / timeline inspector) |
 | A4.55 | `InspectorSection` (run inspector collapsible section) |
 | A4.56 | `ChatTabStrip` (open-chat tab strip) |
-| A4.57 | `WorkspaceTopbarActions` (Work / Inbox / Run details cluster) |
+| A4.57 | `WorkspaceTopbarActions` (Run details control; Work / Inbox in Desktop nav) |
 | A4.58 | `CheckpointMenuPanel` (edit-checkpoint popover body) |
 | A4.59 | `ComposerToolbarIcon` (composer ghost icon control) |
 | A4.60 | `ComposerAttachChips` (composer attachment chip row) |

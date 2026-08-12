@@ -11,6 +11,7 @@ describe("ProviderConnectBanner", () => {
     expect(html).toContain("No provider connected");
     expect(html).toContain("Connect");
     expect(html).toContain("<svg");
+    expect(html).toContain("h-8");
   });
 
   it("accepts custom message and label", () => {

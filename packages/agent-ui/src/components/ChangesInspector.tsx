@@ -21,8 +21,7 @@ function basename(path: string): string {
 }
 
 /**
- * Run-inspector panel summarizing queued plan edits. Purely presentational;
- * the host supplies the queue and the open-review handler.
+ * Queued plan edits as a flat list with one primary review action.
  */
 export function ChangesInspector({
   queue,
@@ -36,61 +35,58 @@ export function ChangesInspector({
     );
   }
   return (
-    <div className="space-y-2">
-      <div className="rounded-md border border-border/50 bg-muted/20 p-2.5 text-[11px] leading-relaxed text-foreground">
-        <div>
-          {queue.length} proposed change{queue.length === 1 ? " is" : "s are"}{" "}
-          waiting for review.
-        </div>
+    <div>
+      <div className="mb-1.5 flex items-center justify-between gap-2 px-0.5">
+        <p className="text-[11px] text-muted-foreground">
+          {queue.length} proposed change{queue.length === 1 ? "" : "s"}
+        </p>
         <button
           type="button"
           onClick={onOpenReview}
-          className="mt-2 rounded-md bg-foreground px-2 py-1 text-[10.5px] font-medium text-background"
+          className="inline-flex h-7 items-center rounded-md bg-foreground px-2 text-[11px] font-medium text-background transition-opacity hover:opacity-90"
         >
           Open change review
         </button>
       </div>
-      {queue.map((change) => {
-        const beforeLines = change.originalContent.split("\n").length;
-        const afterLines = change.proposedContent.split("\n").length;
-        const delta = afterLines - beforeLines;
-        const name = basename(change.path);
-        return (
-          <div
-            key={change.id}
-            className="rounded-md border border-border bg-muted/30 px-2.5 py-2"
-          >
-            <div className="flex items-center gap-2">
+      <ul className="divide-y divide-border-subtle">
+        {queue.map((change) => {
+          const beforeLines = change.originalContent.split("\n").length;
+          const afterLines = change.proposedContent.split("\n").length;
+          const delta = afterLines - beforeLines;
+          const name = basename(change.path);
+          return (
+            <li key={change.id} className="flex items-center gap-2 py-2">
               <HugeiconsIcon
                 icon={FileEditIcon}
                 size={12}
                 strokeWidth={1.75}
                 className="shrink-0 text-muted-foreground"
               />
-              <span className="min-w-0 flex-1 truncate font-mono text-[10.5px] font-medium">
-                {name}
-              </span>
+              <div className="min-w-0 flex-1">
+                <div className="truncate font-mono text-[11px] font-medium text-foreground">
+                  {name}
+                </div>
+                <div className="truncate font-mono text-[10.5px] text-muted-foreground">
+                  {change.path}
+                </div>
+              </div>
               {change.isNewFile ? (
-                <span className="text-[9.5px] text-success">new</span>
-              ) : null}
-              {!change.isNewFile ? (
+                <span className="text-[10.5px] text-muted-foreground">new</span>
+              ) : (
                 <span
                   className={cn(
-                    "text-[9.5px] tabular-nums",
-                    delta >= 0 ? "text-success" : "text-destructive",
+                    "text-[10.5px] tabular-nums",
+                    delta >= 0 ? "text-foreground" : "text-muted-foreground",
                   )}
                 >
                   {delta >= 0 ? "+" : ""}
                   {delta}L
                 </span>
-              ) : null}
-            </div>
-            <div className="mt-1 truncate pl-5 font-mono text-[9.5px] text-muted-foreground">
-              {change.path}
-            </div>
-          </div>
-        );
-      })}
+              )}
+            </li>
+          );
+        })}
+      </ul>
     </div>
   );
 }

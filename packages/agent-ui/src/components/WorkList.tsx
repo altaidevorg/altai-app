@@ -25,6 +25,8 @@ export type WorkListProps = {
   onOpenInbox?: () => void;
   errorMessage?: string;
   onRetry?: () => void;
+  showFilters?: boolean;
+  title?: string;
   className?: string;
 };
 
@@ -71,6 +73,8 @@ export function WorkList({
   onOpenInbox,
   errorMessage,
   onRetry,
+  showFilters = true,
+  title = "Work",
   className,
 }: WorkListProps) {
   return (
@@ -82,7 +86,7 @@ export function WorkList({
     >
       <header className="flex shrink-0 items-center gap-2 border-b border-border-subtle px-3 py-2">
         <h2 className="min-w-0 flex-1 text-[13px] font-semibold text-foreground">
-          Work
+          {title}
         </h2>
         <button
           type="button"
@@ -93,32 +97,34 @@ export function WorkList({
         </button>
       </header>
 
-      <div
-        role="tablist"
-        aria-label="Work filters"
-        className="flex shrink-0 gap-1 overflow-x-auto border-b border-border-subtle px-3 py-2"
-      >
-        {FILTERS.map((item) => {
-          const selected = item.id === filter;
-          return (
-            <button
-              key={item.id}
-              type="button"
-              role="tab"
-              aria-selected={selected}
-              onClick={() => onFilterChange(item.id)}
-              className={cn(
-                "shrink-0 rounded-md px-2.5 py-1 text-[10.5px] font-medium transition-colors",
-                selected
-                  ? "bg-accent text-foreground"
-                  : "text-muted-foreground hover:bg-muted/70 hover:text-foreground",
-              )}
-            >
-              {item.label}
-            </button>
-          );
-        })}
-      </div>
+      {showFilters ? (
+        <div
+          role="radiogroup"
+          aria-label="Work filters"
+          className="flex shrink-0 gap-1 overflow-x-auto border-b border-border-subtle px-3 py-2"
+        >
+          {FILTERS.map((item) => {
+            const selected = item.id === filter;
+            return (
+              <button
+                key={item.id}
+                type="button"
+                role="radio"
+                aria-checked={selected}
+                onClick={() => onFilterChange(item.id)}
+                className={cn(
+                  "min-h-6 shrink-0 rounded-md px-2.5 py-1 text-[10.5px] font-medium transition-colors",
+                  selected
+                    ? "bg-accent text-foreground"
+                    : "text-muted-foreground hover:bg-muted/70 hover:text-foreground",
+                )}
+              >
+                {item.label}
+              </button>
+            );
+          })}
+        </div>
+      ) : null}
 
       <div className="min-h-0 flex-1 overflow-y-auto">
         {status === "loading" ? (

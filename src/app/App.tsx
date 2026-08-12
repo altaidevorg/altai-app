@@ -16,6 +16,11 @@ import {
 } from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
 import { EmptyState } from "@/components/altai";
+import {
+  DesktopHome,
+  DesktopPrimaryNav,
+  type DesktopDestination,
+} from "@/modules/desktop";
 import { useAppMenuCommands } from "@/modules/app-menu/useAppMenuCommands";
 import {
   AgentRunBridge,
@@ -58,6 +63,7 @@ import {
   type GitHistorySearchHandle,
 } from "@/modules/git-history";
 import { GitHubItemsStack, ProjectBoardStack } from "@/modules/github";
+import { ProjectBoardPanel } from "@/modules/github/components/ProjectBoardPanel";
 import type { ItemKind } from "@/modules/github/lib/items";
 import { getInitialLaunches, getLaunchDir, getStudioFolderFromUrl, type LaunchPayload } from "@/lib/launchDir";
 import { useZoom } from "@/lib/useZoom";
@@ -80,6 +86,10 @@ import {
   initAgentEventBridge,
   replayRestoredAgentRuns,
 } from "@/modules/ai/lib/agentEventBridge";
+import {
+  setChatHistorySurface,
+  setChatHistoryWorkspaceScope,
+} from "@/modules/ai/lib/sessions";
 import {
   PreviewStack,
   WebviewStack,
@@ -120,6 +130,7 @@ import {
 import { StatusBar } from "@/modules/statusbar";
 import {
   tabTriggerId,
+  type ProjectBoardNavigation,
   type TerminalTab,
   useTabs,
   useWorkspaceCwd,
@@ -172,12 +183,27 @@ const AGENT_SIDEBAR_DEFAULT_WIDTH = 380;
 const AGENT_SIDEBAR_MIN_WIDTH = 200;
 const AGENT_SIDEBAR_WIDTH_STORAGE_KEY = "altai.agentSidebar.width";
 const PLAN_REVIEW_DIFF_PREFIX = "plan-review:";
+const DESKTOP_DESTINATION_STORAGE_KEY = "altai.desktop.destination";
 type AppMode = "agent" | "studio";
 
 function initialAppMode(): AppMode {
   return new URLSearchParams(window.location.search).get("mode") === "studio"
     ? "studio"
     : "agent";
+}
+
+function readDesktopDestination(): DesktopDestination {
+  try {
+    const stored = window.localStorage.getItem(
+      DESKTOP_DESTINATION_STORAGE_KEY,
+    );
+    if (stored === "home" || stored === "work" || stored === "agents") {
+      return stored;
+    }
+  } catch {
+    // Storage may be unavailable in private/browser-restricted contexts.
+  }
+  return "home";
 }
 
 // Terminal bottom drawer (#61).
@@ -666,6 +692,11 @@ export default function App() {
   // regular browser has no native windows, so it swaps the two surfaces here.
   const [browserAppMode, setBrowserAppMode] = useState<AppMode>(initialMode);
   const appMode: AppMode = isNativeWindow ? initialMode : browserAppMode;
+  const [desktopDestination, setDesktopDestination] =
+    useState<DesktopDestination>(readDesktopDestination);
+  const [desktopInboxCount, setDesktopInboxCount] = useState(0);
+  const [desktopWorkNavigation, setDesktopWorkNavigation] =
+    useState<ProjectBoardNavigation>();
   const [studioHasOpened, setStudioHasOpened] = useState(
     initialMode === "studio",
   );
@@ -986,31 +1017,15 @@ export default function App() {
 
   const hydrateSessions = useChatStore((s) => s.hydrateSessions);
   useEffect(() => {
-    let disposed = false;
     void useAgentsStore.getState().hydrate();
     void useSnippetsStore.getState().hydrate();
     // Listen before hydration/replay. A live event that overlaps the replay is
     // deduplicated by the same run-id and sequence guards.
     const unlistenP = initAgentEventBridge();
-    void (async () => {
-      await hydrateSessions();
-      await unlistenP;
-      if (disposed) return;
-      const workspacePath = useWorkspaceFolderStore.getState().folder;
-      if (!workspacePath) return;
-      const sessions = useChatStore.getState().sessions;
-      await replayRestoredAgentRuns(
-        workspacePath,
-        sessionIds(sessions),
-      );
-    })().catch((error) => {
-      console.warn("Could not replay restored agent runs", error);
-    });
     return () => {
-      disposed = true;
       void unlistenP.then((fn) => fn());
     };
-  }, [hydrateSessions]);
+  }, []);
 
   const activeTab = tabs.find((t) => t.id === activeId);
   const activeChatSession = useChatStore((state) =>
@@ -1102,6 +1117,36 @@ export default function App() {
   const workspaceFolder = useWorkspaceFolderStore((s) => s.folder);
   const workspaceHydrated = useWorkspaceFolderStore((s) => s.hydrated);
   const closeFolder = useWorkspaceFolderStore((s) => s.closeFolder);
+
+  useEffect(() => {
+    let disposed = false;
+    // Studio waits for folder hydration so history binds to the open workspace.
+    if (appMode === "studio" && !workspaceHydrated) return;
+
+    setChatHistorySurface(appMode === "studio" ? "studio" : "agent");
+    if (appMode === "studio") {
+      setChatHistoryWorkspaceScope(
+        workspaceFolder ?? getStudioFolderFromUrl(),
+      );
+    } else {
+      setChatHistoryWorkspaceScope(null);
+    }
+
+    void (async () => {
+      await hydrateSessions();
+      if (disposed) return;
+      const workspacePath = useWorkspaceFolderStore.getState().folder;
+      if (!workspacePath) return;
+      const sessions = useChatStore.getState().sessions;
+      await replayRestoredAgentRuns(workspacePath, sessionIds(sessions));
+    })().catch((error) => {
+      console.warn("Could not replay restored agent runs", error);
+    });
+
+    return () => {
+      disposed = true;
+    };
+  }, [appMode, workspaceHydrated, workspaceFolder, hydrateSessions]);
   const chooseLocalWorkspace = useCallback(async () => {
     const path = await useWorkspaceFolderStore.getState().pickFolder();
     const sessionId = useChatStore.getState().activeSessionId;
@@ -1767,6 +1812,7 @@ export default function App() {
     options?: {
       newWork?: boolean;
       view?: "overview" | "work" | "runs" | "inbox";
+      workId?: string;
       workHubView?: "runs" | "scheduled";
     },
   ) => {
@@ -1779,6 +1825,7 @@ export default function App() {
         repoRoot: known.repoRoot,
         newWork: options?.newWork,
         view: options?.view,
+        workId: options?.workId,
         workHubView: options?.workHubView,
       });
       return;
@@ -1793,6 +1840,7 @@ export default function App() {
         repoRoot: repo?.repoRoot ?? localRoot,
         newWork: options?.newWork,
         view: options?.view,
+        workId: options?.workId,
         workHubView: options?.workHubView,
       });
     } catch {
@@ -1803,6 +1851,7 @@ export default function App() {
         repoRoot: localRoot,
         newWork: options?.newWork,
         view: options?.view,
+        workId: options?.workId,
         workHubView: options?.workHubView,
       });
     }
@@ -1815,6 +1864,57 @@ export default function App() {
     sourceControl.repo,
     sourceControlContextPath,
   ]);
+
+  const persistDesktopDestination = useCallback(
+    (destination: DesktopDestination) => {
+      try {
+        window.localStorage.setItem(
+          DESKTOP_DESTINATION_STORAGE_KEY,
+          destination,
+        );
+      } catch {
+        // Storage may be unavailable in private/browser-restricted contexts.
+      }
+    },
+    [],
+  );
+
+  const showDesktopWork = useCallback(
+    (navigation: Omit<ProjectBoardNavigation, "key"> = { view: "work" }) => {
+      setDesktopWorkNavigation({ key: Date.now(), ...navigation });
+      setDesktopDestination("work");
+      persistDesktopDestination("work");
+      announce("Work");
+    },
+    [persistDesktopDestination],
+  );
+
+  const handleDesktopNavigate = useCallback(
+    (destination: DesktopDestination) => {
+      if (destination === "work") {
+        showDesktopWork();
+        return;
+      }
+      setDesktopDestination(destination);
+      persistDesktopDestination(destination);
+      announce(destination === "home" ? "Home" : "Agents");
+    },
+    [persistDesktopDestination, showDesktopWork],
+  );
+
+  useEffect(() => {
+    if (appMode !== "agent") return;
+    const frame = requestAnimationFrame(() => {
+      const targetId =
+        desktopDestination === "home"
+          ? "desktop-home-heading"
+          : desktopDestination === "work"
+            ? "desktop-work-surface"
+            : "altai-ai-panel";
+      document.getElementById(targetId)?.focus();
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [appMode, desktopDestination]);
 
   useEffect(() => {
     const openOperations = (event: Event) => {
@@ -2532,13 +2632,24 @@ export default function App() {
           <a href="#altai-main" className="a11y-skip-link">
             Skip to main content
           </a>
-          <a
-            href="#altai-ai-panel"
-            className="a11y-skip-link"
-            style={{ left: "12rem" }}
-          >
-            Skip to AI assistant
-          </a>
+          {appMode === "studio" || desktopDestination === "agents" ? (
+            <a
+              href="#altai-ai-panel"
+              className="a11y-skip-link"
+              style={{ left: "12rem" }}
+            >
+              Skip to AI assistant
+            </a>
+          ) : null}
+          {desktopDestination === "work" ? (
+            <a
+              href="#desktop-work-surface"
+              className="a11y-skip-link"
+              style={{ left: "12rem" }}
+            >
+              Skip to Work
+            </a>
+          ) : null}
           <main
             id="altai-main"
             className="zoom-content flex min-h-0 flex-1 flex-col"
@@ -2821,27 +2932,121 @@ export default function App() {
               >
                 <div
                   className={cn(
-                    "h-full min-h-0 min-w-0 overflow-hidden",
+                    "flex h-full min-h-0 min-w-0 flex-col overflow-hidden",
                     appMode === "studio" && "border-l border-border-subtle",
                   )}
                 >
-                  <AiSidePanel
-                    variant={appMode === "agent" ? "workspace" : "sidebar"}
-                    workspaceName={
-                      activeChatWorkspacePath
-                        ? folderName(activeChatWorkspacePath)
-                        : "Choose a project"
-                    }
-                    workspacePath={activeChatWorkspacePath}
-                    workspaceKind={activeChatSession?.workspaceKind ?? null}
-                    onChooseLocalWorkspace={chooseLocalWorkspace}
-                    onCloneGithubRepository={cloneGithubWorkspace}
-                    onClearWorkspace={clearWorkspaceTarget}
-                    onOpenStudio={openStudio}
-                    onOpenSettings={openSettingsFromAgentWorkspace}
-                    onClose={appMode === "studio" ? closeMini : undefined}
-                    hasComposer={keysLoaded && hasComposer}
-                  />
+                  {appMode === "agent" ? (
+                    <DesktopPrimaryNav
+                      activeDestination={desktopDestination}
+                      inboxCount={desktopInboxCount}
+                      onNavigate={handleDesktopNavigate}
+                      onOpenIde={openStudio}
+                      onOpenSettings={openSettingsFromAgentWorkspace}
+                    />
+                  ) : null}
+                  <div className="relative min-h-0 flex-1">
+                    {appMode === "agent" ? (
+                      <>
+                        <div
+                          className={cn(
+                            "absolute inset-0",
+                            desktopDestination !== "home" &&
+                              "pointer-events-none invisible",
+                          )}
+                          aria-hidden={desktopDestination !== "home"}
+                        >
+                          <DesktopHome
+                            workspaceName={
+                              activeChatWorkspacePath
+                                ? folderName(activeChatWorkspacePath)
+                                : "Choose a project"
+                            }
+                            workspacePath={activeChatWorkspacePath}
+                            onInboxCountChange={setDesktopInboxCount}
+                            onOpenWork={(workId) =>
+                              showDesktopWork({ view: "work", workId })
+                            }
+                            onOpenInbox={() =>
+                              showDesktopWork({ view: "inbox" })
+                            }
+                            onNewWork={() =>
+                              showDesktopWork({ action: "new-work" })
+                            }
+                          />
+                        </div>
+                        {desktopDestination === "work" ? (
+                          <div
+                            id="desktop-work-surface"
+                            tabIndex={-1}
+                            aria-label="Work"
+                            className="absolute inset-0 outline-none"
+                          >
+                            {activeChatWorkspacePath ? (
+                              <ProjectBoardPanel
+                                repoRoot={activeChatWorkspacePath}
+                                navigation={desktopWorkNavigation}
+                              />
+                            ) : (
+                              <EmptyState
+                                className="h-full"
+                                glow={false}
+                                title="Choose a project"
+                                description="Work uses the current project workspace."
+                              />
+                            )}
+                          </div>
+                        ) : null}
+                        <div
+                          className={cn(
+                            "absolute inset-0",
+                            desktopDestination !== "agents" &&
+                              "pointer-events-none invisible",
+                          )}
+                          aria-hidden={desktopDestination !== "agents"}
+                        >
+                          <AiSidePanel
+                            variant="workspace"
+                            showTopbar={false}
+                            workspaceName={
+                              activeChatWorkspacePath
+                                ? folderName(activeChatWorkspacePath)
+                                : "Choose a project"
+                            }
+                            workspacePath={activeChatWorkspacePath}
+                            workspaceKind={
+                              activeChatSession?.workspaceKind ?? null
+                            }
+                            onChooseLocalWorkspace={chooseLocalWorkspace}
+                            onCloneGithubRepository={cloneGithubWorkspace}
+                            onClearWorkspace={clearWorkspaceTarget}
+                            onOpenStudio={openStudio}
+                            onOpenSettings={openSettingsFromAgentWorkspace}
+                            onClose={() => setDesktopDestination("home")}
+                            hasComposer={keysLoaded && hasComposer}
+                          />
+                        </div>
+                      </>
+                    ) : (
+                      <AiSidePanel
+                        variant="sidebar"
+                        workspaceName={
+                          activeChatWorkspacePath
+                            ? folderName(activeChatWorkspacePath)
+                            : "Choose a project"
+                        }
+                        workspacePath={activeChatWorkspacePath}
+                        workspaceKind={activeChatSession?.workspaceKind ?? null}
+                        onChooseLocalWorkspace={chooseLocalWorkspace}
+                        onCloneGithubRepository={cloneGithubWorkspace}
+                        onClearWorkspace={clearWorkspaceTarget}
+                        onOpenStudio={openStudio}
+                        onOpenSettings={openSettingsFromAgentWorkspace}
+                        onClose={closeMini}
+                        hasComposer={keysLoaded && hasComposer}
+                      />
+                    )}
+                  </div>
                 </div>
               </ResizablePanel>
             </ResizablePanelGroup>

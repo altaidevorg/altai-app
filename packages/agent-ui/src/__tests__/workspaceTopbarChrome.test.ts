@@ -6,7 +6,7 @@ import {
 } from "../lib/workspaceTopbarChrome.js";
 
 describe("canMountWorkspaceTopbar", () => {
-  it("requires at least one Operations domain capability", () => {
+  it("mounts only when the run inspector is available", () => {
     expect(
       canMountWorkspaceTopbar({
         taskRuns: false,
@@ -20,14 +20,14 @@ describe("canMountWorkspaceTopbar", () => {
         automations: false,
         inbox: false,
       }),
-    ).toBe(true);
+    ).toBe(false);
     expect(
       canMountWorkspaceTopbar({
         taskRuns: false,
         automations: false,
         inbox: true,
       }),
-    ).toBe(true);
+    ).toBe(false);
     expect(
       canMountWorkspaceTopbar({
         taskRuns: false,

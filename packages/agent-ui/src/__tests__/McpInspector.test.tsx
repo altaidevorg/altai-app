@@ -37,7 +37,7 @@ describe("McpInspector", () => {
     expect(html).toContain("Older call");
     expect(html).toContain("timeout");
     expect(html).toContain("bg-destructive");
-    expect(html).toContain("bg-success");
+    expect(html).toContain("bg-foreground");
     expect(html.indexOf("Failed call")).toBeLessThan(html.indexOf("Older call"));
   });
 });

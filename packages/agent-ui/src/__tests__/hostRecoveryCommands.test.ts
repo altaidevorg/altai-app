@@ -27,6 +27,10 @@ describe("host recovery actions", () => {
     expect(ALTAI_RECOVERY_COMMANDS).toContain("altai.clearProviderCredential");
   });
 
+  it("allowlists closing the side panel from the last chat tab", () => {
+    expect(isAltaiRecoveryCommand("altai.closeSidePanel")).toBe(true);
+  });
+
   it("prepends manage workspace trust when host is untrusted", () => {
     expect(
       listRecoveryActions({ diagnosticCode: "host.untrusted" }).map(

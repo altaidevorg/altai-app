@@ -324,6 +324,12 @@ export function ProjectBoardPanel({ repoRoot, navigation }: Props) {
       setNewWorkOpen(true);
       return;
     }
+    if (navigation.workId) {
+      setView("work");
+      setSelectedId(navigation.workId);
+      void loadDetail(navigation.workId);
+      return;
+    }
     if (navigation.view === "inbox") {
       setView("inbox");
       setSelectedId(null);
@@ -332,7 +338,7 @@ export function ProjectBoardPanel({ repoRoot, navigation }: Props) {
     } else if (navigation.view === "runs") {
       setView("work");
     }
-  }, [navigation]);
+  }, [loadDetail, navigation]);
 
   const filteredRows = useMemo(() => rows, [rows]);
 
