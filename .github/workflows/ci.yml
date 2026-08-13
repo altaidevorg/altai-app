@@ -20,9 +20,10 @@ jobs:
         id: filter
         with:
           filters: |
-            # Desktop host dependency closure: the Tauri package itself plus
-            # the two shared crates it links. Keep platform-specific compile
-            # and lifecycle coverage on every relevant PR.
+            # `cargo check --manifest-path src-tauri/Cargo.toml` checks the
+            # workspace, not only the Desktop dependency closure. Keep its
+            # path filter aligned with that command so a new workspace crate
+            # cannot bypass Rust CI (as happened for control-plane contracts).
             native:
               - 'src-tauri/Cargo.toml'
               - 'src-tauri/Cargo.lock'
@@ -30,8 +31,7 @@ jobs:
               - 'src-tauri/tauri.conf.json'
               - 'src-tauri/capabilities/**'
               - 'src-tauri/src/**'
-              - 'src-tauri/crates/altai-core/**'
-              - 'src-tauri/crates/altai-agent-service/**'
+              - 'src-tauri/crates/**'
               - '.github/workflows/ci.yml'
             # CLI dependency closure. Desktop-only Rust changes do not need
             # to pay for a release CLI build on three operating systems.
@@ -42,6 +42,10 @@ jobs:
               - 'src-tauri/crates/altai-core/**'
               - 'src-tauri/crates/altai-agent-service/**'
               - 'src-tauri/crates/altai-protocol/**'
+              - 'src-tauri/crates/altai-control-protocol/**'
+              # A CLI release build resolves the workspace lockfile; keep the
+              # smoke lane conservative when shared control contracts change.
+              - 'src-tauri/crates/altai-control-plane/**'
               - 'scripts/stage-altai-cli.mjs'
               - '.github/workflows/ci.yml'
 
