@@ -26,6 +26,7 @@ use isanagent::workspace::resolve_workspace_root;
 use isanagent::NodeHandle;
 
 use super::commands::DocumentArg;
+use super::trusted_admission::TrustedAttemptAdmission;
 
 pub use altai_agent_service::{
     AgentReplayEventEnvelope, AgentRunReplayCursor, CancelAck, CompactionArg, Event,
@@ -358,6 +359,74 @@ pub async fn route_send(
             queue,
         )
         .await
+}
+
+/// Admit a previously authorized control-plane attempt into IsanAgent.
+///
+/// This native-only path intentionally has no renderer-facing counterpart.
+/// Provider settings and the run/session identity are taken exclusively from
+/// [`TrustedAttemptAdmission`], whose credential-bearing profile cannot be
+/// serialized across the Tauri boundary.
+#[allow(dead_code)] // CP-08-10 invokes this from the scheduler handoff.
+pub async fn route_trusted_attempt_admission(
+    runtime: &AgentRuntime,
+    workspace_path: &str,
+    admission: TrustedAttemptAdmission,
+) -> Result<SendAck, String> {
+    let TrustedAttemptAdmission {
+        execution,
+        profile,
+        instructions,
+    } = admission;
+    let chat_id = execution.binding.session_id.clone();
+    if chat_id.trim().is_empty() {
+        return Err("Authorized execution session id is empty".to_string());
+    }
+    let message = trusted_execution_message(&execution.prompt, &execution.context_pack);
+    runtime
+        .service
+        .route_authorized_send(
+            &profile.provider_name,
+            &profile.api_key,
+            &profile.model_name,
+            Some(&instructions),
+            Some(&profile.base_url),
+            Some(workspace_path),
+            Some(&profile.permission_mode),
+            None,
+            None,
+            message,
+            Vec::new(),
+            Vec::new(),
+            chat_id,
+            false,
+            execution.binding.run_id,
+        )
+        .await
+}
+
+/// Preserve the host-built context as a separate, clearly delimited prompt
+/// section. It is intentionally constructed here rather than accepted from a
+/// renderer-provided chat message.
+fn trusted_execution_message(prompt: &str, context_pack: &str) -> String {
+    if context_pack.trim().is_empty() {
+        return prompt.to_string();
+    }
+    format!("<altai-work-context>\n{context_pack}\n</altai-work-context>\n\n{prompt}")
+}
+
+#[cfg(test)]
+mod trusted_attempt_tests {
+    use super::trusted_execution_message;
+
+    #[test]
+    fn trusted_context_is_delimited_without_replacing_the_authorized_prompt() {
+        assert_eq!(
+            trusted_execution_message("Implement the fix", "Repository: app"),
+            "<altai-work-context>\nRepository: app\n</altai-work-context>\n\nImplement the fix"
+        );
+        assert_eq!(trusted_execution_message("Implement the fix", ""), "Implement the fix");
+    }
 }
 
 pub(crate) async fn recover_background_jobs_after_owner_bind(
