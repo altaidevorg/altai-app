@@ -6,11 +6,12 @@
 
 use crate::{
     AgentRepository, AgentRepositoryError, ControlPlane, ControlPlaneError, RegistrationGrant,
-    ScopeError, ScopeRepository,
+    ScopeError, ScopeRepository, WorkGraphError, WorkGraphRepository,
 };
 use altai_control_protocol::{
     AgentInstance, AgentProfileRevision, ControlPlaneHealth, Goal, GoalId, HostRegistrationRequest,
-    Organization, OrganizationId, Project, ProjectWorkspace, RegisteredHost,
+    Organization, OrganizationId, Project, ProjectWorkspace, RegisteredHost, WorkComment,
+    WorkDependency, WorkItemId,
 };
 use axum::{
     extract::{Path, State},
@@ -81,6 +82,7 @@ struct ApiState {
     bootstrap_credential: Arc<BootstrapCredential>,
     scope_repository: Option<Arc<dyn ScopeRepository>>,
     agent_repository: Option<Arc<dyn AgentRepository>>,
+    work_graph_repository: Option<Arc<dyn WorkGraphRepository>>,
 }
 
 /// Routes are versioned from their first public exposure. The health and grant
@@ -88,7 +90,7 @@ struct ApiState {
 /// its one-time grant in the body and therefore does not accept the bootstrap
 /// credential as a substitute.
 pub fn router(plane: Arc<ControlPlane>, bootstrap_credential: BootstrapCredential) -> Router {
-    router_with_repositories(plane, bootstrap_credential, None, None)
+    router_with_all_repositories(plane, bootstrap_credential, None, None, None)
 }
 
 /// Build the authenticated transport with an optional CP-04 scope store.
@@ -98,7 +100,7 @@ pub fn router_with_scope_repository(
     bootstrap_credential: BootstrapCredential,
     scope_repository: Option<Arc<dyn ScopeRepository>>,
 ) -> Router {
-    router_with_repositories(plane, bootstrap_credential, scope_repository, None)
+    router_with_all_repositories(plane, bootstrap_credential, scope_repository, None, None)
 }
 
 pub fn router_with_repositories(
@@ -107,11 +109,28 @@ pub fn router_with_repositories(
     scope_repository: Option<Arc<dyn ScopeRepository>>,
     agent_repository: Option<Arc<dyn AgentRepository>>,
 ) -> Router {
+    router_with_all_repositories(
+        plane,
+        bootstrap_credential,
+        scope_repository,
+        agent_repository,
+        None,
+    )
+}
+
+pub fn router_with_all_repositories(
+    plane: Arc<ControlPlane>,
+    bootstrap_credential: BootstrapCredential,
+    scope_repository: Option<Arc<dyn ScopeRepository>>,
+    agent_repository: Option<Arc<dyn AgentRepository>>,
+    work_graph_repository: Option<Arc<dyn WorkGraphRepository>>,
+) -> Router {
     let state = ApiState {
         plane,
         bootstrap_credential: Arc::new(bootstrap_credential),
         scope_repository,
         agent_repository,
+        work_graph_repository,
     };
     Router::new()
         .route("/v1/health", get(health))
@@ -127,7 +146,66 @@ pub fn router_with_repositories(
         .route("/v1/workspaces", post(create_workspace))
         .route("/v1/agent-profile-revisions", post(append_profile_revision))
         .route("/v1/agent-instances", post(create_agent_instance))
+        .route(
+            "/v1/work-graph/items/{work_item_id}",
+            post(register_work_item),
+        )
+        .route("/v1/work-graph/parents", post(set_parent))
+        .route("/v1/work-graph/dependencies", post(add_dependency))
+        .route("/v1/work-graph/comments", post(add_comment))
         .with_state(state)
+}
+
+#[derive(serde::Deserialize)]
+struct ParentMutation {
+    work_item_id: WorkItemId,
+    parent_work_item_id: Option<WorkItemId>,
+}
+
+async fn register_work_item(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Path(work_item_id): Path<String>,
+) -> Result<StatusCode, ApiError> {
+    require_bootstrap(&state, &headers)?;
+    work_graph(&state)?
+        .register_work_item(WorkItemId::new(work_item_id))
+        .map_err(ApiError::from)?;
+    Ok(StatusCode::CREATED)
+}
+
+async fn set_parent(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Json(request): Json<ParentMutation>,
+) -> Result<StatusCode, ApiError> {
+    require_bootstrap(&state, &headers)?;
+    work_graph(&state)?
+        .set_parent(request.work_item_id, request.parent_work_item_id)
+        .map_err(ApiError::from)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+async fn add_dependency(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Json(dependency): Json<WorkDependency>,
+) -> Result<StatusCode, ApiError> {
+    require_bootstrap(&state, &headers)?;
+    work_graph(&state)?
+        .add_dependency(dependency)
+        .map_err(ApiError::from)?;
+    Ok(StatusCode::CREATED)
+}
+async fn add_comment(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Json(comment): Json<WorkComment>,
+) -> Result<StatusCode, ApiError> {
+    require_bootstrap(&state, &headers)?;
+    work_graph(&state)?
+        .add_comment(comment)
+        .map_err(ApiError::from)?;
+    Ok(StatusCode::CREATED)
 }
 
 async fn append_profile_revision(
@@ -223,6 +301,13 @@ fn agent_repository(state: &ApiState) -> Result<&Arc<dyn AgentRepository>, ApiEr
     state.agent_repository.as_ref().ok_or(ApiError {
         status: StatusCode::SERVICE_UNAVAILABLE,
         code: "agent_repository_unavailable",
+    })
+}
+
+fn work_graph(state: &ApiState) -> Result<&Arc<dyn WorkGraphRepository>, ApiError> {
+    state.work_graph_repository.as_ref().ok_or(ApiError {
+        status: StatusCode::SERVICE_UNAVAILABLE,
+        code: "work_graph_repository_unavailable",
     })
 }
 
@@ -352,6 +437,25 @@ impl From<AgentRepositoryError> for ApiError {
             AgentRepositoryError::Internal { .. } => Self {
                 status: StatusCode::INTERNAL_SERVER_ERROR,
                 code: "agent_repository_unavailable",
+            },
+        }
+    }
+}
+
+impl From<WorkGraphError> for ApiError {
+    fn from(value: WorkGraphError) -> Self {
+        match value {
+            WorkGraphError::NotFound { .. } => Self {
+                status: StatusCode::NOT_FOUND,
+                code: "not_found",
+            },
+            WorkGraphError::AlreadyExists { .. } | WorkGraphError::ParentCycle { .. } => Self {
+                status: StatusCode::CONFLICT,
+                code: "work_graph_conflict",
+            },
+            WorkGraphError::Internal { .. } => Self {
+                status: StatusCode::INTERNAL_SERVER_ERROR,
+                code: "work_graph_repository_unavailable",
             },
         }
     }
