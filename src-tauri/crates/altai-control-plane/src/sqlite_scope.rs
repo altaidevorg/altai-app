@@ -5,7 +5,8 @@
 
 use crate::{ScopeError, ScopeRepository};
 use altai_control_protocol::{
-    Goal, GoalId, Organization, OrganizationId, Project, ProjectWorkspace, Revision,
+    Goal, GoalId, Organization, OrganizationId, Project, ProjectId, ProjectWorkspace, Revision,
+    WorkspaceId,
 };
 use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
 use std::{collections::HashSet, path::Path, sync::Mutex};
@@ -207,6 +208,42 @@ impl ScopeRepository for SqliteScopeRepository {
             });
         }
         Ok(())
+    }
+    fn get_project(&self, project_id: &ProjectId) -> Result<Project, ScopeError> {
+        let payload: Option<String> = self
+            .lock()?
+            .query_row(
+                "SELECT payload_json FROM control_plane_projects WHERE id = ?1",
+                [&project_id.value],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(Self::db)?;
+        let payload = payload.ok_or_else(|| ScopeError::NotFound {
+            entity: "project",
+            id: project_id.value.clone(),
+        })?;
+        serde_json::from_str(&payload).map_err(|error| ScopeError::Internal {
+            reason: error.to_string(),
+        })
+    }
+    fn get_workspace(&self, workspace_id: &WorkspaceId) -> Result<ProjectWorkspace, ScopeError> {
+        let payload: Option<String> = self
+            .lock()?
+            .query_row(
+                "SELECT payload_json FROM control_plane_workspaces WHERE id = ?1",
+                [&workspace_id.value],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(Self::db)?;
+        let payload = payload.ok_or_else(|| ScopeError::NotFound {
+            entity: "workspace",
+            id: workspace_id.value.clone(),
+        })?;
+        serde_json::from_str(&payload).map_err(|error| ScopeError::Internal {
+            reason: error.to_string(),
+        })
     }
     fn goal_ancestry(
         &self,

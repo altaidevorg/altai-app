@@ -5,7 +5,7 @@
 //! its organization and ancestry rules.
 
 use altai_control_protocol::{
-    Goal, GoalId, Organization, OrganizationId, Project, ProjectWorkspace,
+    Goal, GoalId, Organization, OrganizationId, Project, ProjectId, ProjectWorkspace, WorkspaceId,
 };
 use std::{collections::HashMap, sync::Mutex};
 
@@ -41,6 +41,8 @@ pub trait ScopeRepository: Send + Sync {
     fn create_goal(&self, goal: Goal) -> Result<(), ScopeError>;
     fn create_project(&self, project: Project) -> Result<(), ScopeError>;
     fn create_workspace(&self, workspace: ProjectWorkspace) -> Result<(), ScopeError>;
+    fn get_project(&self, project_id: &ProjectId) -> Result<Project, ScopeError>;
+    fn get_workspace(&self, workspace_id: &WorkspaceId) -> Result<ProjectWorkspace, ScopeError>;
     fn goal_ancestry(
         &self,
         organization_id: &OrganizationId,
@@ -174,6 +176,28 @@ impl ScopeRepository for InMemoryScopeRepository {
         }
         state.workspaces.insert(id, workspace);
         Ok(())
+    }
+
+    fn get_project(&self, project_id: &ProjectId) -> Result<Project, ScopeError> {
+        self.lock()?
+            .projects
+            .get(&project_id.value)
+            .cloned()
+            .ok_or_else(|| ScopeError::NotFound {
+                entity: "project",
+                id: project_id.value.clone(),
+            })
+    }
+
+    fn get_workspace(&self, workspace_id: &WorkspaceId) -> Result<ProjectWorkspace, ScopeError> {
+        self.lock()?
+            .workspaces
+            .get(&workspace_id.value)
+            .cloned()
+            .ok_or_else(|| ScopeError::NotFound {
+                entity: "workspace",
+                id: workspace_id.value.clone(),
+            })
     }
 
     fn goal_ancestry(

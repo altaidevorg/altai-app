@@ -3,7 +3,8 @@
 //! Execution receives a concise, reproducible snapshot of canonical records,
 //! not an unbounded conversation or a renderer-assembled context ferry.
 
-use altai_control_protocol::{Goal, Project, ProjectWorkspace, WorkItem};
+use crate::ScopeRepository;
+use altai_control_protocol::{Goal, Project, ProjectWorkspace, WorkItem, WorkspaceId};
 
 pub const MAX_RUN_CONTEXT_BYTES: usize = 24 * 1024;
 
@@ -27,6 +28,7 @@ pub struct BoundedRunContext {
 pub enum RunContextError {
     ScopeMismatch(&'static str),
     OversizedIdentity,
+    Repository(String),
 }
 
 impl std::fmt::Display for RunContextError {
@@ -88,6 +90,34 @@ pub fn build_bounded_run_context(
         }
     }
     Ok(BoundedRunContext { text, truncated })
+}
+
+/// Read scope records from the configured repository, then build a context for
+/// an already-resolved canonical WorkItem. It never derives WorkItem fields
+/// from renderer strings or filesystem paths.
+pub fn assemble_bounded_run_context(
+    scopes: &dyn ScopeRepository,
+    workspace_id: &WorkspaceId,
+    work_item: WorkItem,
+) -> Result<BoundedRunContext, RunContextError> {
+    let workspace = scopes
+        .get_workspace(workspace_id)
+        .map_err(|error| RunContextError::Repository(error.to_string()))?;
+    let project = scopes
+        .get_project(&workspace.project_id)
+        .map_err(|error| RunContextError::Repository(error.to_string()))?;
+    let goal_ancestry = match &work_item.goal_id {
+        Some(goal_id) => scopes
+            .goal_ancestry(&project.organization_id, goal_id)
+            .map_err(|error| RunContextError::Repository(error.to_string()))?,
+        None => Vec::new(),
+    };
+    build_bounded_run_context(RunContextInput {
+        workspace,
+        project,
+        goal_ancestry,
+        work_item,
+    })
 }
 
 fn push(output: &mut String, key: &str, value: &str) -> Result<(), RunContextError> {
@@ -179,5 +209,29 @@ mod tests {
             build_bounded_run_context(invalid),
             Err(RunContextError::ScopeMismatch("work item project"))
         );
+    }
+
+    #[test]
+    fn assembly_reads_scope_from_the_repository() {
+        use crate::{InMemoryScopeRepository, ScopeRepository};
+        let source = input();
+        let scopes = InMemoryScopeRepository::default();
+        scopes
+            .create_organization(altai_control_protocol::Organization {
+                id: source.project.organization_id.clone(),
+                name: "Org".into(),
+                revision: Revision::INITIAL,
+                created_at: "now".into(),
+                updated_at: "now".into(),
+            })
+            .unwrap();
+        for goal in &source.goal_ancestry {
+            scopes.create_goal(goal.clone()).unwrap();
+        }
+        scopes.create_project(source.project.clone()).unwrap();
+        scopes.create_workspace(source.workspace.clone()).unwrap();
+        let context =
+            assemble_bounded_run_context(&scopes, &source.workspace.id, source.work_item).unwrap();
+        assert!(context.text.contains("project_name: App"));
     }
 }
