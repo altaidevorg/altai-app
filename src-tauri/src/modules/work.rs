@@ -7,7 +7,8 @@ use std::path::Path;
 
 use altai_core::{
     resolve_workspace_from, AttemptPhase, AttemptReconcileMode, AttemptRecord, CreateWorkInput,
-    WorkAttemptStart, WorkInboxRecord, WorkItemRecord, WorkListFilter, WorkState, WorkStore,
+    WorkAttemptStart, WorkInboxRecord, WorkItemKind, WorkItemRecord, WorkListFilter, WorkState,
+    WorkStore,
 };
 use serde::{Deserialize, Serialize};
 use tauri::State;
@@ -23,6 +24,8 @@ pub struct WorkItemDto {
     pub title: String,
     pub description: String,
     pub acceptance_criteria: String,
+    pub kind: String,
+    pub parent_work_id: Option<String>,
     pub state: String,
     pub assignee_ref: Option<String>,
     pub blocker: Option<String>,
@@ -39,6 +42,8 @@ impl From<WorkItemRecord> for WorkItemDto {
             title: value.title,
             description: value.description,
             acceptance_criteria: value.acceptance_criteria,
+            kind: value.kind.as_str().to_string(),
+            parent_work_id: value.parent_work_id,
             state: value.state.as_str().to_string(),
             assignee_ref: value.assignee_ref,
             blocker: value.blocker,
@@ -145,6 +150,8 @@ pub struct WorkCreateArgs {
     pub description: Option<String>,
     pub acceptance_criteria: Option<String>,
     pub assignee_ref: Option<String>,
+    pub kind: Option<String>,
+    pub parent_work_id: Option<String>,
 }
 
 fn authorized_workspace(
@@ -214,14 +221,24 @@ pub fn work_create(
 ) -> Result<WorkItemDto, String> {
     let workspace = authorized_workspace(&args.workspace_path, &registry)?;
     let (project_id, store) = open_store(&workspace)?;
+    let kind = args
+        .kind
+        .as_deref()
+        .map(WorkItemKind::parse)
+        .unwrap_or(Some(WorkItemKind::Task))
+        .ok_or_else(|| "kind must be task, ticket, or campaign".to_string())?;
     let created = store
-        .create_work(CreateWorkInput {
-            project_id,
-            title: args.title,
-            description: args.description.unwrap_or_default(),
-            acceptance_criteria: args.acceptance_criteria.unwrap_or_default(),
-            assignee_ref: args.assignee_ref,
-        })
+        .create_work_item(
+            CreateWorkInput {
+                project_id,
+                title: args.title,
+                description: args.description.unwrap_or_default(),
+                acceptance_criteria: args.acceptance_criteria.unwrap_or_default(),
+                assignee_ref: args.assignee_ref,
+            },
+            kind,
+            args.parent_work_id,
+        )
         .map_err(|error| error.to_string())?;
     Ok(created.into())
 }

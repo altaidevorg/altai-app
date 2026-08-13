@@ -262,12 +262,17 @@ export type WorkState =
 
 export type WorkListFilter = "my_active" | "review" | "backlog" | "done";
 
+/** Durable peer PM objects in the existing user-scoped work.db. */
+export type WorkItemKind = "task" | "ticket" | "campaign";
+
 export type WorkItem = {
   id: string;
   projectId: string;
   title: string;
   description: string;
   acceptanceCriteria: string;
+  kind: WorkItemKind;
+  parentWorkId?: string | null;
   state: WorkState;
   assigneeRef?: string | null;
   blocker?: string | null;
@@ -281,6 +286,8 @@ export type WorkCreateInput = {
   description?: string;
   acceptanceCriteria?: string;
   assigneeRef?: string;
+  kind?: WorkItemKind;
+  parentWorkId?: string;
 };
 
 export type WorkTransitionInput = {

@@ -98,6 +98,7 @@ describe("createTauriHostPorts", () => {
       title: "Ship Work OS",
       description: "",
       acceptanceCriteria: "All surfaces share an id",
+      kind: "task" as const,
       state: "ready" as const,
       revision: 2,
       createdAtMs: 1,

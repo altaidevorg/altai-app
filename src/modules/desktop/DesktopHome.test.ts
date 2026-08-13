@@ -10,6 +10,7 @@ describe("DesktopHome projections", () => {
         title: "Consolidate Desktop shell",
         description: "",
         acceptanceCriteria: "",
+        kind: "task",
         state: "in_progress",
         revision: 1,
         createdAtMs: Date.now() - 10_000,

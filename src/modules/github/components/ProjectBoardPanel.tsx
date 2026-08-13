@@ -45,6 +45,8 @@ type WorkItemDto = {
   title: string;
   description: string;
   acceptanceCriteria: string;
+  kind: "task" | "ticket" | "campaign";
+  parentWorkId?: string | null;
   state: string;
   assigneeRef?: string | null;
   blocker?: string | null;
