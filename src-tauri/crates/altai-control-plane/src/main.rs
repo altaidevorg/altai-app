@@ -1,8 +1,8 @@
 use altai_control_plane::{
     router_with_control_repositories, BootstrapCredential, ControlPlane, ControlPlaneConfig,
-    ControlPlaneStore, SqliteAgentRepository, SqliteRegistrationRepository,
-    SqliteRunBindingRepository, SqliteScopeRepository, SqliteWakeRepository,
-    SqliteWorkGraphRepository,
+    ControlPlaneStore, SqliteAgentRepository, SqliteAttemptRepository,
+    SqliteRegistrationRepository, SqliteRunBindingRepository, SqliteScopeRepository,
+    SqliteWakeRepository, SqliteWorkGraphRepository,
 };
 use altai_core::resolve_workspace;
 use clap::Parser;
@@ -50,6 +50,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let work_graph_repository = Arc::new(SqliteWorkGraphRepository::open(&work_db)?);
     let wake_repository = Arc::new(SqliteWakeRepository::open(&work_db)?);
     let run_binding_repository = Arc::new(SqliteRunBindingRepository::open(&work_db)?);
+    let attempt_repository = Arc::new(SqliteAttemptRepository::open(&work_db)?);
     let plane = Arc::new(ControlPlane::with_registration_repository(
         config,
         Arc::new(SqliteRegistrationRepository::open(&work_db)?),
@@ -69,6 +70,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             Some(work_graph_repository),
             wake_repository,
             Some(run_binding_repository),
+            Some(attempt_repository),
         ),
     )
     .await?;

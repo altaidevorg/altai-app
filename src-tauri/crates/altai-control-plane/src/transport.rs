@@ -5,14 +5,16 @@
 //! module deliberately refuses to make an accidental unauthenticated listener.
 
 use crate::{
-    AgentRepository, AgentRepositoryError, ControlPlane, ControlPlaneError, RegistrationGrant,
-    RunBindingError, RunBindingRepository, ScopeError, ScopeRepository, WakeError, WakeRepository,
-    WorkGraphError, WorkGraphRepository,
+    finalize_attempt, AgentRepository, AgentRepositoryError, AttemptFinalization,
+    AttemptFinalizationError, AttemptRepository, ControlPlane, ControlPlaneError, RegistrationGrant,
+    RunBindingError, RunBindingRepository, RunOutcome, ScopeError, ScopeRepository, WakeError,
+    WakeRepository, WorkGraphError, WorkGraphRepository,
 };
 use altai_control_protocol::{
-    AgentInstance, AgentProfileRevision, ControlPlaneHealth, Goal, GoalId, HostRegistrationRequest,
-    Organization, OrganizationId, Project, ProjectWorkspace, RegisteredHost, RunBinding,
-    WakeRequest, WakeSource, WorkCheckoutLease, WorkComment, WorkDependency, WorkItemId,
+    AgentInstance, AgentProfileRevision, Attempt, AttemptId, ControlPlaneHealth, Goal, GoalId,
+    HostRegistrationRequest, Organization, OrganizationId, Project, ProjectWorkspace,
+    RegisteredHost, RunBinding, WakeRequest, WakeSource, WorkCheckoutLease, WorkComment,
+    WorkDependency, WorkItemId,
 };
 use axum::{
     extract::{Path, State},
@@ -86,6 +88,7 @@ struct ApiState {
     work_graph_repository: Option<Arc<dyn WorkGraphRepository>>,
     wake_repository: Option<Arc<dyn WakeRepository>>,
     run_binding_repository: Option<Arc<dyn RunBindingRepository>>,
+    attempt_repository: Option<Arc<dyn AttemptRepository>>,
 }
 
 /// Routes are versioned from their first public exposure. The health and grant
@@ -136,6 +139,7 @@ pub fn router_with_all_repositories(
         work_graph_repository,
         wake_repository: None,
         run_binding_repository: None,
+        attempt_repository: None,
     };
     Router::new()
         .route("/v1/health", get(health))
@@ -163,6 +167,7 @@ pub fn router_with_all_repositories(
 
 /// Add CP-07 wake/checkout routes without making the earlier repository
 /// constructor signatures a breaking public API.
+#[allow(clippy::too_many_arguments)]
 pub fn router_with_control_repositories(
     plane: Arc<ControlPlane>,
     bootstrap_credential: BootstrapCredential,
@@ -171,6 +176,7 @@ pub fn router_with_control_repositories(
     work_graph_repository: Option<Arc<dyn WorkGraphRepository>>,
     wake_repository: Arc<dyn WakeRepository>,
     run_binding_repository: Option<Arc<dyn RunBindingRepository>>,
+    attempt_repository: Option<Arc<dyn AttemptRepository>>,
 ) -> Router {
     let state = ApiState {
         plane,
@@ -180,6 +186,7 @@ pub fn router_with_control_repositories(
         work_graph_repository,
         wake_repository: Some(wake_repository),
         run_binding_repository,
+        attempt_repository,
     };
     Router::new()
         .route("/v1/health", get(health))
@@ -190,6 +197,10 @@ pub fn router_with_control_repositories(
         .route("/v1/work-checkouts", post(checkout_work))
         .route("/v1/work-checkouts/release", post(release_checkout))
         .route("/v1/runtime/run-bindings", post(bind_run))
+        .route(
+            "/v1/runtime/attempts/{attempt_id}/finalize",
+            post(finalize_attempt_route),
+        )
         .with_state(state)
 }
 
@@ -266,6 +277,32 @@ async fn bind_run(
     require_bootstrap(&state, &headers)?;
     run_bindings(&state)?
         .bind(binding)
+        .map(Json)
+        .map_err(ApiError::from)
+}
+
+/// One observed run termination submitted for durable finalization. `outcome`
+/// is the executor's run observation (translated to attempt state by the
+/// finalizer); the daemon never invents the completion time, it only records it.
+#[derive(serde::Deserialize)]
+struct FinalizeAttemptRequest {
+    outcome: RunOutcome,
+    observed_at_unix_seconds: u64,
+}
+
+async fn finalize_attempt_route(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Path(attempt_id): Path<String>,
+    Json(request): Json<FinalizeAttemptRequest>,
+) -> Result<Json<Attempt>, ApiError> {
+    require_bootstrap(&state, &headers)?;
+    let finalization = AttemptFinalization {
+        attempt_id: AttemptId::new(attempt_id),
+        outcome: request.outcome,
+        observed_at_unix_seconds: request.observed_at_unix_seconds,
+    };
+    finalize_attempt(attempts(&state)?.as_ref(), &finalization)
         .map(Json)
         .map_err(ApiError::from)
 }
@@ -434,6 +471,12 @@ fn run_bindings(state: &ApiState) -> Result<&Arc<dyn RunBindingRepository>, ApiE
     state.run_binding_repository.as_ref().ok_or(ApiError {
         status: StatusCode::SERVICE_UNAVAILABLE,
         code: "run_binding_repository_unavailable",
+    })
+}
+fn attempts(state: &ApiState) -> Result<&Arc<dyn AttemptRepository>, ApiError> {
+    state.attempt_repository.as_ref().ok_or(ApiError {
+        status: StatusCode::SERVICE_UNAVAILABLE,
+        code: "attempt_repository_unavailable",
     })
 }
 
@@ -620,6 +663,29 @@ impl From<RunBindingError> for ApiError {
     }
 }
 
+impl From<AttemptFinalizationError> for ApiError {
+    fn from(value: AttemptFinalizationError) -> Self {
+        match value {
+            AttemptFinalizationError::NotFound { .. } => Self {
+                status: StatusCode::NOT_FOUND,
+                code: "attempt_not_found",
+            },
+            AttemptFinalizationError::AlreadyTerminal { .. } => Self {
+                status: StatusCode::CONFLICT,
+                code: "attempt_already_terminal",
+            },
+            AttemptFinalizationError::InvalidTransition { .. } => Self {
+                status: StatusCode::CONFLICT,
+                code: "attempt_invalid_transition",
+            },
+            AttemptFinalizationError::Internal { .. } => Self {
+                status: StatusCode::INTERNAL_SERVER_ERROR,
+                code: "attempt_finalization_failed",
+            },
+        }
+    }
+}
+
 impl IntoResponse for ApiError {
     fn into_response(self) -> axum::response::Response {
         (self.status, Json(ErrorBody { code: self.code })).into_response()
@@ -636,13 +702,14 @@ fn digest(value: &str) -> [u8; 32] {
 mod tests {
     use super::*;
     use crate::{
-        ControlPlaneConfig, ControlPlaneStore, InMemoryAgentRepository, InMemoryScopeRepository,
-        InMemoryWakeRepository, SqliteRunBindingRepository,
+        AttemptRepository, ControlPlaneConfig, ControlPlaneStore, InMemoryAgentRepository,
+        InMemoryScopeRepository, InMemoryWakeRepository, SqliteAttemptRepository,
+        SqliteRunBindingRepository,
     };
     use altai_control_protocol::{
-        AgentInstanceId, AttemptId, HostCapabilities, HostRegistration, Organization,
-        OrganizationId, Revision, RunBinding, RunId, WorkItemId, WorkspaceId,
-        CONTROL_PLANE_PROTOCOL_MAJOR,
+        AgentInstanceId, AgentProfileRevisionId, Attempt, AttemptId, AttemptState, HostCapabilities,
+        HostRegistration, Organization, OrganizationId, Revision, RunBinding, RunId, WorkItemId,
+        WorkspaceId, CONTROL_PLANE_PROTOCOL_MAJOR,
     };
     use axum::{body::Body, http::Request};
     use tower::ServiceExt;
@@ -794,6 +861,7 @@ mod tests {
             None,
             Arc::new(InMemoryWakeRepository::default()),
             None,
+            None,
         );
         let body = serde_json::json!({ "work_item_id": { "type": "work_item_id", "value": "work-1" }, "source": "manual", "requested_at": "now" }).to_string();
         let request = || {
@@ -842,6 +910,7 @@ mod tests {
             Some(Arc::new(
                 SqliteRunBindingRepository::open(&directory.path().join("work.db")).unwrap(),
             )),
+            None,
         );
         let binding = RunBinding {
             attempt_id: AttemptId::new("attempt-1"),
@@ -893,6 +962,123 @@ mod tests {
         conflicting.run_id = RunId::new("run-2");
         assert_eq!(
             app.oneshot(request(conflicting, true))
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::CONFLICT
+        );
+    }
+
+    #[tokio::test]
+    async fn finalize_attempt_route_requires_bearer_and_is_idempotent() {
+        let directory = tempfile::tempdir().unwrap();
+        let plane = Arc::new(
+            ControlPlane::bootstrap(ControlPlaneConfig {
+                service_version: "0.1.0".into(),
+                store: ControlPlaneStore::Sqlite {
+                    database_path: directory.path().join("control.db").display().to_string(),
+                },
+                registration_ttl_seconds: 60,
+            })
+            .unwrap(),
+        );
+        let attempt_repository =
+            Arc::new(SqliteAttemptRepository::open(&directory.path().join("work.db")).unwrap());
+        let attempt = Attempt {
+            id: AttemptId::new("attempt-1"),
+            work_item_id: WorkItemId::new("work-1"),
+            owner_agent_instance_id: AgentInstanceId::new("agent-1"),
+            profile_revision_id: AgentProfileRevisionId::new("rev-1"),
+            state: AttemptState::Created,
+            created_at_unix_seconds: 1,
+            updated_at_unix_seconds: 1,
+        };
+        attempt_repository.create(attempt).unwrap();
+        attempt_repository
+            .transition(&AttemptId::new("attempt-1"), AttemptState::Claimed, 10)
+            .unwrap();
+        attempt_repository
+            .transition(&AttemptId::new("attempt-1"), AttemptState::Dispatched, 20)
+            .unwrap();
+        attempt_repository
+            .transition(&AttemptId::new("attempt-1"), AttemptState::Running, 30)
+            .unwrap();
+        let attempt_read = attempt_repository.clone();
+        let app = router_with_control_repositories(
+            plane,
+            BootstrapCredential::from_plaintext("test-bootstrap-token").unwrap(),
+            None,
+            None,
+            None,
+            Arc::new(InMemoryWakeRepository::default()),
+            None,
+            Some(attempt_repository),
+        );
+        let request = |outcome: &str, observed: u64, authenticated: bool| {
+            let payload = serde_json::json!({
+                "outcome": outcome,
+                "observed_at_unix_seconds": observed,
+            });
+            let mut request = Request::builder()
+                .method("POST")
+                .uri("/v1/runtime/attempts/attempt-1/finalize")
+                .header("content-type", "application/json")
+                .body(Body::from(serde_json::to_vec(&payload).unwrap()))
+                .unwrap();
+            if authenticated {
+                request.headers_mut().insert(
+                    AUTHORIZATION,
+                    "Bearer test-bootstrap-token".parse().unwrap(),
+                );
+            }
+            request
+        };
+        // Unauthenticated: rejected before the attempt is touched.
+        assert_eq!(
+            app.clone()
+                .oneshot(request("succeeded", 100, false))
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::UNAUTHORIZED
+        );
+        // Authenticated: finalizes Running -> Succeeded.
+        assert_eq!(
+            app.clone()
+                .oneshot(request("succeeded", 100, true))
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::OK
+        );
+        assert_eq!(
+            attempt_read
+                .get(&AttemptId::new("attempt-1"))
+                .unwrap()
+                .unwrap()
+                .state,
+            AttemptState::Succeeded
+        );
+        // Replay of the same outcome is idempotent: still OK, observed time unchanged.
+        assert_eq!(
+            app.clone()
+                .oneshot(request("succeeded", 200, true))
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::OK
+        );
+        assert_eq!(
+            attempt_read
+                .get(&AttemptId::new("attempt-1"))
+                .unwrap()
+                .unwrap()
+                .updated_at_unix_seconds,
+            100
+        );
+        // A divergent outcome after the attempt is terminal fails closed (409).
+        assert_eq!(
+            app.oneshot(request("failed", 300, true))
                 .await
                 .unwrap()
                 .status(),
