@@ -7,6 +7,7 @@
 //! ledgers through the registered host identity.
 
 pub mod agent_repository;
+pub mod dispatch_eligibility;
 pub mod scope_repository;
 mod service;
 pub mod sqlite_agent;
@@ -21,6 +22,9 @@ pub mod work_graph_repository;
 pub use agent_repository::{AgentRepository, AgentRepositoryError, InMemoryAgentRepository};
 pub use altai_control_protocol::{
     ControlPlaneHealth, HostCapabilities, HostRegistration, HostRegistrationRequest, RegisteredHost,
+};
+pub use dispatch_eligibility::{
+    DispatchBlocker, DispatchEligibility, DispatchEligibilityEngine, DispatchEligibilityError,
 };
 pub use scope_repository::{InMemoryScopeRepository, ScopeError, ScopeRepository};
 pub use service::{
