@@ -24,6 +24,7 @@ pub mod sqlite_work_graph;
 pub mod transport;
 pub mod wake_repository;
 pub mod work_graph_repository;
+pub mod work_item_repository;
 
 pub use agent_repository::{AgentRepository, AgentRepositoryError, InMemoryAgentRepository};
 pub use altai_control_protocol::{
@@ -62,3 +63,6 @@ pub use transport::{
 };
 pub use wake_repository::{InMemoryWakeRepository, WakeError, WakeRepository};
 pub use work_graph_repository::{InMemoryWorkGraphRepository, WorkGraphError, WorkGraphRepository};
+pub use work_item_repository::{
+    SqliteWorkItemRepository, WorkItemRepository, WorkItemRepositoryError,
+};
