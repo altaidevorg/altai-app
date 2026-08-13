@@ -1,5 +1,9 @@
 # ALTAI Paperclip-Style Control Plane Engineering Plan
 
+> **Execution order:** `docs/control-plane-execution/WORK_OS_PROGRAM_BACKLOG.md`
+> is the canonical project-management queue. This document remains authoritative
+> for architecture and scope.
+
 > Status: proposed canonical implementation plan
 >
 > Date: 2026-08-03
