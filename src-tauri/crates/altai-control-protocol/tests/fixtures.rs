@@ -93,3 +93,10 @@ fn work_item_fixture_round_trips() {
     let parsed: WorkItem = serde_json::from_value(value.clone()).unwrap();
     assert_round_trip("work-item.json", &value, parsed);
 }
+
+#[test]
+fn project_workspace_fixture_round_trips() {
+    let value = read_fixture("project-workspace.json");
+    let parsed: ProjectWorkspace = serde_json::from_value(value.clone()).unwrap();
+    assert_round_trip("project-workspace.json", &value, parsed);
+}
