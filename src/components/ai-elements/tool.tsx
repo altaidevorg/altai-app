@@ -64,7 +64,8 @@ const TOOL_META: Record<string, { label: string; icon: typeof File01Icon }> = {
 
   // Shell / code execution
   exec: { label: "Run", icon: TerminalIcon },
-  python_run: { label: "Python", icon: TerminalIcon },
+  exec_status: { label: "Command status", icon: TerminalIcon },
+  exec_send: { label: "Command input", icon: TerminalIcon },
 
   // Sandboxed execution sessions
   execution_run: { label: "Run", icon: TerminalIcon },
@@ -157,6 +158,9 @@ function deriveSummary(toolName: string, input: unknown): string | null {
     // when the model didn't write one.
     case "exec":
       return str("description") ?? str("command");
+    case "exec_status":
+    case "exec_send":
+      return str("command_id");
     case "execution_run":
     case "execution_run_background":
       return str("description") ?? str("code");
@@ -266,7 +270,7 @@ export type ToolProps = ComponentProps<typeof Collapsible> & {
 const INPUT_HEAVY_TOOLS = new Set([
   "write_file",
   "edit_file",
-  "python_run",
+  "exec_send",
   "execution_run",
   "execution_run_background",
 ]);
