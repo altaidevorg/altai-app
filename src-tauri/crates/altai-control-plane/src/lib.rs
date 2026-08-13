@@ -11,6 +11,7 @@ pub mod attempt_repository;
 pub mod dispatch_eligibility;
 pub mod execution_repository;
 pub mod recovery_repository;
+pub mod run_context;
 pub mod run_binding_repository;
 pub mod scheduler;
 pub mod scope_repository;
@@ -37,6 +38,10 @@ pub use execution_repository::{
     SqliteExecutionSnapshotRepository,
 };
 pub use recovery_repository::{RecoveryError, RecoveryRepository, SqliteRecoveryRepository};
+pub use run_context::{
+    build_bounded_run_context, BoundedRunContext, RunContextError, RunContextInput,
+    MAX_RUN_CONTEXT_BYTES,
+};
 pub use run_binding_repository::{
     RunBindingError, RunBindingRepository, SqliteRunBindingRepository,
 };
