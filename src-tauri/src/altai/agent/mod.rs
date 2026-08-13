@@ -1,3 +1,4 @@
+pub mod attempt_adapter;
 pub mod commands;
 pub mod desktop_host;
 pub mod event_journal;
