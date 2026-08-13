@@ -250,8 +250,14 @@ name = "altai-control-plane"
 version = "0.1.0"
 dependencies = [
  "altai-control-protocol",
+ "axum",
+ "clap",
  "serde",
+ "serde_json",
  "sha2 0.10.9",
+ "subtle",
+ "tokio",
+ "tower",
  "uuid",
 ]
 

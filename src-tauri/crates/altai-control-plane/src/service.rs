@@ -61,7 +61,7 @@ impl ControlPlaneConfig {
 
 /// One-time credential issued by an authenticated administrator/bootstrapper.
 /// The plaintext token is returned exactly once and is never retained.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RegistrationGrant {
     pub token: String,
     pub expires_at_unix_seconds: u64,
@@ -237,9 +237,7 @@ fn token_digest(token: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use altai_control_protocol::{
-        AgentInstanceId, HostCapabilities, HostRegistration, WorkspaceId,
-    };
+    use altai_control_protocol::{HostCapabilities, HostRegistration};
 
     fn config() -> ControlPlaneConfig {
         ControlPlaneConfig {
