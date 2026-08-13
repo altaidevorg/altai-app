@@ -54,6 +54,71 @@ impl SqliteWakeRepository {
             reason: error.to_string(),
         }
     }
+
+    /// Scheduler-only atomic handoff: claim a pending wake and create the
+    /// exclusive lease in the same SQLite immediate transaction.
+    pub fn claim_and_checkout(
+        &self,
+        lease: WorkCheckoutLease,
+        claimed_at: String,
+        now_unix_seconds: u64,
+    ) -> Result<WakeRequest, WakeError> {
+        let mut connection = self.lock()?;
+        let transaction = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(Self::db)?;
+        transaction.execute(
+            "DELETE FROM control_plane_work_checkout_leases WHERE work_item_id = ?1 AND expires_at_unix_seconds <= ?2",
+            params![lease.work_item_id.value, now_unix_seconds as i64],
+        ).map_err(Self::db)?;
+        let claimed = transaction.execute(
+            "UPDATE control_plane_wake_requests SET claimed_at = ?2 WHERE work_item_id = ?1 AND claimed_at IS NULL",
+            params![lease.work_item_id.value, claimed_at],
+        ).map_err(Self::db)?;
+        if claimed == 0 {
+            let exists = transaction
+                .query_row(
+                    "SELECT 1 FROM control_plane_wake_requests WHERE work_item_id = ?1",
+                    [&lease.work_item_id.value],
+                    |_| Ok(()),
+                )
+                .optional()
+                .map_err(Self::db)?
+                .is_some();
+            return Err(if exists {
+                WakeError::AlreadyClaimed {
+                    work_item_id: lease.work_item_id.value,
+                }
+            } else {
+                WakeError::NotFound {
+                    work_item_id: lease.work_item_id.value,
+                }
+            });
+        }
+        let inserted = transaction.execute(
+            "INSERT INTO control_plane_work_checkout_leases (work_item_id, owner_agent_instance_id, attempt_id, expires_at, expires_at_unix_seconds) VALUES (?1, ?2, ?3, ?4, ?5) ON CONFLICT(work_item_id) DO NOTHING",
+            params![lease.work_item_id.value, lease.owner_agent_instance_id.value, lease.attempt_id.value, lease.expires_at_unix_seconds.to_string(), lease.expires_at_unix_seconds as i64],
+        ).map_err(Self::db)?;
+        if inserted == 0 {
+            return Err(WakeError::ActiveCheckout {
+                work_item_id: lease.work_item_id.value,
+            });
+        }
+        let row: (String, String, String, Option<String>) = transaction.query_row(
+            "SELECT id, sources_json, requested_at, claimed_at FROM control_plane_wake_requests WHERE work_item_id = ?1",
+            [&lease.work_item_id.value], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        ).map_err(Self::db)?;
+        transaction.commit().map_err(Self::db)?;
+        Ok(WakeRequest {
+            id: row.0,
+            work_item_id: lease.work_item_id,
+            sources: serde_json::from_str(&row.1).map_err(|error| WakeError::Internal {
+                reason: error.to_string(),
+            })?,
+            requested_at: row.2,
+            claimed_at: row.3,
+        })
+    }
 }
 
 impl WakeRepository for SqliteWakeRepository {
@@ -300,5 +365,41 @@ mod tests {
         repository
             .release_checkout(&work, &AttemptId::new("current"))
             .unwrap();
+    }
+
+    #[test]
+    fn scheduler_claim_and_checkout_is_one_atomic_handoff() {
+        let directory = tempfile::tempdir().unwrap();
+        let repository = SqliteWakeRepository::open(&directory.path().join("work.db")).unwrap();
+        let work = WorkItemId::new("work-1");
+        repository
+            .enqueue(work.clone(), WakeSource::Manual, "queued".into())
+            .unwrap();
+        let wake = repository
+            .claim_and_checkout(
+                WorkCheckoutLease {
+                    work_item_id: work.clone(),
+                    owner_agent_instance_id: AgentInstanceId::new("agent-1"),
+                    attempt_id: AttemptId::new("attempt-1"),
+                    expires_at_unix_seconds: 20,
+                },
+                "claimed".into(),
+                10,
+            )
+            .unwrap();
+        assert_eq!(wake.claimed_at.as_deref(), Some("claimed"));
+        assert!(matches!(
+            repository.claim_and_checkout(
+                WorkCheckoutLease {
+                    work_item_id: work,
+                    owner_agent_instance_id: AgentInstanceId::new("agent-2"),
+                    attempt_id: AttemptId::new("attempt-2"),
+                    expires_at_unix_seconds: 20
+                },
+                "again".into(),
+                10
+            ),
+            Err(WakeError::AlreadyClaimed { .. })
+        ));
     }
 }
