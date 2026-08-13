@@ -12,8 +12,8 @@ implementations must serialize and deserialize these fixtures identically.
 ## Status
 
 - **Not yet populated.** Fixtures are added by task packets beginning with
-  GLM-CAL-02 (calibration) and CP-01-03 (golden cross-language fixtures).
-- The first fixture will be `work-item-id.json` (GLM-CAL-02).
+  CAL-02 (calibration) and CP-01-03 (golden cross-language fixtures).
+- The first fixture will be `work-item-id.json` (CAL-02).
 
 ## Naming convention
 

@@ -1,12 +1,12 @@
-# Task Packet: GLM-CAL-03 — Pure Legacy-to-Canonical Mapping with Negative Tests
+# Task Packet: CAL-03 — Pure Legacy-to-Canonical Mapping with Negative Tests
 
 ```yaml
-task_id: GLM-CAL-03
+task_id: CAL-03
 title: One pure legacy-to-canonical mapping function plus negative tests
 risk_tier: A
 parent_module: CP-20
-status: ready
-depends_on: [GLM-CAL-02]
+status: accepted
+depends_on: [CAL-02]
 objective: |
   Create one pure mapping function that converts a legacy assignment record
   (from the current altai-assignments.json format) into a canonical WorkItem

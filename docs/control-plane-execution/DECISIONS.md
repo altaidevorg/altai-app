@@ -15,7 +15,7 @@
 | DEC-005 | 2026-08-13 | The control plane exposes authenticated, versioned local and deployed transports. Transport selection is capability-negotiated; no unauthenticated listener is permitted. | M2, daemon lifecycle | supersedes local-socket-only decision |
 | DEC-006 | 2026-08-13 | Two persistence planes: global control DB plus workspace-local execution ledger. Run journals are not consolidated; durable inbox/outbox/cursor synchronization is required. | M2–M3 | amended |
 | DEC-007 | 2026-08-03 | AgentProfile is reusable config; AgentInstance is a durable worker identity. One profile can back many instances. An active attempt keeps its immutable profile revision. | CP-05 | accepted (parent plan §4.3) |
-| DEC-008 | 2026-08-03 | Legacy `failed` assignment status maps to work_status `in_progress` + execution_phase `failed` (not `needs_attention`, which is a phase, not a Section 5.1 status). Attention derives from the phase via the Inbox projection. | GLM-CAL-03, CP-20 | accepted (user decision, GLM-CAL-03 packet amendment) |
+| DEC-008 | 2026-08-03 | Legacy `failed` assignment status maps to work_status `in_progress` + execution_phase `failed` (not `needs_attention`, which is a phase, not a Section 5.1 status). Attention derives from the phase via the Inbox projection. | CAL-03, CP-20 | accepted (user decision, CAL-03 packet amendment) |
 | DEC-009 | 2026-08-13 | ADR 0003 codifies a global control-plane authority plus a local execution ledger. IsanAgent remains the execution runtime and owns no project-management state. | M2, all CP modules | amended |
 
 ## Superseded / Conflicting Documents

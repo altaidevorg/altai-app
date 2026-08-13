@@ -1,11 +1,11 @@
-# Task Packet: GLM-CAL-01 — Route/Store/State-Owner Inventory
+# Task Packet: CAL-01 — Route/Store/State-Owner Inventory
 
 ```yaml
-task_id: GLM-CAL-01
+task_id: CAL-01
 title: Produce a read-only route/store/state-owner inventory matching parent plan Section 9.8
 risk_tier: A
 parent_module: CP-00
-status: complete
+status: accepted
 depends_on: []
 objective: |
   Produce a complete, evidence-backed inventory of every frontend route, menu,

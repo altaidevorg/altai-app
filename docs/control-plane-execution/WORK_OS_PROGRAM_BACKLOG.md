@@ -1,10 +1,11 @@
 # ALTAI Work OS Program Backlog
 
-> **Program authority:** This is the canonical implementation order for Work OS.
-> The engineering plan defines scope and architecture; this file decides what
-> ships next. Update it in every accepted Work OS PR.
+> **Program authority:** This is the sole canonical Work OS program plan for
+> delivery order, status, dependencies, acceptance gates, and progress. The
+> engineering plan supplies architecture and scope constraints but cannot create
+> a competing queue. Update this file in every accepted Work OS PR.
 >
-> **Baseline:** `main` through PR #730, 2026-08-13.
+> **Baseline:** `main` through PR #731, 2026-08-13.
 
 ## 1. Operating model
 

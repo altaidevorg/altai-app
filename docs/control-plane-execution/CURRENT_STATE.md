@@ -5,15 +5,18 @@
 >
 > **Date:** 2026-08-13
 >
-> **Last updated by:** Work OS program reconciliation through PR #730
+> **Last updated by:** Work OS program reconciliation through PR #731
 
 ## Accepted Tasks
 
+`CAL-*` values below are historical calibration evidence, not a delivery lane.
+All current and future ordering comes from `WORK_OS_PROGRAM_BACKLOG.md`.
+
 | Task ID | Status | PR/Commit | Date | Notes |
 | --- | --- | --- | --- | --- |
-| GLM-CAL-01 | accepted | PR #262 | 2026-08-03 | Route/store/state-owner inventory validated; 56 unique entries with valid source references |
-| GLM-CAL-02 | accepted | working tree (uncommitted) | 2026-08-03 | Shared `work_item_id` fixture round-trips byte-identically in Rust (4/4 tests) and TypeScript (8/8 tests); typed-error rejection proven on both sides |
-| GLM-CAL-03 | accepted | working tree (uncommitted) | 2026-08-03 | Pure legacy→canonical mapping on both sides (Rust 9/9, TS 9/9 tests); amended `failed` mapping per DEC-008; calibration lane complete |
+| CAL-01 | accepted | PR #262 | 2026-08-03 | Route/store/state-owner inventory validated; 56 unique entries with valid source references |
+| CAL-02 | accepted | working tree (uncommitted) | 2026-08-03 | Shared `work_item_id` fixture round-trips byte-identically in Rust (4/4 tests) and TypeScript (8/8 tests); typed-error rejection proven on both sides |
+| CAL-03 | accepted | working tree (uncommitted) | 2026-08-03 | Pure legacy→canonical mapping on both sides (Rust 9/9, TS 9/9 tests); amended `failed` mapping per DEC-008; calibration lane complete |
 | CP-00-01 | accepted | working tree (uncommitted) | 2026-08-03 | ADR 0001/0002 amended for control-plane scope; ADR 0003 created codifying control-plane/execution-plane split; Agent Operations plan ownership sections marked superseded; DEC-009 recorded |
 | CP-00-02 | accepted | working tree (uncommitted) | 2026-08-03 | Architecture boundary tests: Rust 6/6 (altai-agent-service must not import control-plane crates; workspace member verification; self-tests); TS 14/14 (glob matching, import detection, scanFiles with simulated violations); cargo check + tsc --noEmit pass |
 | CP-01-01 | accepted | working tree (uncommitted) | 2026-08-03 | Core domain contracts: `altai-control-protocol` Rust crate (16 typed IDs, Revision, Actor, ControlError, ActivityEvent/ControlEvent) + `@altai/control-contract` TS package; Rust 28/28 (23 lib + 5 fixture round-trips), TS 21/21; golden fixtures byte-identical both sides; boundary tests updated for new workspace member |

@@ -1,4 +1,4 @@
-//! GLM-CAL-02 calibration: prove Rust round-trips the shared control-plane
+//! CAL-02 calibration: prove Rust round-trips the shared control-plane
 //! golden fixture byte-identically before the real CP-01 contracts exist.
 
 use serde::{Deserialize, Serialize};

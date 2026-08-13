@@ -39,7 +39,10 @@ independently buildable, separately distributed AGPL companion with complete
 corresponding source and a reviewed versioned network boundary. Until one path
 is accepted, implement compatible interfaces without Macro code.
 
-## M2 implementation order
+## M2 technical decomposition
+
+This is supporting upstream analysis, not a delivery queue. The canonical Work
+OS order remains `docs/control-plane-execution/WORK_OS_PROGRAM_BACKLOG.md`.
 
 1. Paperclip downstream provenance and license review.
 2. Versioned authenticated control-plane health and host registration skeleton.

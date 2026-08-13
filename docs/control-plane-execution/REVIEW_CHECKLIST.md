@@ -2,7 +2,7 @@
 
 > **Purpose:** Tier-based acceptance gates for every control-plane task.
 > Reviewers use this checklist; implementers use it for mandatory self-review
-> before handoff (playbook §8 Step 4).
+> before handoff.
 
 ## Risk Tier Definitions
 
@@ -27,7 +27,7 @@ adapters, GitHub outbox/inbox adapter, one Operations UI slice.
 - normally under eight edited files or split the task;
 - property, integration, restart, and failure-path tests as applicable;
 - independent architecture review required;
-- GLM self-review cannot accept its own implementation.
+- An implementer's self-review cannot accept its own implementation.
 
 ### Tier C — Safety- or ownership-critical
 
