@@ -2,7 +2,41 @@
 
 Date: 2026-08-03
 
-Status: Amended (2026-08-11)
+Status: Superseded in part (2026-08-13)
+
+## Superseding amendment (2026-08-13): federated control plane
+
+The 2026-08-11 amendment was the correct deployment boundary for the shipped
+local-first Work OS M1. It is superseded for all new control-plane work by the
+federated architecture in the canonical
+[ALTAI Work OS plan](https://github.com/altaidevorg/altai-agent-work-os/blob/main/ENGINEERING.md).
+
+ALTAI now introduces an always-on `altai-control-plane` service and a global
+control database (Postgres in deployed environments; PGlite where an embedded
+local control database is selected). The service is the authoritative owner of
+organization, identity, Goal, Campaign, Ticket, Task, global Work intent,
+policy, approvals, collaboration metadata, dispatch leases and global
+projections.
+
+The existing workspace-local `work.db` remains. It is authoritative only for
+execution facts: Attempt admission after a valid lease, exact run/session
+binding, local journal/recovery, artifacts, locally produced Review evidence,
+and durable synchronization inbox/outbox/cursors. The two stores must never
+own the same field. Synchronization uses revisions, leases, idempotency keys,
+durable cursors and tombstones; last-write-wins is forbidden.
+
+This amendment does **not** weaken M1 guarantees:
+
+- Renderers still never own authoritative lifecycle state.
+- IsanAgent remains an execution runtime, not a project-management system.
+- A successful run reaches `in_review`, never automatically `done`.
+- Existing local Work data remains readable and migrates through an explicit,
+  reversible import/reconciliation path.
+
+Implementation must begin with a versioned, authenticated control-plane
+registration/health boundary and an explicit field-authority schema before
+moving any existing Work mutation. `altai-agent-service` is a connected
+execution host; it must not depend on control-plane persistence.
 
 ## Amendment (2026-08-11)
 
@@ -24,8 +58,9 @@ Canonical product plan: [`altaidevorg/altai-agent-work-os`](https://github.com/a
 | Renderers must not own authoritative transitions | Unchanged |
 | Separate Assignment/Org/Budget/Outbox ownership in IsanAgent | Still rejected; those domains are out of M1 scope |
 
-Follow-ups CP-02/CP-16 that assumed a new daemon are superseded by Work OS
-Milestone 1 (five tables + Work API inside the existing host).
+This historical amendment governed M1 only. Its prohibition on a separate
+daemon, server, deployment and global store is superseded by the 2026-08-13
+federated-control-plane amendment above.
 
 ---
 
