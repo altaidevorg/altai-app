@@ -2,7 +2,7 @@
 
 use crate::{ScopeError, ScopeRepository};
 use altai_control_protocol::{
-    Goal, GoalId, Organization, OrganizationId, Project, ProjectWorkspace,
+    Goal, GoalId, Organization, OrganizationId, Project, ProjectWorkspace, Revision,
 };
 use postgres::{Client, NoTls};
 use std::sync::Mutex;
@@ -14,6 +14,8 @@ pub struct PostgresScopeRepository {
 }
 
 impl PostgresScopeRepository {
+    pub const DEFAULT_LOCAL_ORGANIZATION_ID: &'static str = "org_local";
+
     pub fn connect(url: &str) -> Result<Self, String> {
         let mut client = Client::connect(url, NoTls).map_err(|error| error.to_string())?;
         client
@@ -50,6 +52,30 @@ impl PostgresScopeRepository {
         Ok(Self {
             client: Mutex::new(client),
         })
+    }
+
+    /// Create the migration-owned local organization exactly once. This uses a
+    /// stable ID so daemon restarts never create duplicate local tenants.
+    pub fn ensure_default_local_organization(&self) -> Result<Organization, ScopeError> {
+        let organization = Organization {
+            id: OrganizationId::new("local"),
+            name: "Local organization".to_string(),
+            revision: Revision::INITIAL,
+            created_at: "1970-01-01T00:00:00Z".to_string(),
+            updated_at: "1970-01-01T00:00:00Z".to_string(),
+        };
+        let mut client = self.lock()?;
+        let payload =
+            serde_json::to_value(&organization).map_err(|error| ScopeError::Internal {
+                reason: error.to_string(),
+            })?;
+        client
+            .execute(
+                "INSERT INTO control_plane_organizations (id, payload) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+                &[&organization.id.value, &payload],
+            )
+            .map_err(Self::database_error)?;
+        Ok(organization)
     }
 
     fn lock(&self) -> Result<std::sync::MutexGuard<'_, Client>, ScopeError> {

@@ -1,6 +1,6 @@
 use altai_control_plane::{
     router, BootstrapCredential, ControlPlane, ControlPlaneConfig, ControlPlaneStore,
-    PostgresRegistrationRepository,
+    PostgresRegistrationRepository, PostgresScopeRepository,
 };
 use clap::Parser;
 use std::{net::SocketAddr, sync::Arc};
@@ -47,6 +47,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         registration_ttl_seconds: 300,
     };
     let plane = if let Some(connection_url) = args.postgres_url {
+        let scope_repository = PostgresScopeRepository::connect(&connection_url)?;
+        scope_repository.ensure_default_local_organization()?;
         Arc::new(ControlPlane::with_registration_repository(
             config,
             Arc::new(PostgresRegistrationRepository::connect(&connection_url)?),
