@@ -26,4 +26,7 @@ pub use service::{
     ControlPlane, ControlPlaneConfig, ControlPlaneError, ControlPlaneStore, RegistrationCommit,
     RegistrationGrant, RegistrationRepository,
 };
-pub use transport::{router, router_with_scope_repository, BootstrapCredential, TransportError};
+pub use transport::{
+    router, router_with_repositories, router_with_scope_repository, BootstrapCredential,
+    TransportError,
+};
