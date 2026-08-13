@@ -8,6 +8,7 @@
 
 pub mod agent_repository;
 pub mod dispatch_eligibility;
+pub mod recovery_repository;
 pub mod scope_repository;
 mod service;
 pub mod sqlite_agent;
@@ -26,6 +27,7 @@ pub use altai_control_protocol::{
 pub use dispatch_eligibility::{
     DispatchBlocker, DispatchEligibility, DispatchEligibilityEngine, DispatchEligibilityError,
 };
+pub use recovery_repository::{RecoveryError, RecoveryRepository, SqliteRecoveryRepository};
 pub use scope_repository::{InMemoryScopeRepository, ScopeError, ScopeRepository};
 pub use service::{
     ControlPlane, ControlPlaneConfig, ControlPlaneError, ControlPlaneStore, RegistrationCommit,

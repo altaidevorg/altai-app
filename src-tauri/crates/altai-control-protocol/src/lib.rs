@@ -12,6 +12,7 @@ pub mod agent;
 pub mod error;
 pub mod event;
 pub mod id;
+pub mod recovery;
 pub mod registration;
 pub mod revision;
 pub mod scope;
@@ -24,6 +25,7 @@ pub use agent::{AgentInstance, AgentProfileRevision, AgentStatus};
 pub use error::{ControlError, ControlErrorCode};
 pub use event::{ActivityEvent, ControlEvent, EventKind};
 pub use id::*;
+pub use recovery::{RecoveryDisposition, RecoveryRecord};
 pub use registration::{
     ControlPlaneHealth, HostCapabilities, HostRegistration, HostRegistrationRequest,
     RegisteredHost, CONTROL_PLANE_PROTOCOL_MAJOR,
