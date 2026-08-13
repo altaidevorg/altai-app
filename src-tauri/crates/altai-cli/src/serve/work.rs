@@ -1,7 +1,7 @@
 use altai_core::{
     AttemptPhase, AttemptReconcileMode, AttemptRecord, CreateWorkInput, EventJournal,
-    WorkAttemptStart, WorkInboxRecord, WorkItemRecord, WorkListFilter, WorkState, WorkStore,
-    WorkStoreError, WorkspacePaths,
+    WorkAttemptStart, WorkInboxRecord, WorkItemKind, WorkItemRecord, WorkListFilter, WorkState,
+    WorkStore, WorkStoreError, WorkspacePaths,
 };
 use serde_json::{json, Map, Value};
 
@@ -82,14 +82,23 @@ pub(super) fn dispatch(
                 .unwrap_or_default()
                 .to_string();
             let assignee_ref = optional_string(&params, "assigneeRef")?.map(str::to_string);
+            let kind = optional_string(&params, "kind")?
+                .map(WorkItemKind::parse)
+                .unwrap_or(Some(WorkItemKind::Task))
+                .ok_or_else(|| RpcError::invalid_params("invalid_kind"))?;
+            let parent_work_id = optional_string(&params, "parentWorkId")?.map(str::to_string);
             store
-                .create_work(CreateWorkInput {
-                    project_id,
-                    title,
-                    description,
-                    acceptance_criteria,
-                    assignee_ref,
-                })
+                .create_work_item(
+                    CreateWorkInput {
+                        project_id,
+                        title,
+                        description,
+                        acceptance_criteria,
+                        assignee_ref,
+                    },
+                    kind,
+                    parent_work_id,
+                )
                 .map(work_item_value)
                 .map_err(store_error)
         }
@@ -312,6 +321,8 @@ fn work_item_value(item: WorkItemRecord) -> Value {
         "title": item.title,
         "description": item.description,
         "acceptanceCriteria": item.acceptance_criteria,
+        "kind": item.kind.as_str(),
+        "parentWorkId": item.parent_work_id,
         "state": item.state.as_str(),
         "assigneeRef": item.assignee_ref,
         "blocker": item.blocker,
@@ -504,8 +515,8 @@ mod tests {
             work_id: created["id"].as_str().expect("work id").to_string(),
             expected_revision: created["revision"].as_i64().expect("revision"),
         };
-        let started = begin_start_run(&workspace, &request, "chat-admission")
-            .expect("prebound Attempt");
+        let started =
+            begin_start_run(&workspace, &request, "chat-admission").expect("prebound Attempt");
         fail_start_run(
             &workspace,
             &started.attempt.id,

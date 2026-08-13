@@ -178,6 +178,12 @@ struct WorkCreateArgs {
     /// Optional acceptance criteria.
     #[arg(long, default_value = "")]
     acceptance: String,
+    /// Durable Work kind: task | ticket | campaign.
+    #[arg(long, default_value = "task")]
+    kind: String,
+    /// Optional durable parent Work ID in the same workspace.
+    #[arg(long)]
+    parent_work_id: Option<String>,
     /// Print machine-readable JSON.
     #[arg(long)]
     json: bool,
@@ -735,14 +741,20 @@ fn print_work_item(item: &altai_core::WorkItemRecord, json: bool) -> Result<(), 
 
 fn work_create(args: WorkCreateArgs) -> Result<(), CliError> {
     let (project_id, store) = open_workspace_work(args.path.as_deref())?;
+    let kind = altai_core::WorkItemKind::parse(&args.kind)
+        .ok_or_else(|| CliError::Message("kind must be task, ticket, or campaign".to_string()))?;
     let created = store
-        .create_work(altai_core::CreateWorkInput {
-            project_id,
-            title: args.title,
-            description: args.description,
-            acceptance_criteria: args.acceptance,
-            assignee_ref: None,
-        })
+        .create_work_item(
+            altai_core::CreateWorkInput {
+                project_id,
+                title: args.title,
+                description: args.description,
+                acceptance_criteria: args.acceptance,
+                assignee_ref: None,
+            },
+            kind,
+            args.parent_work_id,
+        )
         .map_err(|error| CliError::Message(error.to_string()))?;
     print_work_item(&created, args.json)
 }

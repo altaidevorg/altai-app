@@ -11,7 +11,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-const SCHEMA_VERSION: i64 = 2;
+const SCHEMA_VERSION: i64 = 3;
 static NEXT_ID_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 
 const MIGRATION_V1: &str = r#"
@@ -109,6 +109,16 @@ CREATE UNIQUE INDEX IF NOT EXISTS attempts_one_binding_per_run
     WHERE run_id IS NOT NULL;
 "#;
 
+const MIGRATION_V3: &str = r#"
+ALTER TABLE work_items
+    ADD COLUMN kind TEXT NOT NULL DEFAULT 'task'
+    CHECK (kind IN ('task', 'ticket', 'campaign'));
+ALTER TABLE work_items
+    ADD COLUMN parent_work_id TEXT REFERENCES work_items(id);
+CREATE INDEX IF NOT EXISTS work_items_parent_updated
+    ON work_items (parent_work_id, updated_at_ms DESC);
+"#;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WorkState {
     Backlog,
@@ -117,6 +127,15 @@ pub enum WorkState {
     InReview,
     Done,
     Cancelled,
+}
+
+/// First-class durable Work objects, rather than renderer-only cards.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WorkItemKind { Task, Ticket, Campaign }
+
+impl WorkItemKind {
+    pub fn as_str(self) -> &'static str { match self { Self::Task => "task", Self::Ticket => "ticket", Self::Campaign => "campaign" } }
+    pub fn parse(value: &str) -> Option<Self> { match value { "task" => Some(Self::Task), "ticket" => Some(Self::Ticket), "campaign" => Some(Self::Campaign), _ => None } }
 }
 
 impl WorkState {
@@ -192,6 +211,8 @@ pub struct WorkItemRecord {
     pub title: String,
     pub description: String,
     pub acceptance_criteria: String,
+    pub kind: WorkItemKind,
+    pub parent_work_id: Option<String>,
     pub state: WorkState,
     pub assignee_ref: Option<String>,
     pub blocker: Option<String>,
@@ -362,6 +383,11 @@ impl WorkStore {
     }
 
     pub fn create_work(&self, input: CreateWorkInput) -> Result<WorkItemRecord> {
+        self.create_work_item(input, WorkItemKind::Task, None)
+    }
+
+    /// A parent must be a durable Work object in the same project.
+    pub fn create_work_item(&self, input: CreateWorkInput, kind: WorkItemKind, parent_work_id: Option<String>) -> Result<WorkItemRecord> {
         let title = input.title.trim();
         if title.is_empty() {
             return Err(WorkStoreError::InvalidState("title is required"));
@@ -370,12 +396,22 @@ impl WorkStore {
         let id = new_id("work");
         let mut connection = self.connection.lock().expect("work store mutex");
         let tx = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        if let Some(parent_id) = parent_work_id.as_deref() {
+            let parent_project_id: Option<String> = tx.query_row(
+                "SELECT project_id FROM work_items WHERE id = ?1", params![parent_id], |row| row.get(0),
+            ).optional()?;
+            match parent_project_id {
+                Some(project_id) if project_id == input.project_id => {}
+                Some(_) => return Err(WorkStoreError::InvalidState("parent work must belong to the same project")),
+                None => return Err(WorkStoreError::NotFound(parent_id.to_string())),
+            }
+        }
         tx.execute(
             r#"
             INSERT INTO work_items (
                 id, project_id, title, description, acceptance_criteria, state,
-                assignee_ref, blocker, revision, created_at_ms, updated_at_ms
-            ) VALUES (?1, ?2, ?3, ?4, ?5, 'backlog', ?6, NULL, 1, ?7, ?7)
+                kind, parent_work_id, assignee_ref, blocker, revision, created_at_ms, updated_at_ms
+            ) VALUES (?1, ?2, ?3, ?4, ?5, 'backlog', ?6, ?7, ?8, NULL, 1, ?9, ?9)
             "#,
             params![
                 id,
@@ -383,11 +419,13 @@ impl WorkStore {
                 title,
                 input.description,
                 input.acceptance_criteria,
+                kind.as_str(),
+                parent_work_id,
                 input.assignee_ref,
                 now as i64
             ],
         )?;
-        append_event(&tx, &id, "created", "{}")?;
+        append_event(&tx, &id, "created", &format!(r#"{{"kind":"{}"}}"#, kind.as_str()))?;
         tx.commit()?;
         drop(connection);
         self.get_work(&id)?
@@ -399,7 +437,7 @@ impl WorkStore {
         let mut statement = connection.prepare(
             r#"
             SELECT id, project_id, title, description, acceptance_criteria, state,
-                   assignee_ref, blocker, revision, created_at_ms, updated_at_ms
+                   kind, parent_work_id, assignee_ref, blocker, revision, created_at_ms, updated_at_ms
             FROM work_items WHERE id = ?1
             "#,
         )?;
@@ -447,7 +485,7 @@ impl WorkStore {
         let sql = format!(
             r#"
             SELECT id, project_id, title, description, acceptance_criteria, state,
-                   assignee_ref, blocker, revision, created_at_ms, updated_at_ms
+                   kind, parent_work_id, assignee_ref, blocker, revision, created_at_ms, updated_at_ms
             FROM work_items
             WHERE {clause}
             ORDER BY updated_at_ms DESC
@@ -459,6 +497,20 @@ impl WorkStore {
         for row in rows {
             out.push(row?);
         }
+        Ok(out)
+    }
+
+    /// List direct children in the durable hierarchy, newest first.
+    pub fn list_child_work(&self, parent_work_id: &str) -> Result<Vec<WorkItemRecord>> {
+        let connection = self.connection.lock().expect("work store mutex");
+        let mut statement = connection.prepare(r#"
+            SELECT id, project_id, title, description, acceptance_criteria, state,
+                   kind, parent_work_id, assignee_ref, blocker, revision, created_at_ms, updated_at_ms
+            FROM work_items WHERE parent_work_id = ?1 ORDER BY updated_at_ms DESC
+        "#)?;
+        let rows = statement.query_map(params![parent_work_id], map_work_row)?;
+        let mut out = Vec::new();
+        for row in rows { out.push(row?); }
         Ok(out)
     }
 
@@ -1458,11 +1510,13 @@ fn map_work_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<WorkItemRecord> {
         description: row.get(3)?,
         acceptance_criteria: row.get(4)?,
         state,
-        assignee_ref: row.get(6)?,
-        blocker: row.get(7)?,
-        revision: row.get(8)?,
-        created_at_ms: row.get::<_, i64>(9)? as u64,
-        updated_at_ms: row.get::<_, i64>(10)? as u64,
+        kind: WorkItemKind::parse(&row.get::<_, String>(6)?).unwrap_or(WorkItemKind::Task),
+        parent_work_id: row.get(7)?,
+        assignee_ref: row.get(8)?,
+        blocker: row.get(9)?,
+        revision: row.get(10)?,
+        created_at_ms: row.get::<_, i64>(11)? as u64,
+        updated_at_ms: row.get::<_, i64>(12)? as u64,
     })
 }
 
@@ -1553,6 +1607,13 @@ fn migrate(connection: &mut Connection) -> Result<()> {
         tx.execute_batch(MIGRATION_V2)?;
         tx.execute(
             "INSERT INTO work_store_migrations (version, applied_at_ms) VALUES (2, ?1)",
+            params![now_ms() as i64],
+        )?;
+    }
+    if current < 3 {
+        tx.execute_batch(MIGRATION_V3)?;
+        tx.execute(
+            "INSERT INTO work_store_migrations (version, applied_at_ms) VALUES (3, ?1)",
             params![now_ms() as i64],
         )?;
     }
@@ -2491,6 +2552,31 @@ mod tests {
     }
 
     #[test]
+    fn typed_work_items_are_durable_and_scoped_to_their_parent_project() {
+        let path = temp_db();
+        let store = WorkStore::open(&path).expect("open");
+        store.ensure_project("proj_1", "Demo", "/tmp/demo").expect("project");
+        store.ensure_project("proj_2", "Other", "/tmp/other").expect("other project");
+        let campaign = store.create_work_item(CreateWorkInput {
+            project_id: "proj_1".into(), title: "Launch".into(), description: String::new(),
+            acceptance_criteria: String::new(), assignee_ref: None,
+        }, WorkItemKind::Campaign, None).expect("campaign");
+        let ticket = store.create_work_item(CreateWorkInput {
+            project_id: "proj_1".into(), title: "Confirm copy".into(), description: String::new(),
+            acceptance_criteria: String::new(), assignee_ref: None,
+        }, WorkItemKind::Ticket, Some(campaign.id.clone())).expect("ticket");
+        assert_eq!(ticket.kind, WorkItemKind::Ticket);
+        assert_eq!(ticket.parent_work_id.as_deref(), Some(campaign.id.as_str()));
+        assert_eq!(store.list_child_work(&campaign.id).expect("children"), vec![ticket]);
+        let cross_project = store.create_work_item(CreateWorkInput {
+            project_id: "proj_2".into(), title: "Invalid link".into(), description: String::new(),
+            acceptance_criteria: String::new(), assignee_ref: None,
+        }, WorkItemKind::Task, Some(campaign.id));
+        assert!(matches!(cross_project, Err(WorkStoreError::InvalidState(_))));
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
     fn schema_v2_repairs_duplicate_active_attempts_before_unique_index() {
         let path = temp_db();
         let connection = Connection::open(&path).expect("legacy db");
@@ -2542,6 +2628,7 @@ mod tests {
         drop(connection);
 
         let store = WorkStore::open(&path).expect("migrate v2");
+        assert_eq!(store.get_work("work_1").expect("work").expect("row").kind, WorkItemKind::Task);
         let attempts = store.list_attempts("work_1").expect("attempts");
         assert_eq!(attempts[0].phase, AttemptPhase::Queued);
         assert_eq!(attempts[1].phase, AttemptPhase::Failed);
