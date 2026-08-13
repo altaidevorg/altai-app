@@ -9,6 +9,7 @@
 pub mod agent_repository;
 pub mod attempt_repository;
 pub mod dispatch_eligibility;
+pub mod execution_repository;
 pub mod recovery_repository;
 pub mod run_binding_repository;
 pub mod scheduler;
@@ -30,6 +31,10 @@ pub use altai_control_protocol::{
 };
 pub use dispatch_eligibility::{
     DispatchBlocker, DispatchEligibility, DispatchEligibilityEngine, DispatchEligibilityError,
+};
+pub use execution_repository::{
+    ExecutionSnapshot, ExecutionSnapshotError, ExecutionSnapshotRepository,
+    SqliteExecutionSnapshotRepository,
 };
 pub use recovery_repository::{RecoveryError, RecoveryRepository, SqliteRecoveryRepository};
 pub use run_binding_repository::{
