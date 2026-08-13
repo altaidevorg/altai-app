@@ -15,6 +15,7 @@ pub mod id;
 pub mod registration;
 pub mod revision;
 pub mod scope;
+pub mod wake;
 pub mod work;
 pub mod work_graph;
 
@@ -29,5 +30,6 @@ pub use registration::{
 };
 pub use revision::Revision;
 pub use scope::{Goal, Organization, Project, ProjectStatus, ProjectWorkspace};
+pub use wake::{WakeRequest, WakeSource, WorkCheckoutLease};
 pub use work::{ExecutionPhase, WorkItem, WorkItemKind, WorkStatus};
 pub use work_graph::{WorkComment, WorkDependency, WorkRelationKind};
