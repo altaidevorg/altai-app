@@ -6,4 +6,5 @@ export * from "./agent.js";
 export * from "./error.js";
 export * from "./event.js";
 export * from "./work.js";
+export * from "./work-graph.js";
 export * from "./scope.js";
