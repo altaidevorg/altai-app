@@ -6,18 +6,20 @@
 //! sync layer will connect the global control database to local execution
 //! ledgers through the registered host identity.
 
-mod service;
-pub mod scope_repository;
 pub mod postgres;
+pub mod postgres_scope;
+pub mod scope_repository;
+mod service;
 pub mod transport;
 
 pub use altai_control_protocol::{
     ControlPlaneHealth, HostCapabilities, HostRegistration, HostRegistrationRequest, RegisteredHost,
 };
+pub use postgres::PostgresRegistrationRepository;
+pub use postgres_scope::PostgresScopeRepository;
+pub use scope_repository::{InMemoryScopeRepository, ScopeError, ScopeRepository};
 pub use service::{
     ControlPlane, ControlPlaneConfig, ControlPlaneError, ControlPlaneStore, RegistrationCommit,
     RegistrationGrant, RegistrationRepository,
 };
-pub use scope_repository::{InMemoryScopeRepository, ScopeError, ScopeRepository};
 pub use transport::{router, BootstrapCredential, TransportError};
-pub use postgres::PostgresRegistrationRepository;
