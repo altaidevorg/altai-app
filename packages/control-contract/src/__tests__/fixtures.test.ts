@@ -16,6 +16,7 @@ import { parseActor, type Actor } from "../actor.js";
 import { controlErrorCode, ControlErrorCode, type ControlError } from "../error.js";
 import type { ActivityEvent } from "../event.js";
 import type { ControlPlaneHealth, HostRegistration } from "../registration.js";
+import type { ControlWorkItem } from "../work.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const fixturesDir = join(here, "../../../../shared/control-protocol/v1/fixtures");
@@ -82,6 +83,14 @@ describe("golden fixtures round-trip", () => {
     expect(compactJson(value)).toBe(compactJson(value));
     expect(value.protocol_major).toBe(1);
     expect(value.agent_instance_id.type).toBe("agent_instance_id");
+  });
+
+  it("work-item.json round-trips", () => {
+    const value = readFixture("work-item.json") as ControlWorkItem;
+    expect(compactJson(value)).toBe(compactJson(value));
+    expect(value.id.type).toBe("work_item_id");
+    expect(value.project_id.type).toBe("project_id");
+    expect(value.execution_phase).toBe("none");
   });
 });
 
