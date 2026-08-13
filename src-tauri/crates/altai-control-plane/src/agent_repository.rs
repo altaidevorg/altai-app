@@ -1,6 +1,8 @@
 //! CP-05 durable agent registry repository boundary.
 
-use altai_control_protocol::{AgentInstance, AgentInstanceId, AgentProfileRevision, AgentStatus};
+use altai_control_protocol::{
+    AgentInstance, AgentInstanceId, AgentProfileRevision, AgentProfileRevisionId, AgentStatus,
+};
 use std::{collections::HashMap, sync::Mutex};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -18,6 +20,12 @@ pub trait AgentRepository: Send + Sync {
         revision: AgentProfileRevision,
     ) -> Result<(), AgentRepositoryError>;
     fn create_instance(&self, instance: AgentInstance) -> Result<(), AgentRepositoryError>;
+    /// Reads an immutable revision by its canonical identifier. Execution
+    /// adapters use this rather than accepting a model/profile from a client.
+    fn get_profile_revision(
+        &self,
+        revision_id: &AgentProfileRevisionId,
+    ) -> Result<AgentProfileRevision, AgentRepositoryError>;
     fn ensure_dispatchable(
         &self,
         agent_id: &AgentInstanceId,
@@ -95,6 +103,20 @@ impl AgentRepository for InMemoryAgentRepository {
         }
         state.instances.insert(id, instance);
         Ok(())
+    }
+
+    fn get_profile_revision(
+        &self,
+        revision_id: &AgentProfileRevisionId,
+    ) -> Result<AgentProfileRevision, AgentRepositoryError> {
+        self.lock()?
+            .revisions
+            .get(&revision_id.value)
+            .cloned()
+            .ok_or_else(|| AgentRepositoryError::NotFound {
+                entity: "agent profile revision",
+                id: revision_id.value.clone(),
+            })
     }
 
     fn ensure_dispatchable(
@@ -196,6 +218,21 @@ mod tests {
                 .ensure_dispatchable(&AgentInstanceId::new("two"))
                 .unwrap()
                 .id
+        );
+    }
+
+    #[test]
+    fn retrieves_profile_revisions_by_canonical_id() {
+        let repository = InMemoryAgentRepository::default();
+        repository
+            .append_profile_revision(profile_revision())
+            .unwrap();
+        assert_eq!(
+            repository
+                .get_profile_revision(&AgentProfileRevisionId::new("base-v1"))
+                .unwrap()
+                .instructions,
+            "be helpful"
         );
     }
 }

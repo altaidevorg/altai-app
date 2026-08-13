@@ -121,7 +121,7 @@ impl WorkGraphRepository for SqliteWorkGraphRepository {
     }
     fn dependencies(&self, id: &WorkItemId) -> Result<Vec<WorkDependency>, WorkGraphError> {
         let connection = self.lock()?;
-        if !connection
+        if connection
             .query_row(
                 "SELECT 1 FROM control_plane_work_graph_items WHERE id = ?1",
                 [&id.value],
@@ -129,7 +129,7 @@ impl WorkGraphRepository for SqliteWorkGraphRepository {
             )
             .optional()
             .map_err(Self::db)?
-            .is_some()
+            .is_none()
         {
             return Err(WorkGraphError::NotFound {
                 work_item_id: id.value.clone(),

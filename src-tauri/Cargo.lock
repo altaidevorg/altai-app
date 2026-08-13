@@ -139,6 +139,7 @@ name = "altai"
 version = "0.7.2"
 dependencies = [
  "altai-agent-service",
+ "altai-control-plane",
  "altai-control-protocol",
  "altai-core",
  "async-trait",

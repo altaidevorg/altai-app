@@ -1,7 +1,9 @@
 //! Local SQLite implementation of the CP-05 agent registry.
 
 use crate::{AgentRepository, AgentRepositoryError};
-use altai_control_protocol::{AgentInstance, AgentInstanceId, AgentProfileRevision, AgentStatus};
+use altai_control_protocol::{
+    AgentInstance, AgentInstanceId, AgentProfileRevision, AgentProfileRevisionId, AgentStatus,
+};
 use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
 use std::{path::Path, sync::Mutex};
 
@@ -124,6 +126,27 @@ impl AgentRepository for SqliteAgentRepository {
         tx.commit().map_err(Self::db)?;
         Ok(())
     }
+    fn get_profile_revision(
+        &self,
+        revision_id: &AgentProfileRevisionId,
+    ) -> Result<AgentProfileRevision, AgentRepositoryError> {
+        let payload: Option<String> = self
+            .lock()?
+            .query_row(
+                "SELECT payload_json FROM control_plane_agent_profile_revisions WHERE id = ?1",
+                [&revision_id.value],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(Self::db)?;
+        let payload = payload.ok_or_else(|| AgentRepositoryError::NotFound {
+            entity: "agent profile revision",
+            id: revision_id.value.clone(),
+        })?;
+        serde_json::from_str(&payload).map_err(|e| AgentRepositoryError::Internal {
+            reason: e.to_string(),
+        })
+    }
     fn ensure_dispatchable(
         &self,
         agent_id: &AgentInstanceId,
@@ -200,5 +223,32 @@ mod tests {
             .unwrap()
             .ensure_dispatchable(&AgentInstanceId::new("agent-1"))
             .is_ok());
+    }
+
+    #[test]
+    fn profile_revision_is_durable_across_reopen() {
+        let directory = tempfile::tempdir().unwrap();
+        let database = directory.path().join("work.db");
+        let revision = AgentProfileRevision {
+            id: AgentProfileRevisionId::new("base-v1"),
+            profile_id: AgentProfileId::new("base"),
+            revision: Revision::INITIAL,
+            instructions: "help".into(),
+            model: Some("openai/gpt-5".into()),
+            capabilities: vec![],
+            created_at: "now".into(),
+        };
+        SqliteAgentRepository::open(&database)
+            .unwrap()
+            .append_profile_revision(revision)
+            .unwrap();
+        assert_eq!(
+            SqliteAgentRepository::open(&database)
+                .unwrap()
+                .get_profile_revision(&AgentProfileRevisionId::new("base-v1"))
+                .unwrap()
+                .model,
+            Some("openai/gpt-5".into())
+        );
     }
 }

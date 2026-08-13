@@ -30,6 +30,7 @@ tauri-build = { version = "2", features = [] }
 altai-core = { path = "crates/altai-core" }
 altai-agent-service = { path = "crates/altai-agent-service" }
 altai-control-protocol = { path = "crates/altai-control-protocol" }
+altai-control-plane = { path = "crates/altai-control-plane" }
 tauri = { version = "2", features = ["protocol-asset"] }
 tauri-plugin-opener = "2"
 serde = { version = "1", features = ["derive"] }

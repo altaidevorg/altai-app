@@ -183,7 +183,7 @@ impl ScopeRepository for SqliteScopeRepository {
     }
     fn create_workspace(&self, workspace: ProjectWorkspace) -> Result<(), ScopeError> {
         let connection = self.lock()?;
-        if !connection
+        if connection
             .query_row(
                 "SELECT 1 FROM control_plane_projects WHERE id = ?1",
                 [&workspace.project_id.value],
@@ -191,7 +191,7 @@ impl ScopeRepository for SqliteScopeRepository {
             )
             .optional()
             .map_err(Self::db)?
-            .is_some()
+            .is_none()
         {
             return Err(ScopeError::NotFound {
                 entity: "project",
