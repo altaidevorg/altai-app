@@ -5,6 +5,10 @@
 //! canonical `provider/model` selector and the native host reads its matching
 //! credential from the existing OS-backed secret store.
 
+// CP-08-07 wires this host-only resolver into the trusted start command. Keep
+// the seam independently testable before that command exists.
+#![allow(dead_code)]
+
 use tauri::AppHandle;
 
 use crate::modules::secrets::{self, SecretsState};
