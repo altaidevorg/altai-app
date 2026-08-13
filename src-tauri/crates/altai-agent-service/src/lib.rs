@@ -27,6 +27,7 @@ pub mod workspace_services;
 pub use acks::{CancelAck, DocumentPart, ManualCompactionAck, SendAck, SteerAck};
 pub use attempt_executor::{
     AttemptExecutionRequest, AttemptExecutionStatus, AttemptExecutor, AttemptExecutorError,
+    ExecutionBinding,
 };
 pub use channel::ServiceChannel;
 pub use compaction::CompactionArg;

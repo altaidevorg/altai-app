@@ -200,7 +200,6 @@ dependencies = [
 name = "altai-agent-service"
 version = "0.7.2"
 dependencies = [
- "altai-control-protocol",
  "altai-core",
  "async-trait",
  "hex",

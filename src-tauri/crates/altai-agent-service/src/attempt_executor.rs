@@ -2,16 +2,33 @@
 //! execute an already-authorized Attempt. This is deliberately not a project
 //! management API and does not expose scheduler policy to an execution host.
 
-use altai_control_protocol::{AttemptId, RunBinding, RunId, SessionId};
 use async_trait::async_trait;
+
+/// Opaque control-plane identities at the execution boundary. The service must
+/// not depend on the control-plane domain crate; the host adapter translates
+/// canonical IDs into this sealed input form.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExecutionBinding {
+    pub attempt_id: String,
+    pub run_id: String,
+    pub session_id: String,
+}
+
+impl ExecutionBinding {
+    pub fn validate(&self) -> Result<(), AttemptExecutorError> {
+        if self.attempt_id.trim().is_empty() || self.run_id.trim().is_empty() || self.session_id.trim().is_empty() {
+            return Err(AttemptExecutorError::InvalidRequest("execution binding contains an empty identifier"));
+        }
+        Ok(())
+    }
+}
 
 /// Trusted, bounded input for one authorized executor start. Scope, profile,
 /// permissions and context are resolved before this boundary; model output
 /// cannot substitute any of their identifiers.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AttemptExecutionRequest {
-    pub attempt_id: AttemptId,
-    pub session_id: SessionId,
+    pub binding: ExecutionBinding,
     pub prompt: String,
     pub context_pack: String,
     pub permission_policy: String,
@@ -19,6 +36,7 @@ pub struct AttemptExecutionRequest {
 
 impl AttemptExecutionRequest {
     pub fn validate(&self) -> Result<(), AttemptExecutorError> {
+        self.binding.validate()?;
         if self.prompt.trim().is_empty() {
             return Err(AttemptExecutorError::InvalidRequest("prompt is empty"));
         }
@@ -57,29 +75,28 @@ impl std::error::Error for AttemptExecutorError {}
 /// binding, preventing a stale command from being redirected to another run.
 #[async_trait]
 pub trait AttemptExecutor: Send + Sync {
-    async fn start(&self, request: AttemptExecutionRequest) -> Result<RunBinding, AttemptExecutorError>;
-    async fn inspect(&self, binding: &RunBinding) -> Result<AttemptExecutionStatus, AttemptExecutorError>;
-    async fn steer(&self, binding: &RunBinding, content: String) -> Result<(), AttemptExecutorError>;
-    async fn cancel(&self, binding: &RunBinding) -> Result<(), AttemptExecutorError>;
-    async fn replay(&self, binding: &RunBinding, after_seq: u64, limit: usize) -> Result<Vec<serde_json::Value>, AttemptExecutorError>;
+    async fn start(&self, request: AttemptExecutionRequest) -> Result<ExecutionBinding, AttemptExecutorError>;
+    async fn inspect(&self, binding: &ExecutionBinding) -> Result<AttemptExecutionStatus, AttemptExecutorError>;
+    async fn steer(&self, binding: &ExecutionBinding, content: String) -> Result<(), AttemptExecutorError>;
+    async fn cancel(&self, binding: &ExecutionBinding) -> Result<(), AttemptExecutorError>;
+    async fn replay(&self, binding: &ExecutionBinding, after_seq: u64, limit: usize) -> Result<Vec<serde_json::Value>, AttemptExecutorError>;
 }
 
 /// Reject an operation whose supplied run does not match the immutable
 /// Attempt binding before it reaches the execution runtime.
-pub fn require_run(binding: &RunBinding, attempt_id: &AttemptId, run_id: &RunId) -> Result<(), AttemptExecutorError> {
-    if &binding.attempt_id == attempt_id && &binding.run_id == run_id { Ok(()) } else {
-        Err(AttemptExecutorError::BindingMismatch { attempt_id: attempt_id.value.clone(), run_id: run_id.value.clone() })
+pub fn require_run(binding: &ExecutionBinding, attempt_id: &str, run_id: &str) -> Result<(), AttemptExecutorError> {
+    if binding.attempt_id == attempt_id && binding.run_id == run_id { Ok(()) } else {
+        Err(AttemptExecutorError::BindingMismatch { attempt_id: attempt_id.to_string(), run_id: run_id.to_string() })
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use altai_control_protocol::{AgentInstanceId, WorkItemId};
-    fn binding() -> RunBinding { RunBinding { attempt_id: AttemptId::new("one"), work_item_id: WorkItemId::new("one"), owner_agent_instance_id: AgentInstanceId::new("one"), run_id: RunId::new("one"), bound_at_unix_seconds: 1 } }
+    fn binding() -> ExecutionBinding { ExecutionBinding { attempt_id: "att_one".into(), run_id: "run_one".into(), session_id: "sess_one".into() } }
     #[test]
     fn executor_requests_are_bounded_and_operations_are_binding_scoped() {
-        assert!(AttemptExecutionRequest { attempt_id: AttemptId::new("one"), session_id: SessionId::new("one"), prompt: "go".into(), context_pack: "context".into(), permission_policy: "default".into() }.validate().is_ok());
-        assert!(require_run(&binding(), &AttemptId::new("one"), &RunId::new("other")).is_err());
+        assert!(AttemptExecutionRequest { binding: binding(), prompt: "go".into(), context_pack: "context".into(), permission_policy: "default".into() }.validate().is_ok());
+        assert!(require_run(&binding(), "att_one", "run_other").is_err());
     }
 }
