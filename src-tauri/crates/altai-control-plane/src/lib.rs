@@ -12,6 +12,7 @@ mod service;
 pub mod sqlite_agent;
 pub mod sqlite_registration;
 pub mod sqlite_scope;
+pub mod sqlite_wake;
 pub mod sqlite_work_graph;
 pub mod transport;
 pub mod wake_repository;
@@ -29,6 +30,7 @@ pub use service::{
 pub use sqlite_agent::SqliteAgentRepository;
 pub use sqlite_registration::SqliteRegistrationRepository;
 pub use sqlite_scope::SqliteScopeRepository;
+pub use sqlite_wake::SqliteWakeRepository;
 pub use sqlite_work_graph::SqliteWorkGraphRepository;
 pub use transport::{
     router, router_with_all_repositories, router_with_repositories, router_with_scope_repository,
