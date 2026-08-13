@@ -7,6 +7,7 @@
 //! ledgers through the registered host identity.
 
 mod service;
+pub mod transport;
 
 pub use altai_control_protocol::{
     ControlPlaneHealth, HostCapabilities, HostRegistration, HostRegistrationRequest, RegisteredHost,
@@ -14,3 +15,4 @@ pub use altai_control_protocol::{
 pub use service::{
     ControlPlane, ControlPlaneConfig, ControlPlaneError, ControlPlaneStore, RegistrationGrant,
 };
+pub use transport::{router, BootstrapCredential, TransportError};
