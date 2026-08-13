@@ -1,6 +1,6 @@
 //! CP-06 durable canonical WorkItem repository.
 
-use altai_control_protocol::{ProjectId, WorkItem, WorkItemId};
+use altai_control_protocol::{ProjectId, Revision, WorkItem, WorkItemId};
 use rusqlite::{params, Connection, OptionalExtension};
 use std::{path::Path, sync::Mutex};
 
@@ -9,6 +9,7 @@ pub enum WorkItemRepositoryError {
     AlreadyExists { work_item_id: String },
     NotFound { work_item_id: String },
     ProjectMismatch { work_item_id: String },
+    StaleRevision { work_item_id: String },
     Internal { reason: String },
 }
 impl std::fmt::Display for WorkItemRepositoryError {
@@ -25,6 +26,11 @@ pub trait WorkItemRepository: Send + Sync {
         &self,
         project_id: &ProjectId,
         id: &WorkItemId,
+    ) -> Result<WorkItem, WorkItemRepositoryError>;
+    fn replace_if_revision(
+        &self,
+        item: WorkItem,
+        expected_revision: Revision,
     ) -> Result<WorkItem, WorkItemRepositoryError>;
 }
 
@@ -102,6 +108,31 @@ impl WorkItemRepository for SqliteWorkItemRepository {
                 work_item_id: id.value.clone(),
             })
         }
+    }
+    fn replace_if_revision(
+        &self,
+        item: WorkItem,
+        expected_revision: Revision,
+    ) -> Result<WorkItem, WorkItemRepositoryError> {
+        let existing = self.get(&item.id)?;
+        if existing.project_id != item.project_id {
+            return Err(WorkItemRepositoryError::ProjectMismatch {
+                work_item_id: item.id.value,
+            });
+        }
+        if existing.revision != expected_revision {
+            return Err(WorkItemRepositoryError::StaleRevision {
+                work_item_id: item.id.value,
+            });
+        }
+        let payload = serde_json::to_string(&item).map_err(|error| WorkItemRepositoryError::Internal {
+            reason: error.to_string(),
+        })?;
+        let changed = self.lock()?.execute(
+            "UPDATE control_plane_work_items SET payload_json = ?2 WHERE id = ?1 AND payload_json = ?3",
+            params![item.id.value, payload, serde_json::to_string(&existing).map_err(|error| WorkItemRepositoryError::Internal { reason: error.to_string() })?],
+        ).map_err(Self::db)?;
+        if changed == 1 { Ok(item) } else { Err(WorkItemRepositoryError::StaleRevision { work_item_id: item.id.value }) }
     }
 }
 
