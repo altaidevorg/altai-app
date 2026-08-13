@@ -157,9 +157,22 @@ where
             .config
             .effective_search_text_ripgrep_timeout_secs(),
     }));
+    // Host `exec` jobs emit synthetic completion messages. Route those onto
+    // the instance's inbound bus so the run coordinator can assign a trusted
+    // run ID and wake the owning chat; the outbound bus intentionally ignores
+    // inbound messages.
+    let exec_jobs = isanagent::tools::exec_jobs::ExecJobRegistry::new(Some(bus_tx.clone()));
     tools.register(Box::new(ShellExecTool {
         workspace_dir: sandbox_dir.clone(),
         restrict_to_workspace: restrict,
+        exec_jobs: Some(exec_jobs.clone()),
+        windows_runner: workspace.config.windows_shell_runner(),
+    }));
+    tools.register(Box::new(isanagent::tools::builtin::ExecStatusTool {
+        exec_jobs: exec_jobs.clone(),
+    }));
+    tools.register(Box::new(isanagent::tools::builtin::ExecSendTool {
+        exec_jobs,
     }));
     if workspace.config.git_worktree_tool_enabled() {
         tools.register(Box::new(GitWorktreeTool {
