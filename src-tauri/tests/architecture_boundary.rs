@@ -3,9 +3,10 @@
 //! These tests enforce the control-plane / execution-plane ownership split
 //! defined in ADR 0003 and the parent plan (§3.1–3.2, §12.2). They must:
 //!
-//! 1. Pass today because the forbidden crates do not exist yet.
-//! 2. Fail if a future PR adds `altai-control-plane` or
+//! 1. Fail if a future PR adds `altai-control-plane` or
 //!    `altai-control-protocol` as a dependency of `altai-agent-service`.
+//! 2. Confirm that the control-plane crate remains a workspace peer, rather
+//!    than an execution-plane dependency.
 //! 3. Self-verify that the detection logic would catch a violation.
 //!
 //! See: docs/PAPERCLIP_STYLE_CONTROL_PLANE_ENGINEERING_PLAN.md CP-00 exit gate
@@ -16,10 +17,7 @@ use std::fs;
 
 /// Crates that `altai-agent-service` (the execution plane) must never depend
 /// on. They are owned by the control plane.
-const FORBIDDEN_AGENT_SERVICE_DEPS: &[&str] = &[
-    "altai-control-plane",
-    "altai-control-protocol",
-];
+const FORBIDDEN_AGENT_SERVICE_DEPS: &[&str] = &["altai-control-plane", "altai-control-protocol"];
 
 /// Crates that the main `altai` Tauri app binary may depend on (it is the
 /// host adapter, not a control-plane owner), but it must not import
@@ -113,14 +111,15 @@ fn extract_workspace_members(toml_text: &str) -> Vec<String> {
 #[test]
 fn altai_agent_service_does_not_import_control_plane_crates() {
     let manifest_dir = workspace_manifest_path();
-    let agent_service_toml = std::path::Path::new(manifest_dir)
-        .join("crates/altai-agent-service/Cargo.toml");
+    let agent_service_toml =
+        std::path::Path::new(manifest_dir).join("crates/altai-agent-service/Cargo.toml");
 
-    let toml_text = fs::read_to_string(&agent_service_toml)
-        .unwrap_or_else(|_| panic!(
+    let toml_text = fs::read_to_string(&agent_service_toml).unwrap_or_else(|_| {
+        panic!(
             "expected altai-agent-service Cargo.toml at {}",
             agent_service_toml.display()
-        ));
+        )
+    });
 
     let deps = extract_deps(&toml_text);
 
@@ -137,21 +136,21 @@ fn altai_agent_service_does_not_import_control_plane_crates() {
 
 #[test]
 fn workspace_members_include_expected_crates() {
-    let root_toml = std::path::Path::new(workspace_manifest_path())
-        .join("Cargo.toml");
+    let root_toml = std::path::Path::new(workspace_manifest_path()).join("Cargo.toml");
 
     let toml_text = fs::read_to_string(&root_toml).expect("root Cargo.toml must exist");
     let members = extract_workspace_members(&toml_text);
 
-    // The execution-plane, host, and shared-contract crates that exist today.
-    // CP-01 added `altai-control-protocol` (shared domain contracts, not a
-    // control-plane owner — it has no persistence or services).
+    // The execution-plane, host, shared-contract and control-plane bootstrap
+    // crates. The control plane is a workspace peer, never an
+    // `altai-agent-service` dependency.
     let expected = [
         "crates/altai-core",
         "crates/altai-agent-service",
         "crates/altai-collaboration",
         "crates/altai-protocol",
         "crates/altai-control-protocol",
+        "crates/altai-control-plane",
         "crates/altai-cli",
     ];
 
@@ -165,25 +164,30 @@ fn workspace_members_include_expected_crates() {
 }
 
 #[test]
-fn altai_control_plane_crate_is_not_yet_a_workspace_member() {
-    // `altai-control-protocol` (shared contracts) was added by CP-01 and is a
-    // legitimate workspace member. `altai-control-plane` (the control-plane
-    // owner with persistence) is not created until CP-02. This test documents
-    // that transitional state and guards against accidentally importing the
-    // not-yet-existing control-plane owner.
-    let root_toml = std::path::Path::new(workspace_manifest_path())
-        .join("Cargo.toml");
+fn altai_control_plane_is_a_workspace_peer_not_execution_dependency() {
+    // The M2 skeleton establishes `altai-control-plane` as a workspace peer.
+    // The earlier absence assertion is intentionally replaced: future changes
+    // must preserve this separation instead of making the execution service
+    // depend on control-plane state.
+    let root_toml = std::path::Path::new(workspace_manifest_path()).join("Cargo.toml");
 
     let toml_text = fs::read_to_string(&root_toml).expect("root Cargo.toml must exist");
     let members = extract_workspace_members(&toml_text);
 
-    // `altai-control-plane` is the control-plane owner (CP-02). It must not
-    // be a workspace member until CP-02 creates it. Compare against both
-    // dash and underscore forms — Cargo accepts either in member paths.
     assert!(
-        !members.iter().any(|m| m == "crates/altai-control-plane" || m == "crates/altai_control_plane"),
-        "`altai-control-plane` is now a workspace member; update the boundary \
-         tests to assert `altai-agent-service` does not depend on it.",
+        members
+            .iter()
+            .any(|m| m == "crates/altai-control-plane" || m == "crates/altai_control_plane"),
+        "expected altai-control-plane workspace member",
+    );
+    let agent_service_toml = std::path::Path::new(workspace_manifest_path())
+        .join("crates/altai-agent-service/Cargo.toml");
+    let agent_service_deps = extract_deps(
+        &fs::read_to_string(&agent_service_toml).expect("agent service Cargo.toml must exist"),
+    );
+    assert!(
+        !agent_service_deps.contains("altai-control-plane"),
+        "altai-agent-service must not depend on altai-control-plane",
     );
 }
 

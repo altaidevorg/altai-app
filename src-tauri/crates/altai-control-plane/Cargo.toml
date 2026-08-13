@@ -1,0 +1,13 @@
+[package]
+name = "altai-control-plane"
+version = "0.1.0"
+description = "Federated ALTAI control-plane service contracts and host registration"
+edition = "2021"
+license = "Apache-2.0"
+repository = "https://github.com/altaidevorg/altai-app"
+
+[dependencies]
+altai-control-protocol = { path = "../altai-control-protocol" }
+serde = { version = "1", features = ["derive"] }
+sha2 = "0.10"
+uuid = { version = "1", features = ["v4"] }

@@ -246,6 +246,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "altai-control-plane"
+version = "0.1.0"
+dependencies = [
+ "altai-control-protocol",
+ "serde",
+ "sha2 0.10.9",
+ "uuid",
+]
+
+[[package]]
 name = "altai-control-protocol"
 version = "0.1.0"
 dependencies = [
