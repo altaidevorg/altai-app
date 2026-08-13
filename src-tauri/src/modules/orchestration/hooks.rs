@@ -859,6 +859,14 @@ mod tests {
         }
     }
 
+    fn allow_hook_command(message: &str) -> String {
+        if cfg!(windows) {
+            format!("Write-Output '{{\"decision\":\"allow\",\"message\":\"{message}\"}}'")
+        } else {
+            format!("echo '{{\"decision\":\"allow\",\"message\":\"{message}\"}}'")
+        }
+    }
+
     // ---- HookEvent ----
 
     #[test]
@@ -1109,8 +1117,8 @@ mod tests {
         reg.add_project(
             HookEvent::BeforeTool,
             vec![
-                spec(r#"echo '{"decision":"allow","message":"ok1"}'"#),
-                spec(r#"echo '{"decision":"allow","message":"ok2"}'"#),
+                spec(&allow_hook_command("ok1")),
+                spec(&allow_hook_command("ok2")),
             ],
         );
 
