@@ -6,12 +6,13 @@
 
 use crate::{
     AgentRepository, AgentRepositoryError, ControlPlane, ControlPlaneError, RegistrationGrant,
-    ScopeError, ScopeRepository, WakeError, WakeRepository, WorkGraphError, WorkGraphRepository,
+    RunBindingError, RunBindingRepository, ScopeError, ScopeRepository, WakeError, WakeRepository,
+    WorkGraphError, WorkGraphRepository,
 };
 use altai_control_protocol::{
     AgentInstance, AgentProfileRevision, ControlPlaneHealth, Goal, GoalId, HostRegistrationRequest,
-    Organization, OrganizationId, Project, ProjectWorkspace, RegisteredHost, WakeRequest,
-    WakeSource, WorkCheckoutLease, WorkComment, WorkDependency, WorkItemId,
+    Organization, OrganizationId, Project, ProjectWorkspace, RegisteredHost, RunBinding,
+    WakeRequest, WakeSource, WorkCheckoutLease, WorkComment, WorkDependency, WorkItemId,
 };
 use axum::{
     extract::{Path, State},
@@ -84,6 +85,7 @@ struct ApiState {
     agent_repository: Option<Arc<dyn AgentRepository>>,
     work_graph_repository: Option<Arc<dyn WorkGraphRepository>>,
     wake_repository: Option<Arc<dyn WakeRepository>>,
+    run_binding_repository: Option<Arc<dyn RunBindingRepository>>,
 }
 
 /// Routes are versioned from their first public exposure. The health and grant
@@ -133,6 +135,7 @@ pub fn router_with_all_repositories(
         agent_repository,
         work_graph_repository,
         wake_repository: None,
+        run_binding_repository: None,
     };
     Router::new()
         .route("/v1/health", get(health))
@@ -167,6 +170,7 @@ pub fn router_with_control_repositories(
     agent_repository: Option<Arc<dyn AgentRepository>>,
     work_graph_repository: Option<Arc<dyn WorkGraphRepository>>,
     wake_repository: Arc<dyn WakeRepository>,
+    run_binding_repository: Option<Arc<dyn RunBindingRepository>>,
 ) -> Router {
     let state = ApiState {
         plane,
@@ -175,6 +179,7 @@ pub fn router_with_control_repositories(
         agent_repository,
         work_graph_repository,
         wake_repository: Some(wake_repository),
+        run_binding_repository,
     };
     Router::new()
         .route("/v1/health", get(health))
@@ -184,6 +189,7 @@ pub fn router_with_control_repositories(
         .route("/v1/wakes/{work_item_id}/claim", post(claim_wake))
         .route("/v1/work-checkouts", post(checkout_work))
         .route("/v1/work-checkouts/release", post(release_checkout))
+        .route("/v1/runtime/run-bindings", post(bind_run))
         .with_state(state)
 }
 
@@ -251,6 +257,17 @@ async fn release_checkout(
         .release_checkout(&request.work_item_id, &request.attempt_id)
         .map_err(ApiError::from)?;
     Ok(StatusCode::NO_CONTENT)
+}
+async fn bind_run(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Json(binding): Json<RunBinding>,
+) -> Result<Json<RunBinding>, ApiError> {
+    require_bootstrap(&state, &headers)?;
+    run_bindings(&state)?
+        .bind(binding)
+        .map(Json)
+        .map_err(ApiError::from)
 }
 
 #[derive(serde::Deserialize)]
@@ -411,6 +428,12 @@ fn wake(state: &ApiState) -> Result<&Arc<dyn WakeRepository>, ApiError> {
     state.wake_repository.as_ref().ok_or(ApiError {
         status: StatusCode::SERVICE_UNAVAILABLE,
         code: "wake_repository_unavailable",
+    })
+}
+fn run_bindings(state: &ApiState) -> Result<&Arc<dyn RunBindingRepository>, ApiError> {
+    state.run_binding_repository.as_ref().ok_or(ApiError {
+        status: StatusCode::SERVICE_UNAVAILABLE,
+        code: "run_binding_repository_unavailable",
     })
 }
 
@@ -582,6 +605,21 @@ impl From<WakeError> for ApiError {
     }
 }
 
+impl From<RunBindingError> for ApiError {
+    fn from(value: RunBindingError) -> Self {
+        match value {
+            RunBindingError::Conflict { .. } => Self {
+                status: StatusCode::CONFLICT,
+                code: "run_binding_conflict",
+            },
+            RunBindingError::Internal { .. } => Self {
+                status: StatusCode::INTERNAL_SERVER_ERROR,
+                code: "run_binding_repository_unavailable",
+            },
+        }
+    }
+}
+
 impl IntoResponse for ApiError {
     fn into_response(self) -> axum::response::Response {
         (self.status, Json(ErrorBody { code: self.code })).into_response()
@@ -599,11 +637,12 @@ mod tests {
     use super::*;
     use crate::{
         ControlPlaneConfig, ControlPlaneStore, InMemoryAgentRepository, InMemoryScopeRepository,
-        InMemoryWakeRepository,
+        InMemoryWakeRepository, SqliteRunBindingRepository,
     };
     use altai_control_protocol::{
-        AgentInstanceId, HostCapabilities, HostRegistration, Organization, OrganizationId,
-        Revision, WorkspaceId, CONTROL_PLANE_PROTOCOL_MAJOR,
+        AgentInstanceId, AttemptId, HostCapabilities, HostRegistration, Organization,
+        OrganizationId, Revision, RunBinding, RunId, WorkItemId, WorkspaceId,
+        CONTROL_PLANE_PROTOCOL_MAJOR,
     };
     use axum::{body::Body, http::Request};
     use tower::ServiceExt;
@@ -754,6 +793,7 @@ mod tests {
             None,
             None,
             Arc::new(InMemoryWakeRepository::default()),
+            None,
         );
         let body = serde_json::json!({ "work_item_id": { "type": "work_item_id", "value": "work-1" }, "source": "manual", "requested_at": "now" }).to_string();
         let request = || {
@@ -776,6 +816,87 @@ mod tests {
         assert_eq!(
             app.oneshot(authorized).await.unwrap().status(),
             StatusCode::OK
+        );
+    }
+
+    #[tokio::test]
+    async fn run_bindings_require_bearer_and_are_immutable() {
+        let directory = tempfile::tempdir().unwrap();
+        let plane = Arc::new(
+            ControlPlane::bootstrap(ControlPlaneConfig {
+                service_version: "0.1.0".into(),
+                store: ControlPlaneStore::Sqlite {
+                    database_path: directory.path().join("control.db").display().to_string(),
+                },
+                registration_ttl_seconds: 60,
+            })
+            .unwrap(),
+        );
+        let app = router_with_control_repositories(
+            plane,
+            BootstrapCredential::from_plaintext("test-bootstrap-token").unwrap(),
+            None,
+            None,
+            None,
+            Arc::new(InMemoryWakeRepository::default()),
+            Some(Arc::new(
+                SqliteRunBindingRepository::open(&directory.path().join("work.db")).unwrap(),
+            )),
+        );
+        let binding = RunBinding {
+            attempt_id: AttemptId::new("attempt-1"),
+            work_item_id: WorkItemId::new("work-1"),
+            owner_agent_instance_id: AgentInstanceId::new("agent-1"),
+            run_id: RunId::new("run-1"),
+            bound_at_unix_seconds: 1,
+        };
+        let request = |binding: RunBinding, authenticated: bool| {
+            let mut request = Request::builder()
+                .method("POST")
+                .uri("/v1/runtime/run-bindings")
+                .header("content-type", "application/json")
+                .body(Body::from(serde_json::to_vec(&binding).unwrap()))
+                .unwrap();
+            if authenticated {
+                request.headers_mut().insert(
+                    AUTHORIZATION,
+                    "Bearer test-bootstrap-token".parse().unwrap(),
+                );
+            }
+            request
+        };
+        assert_eq!(
+            app.clone()
+                .oneshot(request(binding.clone(), false))
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::UNAUTHORIZED
+        );
+        assert_eq!(
+            app.clone()
+                .oneshot(request(binding.clone(), true))
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::OK
+        );
+        assert_eq!(
+            app.clone()
+                .oneshot(request(binding.clone(), true))
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::OK
+        );
+        let mut conflicting = binding;
+        conflicting.run_id = RunId::new("run-2");
+        assert_eq!(
+            app.oneshot(request(conflicting, true))
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::CONFLICT
         );
     }
 }
