@@ -13,7 +13,8 @@ use altai_control_protocol::{Attempt, AttemptId, AttemptState};
 /// an execution observation, distinct from stored attempt state: keeping it
 /// separate makes the run-to-attempt translation explicit, and every variant
 /// maps, so there is no unknown-outcome path.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum RunOutcome {
     Succeeded,
     Failed,
