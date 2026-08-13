@@ -20,6 +20,7 @@ vi.mock("../lib/native", () => ({
     agentListSkills: vi.fn(async () => []),
     agentInstallSkill: vi.fn(async () => []),
     workList: vi.fn(async () => []),
+    workChildren: vi.fn(async () => []),
     workGet: vi.fn(async () => null),
     workCreate: vi.fn(),
     workTransition: vi.fn(),
@@ -105,6 +106,7 @@ describe("createTauriHostPorts", () => {
       updatedAtMs: 2,
     };
     vi.mocked(native.workList).mockResolvedValue([item]);
+    vi.mocked(native.workChildren).mockResolvedValue([item]);
     vi.mocked(native.workGet).mockResolvedValue(item);
     vi.mocked(native.workReview).mockResolvedValue({
       ...item,
@@ -114,6 +116,7 @@ describe("createTauriHostPorts", () => {
 
     const ports = createTauriHostPorts();
     await expect(ports.work.listWork("my_active")).resolves.toEqual([item]);
+    await expect(ports.work.listWorkChildren(item.id)).resolves.toEqual([item]);
     await expect(ports.work.getWork(item.id)).resolves.toEqual(item);
     await expect(
       ports.work.reviewWork({
@@ -123,6 +126,7 @@ describe("createTauriHostPorts", () => {
       }),
     ).resolves.toMatchObject({ state: "done", revision: 3 });
     expect(native.workList).toHaveBeenCalledWith("my_active");
+    expect(native.workChildren).toHaveBeenCalledWith(item.id);
     expect(native.workReview).toHaveBeenCalledWith({
       workId: item.id,
       expectedRevision: item.revision,

@@ -598,6 +598,11 @@ export const native = {
       workspacePath: currentWorkspaceEnv(),
       filter,
     }),
+  workChildren: (parentWorkId: string) =>
+    invoke<WorkItem[]>("work_children", {
+      workspacePath: currentWorkspaceEnv(),
+      parentWorkId,
+    }),
   workInboxList: (workspacePath?: string | null) =>
     invoke<WorkInboxItem[]>("work_inbox_list", {
       workspacePath: workspacePath ?? currentWorkspaceEnv(),

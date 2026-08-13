@@ -792,6 +792,7 @@ pub fn run() {
             // ALTAI — Work OS (Milestone 1)
             work::work_create,
             work::work_list,
+            work::work_children,
             work::work_inbox_list,
             work::work_get,
             work::work_transition,

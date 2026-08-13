@@ -258,6 +258,20 @@ pub fn work_list(
 }
 
 #[tauri::command]
+pub fn work_children(
+    registry: State<'_, WorkspaceRegistry>,
+    workspace_path: String,
+    parent_work_id: String,
+) -> Result<Vec<WorkItemDto>, String> {
+    let workspace = authorized_workspace(&workspace_path, &registry)?;
+    let (_project_id, store) = open_store(&workspace)?;
+    let children = store
+        .list_child_work(&parent_work_id)
+        .map_err(|error| error.to_string())?;
+    Ok(children.into_iter().map(WorkItemDto::from).collect())
+}
+
+#[tauri::command]
 pub fn work_inbox_list(
     registry: State<'_, WorkspaceRegistry>,
     workspace_path: String,

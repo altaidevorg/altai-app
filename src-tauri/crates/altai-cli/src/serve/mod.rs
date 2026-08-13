@@ -128,6 +128,7 @@ pub async fn run(workspace: WorkspacePaths) -> Result<(), String> {
                                 "skills/list",
                                 "skills/install",
                                 "work/list",
+                                "work/children/list",
                                 "work/get",
                                 "work/create",
                                 "work/transition",
