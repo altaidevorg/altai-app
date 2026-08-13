@@ -35,8 +35,8 @@ Definition of done for every package:
 
 | Measure | Current |
 | --- | ---: |
-| Overall Work OS completion | **14%** |
-| Foundation/control-plane backbone | **52%** |
+| Overall Work OS completion | **15%** |
+| Foundation/control-plane backbone | **57%** |
 | End-to-end autonomous execution | **8%** |
 | Product/UX surfaces | **3%** |
 | Ecosystem/plugin/upstream adoption | **2%** |
@@ -54,15 +54,15 @@ changes only when an exit gate is accepted.
 | 002 | Shared IDs, actors, revisions, errors and fixtures | accepted | #705, #711 | Rust/TS boundary round-trips |
 | 003 | Authenticated daemon and host registration | accepted | #704–#707, #712–#713 | Durable one-time registration; unauthenticated access fails |
 | 004 | Canonical Work and local typed hierarchy | accepted | #708, #710–#711 | Task/Ticket/Campaign identity survives sessions |
-| 005 | Local SQLite consolidation | **in_progress** | 004 | Remove Postgres/PGlite and second-store assumptions; keep all desktop Work OS state in `work.db` |
+| 005 | Local SQLite consolidation | **accepted** | #734–#735 | All desktop control-plane persistence shares `work.db`; no Postgres/PGlite or second-store assumption |
 
 ### Stage 1 — Durable organizational control plane
 
 | Order | Package | Status | Depends on | Exit gate / remaining scope |
 | ---: | --- | --- | --- | --- |
-| 010 | CP-04 Organization/Goal/Project/Workspace | rework queued | 005 | Contracts/API accepted (#714–#720); replace removed Postgres adapter with `work.db` SQLite persistence. Full run-context assembly moves to 031 |
-| 011 | CP-05 Agent registry and org structure | rework queued | 005, 010 | Contracts/API accepted (#721–#724); replace removed Postgres adapter with `work.db` SQLite persistence |
-| 012 | CP-06 Work graph and comments | rework queued | 005, 010 | Contracts/API accepted (#725–#728); replace removed Postgres adapter with `work.db` SQLite persistence |
+| 010 | CP-04 Organization/Goal/Project/Workspace | accepted foundation | #714–#720, #735 | Scope persistence is local SQLite in `work.db`; full run-context assembly moves to 031 |
+| 011 | CP-05 Agent registry and org structure | accepted foundation | #721–#724, #735 | Agent registry persistence is local SQLite in `work.db` |
+| 012 | CP-06 Work graph and comments | accepted foundation | #725–#728, #735 | Work graph/comment persistence is local SQLite in `work.db` |
 | 013 | CP-07A Wake coalescing and checkout port | accepted | 011, 012 | Shared models and coalescing/exclusive lease port accepted (#729–#730) |
 
 ### Stage 2 — Dispatch correctness (NOW)
