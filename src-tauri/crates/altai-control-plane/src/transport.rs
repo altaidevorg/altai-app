@@ -6,11 +6,11 @@
 
 use crate::{ControlPlane, ControlPlaneError, RegistrationGrant, ScopeError, ScopeRepository};
 use altai_control_protocol::{
-    ControlPlaneHealth, Goal, HostRegistrationRequest, Organization, Project, ProjectWorkspace,
-    RegisteredHost,
+    ControlPlaneHealth, Goal, GoalId, HostRegistrationRequest, Organization, OrganizationId,
+    Project, ProjectWorkspace, RegisteredHost,
 };
 use axum::{
-    extract::State,
+    extract::{Path, State},
     http::{header::AUTHORIZATION, HeaderMap, StatusCode},
     response::IntoResponse,
     routing::{get, post},
@@ -105,9 +105,25 @@ pub fn router_with_scope_repository(
         .route("/v1/hosts/register", post(register_host))
         .route("/v1/organizations", post(create_organization))
         .route("/v1/goals", post(create_goal))
+        .route(
+            "/v1/organizations/{organization_id}/goals/{goal_id}/ancestry",
+            get(goal_ancestry),
+        )
         .route("/v1/projects", post(create_project))
         .route("/v1/workspaces", post(create_workspace))
         .with_state(state)
+}
+
+async fn goal_ancestry(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Path((organization_id, goal_id)): Path<(String, String)>,
+) -> Result<Json<Vec<Goal>>, ApiError> {
+    require_bootstrap(&state, &headers)?;
+    scope(&state)?
+        .goal_ancestry(&OrganizationId::new(organization_id), &GoalId::new(goal_id))
+        .map(Json)
+        .map_err(ApiError::from)
 }
 
 async fn create_organization(
