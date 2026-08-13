@@ -4,8 +4,11 @@
 //! transport requires a separate TLS/proxy and credential-custody design; this
 //! module deliberately refuses to make an accidental unauthenticated listener.
 
-use crate::{ControlPlane, ControlPlaneError, RegistrationGrant};
-use altai_control_protocol::{ControlPlaneHealth, HostRegistrationRequest, RegisteredHost};
+use crate::{ControlPlane, ControlPlaneError, RegistrationGrant, ScopeError, ScopeRepository};
+use altai_control_protocol::{
+    ControlPlaneHealth, Goal, HostRegistrationRequest, Organization, Project, ProjectWorkspace,
+    RegisteredHost,
+};
 use axum::{
     extract::State,
     http::{header::AUTHORIZATION, HeaderMap, StatusCode},
@@ -73,6 +76,7 @@ impl std::error::Error for TransportError {}
 struct ApiState {
     plane: Arc<ControlPlane>,
     bootstrap_credential: Arc<BootstrapCredential>,
+    scope_repository: Option<Arc<dyn ScopeRepository>>,
 }
 
 /// Routes are versioned from their first public exposure. The health and grant
@@ -80,15 +84,83 @@ struct ApiState {
 /// its one-time grant in the body and therefore does not accept the bootstrap
 /// credential as a substitute.
 pub fn router(plane: Arc<ControlPlane>, bootstrap_credential: BootstrapCredential) -> Router {
+    router_with_scope_repository(plane, bootstrap_credential, None)
+}
+
+/// Build the authenticated transport with an optional CP-04 scope store.
+/// Scope routes are absent until the daemon has a durable repository.
+pub fn router_with_scope_repository(
+    plane: Arc<ControlPlane>,
+    bootstrap_credential: BootstrapCredential,
+    scope_repository: Option<Arc<dyn ScopeRepository>>,
+) -> Router {
     let state = ApiState {
         plane,
         bootstrap_credential: Arc::new(bootstrap_credential),
+        scope_repository,
     };
     Router::new()
         .route("/v1/health", get(health))
         .route("/v1/registration-grants", post(issue_registration_grant))
         .route("/v1/hosts/register", post(register_host))
+        .route("/v1/organizations", post(create_organization))
+        .route("/v1/goals", post(create_goal))
+        .route("/v1/projects", post(create_project))
+        .route("/v1/workspaces", post(create_workspace))
         .with_state(state)
+}
+
+async fn create_organization(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Json(organization): Json<Organization>,
+) -> Result<StatusCode, ApiError> {
+    require_bootstrap(&state, &headers)?;
+    scope(&state)?
+        .create_organization(organization)
+        .map_err(ApiError::from)?;
+    Ok(StatusCode::CREATED)
+}
+
+async fn create_goal(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Json(goal): Json<Goal>,
+) -> Result<StatusCode, ApiError> {
+    require_bootstrap(&state, &headers)?;
+    scope(&state)?.create_goal(goal).map_err(ApiError::from)?;
+    Ok(StatusCode::CREATED)
+}
+
+async fn create_project(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Json(project): Json<Project>,
+) -> Result<StatusCode, ApiError> {
+    require_bootstrap(&state, &headers)?;
+    scope(&state)?
+        .create_project(project)
+        .map_err(ApiError::from)?;
+    Ok(StatusCode::CREATED)
+}
+
+async fn create_workspace(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Json(workspace): Json<ProjectWorkspace>,
+) -> Result<StatusCode, ApiError> {
+    require_bootstrap(&state, &headers)?;
+    scope(&state)?
+        .create_workspace(workspace)
+        .map_err(ApiError::from)?;
+    Ok(StatusCode::CREATED)
+}
+
+fn scope(state: &ApiState) -> Result<&Arc<dyn ScopeRepository>, ApiError> {
+    state.scope_repository.as_ref().ok_or(ApiError {
+        status: StatusCode::SERVICE_UNAVAILABLE,
+        code: "scope_repository_unavailable",
+    })
 }
 
 async fn health(
@@ -171,6 +243,33 @@ impl From<ControlPlaneError> for ApiError {
     }
 }
 
+impl From<ScopeError> for ApiError {
+    fn from(value: ScopeError) -> Self {
+        match value {
+            ScopeError::AlreadyExists { .. } => Self {
+                status: StatusCode::CONFLICT,
+                code: "already_exists",
+            },
+            ScopeError::NotFound { .. } => Self {
+                status: StatusCode::NOT_FOUND,
+                code: "not_found",
+            },
+            ScopeError::CrossOrganization { .. } => Self {
+                status: StatusCode::FORBIDDEN,
+                code: "cross_organization",
+            },
+            ScopeError::GoalCycle { .. } => Self {
+                status: StatusCode::CONFLICT,
+                code: "goal_cycle",
+            },
+            ScopeError::Internal { .. } => Self {
+                status: StatusCode::INTERNAL_SERVER_ERROR,
+                code: "scope_repository_unavailable",
+            },
+        }
+    }
+}
+
 impl IntoResponse for ApiError {
     fn into_response(self) -> axum::response::Response {
         (self.status, Json(ErrorBody { code: self.code })).into_response()
@@ -186,10 +285,10 @@ fn digest(value: &str) -> [u8; 32] {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{ControlPlaneConfig, ControlPlaneStore};
+    use crate::{ControlPlaneConfig, ControlPlaneStore, InMemoryScopeRepository};
     use altai_control_protocol::{
-        AgentInstanceId, HostCapabilities, HostRegistration, WorkspaceId,
-        CONTROL_PLANE_PROTOCOL_MAJOR,
+        AgentInstanceId, HostCapabilities, HostRegistration, Organization, OrganizationId,
+        Revision, WorkspaceId, CONTROL_PLANE_PROTOCOL_MAJOR,
     };
     use axum::{body::Body, http::Request};
     use tower::ServiceExt;
@@ -205,9 +304,10 @@ mod tests {
             })
             .unwrap(),
         );
-        router(
+        router_with_scope_repository(
             plane,
             BootstrapCredential::from_plaintext("test-bootstrap-token").unwrap(),
+            Some(Arc::new(InMemoryScopeRepository::default())),
         )
     }
 
@@ -267,6 +367,51 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn scope_mutations_require_bootstrap_and_reject_duplicates() {
+        let organization = Organization {
+            id: OrganizationId::new("transport-test"),
+            name: "Transport test".to_string(),
+            revision: Revision::INITIAL,
+            created_at: "2026-08-13T00:00:00Z".to_string(),
+            updated_at: "2026-08-13T00:00:00Z".to_string(),
+        };
+        let request = || {
+            Request::builder()
+                .method("POST")
+                .uri("/v1/organizations")
+                .header("content-type", "application/json")
+                .body(Body::from(serde_json::to_vec(&organization).unwrap()))
+                .unwrap()
+        };
+        assert_eq!(
+            app().clone().oneshot(request()).await.unwrap().status(),
+            StatusCode::UNAUTHORIZED
+        );
+
+        let authorized = |request: Request<Body>| {
+            let (mut parts, body) = request.into_parts();
+            parts.headers.insert(
+                AUTHORIZATION,
+                "Bearer test-bootstrap-token".parse().unwrap(),
+            );
+            Request::from_parts(parts, body)
+        };
+        let app = app();
+        assert_eq!(
+            app.clone()
+                .oneshot(authorized(request()))
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::CREATED
+        );
+        assert_eq!(
+            app.oneshot(authorized(request())).await.unwrap().status(),
+            StatusCode::CONFLICT
+        );
     }
 
     #[test]
