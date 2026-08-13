@@ -9,6 +9,7 @@
 pub mod agent_repository;
 pub mod dispatch_eligibility;
 pub mod recovery_repository;
+pub mod scheduler;
 pub mod scope_repository;
 mod service;
 pub mod sqlite_agent;
@@ -28,6 +29,7 @@ pub use dispatch_eligibility::{
     DispatchBlocker, DispatchEligibility, DispatchEligibilityEngine, DispatchEligibilityError,
 };
 pub use recovery_repository::{RecoveryError, RecoveryRepository, SqliteRecoveryRepository};
+pub use scheduler::{ScheduleResult, SchedulerError, SingleWriterScheduler};
 pub use scope_repository::{InMemoryScopeRepository, ScopeError, ScopeRepository};
 pub use service::{
     ControlPlane, ControlPlaneConfig, ControlPlaneError, ControlPlaneStore, RegistrationCommit,
