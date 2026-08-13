@@ -1,6 +1,6 @@
 use altai_control_plane::{
-    router, BootstrapCredential, ControlPlane, ControlPlaneConfig, ControlPlaneStore,
-    PostgresRegistrationRepository, PostgresScopeRepository,
+    router_with_scope_repository, BootstrapCredential, ControlPlane, ControlPlaneConfig,
+    ControlPlaneStore, PostgresRegistrationRepository, PostgresScopeRepository,
 };
 use clap::Parser;
 use std::{net::SocketAddr, sync::Arc};
@@ -46,12 +46,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         store,
         registration_ttl_seconds: 300,
     };
-    let plane = if let Some(connection_url) = args.postgres_url {
-        let scope_repository = PostgresScopeRepository::connect(&connection_url)?;
-        scope_repository.ensure_default_local_organization()?;
+    let scope_repository = if let Some(connection_url) = args.postgres_url.as_ref() {
+        let repository = Arc::new(PostgresScopeRepository::connect(connection_url)?);
+        repository.ensure_default_local_organization()?;
+        Some(repository as Arc<dyn altai_control_plane::ScopeRepository>)
+    } else {
+        None
+    };
+    let plane = if let Some(connection_url) = args.postgres_url.as_ref() {
         Arc::new(ControlPlane::with_registration_repository(
             config,
-            Arc::new(PostgresRegistrationRepository::connect(&connection_url)?),
+            Arc::new(PostgresRegistrationRepository::connect(connection_url)?),
         )?)
     } else {
         Arc::new(ControlPlane::bootstrap(config)?)
@@ -61,6 +66,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         "altai-control-plane listening on {}",
         listener.local_addr()?
     );
-    axum::serve(listener, router(plane, credential)).await?;
+    axum::serve(
+        listener,
+        router_with_scope_repository(plane, credential, scope_repository),
+    )
+    .await?;
     Ok(())
 }
