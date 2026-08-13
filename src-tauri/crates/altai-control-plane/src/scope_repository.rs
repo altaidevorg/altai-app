@@ -212,3 +212,117 @@ impl ScopeRepository for InMemoryScopeRepository {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use altai_control_protocol::{
+        GoalId, OrganizationId, ProjectId, ProjectStatus, Revision, WorkspaceId,
+    };
+
+    fn organization(id: &str) -> Organization {
+        Organization {
+            id: OrganizationId::new(id),
+            name: id.to_string(),
+            revision: Revision::INITIAL,
+            created_at: "2026-08-13T00:00:00Z".to_string(),
+            updated_at: "2026-08-13T00:00:00Z".to_string(),
+        }
+    }
+
+    fn goal(id: &str, organization_id: OrganizationId, parent_goal_id: Option<GoalId>) -> Goal {
+        Goal {
+            id: GoalId::new(id),
+            organization_id,
+            parent_goal_id,
+            owner: None,
+            title: id.to_string(),
+            description: String::new(),
+            revision: Revision::INITIAL,
+            created_at: "2026-08-13T00:00:00Z".to_string(),
+            updated_at: "2026-08-13T00:00:00Z".to_string(),
+        }
+    }
+
+    #[test]
+    fn ancestry_is_ordered_from_goal_to_root() {
+        let repository = InMemoryScopeRepository::default();
+        let org = organization("a");
+        repository.create_organization(org.clone()).unwrap();
+        repository
+            .create_goal(goal("root", org.id.clone(), None))
+            .unwrap();
+        repository
+            .create_goal(goal("child", org.id.clone(), Some(GoalId::new("root"))))
+            .unwrap();
+
+        let ancestry = repository
+            .goal_ancestry(&org.id, &GoalId::new("child"))
+            .unwrap();
+        assert_eq!(
+            ancestry
+                .iter()
+                .map(|goal| goal.id.value.as_str())
+                .collect::<Vec<_>>(),
+            ["goal_child", "goal_root"]
+        );
+    }
+
+    #[test]
+    fn cross_organization_parent_and_project_goal_are_rejected() {
+        let repository = InMemoryScopeRepository::default();
+        let org_a = organization("a");
+        let org_b = organization("b");
+        repository.create_organization(org_a.clone()).unwrap();
+        repository.create_organization(org_b.clone()).unwrap();
+        repository
+            .create_goal(goal("a-root", org_a.id.clone(), None))
+            .unwrap();
+        assert!(matches!(
+            repository.create_goal(goal(
+                "b-child",
+                org_b.id.clone(),
+                Some(GoalId::new("a-root"))
+            )),
+            Err(ScopeError::CrossOrganization { .. })
+        ));
+
+        let project = Project {
+            id: ProjectId::new("b-project"),
+            organization_id: org_b.id,
+            goal_ids: vec![GoalId::new("a-root")],
+            name: "B".to_string(),
+            description: String::new(),
+            status: ProjectStatus::Active,
+            revision: Revision::INITIAL,
+            created_at: "2026-08-13T00:00:00Z".to_string(),
+            updated_at: "2026-08-13T00:00:00Z".to_string(),
+        };
+        assert!(matches!(
+            repository.create_project(project),
+            Err(ScopeError::CrossOrganization { .. })
+        ));
+    }
+
+    #[test]
+    fn workspace_requires_its_project_but_not_a_filesystem_path() {
+        let repository = InMemoryScopeRepository::default();
+        let workspace = ProjectWorkspace {
+            id: WorkspaceId::new("portable"),
+            project_id: ProjectId::new("missing"),
+            name: "Portable".to_string(),
+            repository_url: None,
+            local_path_hint: None,
+            revision: Revision::INITIAL,
+            created_at: "2026-08-13T00:00:00Z".to_string(),
+            updated_at: "2026-08-13T00:00:00Z".to_string(),
+        };
+        assert!(matches!(
+            repository.create_workspace(workspace),
+            Err(ScopeError::NotFound {
+                entity: "project",
+                ..
+            })
+        ));
+    }
+}
