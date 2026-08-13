@@ -23,7 +23,7 @@ pub mod work_graph;
 
 pub use actor::{Actor, ActorKind};
 pub use agent::{AgentInstance, AgentProfileRevision, AgentStatus};
-pub use attempt::RunBinding;
+pub use attempt::{Attempt, AttemptState, RunBinding};
 pub use error::{ControlError, ControlErrorCode};
 pub use event::{ActivityEvent, ControlEvent, EventKind};
 pub use id::*;
