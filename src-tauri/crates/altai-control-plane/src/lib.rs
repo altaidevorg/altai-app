@@ -7,6 +7,7 @@
 //! ledgers through the registered host identity.
 
 pub mod agent_repository;
+pub mod attempt_finalizer;
 pub mod attempt_repository;
 pub mod dispatch_eligibility;
 pub mod execution_repository;
@@ -30,6 +31,9 @@ pub mod work_item_repository;
 pub use agent_repository::{AgentRepository, AgentRepositoryError, InMemoryAgentRepository};
 pub use altai_control_protocol::{
     ControlPlaneHealth, HostCapabilities, HostRegistration, HostRegistrationRequest, RegisteredHost,
+};
+pub use attempt_finalizer::{
+    finalize_attempt, AttemptFinalization, AttemptFinalizationError, RunOutcome,
 };
 pub use attempt_repository::{AttemptError, AttemptRepository, SqliteAttemptRepository};
 pub use dispatch_eligibility::{
