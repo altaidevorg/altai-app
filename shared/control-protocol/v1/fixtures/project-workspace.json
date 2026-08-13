@@ -1,0 +1,10 @@
+{
+  "id": { "type": "workspace_id", "value": "ws_altai-app" },
+  "project_id": { "type": "project_id", "value": "proj_control-plane" },
+  "name": "ALTAI app checkout",
+  "repository_url": "https://github.com/altaidevorg/altai-app",
+  "local_path_hint": "/Users/alice/src/altai-app",
+  "revision": 2,
+  "created_at": "2026-08-13T10:00:00Z",
+  "updated_at": "2026-08-13T10:01:00Z"
+}

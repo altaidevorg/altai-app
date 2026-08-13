@@ -13,6 +13,7 @@ pub mod event;
 pub mod id;
 pub mod registration;
 pub mod revision;
+pub mod scope;
 pub mod work;
 
 pub use actor::{Actor, ActorKind};
@@ -24,4 +25,5 @@ pub use registration::{
     RegisteredHost, CONTROL_PLANE_PROTOCOL_MAJOR,
 };
 pub use revision::Revision;
+pub use scope::{Goal, Organization, Project, ProjectStatus, ProjectWorkspace};
 pub use work::{ExecutionPhase, WorkItem, WorkItemKind, WorkStatus};
