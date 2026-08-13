@@ -6,12 +6,12 @@
 
 use crate::{
     AgentRepository, AgentRepositoryError, ControlPlane, ControlPlaneError, RegistrationGrant,
-    ScopeError, ScopeRepository, WorkGraphError, WorkGraphRepository,
+    ScopeError, ScopeRepository, WakeError, WakeRepository, WorkGraphError, WorkGraphRepository,
 };
 use altai_control_protocol::{
     AgentInstance, AgentProfileRevision, ControlPlaneHealth, Goal, GoalId, HostRegistrationRequest,
-    Organization, OrganizationId, Project, ProjectWorkspace, RegisteredHost, WorkComment,
-    WorkDependency, WorkItemId,
+    Organization, OrganizationId, Project, ProjectWorkspace, RegisteredHost, WakeRequest,
+    WakeSource, WorkCheckoutLease, WorkComment, WorkDependency, WorkItemId,
 };
 use axum::{
     extract::{Path, State},
@@ -83,6 +83,7 @@ struct ApiState {
     scope_repository: Option<Arc<dyn ScopeRepository>>,
     agent_repository: Option<Arc<dyn AgentRepository>>,
     work_graph_repository: Option<Arc<dyn WorkGraphRepository>>,
+    wake_repository: Option<Arc<dyn WakeRepository>>,
 }
 
 /// Routes are versioned from their first public exposure. The health and grant
@@ -131,6 +132,7 @@ pub fn router_with_all_repositories(
         scope_repository,
         agent_repository,
         work_graph_repository,
+        wake_repository: None,
     };
     Router::new()
         .route("/v1/health", get(health))
@@ -154,6 +156,101 @@ pub fn router_with_all_repositories(
         .route("/v1/work-graph/dependencies", post(add_dependency))
         .route("/v1/work-graph/comments", post(add_comment))
         .with_state(state)
+}
+
+/// Add CP-07 wake/checkout routes without making the earlier repository
+/// constructor signatures a breaking public API.
+pub fn router_with_control_repositories(
+    plane: Arc<ControlPlane>,
+    bootstrap_credential: BootstrapCredential,
+    scope_repository: Option<Arc<dyn ScopeRepository>>,
+    agent_repository: Option<Arc<dyn AgentRepository>>,
+    work_graph_repository: Option<Arc<dyn WorkGraphRepository>>,
+    wake_repository: Arc<dyn WakeRepository>,
+) -> Router {
+    let state = ApiState {
+        plane,
+        bootstrap_credential: Arc::new(bootstrap_credential),
+        scope_repository,
+        agent_repository,
+        work_graph_repository,
+        wake_repository: Some(wake_repository),
+    };
+    Router::new()
+        .route("/v1/health", get(health))
+        .route("/v1/registration-grants", post(issue_registration_grant))
+        .route("/v1/hosts/register", post(register_host))
+        .route("/v1/wakes", post(enqueue_wake))
+        .route("/v1/wakes/{work_item_id}/claim", post(claim_wake))
+        .route("/v1/work-checkouts", post(checkout_work))
+        .route("/v1/work-checkouts/release", post(release_checkout))
+        .with_state(state)
+}
+
+#[derive(serde::Deserialize)]
+struct WakeMutation {
+    work_item_id: WorkItemId,
+    source: WakeSource,
+    requested_at: String,
+}
+#[derive(serde::Deserialize)]
+struct ClaimMutation {
+    claimed_at: String,
+}
+#[derive(serde::Deserialize)]
+struct CheckoutMutation {
+    lease: WorkCheckoutLease,
+    now_unix_seconds: u64,
+}
+#[derive(serde::Deserialize)]
+struct ReleaseMutation {
+    work_item_id: WorkItemId,
+    attempt_id: altai_control_protocol::AttemptId,
+}
+async fn enqueue_wake(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Json(request): Json<WakeMutation>,
+) -> Result<Json<WakeRequest>, ApiError> {
+    require_bootstrap(&state, &headers)?;
+    wake(&state)?
+        .enqueue(request.work_item_id, request.source, request.requested_at)
+        .map(Json)
+        .map_err(ApiError::from)
+}
+async fn claim_wake(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Path(work_item_id): Path<String>,
+    Json(request): Json<ClaimMutation>,
+) -> Result<Json<WakeRequest>, ApiError> {
+    require_bootstrap(&state, &headers)?;
+    wake(&state)?
+        .claim_wake(&WorkItemId::new(work_item_id), request.claimed_at)
+        .map(Json)
+        .map_err(ApiError::from)
+}
+async fn checkout_work(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Json(request): Json<CheckoutMutation>,
+) -> Result<StatusCode, ApiError> {
+    require_bootstrap(&state, &headers)?;
+    wake(&state)?
+        .checkout(request.lease, request.now_unix_seconds)
+        .map_err(ApiError::from)?;
+    Ok(StatusCode::CREATED)
+}
+async fn release_checkout(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Json(request): Json<ReleaseMutation>,
+) -> Result<StatusCode, ApiError> {
+    require_bootstrap(&state, &headers)?;
+    wake(&state)?
+        .release_checkout(&request.work_item_id, &request.attempt_id)
+        .map_err(ApiError::from)?;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 #[derive(serde::Deserialize)]
@@ -310,6 +407,12 @@ fn work_graph(state: &ApiState) -> Result<&Arc<dyn WorkGraphRepository>, ApiErro
         code: "work_graph_repository_unavailable",
     })
 }
+fn wake(state: &ApiState) -> Result<&Arc<dyn WakeRepository>, ApiError> {
+    state.wake_repository.as_ref().ok_or(ApiError {
+        status: StatusCode::SERVICE_UNAVAILABLE,
+        code: "wake_repository_unavailable",
+    })
+}
 
 async fn health(
     State(state): State<ApiState>,
@@ -460,6 +563,24 @@ impl From<WorkGraphError> for ApiError {
         }
     }
 }
+impl From<WakeError> for ApiError {
+    fn from(value: WakeError) -> Self {
+        match value {
+            WakeError::ActiveCheckout { .. } | WakeError::AlreadyClaimed { .. } => Self {
+                status: StatusCode::CONFLICT,
+                code: "wake_conflict",
+            },
+            WakeError::NotFound { .. } => Self {
+                status: StatusCode::NOT_FOUND,
+                code: "not_found",
+            },
+            WakeError::Internal { .. } => Self {
+                status: StatusCode::INTERNAL_SERVER_ERROR,
+                code: "wake_repository_unavailable",
+            },
+        }
+    }
+}
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> axum::response::Response {
@@ -478,6 +599,7 @@ mod tests {
     use super::*;
     use crate::{
         ControlPlaneConfig, ControlPlaneStore, InMemoryAgentRepository, InMemoryScopeRepository,
+        InMemoryWakeRepository,
     };
     use altai_control_protocol::{
         AgentInstanceId, HostCapabilities, HostRegistration, Organization, OrganizationId,
@@ -611,5 +733,49 @@ mod tests {
     #[test]
     fn short_bootstrap_tokens_are_rejected() {
         assert!(BootstrapCredential::from_plaintext("too-short").is_err());
+    }
+
+    #[tokio::test]
+    async fn wake_mutations_require_bearer_and_enqueue_when_authorized() {
+        let plane = Arc::new(
+            ControlPlane::bootstrap(ControlPlaneConfig {
+                service_version: "0.1.0".into(),
+                store: ControlPlaneStore::Sqlite {
+                    database_path: "/tmp/control-plane-test.db".into(),
+                },
+                registration_ttl_seconds: 60,
+            })
+            .unwrap(),
+        );
+        let app = router_with_control_repositories(
+            plane,
+            BootstrapCredential::from_plaintext("test-bootstrap-token").unwrap(),
+            None,
+            None,
+            None,
+            Arc::new(InMemoryWakeRepository::default()),
+        );
+        let body = serde_json::json!({ "work_item_id": { "type": "work_item_id", "value": "work-1" }, "source": "manual", "requested_at": "now" }).to_string();
+        let request = || {
+            Request::builder()
+                .method("POST")
+                .uri("/v1/wakes")
+                .header("content-type", "application/json")
+                .body(Body::from(body.clone()))
+                .unwrap()
+        };
+        assert_eq!(
+            app.clone().oneshot(request()).await.unwrap().status(),
+            StatusCode::UNAUTHORIZED
+        );
+        let mut authorized = request();
+        authorized.headers_mut().insert(
+            AUTHORIZATION,
+            "Bearer test-bootstrap-token".parse().unwrap(),
+        );
+        assert_eq!(
+            app.oneshot(authorized).await.unwrap().status(),
+            StatusCode::OK
+        );
     }
 }

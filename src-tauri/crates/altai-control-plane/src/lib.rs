@@ -39,8 +39,8 @@ pub use sqlite_scope::SqliteScopeRepository;
 pub use sqlite_wake::SqliteWakeRepository;
 pub use sqlite_work_graph::SqliteWorkGraphRepository;
 pub use transport::{
-    router, router_with_all_repositories, router_with_repositories, router_with_scope_repository,
-    BootstrapCredential, TransportError,
+    router, router_with_all_repositories, router_with_control_repositories,
+    router_with_repositories, router_with_scope_repository, BootstrapCredential, TransportError,
 };
 pub use wake_repository::{InMemoryWakeRepository, WakeError, WakeRepository};
 pub use work_graph_repository::{InMemoryWorkGraphRepository, WorkGraphError, WorkGraphRepository};
