@@ -1,6 +1,7 @@
 use altai_control_plane::{
-    router_with_scope_repository, BootstrapCredential, ControlPlane, ControlPlaneConfig,
-    ControlPlaneStore, PostgresRegistrationRepository, PostgresScopeRepository,
+    router_with_repositories, BootstrapCredential, ControlPlane, ControlPlaneConfig,
+    ControlPlaneStore, PostgresAgentRepository, PostgresRegistrationRepository,
+    PostgresScopeRepository,
 };
 use clap::Parser;
 use std::{net::SocketAddr, sync::Arc};
@@ -53,6 +54,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     } else {
         None
     };
+    let agent_repository = if let Some(connection_url) = args.postgres_url.as_ref() {
+        Some(Arc::new(PostgresAgentRepository::connect(connection_url)?)
+            as Arc<dyn altai_control_plane::AgentRepository>)
+    } else {
+        None
+    };
     let plane = if let Some(connection_url) = args.postgres_url.as_ref() {
         Arc::new(ControlPlane::with_registration_repository(
             config,
@@ -68,7 +75,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
     axum::serve(
         listener,
-        router_with_scope_repository(plane, credential, scope_repository),
+        router_with_repositories(plane, credential, scope_repository, agent_repository),
     )
     .await?;
     Ok(())

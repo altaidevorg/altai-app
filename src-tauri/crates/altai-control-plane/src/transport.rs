@@ -4,10 +4,13 @@
 //! transport requires a separate TLS/proxy and credential-custody design; this
 //! module deliberately refuses to make an accidental unauthenticated listener.
 
-use crate::{ControlPlane, ControlPlaneError, RegistrationGrant, ScopeError, ScopeRepository};
+use crate::{
+    AgentRepository, AgentRepositoryError, ControlPlane, ControlPlaneError, RegistrationGrant,
+    ScopeError, ScopeRepository,
+};
 use altai_control_protocol::{
-    ControlPlaneHealth, Goal, GoalId, HostRegistrationRequest, Organization, OrganizationId,
-    Project, ProjectWorkspace, RegisteredHost,
+    AgentInstance, AgentProfileRevision, ControlPlaneHealth, Goal, GoalId, HostRegistrationRequest,
+    Organization, OrganizationId, Project, ProjectWorkspace, RegisteredHost,
 };
 use axum::{
     extract::{Path, State},
@@ -77,6 +80,7 @@ struct ApiState {
     plane: Arc<ControlPlane>,
     bootstrap_credential: Arc<BootstrapCredential>,
     scope_repository: Option<Arc<dyn ScopeRepository>>,
+    agent_repository: Option<Arc<dyn AgentRepository>>,
 }
 
 /// Routes are versioned from their first public exposure. The health and grant
@@ -84,7 +88,7 @@ struct ApiState {
 /// its one-time grant in the body and therefore does not accept the bootstrap
 /// credential as a substitute.
 pub fn router(plane: Arc<ControlPlane>, bootstrap_credential: BootstrapCredential) -> Router {
-    router_with_scope_repository(plane, bootstrap_credential, None)
+    router_with_repositories(plane, bootstrap_credential, None, None)
 }
 
 /// Build the authenticated transport with an optional CP-04 scope store.
@@ -94,10 +98,20 @@ pub fn router_with_scope_repository(
     bootstrap_credential: BootstrapCredential,
     scope_repository: Option<Arc<dyn ScopeRepository>>,
 ) -> Router {
+    router_with_repositories(plane, bootstrap_credential, scope_repository, None)
+}
+
+pub fn router_with_repositories(
+    plane: Arc<ControlPlane>,
+    bootstrap_credential: BootstrapCredential,
+    scope_repository: Option<Arc<dyn ScopeRepository>>,
+    agent_repository: Option<Arc<dyn AgentRepository>>,
+) -> Router {
     let state = ApiState {
         plane,
         bootstrap_credential: Arc::new(bootstrap_credential),
         scope_repository,
+        agent_repository,
     };
     Router::new()
         .route("/v1/health", get(health))
@@ -111,7 +125,33 @@ pub fn router_with_scope_repository(
         )
         .route("/v1/projects", post(create_project))
         .route("/v1/workspaces", post(create_workspace))
+        .route("/v1/agent-profile-revisions", post(append_profile_revision))
+        .route("/v1/agent-instances", post(create_agent_instance))
         .with_state(state)
+}
+
+async fn append_profile_revision(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Json(revision): Json<AgentProfileRevision>,
+) -> Result<StatusCode, ApiError> {
+    require_bootstrap(&state, &headers)?;
+    agent_repository(&state)?
+        .append_profile_revision(revision)
+        .map_err(ApiError::from)?;
+    Ok(StatusCode::CREATED)
+}
+
+async fn create_agent_instance(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Json(instance): Json<AgentInstance>,
+) -> Result<StatusCode, ApiError> {
+    require_bootstrap(&state, &headers)?;
+    agent_repository(&state)?
+        .create_instance(instance)
+        .map_err(ApiError::from)?;
+    Ok(StatusCode::CREATED)
 }
 
 async fn goal_ancestry(
@@ -176,6 +216,13 @@ fn scope(state: &ApiState) -> Result<&Arc<dyn ScopeRepository>, ApiError> {
     state.scope_repository.as_ref().ok_or(ApiError {
         status: StatusCode::SERVICE_UNAVAILABLE,
         code: "scope_repository_unavailable",
+    })
+}
+
+fn agent_repository(state: &ApiState) -> Result<&Arc<dyn AgentRepository>, ApiError> {
+    state.agent_repository.as_ref().ok_or(ApiError {
+        status: StatusCode::SERVICE_UNAVAILABLE,
+        code: "agent_repository_unavailable",
     })
 }
 
@@ -286,6 +333,30 @@ impl From<ScopeError> for ApiError {
     }
 }
 
+impl From<AgentRepositoryError> for ApiError {
+    fn from(value: AgentRepositoryError) -> Self {
+        match value {
+            AgentRepositoryError::AlreadyExists { .. }
+            | AgentRepositoryError::ReportingCycle { .. } => Self {
+                status: StatusCode::CONFLICT,
+                code: "agent_conflict",
+            },
+            AgentRepositoryError::NotFound { .. } => Self {
+                status: StatusCode::NOT_FOUND,
+                code: "not_found",
+            },
+            AgentRepositoryError::NotDispatchable { .. } => Self {
+                status: StatusCode::CONFLICT,
+                code: "agent_not_dispatchable",
+            },
+            AgentRepositoryError::Internal { .. } => Self {
+                status: StatusCode::INTERNAL_SERVER_ERROR,
+                code: "agent_repository_unavailable",
+            },
+        }
+    }
+}
+
 impl IntoResponse for ApiError {
     fn into_response(self) -> axum::response::Response {
         (self.status, Json(ErrorBody { code: self.code })).into_response()
@@ -301,7 +372,9 @@ fn digest(value: &str) -> [u8; 32] {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{ControlPlaneConfig, ControlPlaneStore, InMemoryScopeRepository};
+    use crate::{
+        ControlPlaneConfig, ControlPlaneStore, InMemoryAgentRepository, InMemoryScopeRepository,
+    };
     use altai_control_protocol::{
         AgentInstanceId, HostCapabilities, HostRegistration, Organization, OrganizationId,
         Revision, WorkspaceId, CONTROL_PLANE_PROTOCOL_MAJOR,
@@ -320,10 +393,11 @@ mod tests {
             })
             .unwrap(),
         );
-        router_with_scope_repository(
+        router_with_repositories(
             plane,
             BootstrapCredential::from_plaintext("test-bootstrap-token").unwrap(),
             Some(Arc::new(InMemoryScopeRepository::default())),
+            Some(Arc::new(InMemoryAgentRepository::default())),
         )
     }
 
