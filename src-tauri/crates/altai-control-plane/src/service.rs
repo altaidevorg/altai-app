@@ -4,7 +4,7 @@ use altai_control_protocol::{
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeSet, HashMap};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
 
@@ -109,29 +109,129 @@ struct PendingGrant {
     expires_at_unix_seconds: u64,
 }
 
-/// In-memory bootstrap service. Persistence and transport are deliberately
-/// separate follow-up concerns; callers cannot accidentally treat this type as
-/// the global Work repository.
+/// Transaction result for a grant consumption and host registration.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RegistrationCommit {
+    Registered(RegisteredHost),
+    InvalidGrant,
+    ExpiredGrant,
+}
+
+/// Durable boundary for registration state. Implementations must consume a
+/// grant and write the host record in one transaction; callers may not build
+/// an ungoverned two-step grant/host dual-write.
+pub trait RegistrationRepository: Send + Sync {
+    fn issue_grant(&self, token_digest: String, expires_at_unix_seconds: u64)
+        -> Result<(), String>;
+    fn consume_grant_and_register(
+        &self,
+        token_digest: &str,
+        now_unix_seconds: u64,
+        host: RegisteredHost,
+    ) -> Result<RegistrationCommit, String>;
+    fn registered_host_count(&self) -> Result<usize, String>;
+    /// `false` only for the explicit bootstrap-memory implementation.
+    fn database_adapter_ready(&self) -> bool;
+}
+
+#[derive(Default)]
+struct InMemoryRegistrationRepository {
+    state: Mutex<RegistrationState>,
+}
+
+#[derive(Default)]
+struct RegistrationState {
+    pending_grants: HashMap<String, PendingGrant>,
+    hosts: HashMap<String, RegisteredHost>,
+}
+
+impl RegistrationRepository for InMemoryRegistrationRepository {
+    fn issue_grant(
+        &self,
+        token_digest: String,
+        expires_at_unix_seconds: u64,
+    ) -> Result<(), String> {
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| "registration state lock poisoned".to_string())?;
+        state.pending_grants.insert(
+            token_digest,
+            PendingGrant {
+                expires_at_unix_seconds,
+            },
+        );
+        Ok(())
+    }
+
+    fn consume_grant_and_register(
+        &self,
+        token_digest: &str,
+        now_unix_seconds: u64,
+        host: RegisteredHost,
+    ) -> Result<RegistrationCommit, String> {
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| "registration state lock poisoned".to_string())?;
+        let Some(grant) = state.pending_grants.remove(token_digest) else {
+            return Ok(RegistrationCommit::InvalidGrant);
+        };
+        if grant.expires_at_unix_seconds < now_unix_seconds {
+            return Ok(RegistrationCommit::ExpiredGrant);
+        }
+        state
+            .hosts
+            .insert(host.agent_instance_id.value.clone(), host.clone());
+        Ok(RegistrationCommit::Registered(host))
+    }
+
+    fn registered_host_count(&self) -> Result<usize, String> {
+        let state = self
+            .state
+            .lock()
+            .map_err(|_| "registration state lock poisoned".to_string())?;
+        Ok(state.hosts.len())
+    }
+
+    fn database_adapter_ready(&self) -> bool {
+        false
+    }
+}
+
+/// Control-plane bootstrap service. It defaults to a non-durable in-memory
+/// repository for development; deployed Postgres/PGlite adapters must be
+/// injected through [`ControlPlane::with_registration_repository`].
 pub struct ControlPlane {
     config: ControlPlaneConfig,
-    pending_grants: Mutex<HashMap<String, PendingGrant>>,
-    hosts: Mutex<HashMap<String, RegisteredHost>>,
+    registration_repository: Arc<dyn RegistrationRepository>,
 }
 
 impl ControlPlane {
     pub fn bootstrap(config: ControlPlaneConfig) -> Result<Self, ControlPlaneError> {
         config.validate()?;
+        Self::with_registration_repository(
+            config,
+            Arc::new(InMemoryRegistrationRepository::default()),
+        )
+    }
+
+    pub fn with_registration_repository(
+        config: ControlPlaneConfig,
+        registration_repository: Arc<dyn RegistrationRepository>,
+    ) -> Result<Self, ControlPlaneError> {
+        config.validate()?;
         Ok(Self {
             config,
-            pending_grants: Mutex::new(HashMap::new()),
-            hosts: Mutex::new(HashMap::new()),
+            registration_repository,
         })
     }
 
     pub fn health(&self) -> Result<ControlPlaneHealth, ControlPlaneError> {
-        let hosts = self.hosts.lock().map_err(|_| ControlPlaneError::Internal {
-            reason: "host registry lock poisoned".to_string(),
-        })?;
+        let registered_host_count = self
+            .registration_repository
+            .registered_host_count()
+            .map_err(|reason| ControlPlaneError::Internal { reason })?;
         Ok(ControlPlaneHealth {
             service_version: self.config.service_version.clone(),
             protocol_major: CONTROL_PLANE_PROTOCOL_MAJOR,
@@ -139,8 +239,8 @@ impl ControlPlane {
                 ControlPlaneStore::Postgres { .. } => "postgres".to_string(),
                 ControlPlaneStore::Pglite { .. } => "pglite".to_string(),
             },
-            registered_host_count: hosts.len(),
-            database_adapter_ready: false,
+            registered_host_count,
+            database_adapter_ready: self.registration_repository.database_adapter_ready(),
         })
     }
 
@@ -151,18 +251,9 @@ impl ControlPlane {
             .ok_or_else(|| ControlPlaneError::InvalidConfig {
                 reason: "registration_ttl_seconds overflows unix timestamp".to_string(),
             })?;
-        let mut grants = self
-            .pending_grants
-            .lock()
-            .map_err(|_| ControlPlaneError::Internal {
-                reason: "registration grant lock poisoned".to_string(),
-            })?;
-        grants.insert(
-            token_digest(&token),
-            PendingGrant {
-                expires_at_unix_seconds,
-            },
-        );
+        self.registration_repository
+            .issue_grant(token_digest(&token), expires_at_unix_seconds)
+            .map_err(|reason| ControlPlaneError::Internal { reason })?;
         Ok(RegistrationGrant {
             token,
             expires_at_unix_seconds,
@@ -190,34 +281,21 @@ impl ControlPlane {
 
         let now = now_unix_seconds();
         let digest = token_digest(&request.grant_token);
-        let grant = self
-            .pending_grants
-            .lock()
-            .map_err(|_| ControlPlaneError::Internal {
-                reason: "registration grant lock poisoned".to_string(),
-            })?
-            .remove(&digest)
-            .ok_or(ControlPlaneError::InvalidGrant)?;
-        if grant.expires_at_unix_seconds < now {
-            return Err(ControlPlaneError::ExpiredGrant);
-        }
-
         let registered = RegisteredHost {
             agent_instance_id: request.host.agent_instance_id,
             workspaces: request.host.workspaces,
             capabilities: request.host.capabilities,
             registered_at_unix_seconds: now,
         };
-        self.hosts
-            .lock()
-            .map_err(|_| ControlPlaneError::Internal {
-                reason: "host registry lock poisoned".to_string(),
-            })?
-            .insert(
-                registered.agent_instance_id.value.clone(),
-                registered.clone(),
-            );
-        Ok(registered)
+        match self
+            .registration_repository
+            .consume_grant_and_register(&digest, now, registered)
+            .map_err(|reason| ControlPlaneError::Internal { reason })?
+        {
+            RegistrationCommit::Registered(host) => Ok(host),
+            RegistrationCommit::InvalidGrant => Err(ControlPlaneError::InvalidGrant),
+            RegistrationCommit::ExpiredGrant => Err(ControlPlaneError::ExpiredGrant),
+        }
     }
 }
 
@@ -335,5 +413,47 @@ mod tests {
             ControlPlane::bootstrap(invalid),
             Err(ControlPlaneError::InvalidConfig { .. })
         ));
+    }
+
+    struct ReadyRepository(InMemoryRegistrationRepository);
+
+    impl RegistrationRepository for ReadyRepository {
+        fn issue_grant(&self, digest: String, expires_at: u64) -> Result<(), String> {
+            self.0.issue_grant(digest, expires_at)
+        }
+
+        fn consume_grant_and_register(
+            &self,
+            digest: &str,
+            now: u64,
+            host: RegisteredHost,
+        ) -> Result<RegistrationCommit, String> {
+            self.0.consume_grant_and_register(digest, now, host)
+        }
+
+        fn registered_host_count(&self) -> Result<usize, String> {
+            self.0.registered_host_count()
+        }
+
+        fn database_adapter_ready(&self) -> bool {
+            true
+        }
+    }
+
+    #[test]
+    fn injected_repository_controls_readiness_without_changing_registration_semantics() {
+        let plane = ControlPlane::with_registration_repository(
+            config(),
+            Arc::new(ReadyRepository(InMemoryRegistrationRepository::default())),
+        )
+        .unwrap();
+        assert!(plane.health().unwrap().database_adapter_ready);
+        let grant = plane.issue_registration_grant().unwrap();
+        assert!(plane
+            .register_host(HostRegistrationRequest {
+                grant_token: grant.token,
+                host: host(),
+            })
+            .is_ok());
     }
 }

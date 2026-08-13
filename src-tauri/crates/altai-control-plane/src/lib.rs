@@ -13,6 +13,7 @@ pub use altai_control_protocol::{
     ControlPlaneHealth, HostCapabilities, HostRegistration, HostRegistrationRequest, RegisteredHost,
 };
 pub use service::{
-    ControlPlane, ControlPlaneConfig, ControlPlaneError, ControlPlaneStore, RegistrationGrant,
+    ControlPlane, ControlPlaneConfig, ControlPlaneError, ControlPlaneStore, RegistrationCommit,
+    RegistrationGrant, RegistrationRepository,
 };
 pub use transport::{router, BootstrapCredential, TransportError};
