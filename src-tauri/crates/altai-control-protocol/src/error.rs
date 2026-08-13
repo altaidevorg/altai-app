@@ -40,50 +40,28 @@ pub enum ControlError {
     /// Malformed ID input.
     Id(IdError),
     /// Stale revision for optimistic concurrency.
-    StaleRevision {
-        expected: u64,
-        got: u64,
-    },
+    StaleRevision { expected: u64, got: u64 },
     /// Entity not found.
-    NotFound {
-        entity: String,
-        id: String,
-    },
+    NotFound { entity: String, id: String },
     /// Actor lacks authorization.
-    Unauthorized {
-        actor: String,
-        action: String,
-    },
+    Unauthorized { actor: String, action: String },
     /// Policy denied the operation.
-    PolicyDenied {
-        reason: String,
-    },
+    PolicyDenied { reason: String },
     /// Budget hard stop.
-    BudgetStopped {
-        scope: String,
-    },
+    BudgetStopped { scope: String },
     /// Dependency blocker.
-    Blocked {
-        blocker_id: String,
-    },
+    Blocked { blocker_id: String },
     /// Payload too large.
     PayloadTooLarge {
         max_bytes: usize,
         actual_bytes: usize,
     },
     /// Concurrent conflict.
-    Conflict {
-        reason: String,
-    },
+    Conflict { reason: String },
     /// Operation on a terminal entity.
-    AlreadyTerminal {
-        entity: String,
-        id: String,
-    },
+    AlreadyTerminal { entity: String, id: String },
     /// Internal invariant violation.
-    InternalError {
-        reason: String,
-    },
+    InternalError { reason: String },
 }
 
 impl ControlError {
@@ -120,7 +98,10 @@ impl fmt::Display for ControlError {
             Self::PolicyDenied { reason } => write!(f, "policy denied: {reason}"),
             Self::BudgetStopped { scope } => write!(f, "budget stopped: {scope}"),
             Self::Blocked { blocker_id } => write!(f, "blocked by: {blocker_id}"),
-            Self::PayloadTooLarge { max_bytes, actual_bytes } => {
+            Self::PayloadTooLarge {
+                max_bytes,
+                actual_bytes,
+            } => {
                 write!(f, "payload too large: {actual_bytes} > {max_bytes}")
             }
             Self::Conflict { reason } => write!(f, "conflict: {reason}"),
@@ -146,14 +127,21 @@ mod tests {
 
     #[test]
     fn error_code_mapping() {
-        assert_eq!(ControlError::NotFound {
-            entity: "work_item".to_string(),
-            id: "wi_123".to_string(),
-        }
-        .code(), ControlErrorCode::NotFound);
+        assert_eq!(
+            ControlError::NotFound {
+                entity: "work_item".to_string(),
+                id: "wi_123".to_string(),
+            }
+            .code(),
+            ControlErrorCode::NotFound
+        );
 
         assert_eq!(
-            ControlError::StaleRevision { expected: 5, got: 3 }.code(),
+            ControlError::StaleRevision {
+                expected: 5,
+                got: 3
+            }
+            .code(),
             ControlErrorCode::StaleRevision
         );
     }

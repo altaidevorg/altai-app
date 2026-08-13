@@ -1,4 +1,5 @@
 export * from "./ids.js";
+export * from "./registration.js";
 export * from "./revision.js";
 export * from "./actor.js";
 export * from "./error.js";

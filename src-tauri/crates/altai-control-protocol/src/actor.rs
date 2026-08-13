@@ -70,7 +70,10 @@ impl fmt::Display for Actor {
             Self::User { id, .. } => write!(f, "user:{}", id.value),
             Self::Agent { id, .. } => write!(f, "agent:{}", id.value),
             Self::System { component } => write!(f, "system:{}", component),
-            Self::External { integration, external_actor_id } => {
+            Self::External {
+                integration,
+                external_actor_id,
+            } => {
                 write!(f, "external:{}/{}", integration, external_actor_id)
             }
         }

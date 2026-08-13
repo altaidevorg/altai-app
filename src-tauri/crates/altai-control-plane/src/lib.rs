@@ -8,7 +8,9 @@
 
 mod service;
 
+pub use altai_control_protocol::{
+    ControlPlaneHealth, HostCapabilities, HostRegistration, HostRegistrationRequest, RegisteredHost,
+};
 pub use service::{
-    ControlPlane, ControlPlaneConfig, ControlPlaneError, ControlPlaneHealth, ControlPlaneStore,
-    HostCapabilities, HostRegistration, RegisteredHost, RegistrationGrant, RegistrationRequest,
+    ControlPlane, ControlPlaneConfig, ControlPlaneError, ControlPlaneStore, RegistrationGrant,
 };

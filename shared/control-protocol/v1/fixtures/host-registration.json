@@ -1,0 +1,1 @@
+{"agent_instance_id":{"type":"agent_instance_id","value":"ai_host-a"},"workspaces":[{"type":"workspace_id","value":"ws_workspace-a"}],"capabilities":{"values":["isanagent","work.execute"]},"protocol_major":1}

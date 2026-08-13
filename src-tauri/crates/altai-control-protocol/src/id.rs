@@ -271,11 +271,22 @@ mod tests {
     fn all_id_types_have_distinct_prefixes() {
         // Ensure no two ID types share the same type string.
         let types = [
-            OrganizationId::TYPE, GoalId::TYPE, ProjectId::TYPE, WorkspaceId::TYPE,
-            AgentInstanceId::TYPE, AgentProfileId::TYPE, AgentProfileRevisionId::TYPE,
-            WorkItemId::TYPE, AttemptId::TYPE, RunId::TYPE, SessionId::TYPE,
-            RoutineId::TYPE, RoutineRevisionId::TYPE, RoutineRunId::TYPE,
-            ApprovalId::TYPE, ExternalObjectId::TYPE,
+            OrganizationId::TYPE,
+            GoalId::TYPE,
+            ProjectId::TYPE,
+            WorkspaceId::TYPE,
+            AgentInstanceId::TYPE,
+            AgentProfileId::TYPE,
+            AgentProfileRevisionId::TYPE,
+            WorkItemId::TYPE,
+            AttemptId::TYPE,
+            RunId::TYPE,
+            SessionId::TYPE,
+            RoutineId::TYPE,
+            RoutineRevisionId::TYPE,
+            RoutineRunId::TYPE,
+            ApprovalId::TYPE,
+            ExternalObjectId::TYPE,
         ];
         let mut seen = std::collections::HashSet::new();
         for t in types {

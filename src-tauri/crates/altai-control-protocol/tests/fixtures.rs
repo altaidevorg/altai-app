@@ -72,3 +72,17 @@ fn activity_event_fixture_round_trips() {
     let parsed: ActivityEvent = serde_json::from_value(value.clone()).unwrap();
     assert_round_trip("activity-event.json", &value, parsed);
 }
+
+#[test]
+fn control_plane_health_fixture_round_trips() {
+    let value = read_fixture("control-plane-health.json");
+    let parsed: ControlPlaneHealth = serde_json::from_value(value.clone()).unwrap();
+    assert_round_trip("control-plane-health.json", &value, parsed);
+}
+
+#[test]
+fn host_registration_fixture_round_trips() {
+    let value = read_fixture("host-registration.json");
+    let parsed: HostRegistration = serde_json::from_value(value.clone()).unwrap();
+    assert_round_trip("host-registration.json", &value, parsed);
+}
