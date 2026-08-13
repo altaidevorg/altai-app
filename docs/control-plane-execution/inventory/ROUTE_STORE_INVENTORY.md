@@ -1,6 +1,6 @@
 # Route / Store / State-Owner Inventory
 
-> **Task:** GLM-CAL-01
+> **Task:** CAL-01
 > **Status:** complete
 > **Risk tier:** A (read-only)
 > **Parent authority:** `docs/PAPERCLIP_STYLE_CONTROL_PLANE_ENGINEERING_PLAN.md` §9.8, §12.1–12.4

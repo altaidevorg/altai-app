@@ -1,12 +1,12 @@
-# Task Packet: GLM-CAL-02 — Shared Fixture Round-Trip Tests
+# Task Packet: CAL-02 — Shared Fixture Round-Trip Tests
 
 ```yaml
-task_id: GLM-CAL-02
+task_id: CAL-02
 title: Create one small Rust/TypeScript shared fixture with round-trip tests
 risk_tier: A
 parent_module: CP-01
-status: ready
-depends_on: [GLM-CAL-01]
+status: accepted
+depends_on: [CAL-01]
 objective: |
   Create one golden JSON fixture representing a minimal control-plane concept
   (WorkItemId) and prove Rust and TypeScript can serialize/deserialize it

@@ -11,7 +11,7 @@
 ## Required Fields
 
 ```yaml
-task_id: CP-XX-NN          # e.g. CP-01-01, GLM-CAL-01
+task_id: CP-XX-NN          # e.g. CP-07-03
 title: short outcome        # externally verifiable, not "implement CP-08"
 risk_tier: A | B | C        # see REVIEW_CHECKLIST.md for tier definitions
 parent_module: CP-XX        # from the module dependency map

@@ -13,7 +13,7 @@ function legacyAssignment(status: unknown): Record<string, unknown> {
   };
 }
 
-describe("mapLegacyAssignment (GLM-CAL-03)", () => {
+describe("mapLegacyAssignment (CAL-03)", () => {
   it("maps all known statuses per the amended table", () => {
     const cases: Array<[string, string, string]> = [
       ["queued", "todo", "queued"],

@@ -4,7 +4,7 @@
 > is the canonical project-management queue. This document remains authoritative
 > for architecture and scope.
 
-> Status: proposed canonical implementation plan
+> Status: architecture and scope reference
 >
 > Date: 2026-08-03
 >
@@ -27,15 +27,11 @@ This plan corrects any existing implementation that violates that boundary, even
 implementation is already functional. Compatibility is preserved through migrations and
 adapters, not by retaining competing owners.
 
-If accepted, this document governs control-plane ownership and implementation order. The
-existing Agent Operations plan remains useful for detailed quality, delivery, and testing
-requirements, but conflicting ownership or lifecycle decisions must be amended to match
-this plan.
-
-For implementation through a fresh-context GLM 5.1 coding agent, use
-`docs/GLM_5_1_CONTROL_PLANE_EXECUTION_PLAYBOOK.md`. It defines task packets, risk tiers,
-context bootstrap, verification, review, and stop conditions; it does not supersede this
-architecture.
+This document governs control-plane ownership and architecture. The canonical delivery
+order, task status, dependencies, acceptance gates, and progress live only in
+`docs/control-plane-execution/WORK_OS_PROGRAM_BACKLOG.md`. The existing Agent Operations
+plan remains useful for detailed quality, delivery, and testing requirements, but
+conflicting ownership or lifecycle decisions must be amended to match this architecture.
 
 ## 2. Product Outcome
 
@@ -686,7 +682,7 @@ builder and then augments the registry. Replace this with one schedule-tool fact
 chosen before registration. Do not register a second tool under the same name: the current
 ToolRegistry overwrites its map entry but appends duplicate catalog definitions.
 
-Preferred implementation order:
+Architectural decomposition (not delivery order; see the canonical backlog):
 
 1. Add an ALTAI-side `ScheduleToolProvider`/`RoutineCommandPort` seam to
    `altai-agent-service`.

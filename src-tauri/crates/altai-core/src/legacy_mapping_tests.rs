@@ -1,4 +1,4 @@
-//! GLM-CAL-03 tests: positive mapping, required negative cases, and purity.
+//! CAL-03 tests: positive mapping, required negative cases, and purity.
 
 use crate::legacy_mapping::{
     map_legacy_assignment, ExecutionPhase, LegacyAssignment, LegacyMappingError, WorkStatus,

@@ -1,5 +1,5 @@
 /**
- * GLM-CAL-03: pure mapping from the legacy assignment record shape
+ * CAL-03: pure mapping from the legacy assignment record shape
  * (`TaskRunInfo` in `types.ts`) to the canonical WorkItem status axes defined
  * by the control-plane plan (Sections 5.1/5.2).
  *
