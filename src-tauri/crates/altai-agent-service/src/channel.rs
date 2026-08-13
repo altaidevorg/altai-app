@@ -153,6 +153,7 @@ impl HostControlPlane for ServiceChannel {
         documents: Vec<DocumentPart>,
         chat_id: String,
         queue: bool,
+        requested_run_id: Option<String>,
     ) -> Result<SendAck, String> {
         let guard = self.bus_tx.lock().await;
         let tx = guard
@@ -178,7 +179,7 @@ impl HostControlPlane for ServiceChannel {
         } else {
             chat_id
         };
-        let requested_run_id = uuid::Uuid::new_v4().to_string();
+        let requested_run_id = resolve_run_id(requested_run_id);
         let (run_id, queued) = if queue {
             admit_queued_user_message(
                 &self.run_coordinator,
@@ -262,5 +263,27 @@ impl HostControlPlane for ServiceChannel {
         })
         .await
         .map_err(|e| format!("Steer failed: {e}"))
+    }
+}
+
+fn resolve_run_id(requested_run_id: Option<String>) -> String {
+    requested_run_id
+        .map(|run_id| run_id.trim().to_string())
+        .filter(|run_id| !run_id.is_empty())
+        .unwrap_or_else(|| uuid::Uuid::new_v4().to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::resolve_run_id;
+
+    #[test]
+    fn authorized_run_id_is_preserved_exactly() {
+        assert_eq!(resolve_run_id(Some(" run_authorized ".into())), "run_authorized");
+    }
+
+    #[test]
+    fn empty_requested_run_id_falls_back_to_a_new_identity() {
+        assert!(!resolve_run_id(Some("   ".into())).trim().is_empty());
     }
 }

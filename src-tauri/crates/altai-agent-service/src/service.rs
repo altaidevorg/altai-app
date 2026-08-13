@@ -219,6 +219,98 @@ impl<H: HostAdapter> AgentService<H> {
     where
         H::Channel: HostControlPlane,
     {
+        self.route_send_with_requested_run_id(
+            provider_name,
+            api_key,
+            model_name,
+            persona_instructions,
+            base_url_override,
+            workspace_path,
+            permission_mode,
+            compaction,
+            fallback,
+            message,
+            images,
+            documents,
+            chat_id,
+            queue,
+            None,
+        )
+        .await
+    }
+
+    /// Route a pre-authorized execution request using its immutable run ID.
+    ///
+    /// Only a trusted host adapter may call this method.  It lets the control
+    /// plane reserve the same run identity that IsanAgent admits, rather than
+    /// reconciling an unrelated, runtime-generated ID after launch.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn route_authorized_send(
+        &self,
+        provider_name: &str,
+        api_key: &str,
+        model_name: &str,
+        persona_instructions: Option<&str>,
+        base_url_override: Option<&str>,
+        workspace_path: Option<&str>,
+        permission_mode: Option<&str>,
+        compaction: Option<&CompactionArg>,
+        fallback: Option<isanagent::agent::FallbackProviderSpec>,
+        message: String,
+        images: Vec<String>,
+        documents: Vec<DocumentPart>,
+        chat_id: String,
+        queue: bool,
+        run_id: String,
+    ) -> Result<SendAck, String>
+    where
+        H::Channel: HostControlPlane,
+    {
+        if run_id.trim().is_empty() {
+            return Err("An authorized execution requires a run id".to_string());
+        }
+        self.route_send_with_requested_run_id(
+            provider_name,
+            api_key,
+            model_name,
+            persona_instructions,
+            base_url_override,
+            workspace_path,
+            permission_mode,
+            compaction,
+            fallback,
+            message,
+            images,
+            documents,
+            chat_id,
+            queue,
+            Some(run_id),
+        )
+        .await
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn route_send_with_requested_run_id(
+        &self,
+        provider_name: &str,
+        api_key: &str,
+        model_name: &str,
+        persona_instructions: Option<&str>,
+        base_url_override: Option<&str>,
+        workspace_path: Option<&str>,
+        permission_mode: Option<&str>,
+        compaction: Option<&CompactionArg>,
+        fallback: Option<isanagent::agent::FallbackProviderSpec>,
+        message: String,
+        images: Vec<String>,
+        documents: Vec<DocumentPart>,
+        chat_id: String,
+        queue: bool,
+        requested_run_id: Option<String>,
+    ) -> Result<SendAck, String>
+    where
+        H::Channel: HostControlPlane,
+    {
         let fingerprint = RuntimeFingerprint::make(
             provider_name,
             api_key,
@@ -245,7 +337,14 @@ impl<H: HostAdapter> AgentService<H> {
             .await?;
 
         let acknowledgement = channel
-            .inject_user_message(message, images, documents, chat_id.clone(), queue)
+            .inject_user_message(
+                message,
+                images,
+                documents,
+                chat_id.clone(),
+                queue,
+                requested_run_id,
+            )
             .await?;
         if !chat_id.trim().is_empty() {
             let owner_id = H::channel_owner_id(&channel).to_string();
