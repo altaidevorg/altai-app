@@ -7,6 +7,7 @@
 //! ledgers through the registered host identity.
 
 mod service;
+pub mod postgres;
 pub mod transport;
 
 pub use altai_control_protocol::{
@@ -17,3 +18,4 @@ pub use service::{
     RegistrationGrant, RegistrationRepository,
 };
 pub use transport::{router, BootstrapCredential, TransportError};
+pub use postgres::PostgresRegistrationRepository;
