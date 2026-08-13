@@ -3,8 +3,8 @@
 //! Execution receives a concise, reproducible snapshot of canonical records,
 //! not an unbounded conversation or a renderer-assembled context ferry.
 
-use crate::ScopeRepository;
-use altai_control_protocol::{Goal, Project, ProjectWorkspace, WorkItem, WorkspaceId};
+use crate::{ScopeRepository, WorkItemRepository};
+use altai_control_protocol::{Goal, Project, ProjectWorkspace, WorkItem, WorkItemId, WorkspaceId};
 
 pub const MAX_RUN_CONTEXT_BYTES: usize = 24 * 1024;
 
@@ -120,6 +120,24 @@ pub fn assemble_bounded_run_context(
     })
 }
 
+/// Resolve the WorkItem through its workspace's canonical project before
+/// assembling context. A caller cannot substitute a renderer-provided item or
+/// reuse an item that belongs to another project.
+pub fn load_bounded_run_context(
+    scopes: &dyn ScopeRepository,
+    work_items: &dyn WorkItemRepository,
+    workspace_id: &WorkspaceId,
+    work_item_id: &WorkItemId,
+) -> Result<BoundedRunContext, RunContextError> {
+    let workspace = scopes
+        .get_workspace(workspace_id)
+        .map_err(|error| RunContextError::Repository(error.to_string()))?;
+    let work_item = work_items
+        .get_in_project(&workspace.project_id, work_item_id)
+        .map_err(|error| RunContextError::Repository(error.to_string()))?;
+    assemble_bounded_run_context(scopes, workspace_id, work_item)
+}
+
 fn push(output: &mut String, key: &str, value: &str) -> Result<(), RunContextError> {
     if key.len().saturating_add(value.len()).saturating_add(2) > MAX_RUN_CONTEXT_BYTES {
         return Err(RunContextError::OversizedIdentity);
@@ -233,5 +251,43 @@ mod tests {
         let context =
             assemble_bounded_run_context(&scopes, &source.workspace.id, source.work_item).unwrap();
         assert!(context.text.contains("project_name: App"));
+    }
+
+    #[test]
+    fn loading_context_resolves_the_work_item_in_the_workspace_project() {
+        use crate::{
+            ScopeRepository, SqliteScopeRepository, SqliteWorkItemRepository, WorkItemRepository,
+        };
+
+        let source = input();
+        let directory = tempfile::tempdir().unwrap();
+        let database = directory.path().join("work.db");
+        let scopes = SqliteScopeRepository::open(&database).unwrap();
+        scopes
+            .create_organization(altai_control_protocol::Organization {
+                id: source.project.organization_id.clone(),
+                name: "Org".into(),
+                revision: Revision::INITIAL,
+                created_at: "now".into(),
+                updated_at: "now".into(),
+            })
+            .unwrap();
+        for goal in &source.goal_ancestry {
+            scopes.create_goal(goal.clone()).unwrap();
+        }
+        scopes.create_project(source.project.clone()).unwrap();
+        scopes.create_workspace(source.workspace.clone()).unwrap();
+        let work_items = SqliteWorkItemRepository::open(&database).unwrap();
+        work_items.create(source.work_item.clone()).unwrap();
+
+        let context = load_bounded_run_context(
+            &scopes,
+            &work_items,
+            &source.workspace.id,
+            &source.work_item.id,
+        )
+        .unwrap();
+
+        assert!(context.text.contains("work_title: Wire executor"));
     }
 }
