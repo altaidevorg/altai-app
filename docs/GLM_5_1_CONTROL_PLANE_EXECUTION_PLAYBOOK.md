@@ -1,5 +1,9 @@
 # GLM 5.1 Control-Plane Execution Playbook
 
+> **Canonical delivery status and order:**
+> `docs/control-plane-execution/WORK_OS_PROGRAM_BACKLOG.md`. This playbook
+> defines the execution protocol; it does not override the current priority.
+
 > Status: proposed implementation companion
 >
 > Date: 2026-08-03

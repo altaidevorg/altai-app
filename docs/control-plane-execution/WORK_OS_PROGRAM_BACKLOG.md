@@ -1,0 +1,191 @@
+# ALTAI Work OS Program Backlog
+
+> **Program authority:** This is the canonical implementation order for Work OS.
+> The engineering plan defines scope and architecture; this file decides what
+> ships next. Update it in every accepted Work OS PR.
+>
+> **Baseline:** `main` through PR #730, 2026-08-13.
+
+## 1. Operating model
+
+Work proceeds in the order below. A package may start only when every dependency
+is accepted. Each package is split into reviewable PRs: contract, repository,
+deployed adapter, transport, then product surface. Replacement, cutover, and
+physical deletion are always separate PRs.
+
+Status vocabulary:
+
+- `accepted`: merged and acceptance evidence recorded;
+- `in_progress`: the only active package;
+- `ready`: all dependencies accepted and next in queue;
+- `blocked`: a named external/legal/product dependency prevents work;
+- `planned`: ordered but not ready.
+
+Definition of done for every package:
+
+1. Rust and TypeScript contracts agree where the boundary is shared.
+2. Durable writes are transaction-safe, idempotent where retryable, and fail closed.
+3. Unit/property tests cover invariants; deployed adapters receive integration tests.
+4. Auth, organization/workspace scope, audit attribution, and typed errors are explicit.
+5. CI is green on macOS, Linux, Windows, frontend static/tests, and CLI smoke.
+6. PR is merged; this backlog and `CURRENT_STATE.md` are updated.
+
+## 2. Program dashboard
+
+| Measure | Current |
+| --- | ---: |
+| Overall Work OS completion | **14%** |
+| Foundation/control-plane backbone | **52%** |
+| End-to-end autonomous execution | **8%** |
+| Product/UX surfaces | **3%** |
+| Ecosystem/plugin/upstream adoption | **2%** |
+
+These are weighted outcome estimates, not lines-of-code counts. The percentage
+changes only when an exit gate is accepted.
+
+## 3. Ordered delivery backlog
+
+### Stage 0 — Architecture and canonical identity
+
+| Order | Package | Status | Accepted evidence | Exit gate |
+| ---: | --- | --- | --- | --- |
+| 001 | Architecture ownership and process boundaries | accepted | #703 | One owner per field; IsanAgent remains execution runtime |
+| 002 | Shared IDs, actors, revisions, errors and fixtures | accepted | #705, #711 | Rust/TS boundary round-trips |
+| 003 | Authenticated daemon and host registration | accepted | #704–#707, #712–#713 | Durable one-time registration; unauthenticated access fails |
+| 004 | Canonical Work and local typed hierarchy | accepted | #708, #710–#711 | Task/Ticket/Campaign identity survives sessions |
+
+### Stage 1 — Durable organizational control plane
+
+| Order | Package | Status | Depends on | Exit gate / remaining scope |
+| ---: | --- | --- | --- | --- |
+| 010 | CP-04 Organization/Goal/Project/Workspace | accepted foundation | 004 | Contracts, Postgres, default org and bounded API accepted (#714–#720). Full run-context assembly moves to 031 |
+| 011 | CP-05 Agent registry and org structure | accepted foundation | 010 | Contracts, repository, Postgres and create API accepted (#721–#724). Import/update/lifecycle moves to 032 |
+| 012 | CP-06 Work graph and comments | accepted foundation | 004 | Parent/blocker/comment contracts, persistence and API accepted (#725–#728). Mentions/reporting moves to 033 |
+| 013 | CP-07A Wake coalescing and checkout port | accepted | 011, 012 | Shared models and coalescing/exclusive lease port accepted (#729–#730) |
+
+### Stage 2 — Dispatch correctness (NOW)
+
+| Order | Package | Status | Depends on | Planned PRs | Acceptance gate |
+| ---: | --- | --- | --- | ---: | --- |
+| 020 | Postgres wake/lease adapter | **in_progress** | 013 | 1 | Concurrent enqueues coalesce; one live checkout wins transactionally |
+| 021 | Wake claim, compare-and-clear and expiry | ready | 020 | 1–2 | Stale finalizer cannot release another attempt's lease |
+| 022 | Dispatch eligibility engine | planned | 021 | 2 | Agent, blockers, policy, budget and workspace readiness all pass before attempt creation |
+| 023 | Retry/backoff, recovery and dead-letter | planned | 022 | 1–2 | Trigger evidence is retained; retries are bounded and explainable |
+| 024 | Authenticated wake/checkout transport | planned | 020–023 | 1 | Typed conflicts; no direct run start from assignment/comment |
+
+### Stage 3 — IsanAgent vertical execution
+
+| Order | Package | Status | Depends on | Planned PRs | Acceptance gate |
+| ---: | --- | --- | --- | ---: | --- |
+| 030 | Attempt and RunBinding contracts/repositories | planned | 024 | 2 | One attempt binds to one IsanAgent run and immutable profile revision |
+| 031 | Bounded run-context pack | planned | 010, 022, 030 | 1–2 | Organization → goal ancestry → project → work context is complete and bounded |
+| 032 | Agent profile import and lifecycle | planned | 011, 030 | 2 | Built-in/`.altai/agents` import; pause/resume/terminate; org-chart cycles rejected |
+| 033 | Mentions, child reporting and durable coordination | planned | 012, 024 | 2 | Comments survive restart; lateral work becomes assigned child Work |
+| 034 | `AttemptExecutor` start/inspect/steer/cancel/replay | planned | 030–033 | 3 | IsanAgent executes without owning PM/scheduler policy |
+| 035 | Event translation and attempt finalization | planned | 034 | 2 | Run completion signals verification; it never directly completes Work |
+| 036 | Schedule backend seam | planned | 034 | 1 | Exactly one backend is visible and immutable per attempt |
+
+### Stage 4 — Routines, governance and autonomous safety
+
+| Order | Package | Status | Depends on | Planned PRs | Acceptance gate |
+| ---: | --- | --- | --- | ---: | --- |
+| 040 | Routine/revision/run contracts and command port | planned | 024 | 2 | Versioned routine intent exists without registering two schedulers |
+| 041 | Scheduler materialization and cron bridge | planned | 036, 040 | 2 | Managed `cron` creates Routine/Wake; native modes remain supported |
+| 042 | Approvals and governance | planned | 035 | 2–3 | Decisions bind scope and payload revision; audit is immutable |
+| 043 | Usage/cost ledger and budgets | planned | 035 | 2–3 | Cost attributed by org/project/agent/work/attempt; hard stops enforce |
+| 044 | Liveness, monitors and recovery | planned | 023, 035, 041 | 2 | Crash/restart recovery preserves ownership and explainability |
+| 045 | Evidence, quality gates and safe delivery | planned | 035, 042 | 3 | Completion requires evidence/review; delivery actions are governed |
+
+### Stage 5 — Workspace, protocol and multi-surface runtime
+
+| Order | Package | Status | Depends on | Planned PRs | Acceptance gate |
+| ---: | --- | --- | --- | ---: | --- |
+| 050 | Workspace resolution/isolation/delivery | planned | 031, 045 | 2 | Moved checkout keeps identity; permissions and repository scopes fail closed |
+| 051 | Public versioned control protocol | planned | 035, 042–044 | 2 | Command/query/event conformance across local and deployed transports |
+| 052 | Daemon lifecycle, migration runner and PGlite parity | planned | 051 | 2 | Postgres and embedded local mode share semantics and integration tests |
+| 053 | Desktop/IDE/Studio/CLI adapters | planned | 051, 052 | 3–4 | Same command causes the same transition on every host |
+
+### Stage 6 — Operations product surfaces
+
+| Order | Package | Status | Depends on | Planned PRs | Acceptance gate |
+| ---: | --- | --- | --- | ---: | --- |
+| 060 | Read-model projections and activity stream | planned | 035, 042–044 | 2 | Server projections, not frontend store joins, answer operational queries |
+| 061 | Operations shell and context switcher | planned | 052, 060 | 2 | Health/offline/org/project context states are explicit |
+| 062 | Work board/list/detail/graph | planned | 024, 060 | 2–3 | Status, execution phase and attention remain distinct |
+| 063 | Runs hub and Run Inspector | planned | 035, 045, 060 | 2–3 | Timeline, transcript, approvals, evidence and delivery are inspectable |
+| 064 | Agents, org chart and profile administration | planned | 032, 060 | 2 | Lifecycle and reporting mutations use control-plane commands |
+| 065 | Governance, approvals, budgets and audit dashboards | planned | 042, 043, 060 | 2–3 | Every decision/cost/stop is attributable and drillable |
+| 066 | Inbox, My Work, routines and recovery UI | planned | 041, 044, 060 | 2–3 | Attention and scheduled work have one canonical projection |
+| 067 | Chat Work/Task/Automation mini-apps | planned | 062, 063, 066 | 2 | Chat embeds shortcuts/projections; it does not own durable state |
+| 068 | Canvas 2D Work board | planned | 062 | 1–2 | Measured large-graph usability and accessible non-canvas fallback |
+
+### Stage 7 — External systems and application plugins
+
+| Order | Package | Status | Depends on | Planned PRs | Acceptance gate |
+| ---: | --- | --- | --- | ---: | --- |
+| 070 | ExternalObject model and GitHub adapter | planned | 051, 060 | 2–3 | Idempotent sync, explicit authority and conflict resolution |
+| 071 | Application plugin manifest/capabilities | planned | 051 | 2 | Agent-content and application plugins are distinct; upgrades disclose capability expansion |
+| 072 | Out-of-process plugin workers | planned | 071 | 2–3 | Crash isolation, health, jobs, webhooks, scoped secrets and idempotency |
+| 073 | Schema-driven/sandboxed plugin UI | planned | 061, 072 | 2 | UI cannot bypass worker capability checks |
+| 074 | Full Gmail multi-account adapter | planned | 071–073 | 2–3 | Account isolation, scoped credentials, idempotent thread/message sync |
+
+### Stage 8 — Upstream product/code adoption tracks
+
+These tracks are first-class scope, but each enters only behind a license,
+architecture, security, and replacement decision. “Study” does not count as shipped.
+
+| Order | Track | Status | Depends on | Required decision and outcome |
+| ---: | --- | --- | --- | --- |
+| 080 | Paperclip downstream/codebase | planned | 034, 060 | Organization-owned downstream; preserve license/history/base SHA; select modules through adapter boundaries |
+| 081 | LongHorizon codebase | planned | 035, 044 | Adopt long-running recovery/evaluation mechanisms only after conformance benchmark |
+| 082 | Macro codebase | blocked: legal gate | 071 | License/provenance clearance before any Apache artifact; then isolate adopted modules |
+| 083 | OpenTag codebase | planned | 051, 071 | Normalize tag/metadata concepts without creating a second identity system |
+| 084 | qm codebase | planned | 045, 060 | Adopt quality/evaluation modules behind evidence and replay contracts |
+
+### Stage 9 — Learning, collaboration and advanced clients
+
+| Order | Package | Status | Depends on | Planned PRs | Acceptance gate |
+| ---: | --- | --- | --- | ---: | --- |
+| 090 | Repository readiness and context-pack builder | planned | 031, 045 | 2 | Context ferrying is reduced/measured; canonical state is referenced, not recopied |
+| 091 | Evaluation, replay and quality dashboard | planned | 045, 084 | 2–3 | Deterministic replay and comparable quality/cost evidence |
+| 092 | Smart routing and learning/playbooks | planned | 043, 091 | 2 | Routing is explainable, budget-aware and reversible |
+| 093 | Remote workers and collaboration notifications | planned | 051, 052 | 2–3 | Credential broker, worker isolation, durable notification delivery |
+| 094 | CRDT/offline/mobile discovery and benchmark | planned | 051, 060 | 1 research PR | Measured need, conflict model, security and cost decision before implementation |
+| 095 | CRDT/offline/mobile implementation | blocked: discovery | 094 | 3+ | Only starts if 094 approves it; identity and authority remain server-compatible |
+
+### Stage 10 — Migration, cutover and release
+
+| Order | Package | Status | Depends on | Planned PRs | Acceptance gate |
+| ---: | --- | --- | --- | ---: | --- |
+| 100 | Legacy read-only importers | planned | 052 | 2 | Assignment/todo/orchestration state imports idempotently |
+| 101 | Per-workspace single-writer cutover | planned | 053, 060, 100 | 2 | No workspace has two authoritative mutation paths |
+| 102 | Legacy UI/store/menu deletion | planned | 061–067, 101 | 2–4 | Replacement parity and rollback evidence accepted before deletion |
+| 103 | Security, soak, chaos and performance gates | planned | all runtime stages | 3 | Recovery >99.9% target, cross-org leaks zero, bounded queue/graph performance |
+| 104 | Production rollout and success metrics | planned | 103 | 1–2 | Feature flags, staged cohorts, observability and rollback runbooks accepted |
+
+## 4. Immediate execution queue
+
+The next PRs are fixed until this list is updated by an accepted change:
+
+1. `CP-07-03` — Postgres wake/lease adapter with transactional coalescing.
+2. `CP-07-04` — Claim/expiry/compare-and-clear semantics and concurrency tests.
+3. `CP-07-05` — Dispatch eligibility engine with agent and dependency checks.
+4. `CP-07-06` — Retry/recovery/dead-letter state.
+5. `CP-07-07` — Authenticated wake/checkout transport.
+6. `CP-08-01` — Attempt and RunBinding shared contracts.
+7. `CP-08-02` — Attempt/RunBinding repositories and Postgres adapter.
+8. `CP-08-03` — IsanAgent `AttemptExecutor` conformance seam.
+
+## 5. Project-manager update protocol
+
+For every Work OS PR:
+
+1. Set exactly one package to `in_progress` before implementation.
+2. Put task ID and backlog order in the PR title/body.
+3. Wait for required CI; fix failures on the same PR.
+4. Merge only after acceptance evidence is green.
+5. Change the package to `accepted` or advance its remaining scope.
+6. Move the next dependency-satisfied package to `in_progress`.
+7. Recalculate percentages only from accepted exit gates.
+
+No chat statement, local commit, or open PR counts as completion.

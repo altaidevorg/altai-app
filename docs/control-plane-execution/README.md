@@ -16,6 +16,7 @@ for all control-plane implementation tasks.
 
 | File | Purpose |
 | --- | --- |
+| `WORK_OS_PROGRAM_BACKLOG.md` | **Canonical PM order:** current status, next package, dependencies, PR slices, acceptance gates, and progress percentages. |
 | `CONTEXT.md` | Compact canonical architecture brief. Copied verbatim into every task packet. |
 | `CURRENT_STATE.md` | Accepted tasks, schema/protocol versions, active flags, blockers. Updated only on task acceptance. |
 | `DECISIONS.md` | Accepted decision index and superseded conflicts. |
@@ -25,6 +26,10 @@ for all control-plane implementation tasks.
 | `inventory/` | (Created by GLM-CAL-01) Route/store/state-owner inventory. |
 
 ## How to Use
+
+Read `WORK_OS_PROGRAM_BACKLOG.md` first. If another document lists a different
+implementation order, this backlog controls sequencing; the parent engineering
+plan continues to control architecture and scope.
 
 ### If you are defining a new task
 
