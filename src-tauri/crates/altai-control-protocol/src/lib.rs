@@ -13,6 +13,7 @@ pub mod event;
 pub mod id;
 pub mod registration;
 pub mod revision;
+pub mod work;
 
 pub use actor::{Actor, ActorKind};
 pub use error::{ControlError, ControlErrorCode};
@@ -23,3 +24,4 @@ pub use registration::{
     RegisteredHost, CONTROL_PLANE_PROTOCOL_MAJOR,
 };
 pub use revision::Revision;
+pub use work::{ExecutionPhase, WorkItem, WorkItemKind, WorkStatus};

@@ -86,3 +86,10 @@ fn host_registration_fixture_round_trips() {
     let parsed: HostRegistration = serde_json::from_value(value.clone()).unwrap();
     assert_round_trip("host-registration.json", &value, parsed);
 }
+
+#[test]
+fn work_item_fixture_round_trips() {
+    let value = read_fixture("work-item.json");
+    let parsed: WorkItem = serde_json::from_value(value.clone()).unwrap();
+    assert_round_trip("work-item.json", &value, parsed);
+}
