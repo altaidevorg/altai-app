@@ -1,7 +1,7 @@
 use altai_control_plane::{
-    router_with_all_repositories, BootstrapCredential, ControlPlane, ControlPlaneConfig,
+    router_with_control_repositories, BootstrapCredential, ControlPlane, ControlPlaneConfig,
     ControlPlaneStore, SqliteAgentRepository, SqliteRegistrationRepository, SqliteScopeRepository,
-    SqliteWorkGraphRepository,
+    SqliteWakeRepository, SqliteWorkGraphRepository,
 };
 use altai_core::resolve_workspace;
 use clap::Parser;
@@ -47,6 +47,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     scope_repository.ensure_default_local_organization()?;
     let agent_repository = Arc::new(SqliteAgentRepository::open(&work_db)?);
     let work_graph_repository = Arc::new(SqliteWorkGraphRepository::open(&work_db)?);
+    let wake_repository = Arc::new(SqliteWakeRepository::open(&work_db)?);
     let plane = Arc::new(ControlPlane::with_registration_repository(
         config,
         Arc::new(SqliteRegistrationRepository::open(&work_db)?),
@@ -58,12 +59,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
     axum::serve(
         listener,
-        router_with_all_repositories(
+        router_with_control_repositories(
             plane,
             credential,
             Some(scope_repository),
             Some(agent_repository),
             Some(work_graph_repository),
+            wake_repository,
         ),
     )
     .await?;
