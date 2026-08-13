@@ -5,7 +5,7 @@
 >
 > **Date:** 2026-08-13
 >
-> **Last updated by:** Work OS program reconciliation through PR #731
+> **Last updated by:** Local SQLite consolidation through PRs #734–#735
 
 ## Accepted Tasks
 
@@ -20,10 +20,11 @@ All current and future ordering comes from `WORK_OS_PROGRAM_BACKLOG.md`.
 | CP-00-01 | accepted | working tree (uncommitted) | 2026-08-03 | ADR 0001/0002 amended for control-plane scope; ADR 0003 created codifying control-plane/execution-plane split; Agent Operations plan ownership sections marked superseded; DEC-009 recorded |
 | CP-00-02 | accepted | working tree (uncommitted) | 2026-08-03 | Architecture boundary tests: Rust 6/6 (altai-agent-service must not import control-plane crates; workspace member verification; self-tests); TS 14/14 (glob matching, import detection, scanFiles with simulated violations); cargo check + tsc --noEmit pass |
 | CP-01-01 | accepted | working tree (uncommitted) | 2026-08-03 | Core domain contracts: `altai-control-protocol` Rust crate (16 typed IDs, Revision, Actor, ControlError, ActivityEvent/ControlEvent) + `@altai/control-contract` TS package; Rust 28/28 (23 lib + 5 fixture round-trips), TS 21/21; golden fixtures byte-identical both sides; boundary tests updated for new workspace member |
-| CP-02/03 foundation | accepted foundation | PRs #703–#713 | 2026-08-13 | Authenticated daemon, registration repository/Postgres adapter, canonical Work lifecycle and typed local hierarchy |
-| CP-04-01 | accepted foundation | PRs #714–#720 | 2026-08-13 | Organization/Goal/Project/Workspace contracts, repositories, Postgres adapter, default local organization and bounded transport |
-| CP-05-01 | accepted foundation | PRs #721–#724 | 2026-08-13 | Agent profile revision/instance contracts, repository, Postgres adapter and authenticated mutations |
-| CP-06-01/02 | accepted foundation | PRs #725–#728 | 2026-08-13 | Parent/dependency/comment contracts, cycle-safe repository, Postgres adapter and authenticated mutations |
+| CP-02/03 foundation | accepted foundation | PRs #703–#713, #734 | 2026-08-13 | Authenticated daemon, local SQLite registration in workspace `work.db`, canonical Work lifecycle and typed local hierarchy |
+| CP-04-01 | accepted foundation | PRs #714–#720, #735 | 2026-08-13 | Organization/Goal/Project/Workspace contracts, local SQLite persistence, default local organization and bounded transport |
+| CP-05-01 | accepted foundation | PRs #721–#724, #735 | 2026-08-13 | Agent profile revision/instance contracts, local SQLite registry and authenticated mutations |
+| CP-06-01/02 | accepted foundation | PRs #725–#728, #735 | 2026-08-13 | Parent/dependency/comment contracts, cycle-safe local SQLite graph and authenticated mutations |
+| CP-LS-01/02 | accepted | PRs #734–#735 | 2026-08-13 | Desktop control-plane persistence consolidated in the existing workspace `work.db`; no Postgres, PGlite, Docker or second local DB |
 | CP-07-01 | accepted | PRs #729–#730 | 2026-08-13 | Wake/lease contracts and in-memory coalescing/exclusive-checkout repository port |
 
 ## Current Schema and Protocol Versions
@@ -33,7 +34,7 @@ All current and future ordering comes from `WORK_OS_PROGRAM_BACKLOG.md`.
 | Agent host protocol (`shared/agent-protocol/v1/`) | v1 | accepted (ADR 0002) |
 | Host contract (`packages/host-contract/`) | v1 | accepted |
 | Control-plane protocol (`shared/control-protocol/v1/`) | v1 (partial) | Core identity plus Work, organization/scope, agent, graph/comment and wake/lease contracts accepted; Attempt, Routine, governance and projection contracts remain |
-| Control-plane DB schema | bootstrap v1 (code-created tables) | registration, scope, agent and Work graph Postgres adapters accepted; versioned migration runner and live integration suite pending |
+| Control-plane DB schema | bootstrap v1 (code-created tables) | registration, scope, agent and Work graph local SQLite adapters share `work.db`; versioned migration runner and live integration suite pending |
 
 ## Active Feature Flags
 
@@ -53,7 +54,7 @@ All current and future ordering comes from `WORK_OS_PROGRAM_BACKLOG.md`.
 
 | Task ID | Risk | Depends on | Status |
 | --- | --- | --- | --- |
-| CP-07-03 | C | CP-07-01 | **in progress** — Postgres wake/lease adapter |
+| CP-07-03 | C | CP-07-01 | **ready next** — SQLite wake/lease adapter |
 | CP-07-04 | C | CP-07-03 | ready next — claim/expiry/compare-and-clear |
 | CP-07-05 | C | CP-07-04 | planned — dispatch eligibility |
 
@@ -80,6 +81,6 @@ All current and future ordering comes from `WORK_OS_PROGRAM_BACKLOG.md`.
 - The agent host protocol (ADR 0002) and shared agent service (ADR 0001) are
   accepted. They govern the execution plane, not control-plane ownership.
 - CP-00 ADR amendments will amend ADR 0001 and 0002 to add control-plane scope.
-- Control-plane production code exists through PR #730. It is not yet an
-  end-to-end executor: Postgres wake/lease, AttemptExecutor/RunBinding,
+- Control-plane production code exists through PR #735. It is not yet an
+  end-to-end executor: SQLite wake/lease, AttemptExecutor/RunBinding,
   governance, projections, product surfaces, plugins and cutover remain.
