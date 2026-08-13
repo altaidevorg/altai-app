@@ -13,6 +13,7 @@ pub mod postgres_scope;
 pub mod scope_repository;
 mod service;
 pub mod transport;
+pub mod work_graph_repository;
 
 pub use agent_repository::{AgentRepository, AgentRepositoryError, InMemoryAgentRepository};
 pub use altai_control_protocol::{
@@ -30,3 +31,4 @@ pub use transport::{
     router, router_with_repositories, router_with_scope_repository, BootstrapCredential,
     TransportError,
 };
+pub use work_graph_repository::{InMemoryWorkGraphRepository, WorkGraphError, WorkGraphRepository};
