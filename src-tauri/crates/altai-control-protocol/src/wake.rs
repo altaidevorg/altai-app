@@ -32,5 +32,6 @@ pub struct WorkCheckoutLease {
     pub work_item_id: WorkItemId,
     pub owner_agent_instance_id: AgentInstanceId,
     pub attempt_id: AttemptId,
-    pub expires_at: String,
+    /// Comparable wall-clock expiry used for transactional lease recovery.
+    pub expires_at_unix_seconds: u64,
 }

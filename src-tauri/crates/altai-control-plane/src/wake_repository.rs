@@ -6,6 +6,7 @@ use std::{collections::HashMap, sync::Mutex};
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum WakeError {
     ActiveCheckout { work_item_id: String },
+    AlreadyClaimed { work_item_id: String },
     NotFound { work_item_id: String },
     Internal { reason: String },
 }
@@ -16,7 +17,12 @@ pub trait WakeRepository: Send + Sync {
         source: WakeSource,
         requested_at: String,
     ) -> Result<WakeRequest, WakeError>;
-    fn checkout(&self, lease: WorkCheckoutLease) -> Result<(), WakeError>;
+    fn checkout(&self, lease: WorkCheckoutLease, now_unix_seconds: u64) -> Result<(), WakeError>;
+    fn claim_wake(
+        &self,
+        work_item_id: &WorkItemId,
+        claimed_at: String,
+    ) -> Result<WakeRequest, WakeError>;
     fn release_checkout(
         &self,
         work_item_id: &WorkItemId,
@@ -63,7 +69,7 @@ impl WakeRepository for InMemoryWakeRepository {
         };
         Ok(wake.clone())
     }
-    fn checkout(&self, lease: WorkCheckoutLease) -> Result<(), WakeError> {
+    fn checkout(&self, lease: WorkCheckoutLease, _now_unix_seconds: u64) -> Result<(), WakeError> {
         let mut state = self.lock()?;
         let key = lease.work_item_id.value.clone();
         if state.leases.contains_key(&key) {
@@ -71,6 +77,26 @@ impl WakeRepository for InMemoryWakeRepository {
         };
         state.leases.insert(key, lease);
         Ok(())
+    }
+    fn claim_wake(
+        &self,
+        work_item_id: &WorkItemId,
+        claimed_at: String,
+    ) -> Result<WakeRequest, WakeError> {
+        let mut state = self.lock()?;
+        let wake = state
+            .wakes
+            .get_mut(&work_item_id.value)
+            .ok_or_else(|| WakeError::NotFound {
+                work_item_id: work_item_id.value.clone(),
+            })?;
+        if wake.claimed_at.is_some() {
+            return Err(WakeError::AlreadyClaimed {
+                work_item_id: work_item_id.value.clone(),
+            });
+        }
+        wake.claimed_at = Some(claimed_at);
+        Ok(wake.clone())
     }
     fn release_checkout(
         &self,
@@ -113,11 +139,11 @@ mod tests {
             work_item_id: work.clone(),
             owner_agent_instance_id: AgentInstanceId::new("a"),
             attempt_id: AttemptId::new("a"),
-            expires_at: "later".to_string(),
+            expires_at_unix_seconds: 10,
         };
-        repo.checkout(lease.clone()).unwrap();
+        repo.checkout(lease.clone(), 0).unwrap();
         assert!(matches!(
-            repo.checkout(lease),
+            repo.checkout(lease, 0),
             Err(WakeError::ActiveCheckout { .. })
         ));
     }
