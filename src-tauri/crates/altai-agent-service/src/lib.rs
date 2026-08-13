@@ -9,6 +9,7 @@ pub mod acks;
 pub mod channel;
 pub mod compaction;
 pub mod delivery;
+pub mod attempt_executor;
 pub mod event;
 pub mod event_map;
 pub mod host;
@@ -24,6 +25,9 @@ pub mod sink;
 pub mod workspace_services;
 
 pub use acks::{CancelAck, DocumentPart, ManualCompactionAck, SendAck, SteerAck};
+pub use attempt_executor::{
+    AttemptExecutionRequest, AttemptExecutionStatus, AttemptExecutor, AttemptExecutorError,
+};
 pub use channel::ServiceChannel;
 pub use compaction::CompactionArg;
 pub use delivery::{

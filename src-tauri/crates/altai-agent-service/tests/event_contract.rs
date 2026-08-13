@@ -42,7 +42,7 @@ fn desktop_envelope_json_matches_the_existing_contract() {
     let envelope = AgentEventEnvelope::run("chat-1", "run-1", 2, event);
     assert_eq!(
         serde_json::to_string(&envelope).unwrap(),
-        r#"{"version":1,"scope":"run","runId":"run-1","seq":2,"chatId":"chat-1","event":{"content":"hello","role":"assistant","type":"agent_message"}}"#,
+        r#"{"version":1,"scope":"run","runId":"run-1","seq":2,"chatId":"chat-1","event":{"type":"agent_message","content":"hello","role":"assistant"}}"#,
     );
 }
 

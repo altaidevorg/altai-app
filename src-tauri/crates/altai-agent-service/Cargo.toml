@@ -8,6 +8,7 @@ repository = "https://github.com/altaidevorg/altai-app"
 
 [dependencies]
 altai-core = { path = "../altai-core" }
+altai-control-protocol = { path = "../altai-control-protocol" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 # İsanAgent — embedded as Rust crate (direct API, no sidecar).
