@@ -122,6 +122,7 @@ pub trait HostControlPlane: Send + Sync {
         documents: Vec<DocumentPart>,
         chat_id: String,
         queue: bool,
+        requested_run_id: Option<String>,
     ) -> Result<SendAck, String>;
 
     async fn cancel_run(&self, chat_id: String, run_id: String) -> Result<(), String>;
@@ -133,4 +134,3 @@ pub trait HostControlPlane: Send + Sync {
         content: String,
     ) -> Result<(), String>;
 }
-
