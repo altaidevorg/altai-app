@@ -2,28 +2,22 @@
 
 Date: 2026-08-03
 
-Status: Superseded in part (2026-08-13)
+Status: Amended (2026-08-13)
 
-## Superseding amendment (2026-08-13): federated control plane
+## Superseding amendment (2026-08-13): desktop-local SQLite
 
-The 2026-08-11 amendment was the correct deployment boundary for the shipped
-local-first Work OS M1. It is superseded for all new control-plane work by the
-federated architecture in the canonical
-[ALTAI Work OS plan](https://github.com/altaidevorg/altai-agent-work-os/blob/main/ENGINEERING.md).
+The 2026-08-11 amendment remains the deployment boundary for desktop Work OS.
+All durable Work OS state—organization, identity, Goal, Campaign, Ticket,
+Task, policy, approvals, leases and projections—lives in the existing
+workspace-local SQLite `work.db`. A control-plane module may own these fields,
+but it runs inside the desktop application and does not introduce a second
+database or user-managed daemon.
 
-ALTAI now introduces an always-on `altai-control-plane` service and a global
-control database (Postgres in deployed environments; PGlite where an embedded
-local control database is selected). The service is the authoritative owner of
-organization, identity, Goal, Campaign, Ticket, Task, global Work intent,
-policy, approvals, collaboration metadata, dispatch leases and global
-projections.
-
-The existing workspace-local `work.db` remains. It is authoritative only for
-execution facts: Attempt admission after a valid lease, exact run/session
-binding, local journal/recovery, artifacts, locally produced Review evidence,
-and durable synchronization inbox/outbox/cursors. The two stores must never
-own the same field. Synchronization uses revisions, leases, idempotency keys,
-durable cursors and tombstones; last-write-wins is forbidden.
+IsanAgent's event journal remains a specialized append-only execution record;
+it is not a second authoritative Work store. A multi-machine product, if
+separately accepted, will expose an ALTAI-managed backend API. Its Postgres
+implementation would be backend infrastructure and is out of scope for the
+desktop application.
 
 This amendment does **not** weaken M1 guarantees:
 
@@ -33,10 +27,9 @@ This amendment does **not** weaken M1 guarantees:
 - Existing local Work data remains readable and migrates through an explicit,
   reversible import/reconciliation path.
 
-Implementation must begin with a versioned, authenticated control-plane
-registration/health boundary and an explicit field-authority schema before
-moving any existing Work mutation. `altai-agent-service` is a connected
-execution host; it must not depend on control-plane persistence.
+Implementation must use versioned, authenticated boundaries and explicit field
+authority before moving any existing Work mutation. `altai-agent-service`
+remains an execution host; it must not own project-management policy.
 
 ## Amendment (2026-08-11)
 

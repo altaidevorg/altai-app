@@ -7,12 +7,9 @@
 //! ledgers through the registered host identity.
 
 pub mod agent_repository;
-pub mod postgres;
-pub mod postgres_agent;
-pub mod postgres_scope;
-pub mod postgres_work_graph;
 pub mod scope_repository;
 mod service;
+pub mod sqlite_registration;
 pub mod transport;
 pub mod wake_repository;
 pub mod work_graph_repository;
@@ -21,15 +18,12 @@ pub use agent_repository::{AgentRepository, AgentRepositoryError, InMemoryAgentR
 pub use altai_control_protocol::{
     ControlPlaneHealth, HostCapabilities, HostRegistration, HostRegistrationRequest, RegisteredHost,
 };
-pub use postgres::PostgresRegistrationRepository;
-pub use postgres_agent::PostgresAgentRepository;
-pub use postgres_scope::PostgresScopeRepository;
-pub use postgres_work_graph::PostgresWorkGraphRepository;
 pub use scope_repository::{InMemoryScopeRepository, ScopeError, ScopeRepository};
 pub use service::{
     ControlPlane, ControlPlaneConfig, ControlPlaneError, ControlPlaneStore, RegistrationCommit,
     RegistrationGrant, RegistrationRepository,
 };
+pub use sqlite_registration::SqliteRegistrationRepository;
 pub use transport::{
     router, router_with_all_repositories, router_with_repositories, router_with_scope_repository,
     BootstrapCredential, TransportError,

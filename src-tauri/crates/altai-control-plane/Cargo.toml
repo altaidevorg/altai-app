@@ -8,11 +8,12 @@ repository = "https://github.com/altaidevorg/altai-app"
 
 [dependencies]
 altai-control-protocol = { path = "../altai-control-protocol" }
+altai-core = { path = "../altai-core" }
 axum = "0.8"
 clap = { version = "4.6.1", features = ["derive", "env"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-postgres = { version = "0.19", features = ["with-serde_json-1"] }
+rusqlite = { version = "0.38", features = ["bundled"] }
 sha2 = "0.10"
 subtle = "2.6"
 tokio = { version = "1", features = ["macros", "net", "rt-multi-thread"] }
@@ -20,3 +21,4 @@ uuid = { version = "1", features = ["v4"] }
 
 [dev-dependencies]
 tower = { version = "0.5", features = ["util"] }
+tempfile = "3"

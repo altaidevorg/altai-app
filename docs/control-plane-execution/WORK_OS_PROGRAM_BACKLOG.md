@@ -5,7 +5,7 @@
 > engineering plan supplies architecture and scope constraints but cannot create
 > a competing queue. Update this file in every accepted Work OS PR.
 >
-> **Baseline:** `main` through PR #731, 2026-08-13.
+> **Baseline:** `main` through PR #732, 2026-08-13.
 
 ## 1. Operating model
 
@@ -54,21 +54,22 @@ changes only when an exit gate is accepted.
 | 002 | Shared IDs, actors, revisions, errors and fixtures | accepted | #705, #711 | Rust/TS boundary round-trips |
 | 003 | Authenticated daemon and host registration | accepted | #704–#707, #712–#713 | Durable one-time registration; unauthenticated access fails |
 | 004 | Canonical Work and local typed hierarchy | accepted | #708, #710–#711 | Task/Ticket/Campaign identity survives sessions |
+| 005 | Local SQLite consolidation | **in_progress** | 004 | Remove Postgres/PGlite and second-store assumptions; keep all desktop Work OS state in `work.db` |
 
 ### Stage 1 — Durable organizational control plane
 
 | Order | Package | Status | Depends on | Exit gate / remaining scope |
 | ---: | --- | --- | --- | --- |
-| 010 | CP-04 Organization/Goal/Project/Workspace | accepted foundation | 004 | Contracts, Postgres, default org and bounded API accepted (#714–#720). Full run-context assembly moves to 031 |
-| 011 | CP-05 Agent registry and org structure | accepted foundation | 010 | Contracts, repository, Postgres and create API accepted (#721–#724). Import/update/lifecycle moves to 032 |
-| 012 | CP-06 Work graph and comments | accepted foundation | 004 | Parent/blocker/comment contracts, persistence and API accepted (#725–#728). Mentions/reporting moves to 033 |
+| 010 | CP-04 Organization/Goal/Project/Workspace | rework queued | 005 | Contracts/API accepted (#714–#720); replace removed Postgres adapter with `work.db` SQLite persistence. Full run-context assembly moves to 031 |
+| 011 | CP-05 Agent registry and org structure | rework queued | 005, 010 | Contracts/API accepted (#721–#724); replace removed Postgres adapter with `work.db` SQLite persistence |
+| 012 | CP-06 Work graph and comments | rework queued | 005, 010 | Contracts/API accepted (#725–#728); replace removed Postgres adapter with `work.db` SQLite persistence |
 | 013 | CP-07A Wake coalescing and checkout port | accepted | 011, 012 | Shared models and coalescing/exclusive lease port accepted (#729–#730) |
 
 ### Stage 2 — Dispatch correctness (NOW)
 
 | Order | Package | Status | Depends on | Planned PRs | Acceptance gate |
 | ---: | --- | --- | --- | ---: | --- |
-| 020 | Postgres wake/lease adapter | **in_progress** | 013 | 1 | Concurrent enqueues coalesce; one live checkout wins transactionally |
+| 020 | SQLite wake/lease adapter | planned | 005, 013 | 1 | Concurrent local enqueues coalesce; one live checkout wins transactionally |
 | 021 | Wake claim, compare-and-clear and expiry | ready | 020 | 1–2 | Stale finalizer cannot release another attempt's lease |
 | 022 | Dispatch eligibility engine | planned | 021 | 2 | Agent, blockers, policy, budget and workspace readiness all pass before attempt creation |
 | 023 | Retry/backoff, recovery and dead-letter | planned | 022 | 1–2 | Trigger evidence is retained; retries are bounded and explainable |
@@ -103,7 +104,7 @@ changes only when an exit gate is accepted.
 | ---: | --- | --- | --- | ---: | --- |
 | 050 | Workspace resolution/isolation/delivery | planned | 031, 045 | 2 | Moved checkout keeps identity; permissions and repository scopes fail closed |
 | 051 | Public versioned control protocol | planned | 035, 042–044 | 2 | Command/query/event conformance across local and deployed transports |
-| 052 | Daemon lifecycle, migration runner and PGlite parity | planned | 051 | 2 | Postgres and embedded local mode share semantics and integration tests |
+| 052 | Local migration runner and lifecycle | planned | 051 | 2 | `work.db` migrations and app lifecycle share one tested local semantic model |
 | 053 | Desktop/IDE/Studio/CLI adapters | planned | 051, 052 | 3–4 | Same command causes the same transition on every host |
 
 ### Stage 6 — Operations product surfaces
@@ -168,14 +169,14 @@ architecture, security, and replacement decision. “Study” does not count as 
 
 The next PRs are fixed until this list is updated by an accepted change:
 
-1. `CP-07-03` — Postgres wake/lease adapter with transactional coalescing.
-2. `CP-07-04` — Claim/expiry/compare-and-clear semantics and concurrency tests.
-3. `CP-07-05` — Dispatch eligibility engine with agent and dependency checks.
-4. `CP-07-06` — Retry/recovery/dead-letter state.
-5. `CP-07-07` — Authenticated wake/checkout transport.
-6. `CP-08-01` — Attempt and RunBinding shared contracts.
-7. `CP-08-02` — Attempt/RunBinding repositories and Postgres adapter.
-8. `CP-08-03` — IsanAgent `AttemptExecutor` conformance seam.
+1. `CP-LS-01` — Move registration durability from Postgres to local `work.db` SQLite.
+2. `CP-LS-02` — Move scope, agent registry and Work graph persistence to local `work.db` SQLite.
+3. `CP-07-03` — SQLite wake/lease adapter with transactional coalescing.
+4. `CP-07-04` — Claim/expiry/compare-and-clear semantics and concurrency tests.
+5. `CP-07-05` — Dispatch eligibility engine with agent and dependency checks.
+6. `CP-07-06` — Retry/recovery/dead-letter state.
+7. `CP-07-07` — Authenticated wake/checkout transport.
+8. `CP-08-01` — Attempt and RunBinding shared contracts.
 
 ## 5. Project-manager update protocol
 
