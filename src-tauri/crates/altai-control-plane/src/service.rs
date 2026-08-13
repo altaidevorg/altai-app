@@ -8,14 +8,12 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
 
-/// Selected global control-database topology. Connection/bootstrap is a later
-/// integration concern; this contract validates that callers cannot confuse
-/// the two supported deployment modes.
+/// Desktop Work OS persistence topology. State always lives in the existing
+/// workspace SQLite database.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ControlPlaneStore {
-    Postgres { connection_url: String },
-    Pglite { data_dir: String },
+    Sqlite { database_path: String },
 }
 
 /// Immutable service configuration supplied by the daemon/bootstrap layer.
@@ -40,18 +38,9 @@ impl ControlPlaneConfig {
             });
         }
         match &self.store {
-            ControlPlaneStore::Postgres { connection_url }
-                if !connection_url.starts_with("postgres://")
-                    && !connection_url.starts_with("postgresql://") =>
-            {
+            ControlPlaneStore::Sqlite { database_path } if database_path.trim().is_empty() => {
                 Err(ControlPlaneError::InvalidConfig {
-                    reason: "Postgres connection_url must use postgres:// or postgresql://"
-                        .to_string(),
-                })
-            }
-            ControlPlaneStore::Pglite { data_dir } if data_dir.trim().is_empty() => {
-                Err(ControlPlaneError::InvalidConfig {
-                    reason: "PGlite data_dir must not be empty".to_string(),
+                    reason: "SQLite database_path must not be empty".to_string(),
                 })
             }
             _ => Ok(()),
@@ -200,8 +189,7 @@ impl RegistrationRepository for InMemoryRegistrationRepository {
 }
 
 /// Control-plane bootstrap service. It defaults to a non-durable in-memory
-/// repository for development; deployed Postgres/PGlite adapters must be
-/// injected through [`ControlPlane::with_registration_repository`].
+/// repository for tests; the local SQLite adapter is injected by the daemon.
 pub struct ControlPlane {
     config: ControlPlaneConfig,
     registration_repository: Arc<dyn RegistrationRepository>,
@@ -235,10 +223,7 @@ impl ControlPlane {
         Ok(ControlPlaneHealth {
             service_version: self.config.service_version.clone(),
             protocol_major: CONTROL_PLANE_PROTOCOL_MAJOR,
-            store_kind: match self.config.store {
-                ControlPlaneStore::Postgres { .. } => "postgres".to_string(),
-                ControlPlaneStore::Pglite { .. } => "pglite".to_string(),
-            },
+            store_kind: "sqlite".to_string(),
             registered_host_count,
             database_adapter_ready: self.registration_repository.database_adapter_ready(),
         })
@@ -320,8 +305,8 @@ mod tests {
     fn config() -> ControlPlaneConfig {
         ControlPlaneConfig {
             service_version: "0.1.0".to_string(),
-            store: ControlPlaneStore::Pglite {
-                data_dir: "/tmp/altai-control".to_string(),
+            store: ControlPlaneStore::Sqlite {
+                database_path: "/tmp/work.db".to_string(),
             },
             registration_ttl_seconds: 60,
         }
@@ -348,7 +333,7 @@ mod tests {
             ControlPlaneHealth {
                 service_version: "0.1.0".to_string(),
                 protocol_major: 1,
-                store_kind: "pglite".to_string(),
+                store_kind: "sqlite".to_string(),
                 registered_host_count: 0,
                 database_adapter_ready: false,
             }
@@ -406,8 +391,8 @@ mod tests {
     #[test]
     fn rejects_unsupported_store_configuration() {
         let mut invalid = config();
-        invalid.store = ControlPlaneStore::Postgres {
-            connection_url: "sqlite:///not-global.db".to_string(),
+        invalid.store = ControlPlaneStore::Sqlite {
+            database_path: String::new(),
         };
         assert!(matches!(
             ControlPlane::bootstrap(invalid),

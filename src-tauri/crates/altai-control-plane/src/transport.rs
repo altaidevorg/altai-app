@@ -490,8 +490,8 @@ mod tests {
         let plane = Arc::new(
             ControlPlane::bootstrap(ControlPlaneConfig {
                 service_version: "0.1.0".to_string(),
-                store: ControlPlaneStore::Pglite {
-                    data_dir: "/tmp/control-plane-test".to_string(),
+                store: ControlPlaneStore::Sqlite {
+                    database_path: "/tmp/control-plane-test.db".to_string(),
                 },
                 registration_ttl_seconds: 60,
             })

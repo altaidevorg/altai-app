@@ -1,7 +1,7 @@
 //! Repository boundary for the CP-04 global scope model.
 //!
 //! The in-memory implementation is deliberately useful in tests only. A later
-//! adapter persists this exact port in Postgres; callers do not get to bypass
+//! adapter persists this exact port in local SQLite; callers do not get to bypass
 //! its organization and ancestry rules.
 
 use altai_control_protocol::{
