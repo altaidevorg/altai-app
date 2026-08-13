@@ -43,8 +43,8 @@ pub use run_binding_repository::{
     RunBindingError, RunBindingRepository, SqliteRunBindingRepository,
 };
 pub use run_context::{
-    assemble_bounded_run_context, build_bounded_run_context, BoundedRunContext, RunContextError,
-    RunContextInput, MAX_RUN_CONTEXT_BYTES,
+    assemble_bounded_run_context, build_bounded_run_context, load_bounded_run_context,
+    BoundedRunContext, RunContextError, RunContextInput, MAX_RUN_CONTEXT_BYTES,
 };
 pub use scheduler::{ScheduleResult, SchedulerError, SingleWriterScheduler};
 pub use scope_repository::{InMemoryScopeRepository, ScopeError, ScopeRepository};
