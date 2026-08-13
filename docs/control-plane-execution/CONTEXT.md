@@ -10,17 +10,25 @@
 
 ```text
 ALTAI Control Plane decides what should run, why, when, for whom, and under which policy.
-IsanAgent executes one authorized attempt and reports exactly what happened.
+Connected execution hosts execute one authorized attempt and report exactly what happened.
 ```
 
 ## Ownership Model
 
-### ALTAI Control Plane owns
+### Global ALTAI Control Plane owns
 
-- durable organization, goal, project, agent identity, WorkItem;
-- assignment, dependencies, wake queue, checkout/lease;
-- Attempt, Routine, approval, budget, recovery, audit;
-- external synchronization state.
+- durable organization, Goal, Campaign, Ticket, Task, project and agent identity;
+- global Work intent, assignment, dependencies, checkout/lease and wake queue;
+- routine, approval, budget, collaboration metadata, audit and external-sync
+  state;
+- global Attempt/Run/Review projections.
+
+### Workspace-local execution ledger owns
+
+- Attempt admission after a valid control-plane dispatch lease;
+- exact run/session binding, event journal and restart recovery;
+- local artifact/evidence references, Review production and durable sync
+  inbox/outbox/cursors.
 
 ### IsanAgent owns
 
@@ -38,9 +46,10 @@ IsanAgent executes one authorized attempt and reports exactly what happened.
 
 ## Invariants (never violate)
 
-1. **One control-plane owner.** Exactly one service owns lifecycle mutations.
-   React, Tauri commands, IDE webviews, plugins, and IsanAgent may request
-   transitions. They are not authoritative state owners.
+1. **One owner per field.** The global control plane owns global lifecycle and
+   PM fields; the local ledger owns exact execution facts. React, Tauri
+   commands, IDE webviews, plugins and execution backends may request or report
+   transitions, but are not authoritative state owners.
 
 2. **One identity per concept.** These IDs are distinct and never substituted:
    `organization_id`, `goal_id`, `project_id`, `workspace_id`,
@@ -66,9 +75,11 @@ IsanAgent executes one authorized attempt and reports exactly what happened.
    ALTAI-hosted cron backend. Never expose two schedule backends or duplicate
    cron tool definitions.
 
-7. **No invented identities or dual-write.** Do not invent temporary IDs,
-   duplicate stores, renderer schedulers, dual-write, or a second status model.
-   Stop and report if a task requires violating these rules.
+7. **No invented identities or ungoverned dual-write.** Offline objects use
+   globally unique provisional IDs with an origin and one durable mapping.
+   Control/local synchronization uses revisions, leases, idempotency keys,
+   inbox/outbox cursors and tombstones; last-write-wins and a second status
+   model are forbidden.
 
 ## Domain Vocabulary (compact)
 
@@ -148,10 +159,8 @@ src/modules/            Desktop frontend modules (orchestration, ai, github, ...
 
 ### Not-yet-existing crates/packages (to be created by task packets)
 
-- `src-tauri/crates/altai-control-protocol/` — Rust domain contracts (CP-01)
-- `src-tauri/crates/altai-control-plane/` — control DB + repositories (CP-02)
-- `shared/control-protocol/v1/` — golden JSON fixtures for control-plane types
-- `packages/control-contract/` — TypeScript control-plane contracts (CP-01)
+- `src-tauri/crates/altai-control-plane/` — authenticated global control
+  service and adapters (M2)
 
 ## Module Dependency Map
 
