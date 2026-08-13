@@ -46,6 +46,14 @@ impl LegacyWorkBridge {
                  );",
             )
             .map_err(|error| error.to_string())?;
+        match connection.execute_batch(
+            "ALTER TABLE control_plane_legacy_work_mappings
+             ADD COLUMN canonical_revision INTEGER NOT NULL DEFAULT 0;",
+        ) {
+            Ok(()) => {}
+            Err(error) if error.to_string().contains("duplicate column name") => {}
+            Err(error) => return Err(error.to_string()),
+        }
         Ok(Self {
             connection: Mutex::new(connection),
         })
@@ -65,16 +73,16 @@ impl LegacyWorkBridge {
         let connection = self.connection.lock().map_err(|_| {
             LegacyWorkBridgeError::Internal("legacy bridge lock poisoned".into())
         })?;
-        let mapping: Option<(String, i64)> = connection
+        let mapping: Option<(String, i64, i64)> = connection
             .query_row(
-                "SELECT canonical_work_item_id, source_revision
+                "SELECT canonical_work_item_id, source_revision, canonical_revision
                  FROM control_plane_legacy_work_mappings WHERE legacy_work_id = ?1",
                 [&legacy.id],
-                |row| Ok((row.get(0)?, row.get(1)?)),
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
             )
             .optional()
             .map_err(|error| LegacyWorkBridgeError::Internal(error.to_string()))?;
-        if let Some((canonical_id, mapped_revision)) = mapping {
+        if let Some((canonical_id, mapped_revision, _)) = mapping {
             if canonical_id != canonical.id.value {
                 return Err(LegacyWorkBridgeError::CanonicalConflict {
                     legacy_work_id: legacy.id.clone(),
@@ -110,11 +118,42 @@ impl LegacyWorkBridge {
         connection
             .execute(
                 "INSERT INTO control_plane_legacy_work_mappings
-                 (legacy_work_id, canonical_work_item_id, source_revision) VALUES (?1, ?2, ?3)",
-                params![legacy.id, canonical.id.value, source_revision],
+                 (legacy_work_id, canonical_work_item_id, source_revision, canonical_revision) VALUES (?1, ?2, ?3, ?4)",
+                params![legacy.id, canonical.id.value, source_revision, canonical.revision.0 as i64],
             )
             .map_err(|error| LegacyWorkBridgeError::Internal(error.to_string()))?;
         Ok(canonical)
+    }
+
+    /// Advance a projection only if no independent canonical writer changed it
+    /// since this bridge last recorded ownership.
+    pub fn reconcile(
+        &self,
+        repository: &dyn WorkItemRepository,
+        canonical_project_id: &ProjectId,
+        legacy: &WorkItemRecord,
+    ) -> Result<WorkItem, LegacyWorkBridgeError> {
+        let next = project_record(canonical_project_id, legacy);
+        let mapping: Option<(String, i64, i64)> = {
+            let connection = self.connection.lock().map_err(|_| LegacyWorkBridgeError::Internal("legacy bridge lock poisoned".into()))?;
+            connection.query_row(
+                "SELECT canonical_work_item_id, source_revision, canonical_revision FROM control_plane_legacy_work_mappings WHERE legacy_work_id = ?1",
+                [&legacy.id], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            ).optional().map_err(|error| LegacyWorkBridgeError::Internal(error.to_string()))?
+        };
+        let Some((canonical_id, source_revision, canonical_revision)) = mapping else {
+            return self.project(repository, canonical_project_id, legacy);
+        };
+        if canonical_id != next.id.value { return Err(LegacyWorkBridgeError::CanonicalConflict { legacy_work_id: legacy.id.clone() }); }
+        if source_revision == legacy.revision { return self.project(repository, canonical_project_id, legacy); }
+        let expected = Revision::new(canonical_revision as u64);
+        let updated = repository.replace_if_revision(next, expected).map_err(repository_error)?;
+        let connection = self.connection.lock().map_err(|_| LegacyWorkBridgeError::Internal("legacy bridge lock poisoned".into()))?;
+        connection.execute(
+            "UPDATE control_plane_legacy_work_mappings SET source_revision = ?2, canonical_revision = ?3 WHERE legacy_work_id = ?1",
+            params![legacy.id, legacy.revision, updated.revision.0 as i64],
+        ).map_err(|error| LegacyWorkBridgeError::Internal(error.to_string()))?;
+        Ok(updated)
     }
 }
 
@@ -207,12 +246,24 @@ mod tests {
         let projected = bridge.project(&repository, &project_id, &legacy).unwrap();
         assert_eq!(projected.title, "Ship bridge");
         assert_eq!(bridge.project(&repository, &project_id, &legacy).unwrap(), projected);
-        let changed = store
-            .transition(&legacy.id, legacy.revision, WorkState::Ready)
-            .unwrap();
+        let changed = store.start_attempt(&legacy.id, legacy.revision).unwrap();
         assert!(matches!(
             bridge.project(&repository, &project_id, &changed),
             Err(LegacyWorkBridgeError::SourceRevisionChanged { .. })
+        ));
+        let reconciled = bridge.reconcile(&repository, &project_id, &changed).unwrap();
+        assert_eq!(reconciled.status, WorkStatus::InProgress);
+        assert_eq!(reconciled.revision, Revision::new(changed.revision as u64));
+
+        let mut independently_changed = repository.get(&reconciled.id).unwrap();
+        independently_changed.title = "Canonical edit".into();
+        independently_changed.revision = independently_changed.revision.next();
+        repository
+            .replace_if_revision(independently_changed.clone(), reconciled.revision)
+            .unwrap();
+        assert!(matches!(
+            bridge.project(&repository, &project_id, &changed),
+            Err(LegacyWorkBridgeError::CanonicalConflict { .. })
         ));
     }
 }
