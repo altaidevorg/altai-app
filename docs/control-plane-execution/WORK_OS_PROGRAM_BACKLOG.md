@@ -169,14 +169,13 @@ architecture, security, and replacement decision. “Study” does not count as 
 
 The next PRs are fixed until this list is updated by an accepted change:
 
-1. `CP-LS-01` — Move registration durability from Postgres to local `work.db` SQLite.
-2. `CP-LS-02` — Move scope, agent registry and Work graph persistence to local `work.db` SQLite.
-3. `CP-07-03` — SQLite wake/lease adapter with transactional coalescing.
-4. `CP-07-04` — Claim/expiry/compare-and-clear semantics and concurrency tests.
-5. `CP-07-05` — Dispatch eligibility engine with agent and dependency checks.
-6. `CP-07-06` — Retry/recovery/dead-letter state.
-7. `CP-07-07` — Authenticated wake/checkout transport.
-8. `CP-08-01` — Attempt and RunBinding shared contracts.
+1. `CP-LS-02` — Move scope, agent registry and Work graph persistence to local `work.db` SQLite.
+2. `CP-07-03` — SQLite wake/lease adapter with transactional coalescing.
+3. `CP-07-04` — Claim/expiry/compare-and-clear semantics and concurrency tests.
+4. `CP-07-05` — Dispatch eligibility engine with agent and dependency checks.
+5. `CP-07-06` — Retry/recovery/dead-letter state.
+6. `CP-07-07` — Authenticated wake/checkout transport.
+7. `CP-08-01` — Attempt and RunBinding shared contracts.
 
 ## 5. Project-manager update protocol
 
