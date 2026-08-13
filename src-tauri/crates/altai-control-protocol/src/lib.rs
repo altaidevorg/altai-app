@@ -8,6 +8,7 @@
 //! See: docs/PAPERCLIP_STYLE_CONTROL_PLANE_ENGINEERING_PLAN.md §3.3, §4, §5.
 
 pub mod actor;
+pub mod agent;
 pub mod error;
 pub mod event;
 pub mod id;
@@ -17,6 +18,7 @@ pub mod scope;
 pub mod work;
 
 pub use actor::{Actor, ActorKind};
+pub use agent::{AgentInstance, AgentProfileRevision, AgentStatus};
 pub use error::{ControlError, ControlErrorCode};
 pub use event::{ActivityEvent, ControlEvent, EventKind};
 pub use id::*;
