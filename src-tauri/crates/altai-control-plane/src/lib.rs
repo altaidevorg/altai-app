@@ -10,6 +10,7 @@ pub mod agent_repository;
 pub mod postgres;
 pub mod postgres_agent;
 pub mod postgres_scope;
+pub mod postgres_wake;
 pub mod postgres_work_graph;
 pub mod scope_repository;
 mod service;
@@ -24,6 +25,7 @@ pub use altai_control_protocol::{
 pub use postgres::PostgresRegistrationRepository;
 pub use postgres_agent::PostgresAgentRepository;
 pub use postgres_scope::PostgresScopeRepository;
+pub use postgres_wake::PostgresWakeRepository;
 pub use postgres_work_graph::PostgresWorkGraphRepository;
 pub use scope_repository::{InMemoryScopeRepository, ScopeError, ScopeRepository};
 pub use service::{

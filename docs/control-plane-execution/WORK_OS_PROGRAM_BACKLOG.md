@@ -5,7 +5,7 @@
 > engineering plan supplies architecture and scope constraints but cannot create
 > a competing queue. Update this file in every accepted Work OS PR.
 >
-> **Baseline:** `main` through PR #731, 2026-08-13.
+> **Baseline:** `main` through PR #732, 2026-08-13.
 
 ## 1. Operating model
 

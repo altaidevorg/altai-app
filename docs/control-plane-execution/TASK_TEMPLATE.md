@@ -28,7 +28,7 @@ events: []                  # events produced or consumed
 migrations: []              # schema/import implications
 tests_required: []          # exact commands and scenarios
 acceptance: []              # observable pass conditions
-stop_conditions: []         # conditions requiring escalation (see playbook §9)
+stop_conditions: []         # conditions requiring escalation
 ```
 
 ## Additional Packet Contents
@@ -60,18 +60,18 @@ with typed error", "unknown ID returns 404 not 500").
 
 ### Output/handoff format
 
-The agent must return the handoff report specified in playbook §8 Step 5.
+The implementer must return the handoff report below.
 
 ## Execution Protocol Summary
 
-Every task follows these steps (from playbook §8):
+Every task follows these steps:
 
 1. **Preflight (no edits):** read context, trace owners, list files, restate
    objective. Return preflight JSON.
 2. **Implement the smallest vertical slice:** preserve unrelated changes, use
    existing patterns, no placeholder stores or temporary schedulers.
 3. **Verify in layers:** run narrowest tests first, then expand.
-4. **Mandatory self-review:** answer the self-review questions (playbook §8.4).
+4. **Mandatory self-review:** answer the self-review questions.
 5. **Handoff:** return the final report with exact test outcomes.
 
 ## Context Budget Guidelines
