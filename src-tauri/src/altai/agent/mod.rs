@@ -6,4 +6,5 @@ pub mod execution_profile;
 pub mod runtime;
 pub mod tauri_channel;
 pub mod tauri_sink;
+pub mod trusted_admission;
 pub mod trusted_profile;
