@@ -1,7 +1,10 @@
+#![allow(dead_code)]
 //! Resolves the durable agent identity attached to an execution attempt.
 //!
 //! This is deliberately host-only: a webview may request work, but may not
 //! choose the profile revision or model used to execute an admitted attempt.
+//!
+//! CP-08-08 composes this authorization into the trusted host admission path.
 
 use altai_control_plane::{AgentRepository, AgentRepositoryError};
 use altai_control_protocol::{AgentProfileRevision, Attempt};
