@@ -1,13 +1,12 @@
-use altai_control_protocol::{AgentInstanceId, WorkspaceId};
+use altai_control_protocol::{
+    ControlPlaneHealth, HostRegistrationRequest, RegisteredHost, CONTROL_PLANE_PROTOCOL_MAJOR,
+};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeSet, HashMap};
 use std::sync::Mutex;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
-
-/// Current service and host-registration protocol version.
-pub const CONTROL_PLANE_PROTOCOL_MAJOR: u16 = 1;
 
 /// Selected global control-database topology. Connection/bootstrap is a later
 /// integration concern; this contract validates that callers cannot confuse
@@ -60,58 +59,12 @@ impl ControlPlaneConfig {
     }
 }
 
-/// Explicit capabilities a connected local execution host can advertise.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
-pub struct HostCapabilities {
-    pub values: BTreeSet<String>,
-}
-
-/// Data presented by an execution host during registration.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct HostRegistration {
-    /// Agent-instance identity is the durable worker identity already defined
-    /// by the control protocol; this skeleton does not introduce a second host
-    /// identity namespace.
-    pub agent_instance_id: AgentInstanceId,
-    pub workspaces: Vec<WorkspaceId>,
-    pub capabilities: HostCapabilities,
-    pub protocol_major: u16,
-}
-
 /// One-time credential issued by an authenticated administrator/bootstrapper.
 /// The plaintext token is returned exactly once and is never retained.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RegistrationGrant {
     pub token: String,
     pub expires_at_unix_seconds: u64,
-}
-
-/// Registration request sent by an execution host.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RegistrationRequest {
-    pub grant_token: String,
-    pub host: HostRegistration,
-}
-
-/// A registered host snapshot suitable for health/read-model projections.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct RegisteredHost {
-    pub agent_instance_id: AgentInstanceId,
-    pub workspaces: Vec<WorkspaceId>,
-    pub capabilities: HostCapabilities,
-    pub registered_at_unix_seconds: u64,
-}
-
-/// Non-secret health response. A healthy bootstrap only means the process has
-/// valid configuration and can manage registrations; it does not claim a
-/// database connection until the database adapter lands.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ControlPlaneHealth {
-    pub service_version: String,
-    pub protocol_major: u16,
-    pub store_kind: &'static str,
-    pub registered_host_count: usize,
-    pub database_adapter_ready: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -183,8 +136,8 @@ impl ControlPlane {
             service_version: self.config.service_version.clone(),
             protocol_major: CONTROL_PLANE_PROTOCOL_MAJOR,
             store_kind: match self.config.store {
-                ControlPlaneStore::Postgres { .. } => "postgres",
-                ControlPlaneStore::Pglite { .. } => "pglite",
+                ControlPlaneStore::Postgres { .. } => "postgres".to_string(),
+                ControlPlaneStore::Pglite { .. } => "pglite".to_string(),
             },
             registered_host_count: hosts.len(),
             database_adapter_ready: false,
@@ -218,7 +171,7 @@ impl ControlPlane {
 
     pub fn register_host(
         &self,
-        request: RegistrationRequest,
+        request: HostRegistrationRequest,
     ) -> Result<RegisteredHost, ControlPlaneError> {
         if request.host.protocol_major != CONTROL_PLANE_PROTOCOL_MAJOR {
             return Err(ControlPlaneError::UnsupportedProtocol {
@@ -284,6 +237,9 @@ fn token_digest(token: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use altai_control_protocol::{
+        AgentInstanceId, HostCapabilities, HostRegistration, WorkspaceId,
+    };
 
     fn config() -> ControlPlaneConfig {
         ControlPlaneConfig {
@@ -297,8 +253,8 @@ mod tests {
 
     fn host() -> HostRegistration {
         HostRegistration {
-            agent_instance_id: AgentInstanceId::new("host-a"),
-            workspaces: vec![WorkspaceId::new("workspace-a")],
+            agent_instance_id: altai_control_protocol::AgentInstanceId::new("host-a"),
+            workspaces: vec![altai_control_protocol::WorkspaceId::new("workspace-a")],
             capabilities: HostCapabilities {
                 values: ["isanagent".to_string(), "work.execute".to_string()]
                     .into_iter()
@@ -316,7 +272,7 @@ mod tests {
             ControlPlaneHealth {
                 service_version: "0.1.0".to_string(),
                 protocol_major: 1,
-                store_kind: "pglite",
+                store_kind: "pglite".to_string(),
                 registered_host_count: 0,
                 database_adapter_ready: false,
             }
@@ -328,15 +284,18 @@ mod tests {
         let plane = ControlPlane::bootstrap(config()).unwrap();
         let grant = plane.issue_registration_grant().unwrap();
         let registered = plane
-            .register_host(RegistrationRequest {
+            .register_host(HostRegistrationRequest {
                 grant_token: grant.token.clone(),
                 host: host(),
             })
             .unwrap();
-        assert_eq!(registered.agent_instance_id, AgentInstanceId::new("host-a"));
+        assert_eq!(
+            registered.agent_instance_id,
+            altai_control_protocol::AgentInstanceId::new("host-a")
+        );
         assert_eq!(plane.health().unwrap().registered_host_count, 1);
         assert_eq!(
-            plane.register_host(RegistrationRequest {
+            plane.register_host(HostRegistrationRequest {
                 grant_token: grant.token,
                 host: host(),
             }),
@@ -351,7 +310,7 @@ mod tests {
         let mut incompatible = host();
         incompatible.protocol_major = 2;
         assert_eq!(
-            plane.register_host(RegistrationRequest {
+            plane.register_host(HostRegistrationRequest {
                 grant_token: grant.token.clone(),
                 host: incompatible,
             }),
@@ -361,7 +320,7 @@ mod tests {
             })
         );
         assert!(plane
-            .register_host(RegistrationRequest {
+            .register_host(HostRegistrationRequest {
                 grant_token: grant.token,
                 host: host(),
             })

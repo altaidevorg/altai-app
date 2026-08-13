@@ -11,10 +11,15 @@ pub mod actor;
 pub mod error;
 pub mod event;
 pub mod id;
+pub mod registration;
 pub mod revision;
 
 pub use actor::{Actor, ActorKind};
 pub use error::{ControlError, ControlErrorCode};
 pub use event::{ActivityEvent, ControlEvent, EventKind};
 pub use id::*;
+pub use registration::{
+    ControlPlaneHealth, HostCapabilities, HostRegistration, HostRegistrationRequest,
+    RegisteredHost, CONTROL_PLANE_PROTOCOL_MAJOR,
+};
 pub use revision::Revision;
