@@ -116,6 +116,7 @@ export interface ReviewPort {
 export interface WorkPort {
   /** Canonical Work OS API. These methods all address the durable work.db. */
   listWork(filter?: WorkListFilter): Promise<WorkItem[]>;
+  listWorkChildren(parentWorkId: string): Promise<WorkItem[]>;
   getWork(workId: string): Promise<WorkItem | null>;
   createWork(input: WorkCreateInput): Promise<WorkItem>;
   transitionWork(input: WorkTransitionInput): Promise<WorkItem>;

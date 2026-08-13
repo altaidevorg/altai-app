@@ -218,6 +218,7 @@ export function createTauriHostPorts(
         "startWork",
         "startWorkRun",
         "listWorkAttempts",
+        "listWorkChildren",
         "markWorkReadyForReview",
         "reviewWork",
         "listTaskRuns",
@@ -234,6 +235,7 @@ export function createTauriHostPorts(
       ],
       {
         listWork: (filter) => native.workList(filter),
+        listWorkChildren: (parentWorkId) => native.workChildren(parentWorkId),
         getWork: (workId) => native.workGet(workId),
         createWork: (input) => native.workCreate(input),
         transitionWork: (input) => native.workTransition(input),

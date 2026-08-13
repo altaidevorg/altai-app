@@ -5,8 +5,9 @@ use altai_core::{
 };
 use serde_json::{json, Map, Value};
 
-pub(super) const CAPABILITIES: [&str; 10] = [
+pub(super) const CAPABILITIES: [&str; 11] = [
     "work/list",
+    "work/children/list",
     "work/get",
     "work/create",
     "work/transition",
@@ -59,6 +60,13 @@ pub(super) fn dispatch(
             let filter = parse_filter(optional_string(&params, "filter")?)?;
             store
                 .list_work(&project_id, filter)
+                .map(|items| Value::Array(items.into_iter().map(work_item_value).collect()))
+                .map_err(store_error)
+        }
+        "work/children/list" => {
+            let parent_work_id = required_string(&params, "parentWorkId")?;
+            store
+                .list_child_work(parent_work_id)
                 .map(|items| Value::Array(items.into_iter().map(work_item_value).collect()))
                 .map_err(store_error)
         }
