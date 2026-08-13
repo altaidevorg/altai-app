@@ -14,6 +14,7 @@ pub mod postgres_work_graph;
 pub mod scope_repository;
 mod service;
 pub mod transport;
+pub mod wake_repository;
 pub mod work_graph_repository;
 
 pub use agent_repository::{AgentRepository, AgentRepositoryError, InMemoryAgentRepository};
@@ -33,4 +34,5 @@ pub use transport::{
     router, router_with_all_repositories, router_with_repositories, router_with_scope_repository,
     BootstrapCredential, TransportError,
 };
+pub use wake_repository::{InMemoryWakeRepository, WakeError, WakeRepository};
 pub use work_graph_repository::{InMemoryWorkGraphRepository, WorkGraphError, WorkGraphRepository};
