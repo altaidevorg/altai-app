@@ -21,6 +21,8 @@ pub trait AttemptRepository: Send + Sync {
     fn create(&self, attempt: Attempt) -> Result<Attempt, AttemptError>;
     fn transition(&self, id: &AttemptId, to: AttemptState, now: u64) -> Result<Attempt, AttemptError>;
     fn get(&self, id: &AttemptId) -> Result<Option<Attempt>, AttemptError>;
+    /// Every attempt currently in `state` (payload decode + state filter).
+    fn list_in_state(&self, state: AttemptState) -> Result<Vec<Attempt>, AttemptError>;
 }
 
 pub struct SqliteAttemptRepository { connection: Mutex<Connection> }
@@ -60,6 +62,20 @@ impl AttemptRepository for SqliteAttemptRepository {
     fn get(&self, id: &AttemptId) -> Result<Option<Attempt>, AttemptError> {
         self.lock()?.query_row("SELECT payload_json FROM control_plane_attempts WHERE attempt_id = ?1", [&id.value], |row| row.get(0)).optional().map_err(Self::db)?.map(Self::decode).transpose()
     }
+    fn list_in_state(&self, state: AttemptState) -> Result<Vec<Attempt>, AttemptError> {
+        let connection = self.lock()?;
+        let mut stmt = connection.prepare("SELECT payload_json FROM control_plane_attempts").map_err(Self::db)?;
+        let payloads = stmt.query_map([], |row| row.get::<_, String>(0)).map_err(Self::db)?;
+        let mut attempts = Vec::new();
+        for payload in payloads {
+            let attempt = Self::decode(payload.map_err(Self::db)?)?;
+            if attempt.state == state {
+                attempts.push(attempt);
+            }
+        }
+        attempts.sort_by(|a, b| a.id.value.cmp(&b.id.value));
+        Ok(attempts)
+    }
 }
 
 fn valid_transition(from: AttemptState, to: AttemptState) -> bool {
@@ -80,5 +96,21 @@ mod tests {
         assert_eq!(repo.transition(&attempt().id, AttemptState::Running, 4).unwrap().state, AttemptState::Running);
         assert_eq!(SqliteAttemptRepository::open(&path).unwrap().transition(&attempt().id, AttemptState::Succeeded, 5).unwrap().state, AttemptState::Succeeded);
         assert!(matches!(repo.transition(&attempt().id, AttemptState::Running, 6), Err(AttemptError::InvalidTransition { .. })));
+    }
+    #[test]
+    fn list_in_state_filters_and_orders_by_id() {
+        let dir = tempfile::tempdir().unwrap(); let repo = SqliteAttemptRepository::open(&dir.path().join("work.db")).unwrap();
+        repo.create(attempt()).unwrap();
+        let mut other = attempt(); other.id = AttemptId::new("two"); other.work_item_id = WorkItemId::new("two");
+        repo.create(other).unwrap();
+        repo.transition(&AttemptId::new("two"), AttemptState::Claimed, 2).unwrap();
+        let mut third = attempt(); third.id = AttemptId::new("three"); third.work_item_id = WorkItemId::new("three");
+        repo.create(third).unwrap();
+        repo.transition(&AttemptId::new("three"), AttemptState::Claimed, 3).unwrap();
+
+        let claimed: Vec<String> = repo.list_in_state(AttemptState::Claimed).unwrap().into_iter().map(|a| a.id.value).collect();
+        assert_eq!(claimed, vec!["att_three".to_string(), "att_two".to_string()]);
+        let created: Vec<String> = repo.list_in_state(AttemptState::Created).unwrap().into_iter().map(|a| a.id.value).collect();
+        assert_eq!(created, vec!["att_one".to_string()]);
     }
 }
