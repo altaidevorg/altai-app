@@ -7,14 +7,14 @@
 use crate::{
     finalize_attempt, AgentRepository, AgentRepositoryError, AttemptFinalization,
     AttemptFinalizationError, AttemptRepository, ControlPlane, ControlPlaneError, RegistrationGrant,
-    RunBindingError, RunBindingRepository, RunOutcome, ScopeError, ScopeRepository, WakeError,
-    WakeRepository, WorkGraphError, WorkGraphRepository,
+    RoutineError, RoutineRepository, RunBindingError, RunBindingRepository, RunOutcome, ScopeError,
+    ScopeRepository, WakeError, WakeRepository, WorkGraphError, WorkGraphRepository,
 };
 use altai_control_protocol::{
     AgentInstance, AgentProfileRevision, Attempt, AttemptId, ControlPlaneHealth, Goal, GoalId,
     HostRegistrationRequest, Organization, OrganizationId, Project, ProjectWorkspace,
-    RegisteredHost, RunBinding, WakeRequest, WakeSource, WorkCheckoutLease, WorkComment,
-    WorkDependency, WorkItemId,
+    RegisteredHost, Routine, RoutineId, RoutineRevision, RunBinding, WakeRequest, WakeSource,
+    WorkCheckoutLease, WorkComment, WorkDependency, WorkItemId,
 };
 use axum::{
     extract::{Path, State},
@@ -89,6 +89,7 @@ struct ApiState {
     wake_repository: Option<Arc<dyn WakeRepository>>,
     run_binding_repository: Option<Arc<dyn RunBindingRepository>>,
     attempt_repository: Option<Arc<dyn AttemptRepository>>,
+    routine_repository: Option<Arc<dyn RoutineRepository>>,
 }
 
 /// Routes are versioned from their first public exposure. The health and grant
@@ -140,6 +141,7 @@ pub fn router_with_all_repositories(
         wake_repository: None,
         run_binding_repository: None,
         attempt_repository: None,
+        routine_repository: None,
     };
     Router::new()
         .route("/v1/health", get(health))
@@ -177,6 +179,7 @@ pub fn router_with_control_repositories(
     wake_repository: Arc<dyn WakeRepository>,
     run_binding_repository: Option<Arc<dyn RunBindingRepository>>,
     attempt_repository: Option<Arc<dyn AttemptRepository>>,
+    routine_repository: Option<Arc<dyn RoutineRepository>>,
 ) -> Router {
     let state = ApiState {
         plane,
@@ -187,6 +190,7 @@ pub fn router_with_control_repositories(
         wake_repository: Some(wake_repository),
         run_binding_repository,
         attempt_repository,
+        routine_repository,
     };
     Router::new()
         .route("/v1/health", get(health))
@@ -200,6 +204,11 @@ pub fn router_with_control_repositories(
         .route(
             "/v1/runtime/attempts/{attempt_id}/finalize",
             post(finalize_attempt_route),
+        )
+        .route("/v1/routines", post(create_routine_route))
+        .route(
+            "/v1/routines/{routine_id}/revisions",
+            post(append_routine_revision_route),
         )
         .with_state(state)
 }
@@ -303,6 +312,28 @@ async fn finalize_attempt_route(
         observed_at_unix_seconds: request.observed_at_unix_seconds,
     };
     finalize_attempt(attempts(&state)?.as_ref(), &finalization)
+        .map(Json)
+        .map_err(ApiError::from)
+}
+
+async fn create_routine_route(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Json(routine): Json<Routine>,
+) -> Result<Json<Routine>, ApiError> {
+    require_bootstrap(&state, &headers)?;
+    routines(&state)?.create(routine).map(Json).map_err(ApiError::from)
+}
+
+async fn append_routine_revision_route(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Path(routine_id): Path<String>,
+    Json(revision): Json<RoutineRevision>,
+) -> Result<Json<Routine>, ApiError> {
+    require_bootstrap(&state, &headers)?;
+    routines(&state)?
+        .append_revision(&RoutineId::new(routine_id), revision)
         .map(Json)
         .map_err(ApiError::from)
 }
@@ -477,6 +508,12 @@ fn attempts(state: &ApiState) -> Result<&Arc<dyn AttemptRepository>, ApiError> {
     state.attempt_repository.as_ref().ok_or(ApiError {
         status: StatusCode::SERVICE_UNAVAILABLE,
         code: "attempt_repository_unavailable",
+    })
+}
+fn routines(state: &ApiState) -> Result<&Arc<dyn RoutineRepository>, ApiError> {
+    state.routine_repository.as_ref().ok_or(ApiError {
+        status: StatusCode::SERVICE_UNAVAILABLE,
+        code: "routine_repository_unavailable",
     })
 }
 
@@ -686,6 +723,29 @@ impl From<AttemptFinalizationError> for ApiError {
     }
 }
 
+impl From<RoutineError> for ApiError {
+    fn from(value: RoutineError) -> Self {
+        match value {
+            RoutineError::NotFound { .. } => Self {
+                status: StatusCode::NOT_FOUND,
+                code: "routine_not_found",
+            },
+            RoutineError::RevisionNotFound { .. } => Self {
+                status: StatusCode::NOT_FOUND,
+                code: "routine_revision_not_found",
+            },
+            RoutineError::Conflict { .. } => Self {
+                status: StatusCode::CONFLICT,
+                code: "routine_conflict",
+            },
+            RoutineError::Internal { .. } => Self {
+                status: StatusCode::INTERNAL_SERVER_ERROR,
+                code: "routine_repository_unavailable",
+            },
+        }
+    }
+}
+
 impl IntoResponse for ApiError {
     fn into_response(self) -> axum::response::Response {
         (self.status, Json(ErrorBody { code: self.code })).into_response()
@@ -704,12 +764,13 @@ mod tests {
     use crate::{
         AttemptRepository, ControlPlaneConfig, ControlPlaneStore, InMemoryAgentRepository,
         InMemoryScopeRepository, InMemoryWakeRepository, SqliteAttemptRepository,
-        SqliteRunBindingRepository,
+        SqliteRoutineRepository, SqliteRunBindingRepository,
     };
     use altai_control_protocol::{
         AgentInstanceId, AgentProfileRevisionId, Attempt, AttemptId, AttemptState, HostCapabilities,
-        HostRegistration, Organization, OrganizationId, Revision, RunBinding, RunId, WorkItemId,
-        WorkspaceId, CONTROL_PLANE_PROTOCOL_MAJOR,
+        HostRegistration, Organization, OrganizationId, Revision, Routine, RoutineId,
+        RoutineRevision, RoutineRevisionId, RoutineStatus, RoutineTrigger, RunBinding, RunId,
+        WorkItemId, WorkspaceId, CONTROL_PLANE_PROTOCOL_MAJOR,
     };
     use axum::{body::Body, http::Request};
     use tower::ServiceExt;
@@ -862,6 +923,7 @@ mod tests {
             Arc::new(InMemoryWakeRepository::default()),
             None,
             None,
+            None,
         );
         let body = serde_json::json!({ "work_item_id": { "type": "work_item_id", "value": "work-1" }, "source": "manual", "requested_at": "now" }).to_string();
         let request = || {
@@ -910,6 +972,7 @@ mod tests {
             Some(Arc::new(
                 SqliteRunBindingRepository::open(&directory.path().join("work.db")).unwrap(),
             )),
+            None,
             None,
         );
         let binding = RunBinding {
@@ -1013,6 +1076,7 @@ mod tests {
             Arc::new(InMemoryWakeRepository::default()),
             None,
             Some(attempt_repository),
+            None,
         );
         let request = |outcome: &str, observed: u64, authenticated: bool| {
             let payload = serde_json::json!({
@@ -1083,6 +1147,215 @@ mod tests {
                 .unwrap()
                 .status(),
             StatusCode::CONFLICT
+        );
+    }
+
+    #[tokio::test]
+    async fn routine_routes_require_bootstrap_are_idempotent_and_reject_conflicts() {
+        let directory = tempfile::tempdir().unwrap();
+        let plane = Arc::new(
+            ControlPlane::bootstrap(ControlPlaneConfig {
+                service_version: "0.1.0".into(),
+                store: ControlPlaneStore::Sqlite {
+                    database_path: directory.path().join("control.db").display().to_string(),
+                },
+                registration_ttl_seconds: 60,
+            })
+            .unwrap(),
+        );
+        let routine_repository =
+            Arc::new(SqliteRoutineRepository::open(&directory.path().join("work.db")).unwrap());
+        let app = router_with_control_repositories(
+            plane,
+            BootstrapCredential::from_plaintext("test-bootstrap-token").unwrap(),
+            None,
+            None,
+            None,
+            Arc::new(InMemoryWakeRepository::default()),
+            None,
+            None,
+            Some(routine_repository.clone()),
+        );
+
+        let routine_id = RoutineId::new("rt-1");
+        let routine = Routine {
+            id: routine_id.clone(),
+            organization_id: OrganizationId::new("org"),
+            current_revision_id: None,
+            status: RoutineStatus::Active,
+            revision: Revision::INITIAL,
+            created_at_unix_seconds: 1,
+            updated_at_unix_seconds: 1,
+        };
+        let create_request = |routine: &Routine, authenticated: bool| {
+            let mut request = Request::builder()
+                .method("POST")
+                .uri("/v1/routines")
+                .header("content-type", "application/json")
+                .body(Body::from(serde_json::to_vec(routine).unwrap()))
+                .unwrap();
+            if authenticated {
+                request
+                    .headers_mut()
+                    .insert(AUTHORIZATION, "Bearer test-bootstrap-token".parse().unwrap());
+            }
+            request
+        };
+        // Unauthenticated create: rejected before storage is touched.
+        assert_eq!(
+            app.clone()
+                .oneshot(create_request(&routine, false))
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::UNAUTHORIZED
+        );
+        // Authenticated create succeeds and is idempotent on replay.
+        assert_eq!(
+            app.clone()
+                .oneshot(create_request(&routine, true))
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::OK
+        );
+        assert_eq!(
+            app.clone()
+                .oneshot(create_request(&routine, true))
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::OK
+        );
+        // A divergent routine under the same id fails closed (409).
+        let mut divergent = routine.clone();
+        divergent.organization_id = OrganizationId::new("other");
+        assert_eq!(
+            app.clone()
+                .oneshot(create_request(&divergent, true))
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::CONFLICT
+        );
+
+        let revision_request = |path: &str, revision: &RoutineRevision, authenticated: bool| {
+            let mut request = Request::builder()
+                .method("POST")
+                .uri(path)
+                .header("content-type", "application/json")
+                .body(Body::from(serde_json::to_vec(revision).unwrap()))
+                .unwrap();
+            if authenticated {
+                request
+                    .headers_mut()
+                    .insert(AUTHORIZATION, "Bearer test-bootstrap-token".parse().unwrap());
+            }
+            request
+        };
+        let rev1 = RoutineRevision {
+            id: RoutineRevisionId::new("rev-1"),
+            routine_id: routine_id.clone(),
+            revision: Revision::new(1),
+            trigger: RoutineTrigger::Recurring {
+                cron_expression: "0 9 * * *".into(),
+            },
+            target_work_item_id: WorkItemId::new("work-1"),
+            created_at_unix_seconds: 10,
+        };
+        let rev2 = RoutineRevision {
+            id: RoutineRevisionId::new("rev-2"),
+            routine_id: routine_id.clone(),
+            revision: Revision::new(2),
+            trigger: RoutineTrigger::Event {
+                source: "pull_request".into(),
+            },
+            target_work_item_id: WorkItemId::new("work-1"),
+            created_at_unix_seconds: 20,
+        };
+        // Authenticated append advances the current revision.
+        assert_eq!(
+            app.clone()
+                .oneshot(revision_request("/v1/routines/rt-1/revisions", &rev1, true))
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::OK
+        );
+        assert_eq!(
+            routine_repository
+                .get(&routine_id)
+                .unwrap()
+                .unwrap()
+                .current_revision_id,
+            Some(RoutineRevisionId::new("rev-1"))
+        );
+        // Idempotent re-append of the same revision id: still OK, no double-advance.
+        assert_eq!(
+            app.clone()
+                .oneshot(revision_request("/v1/routines/rt-1/revisions", &rev1, true))
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::OK
+        );
+        assert_eq!(
+            routine_repository.get(&routine_id).unwrap().unwrap().revision,
+            Revision::new(1)
+        );
+        // A higher revision advances again.
+        assert_eq!(
+            app.clone()
+                .oneshot(revision_request("/v1/routines/rt-1/revisions", &rev2, true))
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::OK
+        );
+        // A non-monotonic revision (intent version <= current) fails closed (409).
+        let non_monotonic = RoutineRevision {
+            id: RoutineRevisionId::new("rev-3"),
+            routine_id: routine_id.clone(),
+            revision: Revision::new(1),
+            trigger: RoutineTrigger::Recurring {
+                cron_expression: "0 10 * * *".into(),
+            },
+            target_work_item_id: WorkItemId::new("work-1"),
+            created_at_unix_seconds: 30,
+        };
+        assert_eq!(
+            app.clone()
+                .oneshot(revision_request(
+                    "/v1/routines/rt-1/revisions",
+                    &non_monotonic,
+                    true
+                ))
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::CONFLICT
+        );
+        // Appending to an unknown routine fails closed (404).
+        let orphan = RoutineRevision {
+            id: RoutineRevisionId::new("rev-x"),
+            routine_id: RoutineId::new("ghost"),
+            revision: Revision::new(1),
+            trigger: RoutineTrigger::Recurring {
+                cron_expression: "0 9 * * *".into(),
+            },
+            target_work_item_id: WorkItemId::new("work-1"),
+            created_at_unix_seconds: 40,
+        };
+        assert_eq!(
+            app.oneshot(revision_request(
+                "/v1/routines/ghost/revisions",
+                &orphan,
+                true
+            ))
+            .await
+            .unwrap()
+            .status(),
+            StatusCode::NOT_FOUND
         );
     }
 }
