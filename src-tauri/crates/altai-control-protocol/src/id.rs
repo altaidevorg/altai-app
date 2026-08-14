@@ -203,6 +203,12 @@ define_typed_id!(
     "usage_record_id",
     "usage_",
 );
+define_typed_id!(
+    /// A budget policy row governing a usage scope and meter.
+    BudgetId,
+    "budget_id",
+    "bud_",
+);
 
 // ---------------------------------------------------------------------------
 // Error

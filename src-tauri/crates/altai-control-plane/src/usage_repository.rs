@@ -147,8 +147,9 @@ impl SqliteUsageRepository {
 
 /// A record's scope matches a filter when the org matches and every `Some`
 /// filter dimension equals the record's dimension; a `None` filter dimension is
-/// a wildcard.
-fn matches_scope(record: &UsageScope, filter: &UsageScope) -> bool {
+/// a wildcard. Shared with the budget enforcer to decide whether a (broader)
+/// budget scope governs a (narrower) consumption scope.
+pub(crate) fn matches_scope(record: &UsageScope, filter: &UsageScope) -> bool {
     record.organization_id == filter.organization_id
         && filter
             .project_id

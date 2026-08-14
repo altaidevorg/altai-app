@@ -7,6 +7,8 @@
 //! ledgers through the registered host identity.
 
 pub mod agent_repository;
+pub mod budget_enforcer;
+pub mod budget_repository;
 pub mod approval_repository;
 pub mod attempt_finalizer;
 pub mod attempt_repository;
@@ -84,6 +86,8 @@ pub use transport::{
 };
 pub use wake_repository::{InMemoryWakeRepository, WakeError, WakeRepository};
 pub use usage_repository::{SqliteUsageRepository, UsageError, UsageRepository};
+pub use budget_repository::{BudgetError, BudgetRepository, SqliteBudgetRepository};
+pub use budget_enforcer::BudgetEnforcer;
 pub use work_graph_repository::{InMemoryWorkGraphRepository, WorkGraphError, WorkGraphRepository};
 pub use work_item_repository::{
     SqliteWorkItemRepository, WorkItemRepository, WorkItemRepositoryError,
