@@ -1,8 +1,9 @@
 use altai_control_plane::{
     router_with_control_repositories, BootstrapCredential, ControlPlane, ControlPlaneConfig,
-    ControlPlaneStore, SqliteAgentRepository, SqliteAttemptRepository,
-    SqliteRegistrationRepository, SqliteRoutineRepository, SqliteRunBindingRepository,
-    SqliteScopeRepository, SqliteWakeRepository, SqliteWorkGraphRepository,
+    ControlPlaneStore, RoutineCronBridge, RoutineMaterializer, SqliteAgentRepository,
+    SqliteAttemptRepository, SqliteRegistrationRepository, SqliteRoutineRepository,
+    SqliteRunBindingRepository, SqliteScopeRepository, SqliteWakeRepository,
+    SqliteWorkGraphRepository, DEFAULT_CRON_TICK,
 };
 use altai_core::resolve_workspace;
 use clap::Parser;
@@ -52,6 +53,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let run_binding_repository = Arc::new(SqliteRunBindingRepository::open(&work_db)?);
     let attempt_repository = Arc::new(SqliteAttemptRepository::open(&work_db)?);
     let routine_repository = Arc::new(SqliteRoutineRepository::open(&work_db)?);
+    // Managed cron bridge: periodically materialize active recurring routines
+    // into wakes. Clones share the same sqlite connections the router uses.
+    let materializer = Arc::new(RoutineMaterializer::new(
+        routine_repository.clone(),
+        wake_repository.clone(),
+    ));
+    tokio::spawn(RoutineCronBridge::new(materializer, DEFAULT_CRON_TICK).run());
     let plane = Arc::new(ControlPlane::with_registration_repository(
         config,
         Arc::new(SqliteRegistrationRepository::open(&work_db)?),
