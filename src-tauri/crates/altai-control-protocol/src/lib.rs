@@ -14,6 +14,7 @@ pub mod approval;
 pub mod attempt;
 pub mod error;
 pub mod event;
+pub mod evidence;
 pub mod id;
 pub mod recovery;
 pub mod registration;
@@ -32,6 +33,7 @@ pub use budget::Budget;
 pub use attempt::{Attempt, AttemptState, RunBinding, ScheduleBackend, ScheduleBackendBinding};
 pub use error::{ControlError, ControlErrorCode};
 pub use event::{ActivityEvent, ControlEvent, EventKind};
+pub use evidence::Evidence;
 pub use id::*;
 pub use recovery::{RecoveryDisposition, RecoveryRecord};
 pub use registration::{

@@ -14,6 +14,7 @@ pub mod attempt_finalizer;
 pub mod attempt_repository;
 pub mod cron_due;
 pub mod dispatch_eligibility;
+pub mod evidence_repository;
 pub mod execution_repository;
 pub mod legacy_work_bridge;
 pub mod recovery_repository;
@@ -88,6 +89,7 @@ pub use wake_repository::{InMemoryWakeRepository, WakeError, WakeRepository};
 pub use usage_repository::{SqliteUsageRepository, UsageError, UsageRepository};
 pub use budget_repository::{BudgetError, BudgetRepository, SqliteBudgetRepository};
 pub use budget_enforcer::BudgetEnforcer;
+pub use evidence_repository::{EvidenceError, EvidenceRepository, SqliteEvidenceRepository};
 pub use work_graph_repository::{InMemoryWorkGraphRepository, WorkGraphError, WorkGraphRepository};
 pub use work_item_repository::{
     SqliteWorkItemRepository, WorkItemRepository, WorkItemRepositoryError,

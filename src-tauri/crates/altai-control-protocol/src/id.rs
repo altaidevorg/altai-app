@@ -209,6 +209,12 @@ define_typed_id!(
     "budget_id",
     "bud_",
 );
+define_typed_id!(
+    /// One immutable evidence artifact reference produced by an attempt.
+    EvidenceId,
+    "evidence_id",
+    "ev_",
+);
 
 // ---------------------------------------------------------------------------
 // Error
