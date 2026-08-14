@@ -197,6 +197,12 @@ define_typed_id!(
     "external_object_id",
     "ext_",
 );
+define_typed_id!(
+    /// One immutable meter reading in the usage/cost ledger.
+    UsageRecordId,
+    "usage_record_id",
+    "usage_",
+);
 
 // ---------------------------------------------------------------------------
 // Error
