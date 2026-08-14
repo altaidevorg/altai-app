@@ -19,6 +19,7 @@ pub mod dispatch_eligibility;
 pub mod evidence_repository;
 pub mod execution_repository;
 pub mod legacy_work_bridge;
+pub mod liveness_monitor;
 pub mod recovery_repository;
 pub mod routine_cron_bridge;
 pub mod routine_materializer;
@@ -57,6 +58,7 @@ pub use execution_repository::{
     SqliteExecutionSnapshotRepository,
 };
 pub use legacy_work_bridge::{LegacyWorkBridge, LegacyWorkBridgeError};
+pub use liveness_monitor::{LivenessError, LivenessMonitor};
 pub use recovery_repository::{RecoveryError, RecoveryRepository, SqliteRecoveryRepository};
 pub use routine_cron_bridge::{RoutineCronBridge, DEFAULT_CRON_TICK};
 pub use routine_materializer::{RoutineMaterializationError, RoutineMaterializer};
