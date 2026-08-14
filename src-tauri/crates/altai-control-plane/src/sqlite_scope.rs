@@ -245,6 +245,85 @@ impl ScopeRepository for SqliteScopeRepository {
             reason: error.to_string(),
         })
     }
+
+    fn attach_workspace_checkout(
+        &self,
+        workspace_id: &WorkspaceId,
+        local_path_hint: Option<String>,
+        expected_revision: Revision,
+        updated_at: String,
+    ) -> Result<ProjectWorkspace, ScopeError> {
+        let mut connection = self.lock()?;
+        let tx = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(Self::db)?;
+        let payload: Option<String> = tx
+            .query_row(
+                "SELECT payload_json FROM control_plane_workspaces WHERE id = ?1",
+                [&workspace_id.value],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(Self::db)?;
+        let payload = payload.ok_or_else(|| ScopeError::NotFound {
+            entity: "workspace",
+            id: workspace_id.value.clone(),
+        })?;
+        let mut workspace: ProjectWorkspace =
+            serde_json::from_str(&payload).map_err(|error| ScopeError::Internal {
+                reason: error.to_string(),
+            })?;
+        if workspace.revision != expected_revision {
+            return Err(ScopeError::StaleRevision {
+                entity: "workspace",
+                id: workspace_id.value.clone(),
+                expected: expected_revision,
+                actual: workspace.revision,
+            });
+        }
+        workspace.local_path_hint = local_path_hint;
+        workspace.revision = workspace.revision.next();
+        workspace.updated_at = updated_at;
+        let payload = Self::json(&workspace)?;
+        tx.execute(
+            "UPDATE control_plane_workspaces SET payload_json = ?2 WHERE id = ?1",
+            params![workspace_id.value, payload],
+        )
+        .map_err(Self::db)?;
+        tx.commit().map_err(Self::db)?;
+        Ok(workspace)
+    }
+
+    fn find_workspaces_by_path_hint(
+        &self,
+        local_path_hint: &str,
+    ) -> Result<Vec<ProjectWorkspace>, ScopeError> {
+        let connection = self.lock()?;
+        let mut stmt = connection
+            .prepare("SELECT payload_json FROM control_plane_workspaces")
+            .map_err(Self::db)?;
+        let payloads = stmt
+            .query_map([], |row| row.get::<_, String>(0))
+            .map_err(Self::db)?;
+        let mut matches = Vec::new();
+        for payload in payloads {
+            let workspace: ProjectWorkspace =
+                serde_json::from_str(&payload.map_err(Self::db)?).map_err(|error| {
+                    ScopeError::Internal {
+                        reason: error.to_string(),
+                    }
+                })?;
+            if workspace
+                .local_path_hint
+                .as_deref()
+                .is_some_and(|hint| hint == local_path_hint)
+            {
+                matches.push(workspace);
+            }
+        }
+        matches.sort_by(|a, b| a.id.value.cmp(&b.id.value));
+        Ok(matches)
+    }
     fn goal_ancestry(
         &self,
         organization_id: &OrganizationId,
@@ -306,5 +385,91 @@ mod tests {
                 updated_at: "now".into(),
             })
             .is_err());
+    }
+
+    fn seeded_repository(database: &std::path::Path) -> SqliteScopeRepository {
+        let repository = SqliteScopeRepository::open(database).unwrap();
+        repository
+            .create_organization(Organization {
+                id: OrganizationId::new("org"),
+                name: "Org".into(),
+                revision: Revision::INITIAL,
+                created_at: "now".into(),
+                updated_at: "now".into(),
+            })
+            .unwrap();
+        repository
+            .create_project(Project {
+                id: ProjectId::new("project"),
+                organization_id: OrganizationId::new("org"),
+                goal_ids: vec![],
+                name: "Project".into(),
+                description: String::new(),
+                status: altai_control_protocol::ProjectStatus::Active,
+                revision: Revision::INITIAL,
+                created_at: "now".into(),
+                updated_at: "now".into(),
+            })
+            .unwrap();
+        repository
+            .create_workspace(ProjectWorkspace {
+                id: WorkspaceId::new("ws"),
+                project_id: ProjectId::new("project"),
+                name: "Checkout".into(),
+                repository_url: Some("https://github.com/altaidevorg/altai-app".into()),
+                local_path_hint: Some("/old/path".into()),
+                revision: Revision::INITIAL,
+                created_at: "now".into(),
+                updated_at: "now".into(),
+            })
+            .unwrap();
+        repository
+    }
+
+    #[test]
+    fn moved_checkout_keeps_identity_across_reopen() {
+        let directory = tempfile::tempdir().unwrap();
+        let database = directory.path().join("work.db");
+        let repository = seeded_repository(&database);
+
+        let attached = repository
+            .attach_workspace_checkout(
+                &WorkspaceId::new("ws"),
+                Some("/new/path".into()),
+                Revision::INITIAL,
+                "later".into(),
+            )
+            .unwrap();
+        assert_eq!(attached.revision, Revision::new(1));
+
+        let reopened = SqliteScopeRepository::open(&database).unwrap();
+        let stored = reopened.get_workspace(&WorkspaceId::new("ws")).unwrap();
+        // Same identity and project; only the hint moved.
+        assert_eq!(stored.id, WorkspaceId::new("ws"));
+        assert_eq!(stored.project_id, ProjectId::new("project"));
+        assert_eq!(stored.local_path_hint.as_deref(), Some("/new/path"));
+        assert_eq!(stored.revision, Revision::new(1));
+        // The new location resolves; the old one no longer does.
+        assert!(reopened
+            .find_workspaces_by_path_hint("/old/path")
+            .unwrap()
+            .is_empty());
+        assert_eq!(
+            reopened
+                .find_workspaces_by_path_hint("/new/path")
+                .unwrap()
+                .len(),
+            1
+        );
+        // A stale re-attach against the pre-move revision fails.
+        assert!(matches!(
+            reopened.attach_workspace_checkout(
+                &WorkspaceId::new("ws"),
+                Some("/again".into()),
+                Revision::INITIAL,
+                "later".into(),
+            ),
+            Err(ScopeError::StaleRevision { .. })
+        ));
     }
 }
