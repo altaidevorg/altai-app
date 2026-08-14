@@ -5,7 +5,8 @@
 //! its organization and ancestry rules.
 
 use altai_control_protocol::{
-    Goal, GoalId, Organization, OrganizationId, Project, ProjectId, ProjectWorkspace, WorkspaceId,
+    Goal, GoalId, Organization, OrganizationId, Project, ProjectId, ProjectWorkspace, Revision,
+    WorkspaceId,
 };
 use std::{collections::HashMap, sync::Mutex};
 
@@ -15,6 +16,12 @@ pub enum ScopeError {
     NotFound { entity: &'static str, id: String },
     CrossOrganization { entity: &'static str, id: String },
     GoalCycle { goal_id: String },
+    StaleRevision {
+        entity: &'static str,
+        id: String,
+        expected: Revision,
+        actual: Revision,
+    },
     Internal { reason: String },
 }
 
@@ -27,6 +34,15 @@ impl std::fmt::Display for ScopeError {
                 write!(f, "{entity} is outside the organization boundary: {id}")
             }
             Self::GoalCycle { goal_id } => write!(f, "goal ancestry contains a cycle: {goal_id}"),
+            Self::StaleRevision {
+                entity,
+                id,
+                expected,
+                actual,
+            } => write!(
+                f,
+                "{entity} {id} moved on: expected revision {expected:?}, found {actual:?}"
+            ),
             Self::Internal { reason } => write!(f, "scope repository internal error: {reason}"),
         }
     }
@@ -43,6 +59,22 @@ pub trait ScopeRepository: Send + Sync {
     fn create_workspace(&self, workspace: ProjectWorkspace) -> Result<(), ScopeError>;
     fn get_project(&self, project_id: &ProjectId) -> Result<Project, ScopeError>;
     fn get_workspace(&self, workspace_id: &WorkspaceId) -> Result<ProjectWorkspace, ScopeError>;
+    /// Re-attach a moved checkout: update **only** `local_path_hint` (plus
+    /// `revision.next()` and `updated_at`) under optimistic concurrency. The
+    /// workspace keeps its identity, project, name, and repository binding.
+    fn attach_workspace_checkout(
+        &self,
+        workspace_id: &WorkspaceId,
+        local_path_hint: Option<String>,
+        expected_revision: Revision,
+        updated_at: String,
+    ) -> Result<ProjectWorkspace, ScopeError>;
+    /// Every registered workspace whose hint exactly matches `local_path_hint`
+    /// (ordered by id). Zero = not registered; many = caller disambiguates.
+    fn find_workspaces_by_path_hint(
+        &self,
+        local_path_hint: &str,
+    ) -> Result<Vec<ProjectWorkspace>, ScopeError>;
     fn goal_ancestry(
         &self,
         organization_id: &OrganizationId,
@@ -200,6 +232,55 @@ impl ScopeRepository for InMemoryScopeRepository {
             })
     }
 
+    fn attach_workspace_checkout(
+        &self,
+        workspace_id: &WorkspaceId,
+        local_path_hint: Option<String>,
+        expected_revision: Revision,
+        updated_at: String,
+    ) -> Result<ProjectWorkspace, ScopeError> {
+        let mut state = self.lock()?;
+        let workspace = state
+            .workspaces
+            .get_mut(&workspace_id.value)
+            .ok_or_else(|| ScopeError::NotFound {
+                entity: "workspace",
+                id: workspace_id.value.clone(),
+            })?;
+        if workspace.revision != expected_revision {
+            return Err(ScopeError::StaleRevision {
+                entity: "workspace",
+                id: workspace_id.value.clone(),
+                expected: expected_revision,
+                actual: workspace.revision,
+            });
+        }
+        workspace.local_path_hint = local_path_hint;
+        workspace.revision = workspace.revision.next();
+        workspace.updated_at = updated_at;
+        Ok(workspace.clone())
+    }
+
+    fn find_workspaces_by_path_hint(
+        &self,
+        local_path_hint: &str,
+    ) -> Result<Vec<ProjectWorkspace>, ScopeError> {
+        let state = self.lock()?;
+        let mut matches: Vec<ProjectWorkspace> = state
+            .workspaces
+            .values()
+            .filter(|workspace| {
+                workspace
+                    .local_path_hint
+                    .as_deref()
+                    .is_some_and(|hint| hint == local_path_hint)
+            })
+            .cloned()
+            .collect();
+        matches.sort_by(|a, b| a.id.value.cmp(&b.id.value));
+        Ok(matches)
+    }
+
     fn goal_ancestry(
         &self,
         organization_id: &OrganizationId,
@@ -348,5 +429,155 @@ mod tests {
                 ..
             })
         ));
+    }
+
+    fn seeded_workspace(id: &str, hint: Option<&str>) -> ProjectWorkspace {
+        ProjectWorkspace {
+            id: WorkspaceId::new(id),
+            project_id: ProjectId::new("project"),
+            name: "Checkout".to_string(),
+            repository_url: Some("https://github.com/altaidevorg/altai-app".to_string()),
+            local_path_hint: hint.map(str::to_string),
+            revision: Revision::INITIAL,
+            created_at: "2026-08-13T00:00:00Z".to_string(),
+            updated_at: "2026-08-13T00:00:00Z".to_string(),
+        }
+    }
+
+    fn seeded_repository() -> InMemoryScopeRepository {
+        let repository = InMemoryScopeRepository::default();
+        repository.create_organization(organization("a")).unwrap();
+        let project = Project {
+            id: ProjectId::new("project"),
+            organization_id: OrganizationId::new("org_a"),
+            goal_ids: vec![],
+            name: "Project".to_string(),
+            description: String::new(),
+            status: ProjectStatus::Active,
+            revision: Revision::INITIAL,
+            created_at: "2026-08-13T00:00:00Z".to_string(),
+            updated_at: "2026-08-13T00:00:00Z".to_string(),
+        };
+        repository.create_project(project).unwrap();
+        repository
+    }
+
+    #[test]
+    fn attach_moves_the_checkout_without_changing_identity() {
+        let repository = seeded_repository();
+        repository
+            .create_workspace(seeded_workspace("ws", Some("/old/path")))
+            .unwrap();
+
+        let attached = repository
+            .attach_workspace_checkout(
+                &WorkspaceId::new("ws"),
+                Some("/new/path".to_string()),
+                Revision::INITIAL,
+                "2026-08-14T00:00:00Z".to_string(),
+            )
+            .unwrap();
+        // Identity, project, name, and repository binding are untouched.
+        assert_eq!(attached.id, WorkspaceId::new("ws"));
+        assert_eq!(attached.project_id, ProjectId::new("project"));
+        assert_eq!(attached.name, "Checkout");
+        assert_eq!(
+            attached.repository_url.as_deref(),
+            Some("https://github.com/altaidevorg/altai-app")
+        );
+        // Only the hint, revision, and updated_at moved.
+        assert_eq!(attached.local_path_hint.as_deref(), Some("/new/path"));
+        assert_eq!(attached.revision, Revision::new(1));
+        assert_eq!(attached.updated_at, "2026-08-14T00:00:00Z");
+        // Durable through get.
+        assert_eq!(
+            repository.get_workspace(&WorkspaceId::new("ws")).unwrap(),
+            attached
+        );
+    }
+
+    #[test]
+    fn attach_rejects_a_stale_revision() {
+        let repository = seeded_repository();
+        repository
+            .create_workspace(seeded_workspace("ws", Some("/old/path")))
+            .unwrap();
+
+        assert!(matches!(
+            repository.attach_workspace_checkout(
+                &WorkspaceId::new("ws"),
+                Some("/new/path".to_string()),
+                Revision::new(7),
+                "2026-08-14T00:00:00Z".to_string(),
+            ),
+            Err(ScopeError::StaleRevision { .. })
+        ));
+        // The workspace is unchanged.
+        let stored = repository.get_workspace(&WorkspaceId::new("ws")).unwrap();
+        assert_eq!(stored.local_path_hint.as_deref(), Some("/old/path"));
+        assert_eq!(stored.revision, Revision::INITIAL);
+    }
+
+    #[test]
+    fn attach_rejects_an_unknown_workspace() {
+        let repository = seeded_repository();
+        assert!(matches!(
+            repository.attach_workspace_checkout(
+                &WorkspaceId::new("ghost"),
+                Some("/any".to_string()),
+                Revision::INITIAL,
+                "2026-08-14T00:00:00Z".to_string(),
+            ),
+            Err(ScopeError::NotFound {
+                entity: "workspace",
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn find_by_path_hint_returns_exact_matches_in_id_order() {
+        let repository = seeded_repository();
+        repository
+            .create_workspace(seeded_workspace("z", Some("/shared/checkout")))
+            .unwrap();
+        repository
+            .create_workspace(seeded_workspace("a", Some("/shared/checkout")))
+            .unwrap();
+        repository
+            .create_workspace(seeded_workspace("other", Some("/elsewhere")))
+            .unwrap();
+
+        let found = repository
+            .find_workspaces_by_path_hint("/shared/checkout")
+            .unwrap();
+        let ids: Vec<&str> = found.iter().map(|ws| ws.id.value.as_str()).collect();
+        assert_eq!(ids, vec!["ws_a", "ws_z"]);
+        // No registered hint matches.
+        assert!(repository
+            .find_workspaces_by_path_hint("/not/registered")
+            .unwrap()
+            .is_empty());
+    }
+
+    #[test]
+    fn resolution_follows_a_moved_checkout() {
+        let repository = seeded_repository();
+        repository
+            .create_workspace(seeded_workspace("ws", Some("/old/path")))
+            .unwrap();
+        let attached = repository
+            .attach_workspace_checkout(
+                &WorkspaceId::new("ws"),
+                Some("/new/path".to_string()),
+                Revision::INITIAL,
+                "2026-08-14T00:00:00Z".to_string(),
+            )
+            .unwrap();
+
+        // The old location no longer resolves; the new one does.
+        assert!(repository.find_workspaces_by_path_hint("/old/path").unwrap().is_empty());
+        let found = repository.find_workspaces_by_path_hint("/new/path").unwrap();
+        assert_eq!(found, vec![attached]);
     }
 }

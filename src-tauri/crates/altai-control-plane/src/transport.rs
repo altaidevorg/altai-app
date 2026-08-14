@@ -676,6 +676,10 @@ impl From<ScopeError> for ApiError {
                 status: StatusCode::CONFLICT,
                 code: "goal_cycle",
             },
+            ScopeError::StaleRevision { .. } => Self {
+                status: StatusCode::CONFLICT,
+                code: "stale_revision",
+            },
             ScopeError::Internal { .. } => Self {
                 status: StatusCode::INTERNAL_SERVER_ERROR,
                 code: "scope_repository_unavailable",
