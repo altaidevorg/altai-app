@@ -3,7 +3,9 @@
 //! and the aggregate revision advances. Routines do not register a scheduler;
 //! package 041 bridges a revision into Wake/RoutineRun when its trigger fires.
 
-use altai_control_protocol::{Routine, RoutineId, RoutineRevision, RoutineRevisionId};
+use altai_control_protocol::{
+    Routine, RoutineId, RoutineRevision, RoutineRevisionId, RoutineStatus,
+};
 use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
 use std::{path::Path, sync::Mutex};
 
@@ -39,6 +41,17 @@ pub trait RoutineRepository: Send + Sync {
         &self,
         revision_id: &RoutineRevisionId,
     ) -> Result<Option<RoutineRevision>, RoutineError>;
+    /// All routines in the `Active` lifecycle state, for the cron bridge to scan.
+    fn list_active(&self) -> Result<Vec<Routine>, RoutineError>;
+    /// The most recent cron fire the bridge materialized for this routine, if any.
+    fn last_fired(&self, routine_id: &RoutineId) -> Result<Option<u64>, RoutineError>;
+    /// Record that the bridge materialized a fire at `fired_at_unix_seconds`,
+    /// advancing the routine's anchor. Upserts: a later fire overwrites an earlier.
+    fn record_fire(
+        &self,
+        routine_id: &RoutineId,
+        fired_at_unix_seconds: u64,
+    ) -> Result<(), RoutineError>;
 }
 
 pub struct SqliteRoutineRepository {
@@ -48,7 +61,7 @@ pub struct SqliteRoutineRepository {
 impl SqliteRoutineRepository {
     pub fn open(path: &Path) -> Result<Self, String> {
         let connection = Connection::open(path).map_err(|e| e.to_string())?;
-        connection.execute_batch("PRAGMA busy_timeout = 5000; CREATE TABLE IF NOT EXISTS control_plane_routines (routine_id TEXT PRIMARY KEY, payload_json TEXT NOT NULL); CREATE TABLE IF NOT EXISTS control_plane_routine_revisions (routine_revision_id TEXT PRIMARY KEY, routine_id TEXT NOT NULL, revision INTEGER NOT NULL, payload_json TEXT NOT NULL);").map_err(|e| e.to_string())?;
+        connection.execute_batch("PRAGMA busy_timeout = 5000; CREATE TABLE IF NOT EXISTS control_plane_routines (routine_id TEXT PRIMARY KEY, payload_json TEXT NOT NULL); CREATE TABLE IF NOT EXISTS control_plane_routine_revisions (routine_revision_id TEXT PRIMARY KEY, routine_id TEXT NOT NULL, revision INTEGER NOT NULL, payload_json TEXT NOT NULL); CREATE TABLE IF NOT EXISTS control_plane_routine_fires (routine_id TEXT PRIMARY KEY, last_fired_at INTEGER NOT NULL);").map_err(|e| e.to_string())?;
         Ok(Self {
             connection: Mutex::new(connection),
         })
@@ -208,6 +221,54 @@ impl RoutineRepository for SqliteRoutineRepository {
                 })
             })
             .transpose()
+    }
+
+    fn list_active(&self) -> Result<Vec<Routine>, RoutineError> {
+        let connection = self.lock()?;
+        let mut stmt = connection
+            .prepare("SELECT payload_json FROM control_plane_routines")
+            .map_err(Self::db)?;
+        let payloads = stmt
+            .query_map([], |row| row.get::<_, String>(0))
+            .map_err(Self::db)?;
+        let mut routines = Vec::new();
+        for payload in payloads {
+            let routine: Routine =
+                serde_json::from_str(&payload.map_err(Self::db)?).map_err(|e| RoutineError::Internal {
+                    reason: e.to_string(),
+                })?;
+            if routine.status == RoutineStatus::Active {
+                routines.push(routine);
+            }
+        }
+        Ok(routines)
+    }
+
+    fn last_fired(&self, routine_id: &RoutineId) -> Result<Option<u64>, RoutineError> {
+        let seconds: Option<i64> = self
+            .lock()?
+            .query_row(
+                "SELECT last_fired_at FROM control_plane_routine_fires WHERE routine_id=?1",
+                [&routine_id.value],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(Self::db)?;
+        Ok(seconds.map(|s| s.max(0) as u64))
+    }
+
+    fn record_fire(
+        &self,
+        routine_id: &RoutineId,
+        fired_at_unix_seconds: u64,
+    ) -> Result<(), RoutineError> {
+        self.lock()?
+            .execute(
+                "INSERT INTO control_plane_routine_fires (routine_id, last_fired_at) VALUES (?1, ?2) ON CONFLICT(routine_id) DO UPDATE SET last_fired_at=excluded.last_fired_at",
+                params![routine_id.value, fired_at_unix_seconds as i64],
+            )
+            .map_err(Self::db)?;
+        Ok(())
     }
 }
 
