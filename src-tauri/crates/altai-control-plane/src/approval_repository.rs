@@ -368,4 +368,28 @@ mod tests {
             .collect();
         assert_eq!(pending, vec!["apv_pending".to_string()]);
     }
+
+    #[test]
+    fn list_in_org_returns_only_that_orgs_approvals() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo = SqliteApprovalRepository::open(&dir.path().join("work.db")).unwrap();
+        repo.create(approval("mine-1")).unwrap();
+        repo.create(approval("mine-2")).unwrap();
+        let mut foreign = approval("foreign");
+        foreign.organization_id = OrganizationId::new("other");
+        repo.create(foreign).unwrap();
+
+        let mut ids: Vec<String> = repo
+            .list_in_org(&OrganizationId::new("org"))
+            .unwrap()
+            .into_iter()
+            .map(|a| a.id.value)
+            .collect();
+        ids.sort();
+        assert_eq!(ids, vec!["apv_mine-1".to_string(), "apv_mine-2".to_string()]);
+        // The foreign org sees only its own.
+        let other = repo.list_in_org(&OrganizationId::new("other")).unwrap();
+        assert_eq!(other.len(), 1);
+        assert_eq!(other[0].id.value, "apv_foreign");
+    }
 }
