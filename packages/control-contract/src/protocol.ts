@@ -8,7 +8,7 @@
 
 import { Actor } from "./actor.js";
 import { ControlErrorCode } from "./error.js";
-import { ControlEvent, EventKind } from "./event.js";
+import { ActivityEvent, ControlEvent, EventKind } from "./event.js";
 import { OrganizationId, WorkItemId } from "./ids.js";
 
 export const CONTROL_PLANE_PROTOCOL_VERSION_MAJOR = 1;
@@ -188,3 +188,19 @@ export interface ActivityQueryRequest {
   kind?: EventKind | null;
   work_item_id?: WorkItemId | null;
 }
+
+/**
+ * A protocol-level command, query, or event operation framed by
+ * ProtocolRequest. Adjacent tagging mirrors the Rust ProtocolCommand:
+ * `{"type": "negotiate_capabilities", "payload": {...}}`.
+ */
+export type ProtocolCommand =
+  | { type: "negotiate_capabilities"; payload: CapabilityNegotiationRequest }
+  | { type: "query_activity"; payload: ActivityQueryRequest }
+  | { type: "replay_events"; payload: EventReplayRequest };
+
+/** The successful payload of a ProtocolResponse for each ProtocolCommand. */
+export type ProtocolOutcome =
+  | { type: "negotiated"; payload: CapabilityNegotiationResponse }
+  | { type: "activity"; payload: PageResponse<ActivityEvent> }
+  | { type: "replayed"; payload: EventReplayResponse };

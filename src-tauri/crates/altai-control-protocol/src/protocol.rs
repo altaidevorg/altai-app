@@ -8,7 +8,7 @@
 
 use crate::actor::Actor;
 use crate::error::{ControlError, ControlErrorCode};
-use crate::event::{ControlEvent, EventKind};
+use crate::event::{ActivityEvent, ControlEvent, EventKind};
 use crate::id::{OrganizationId, WorkItemId};
 use serde::{Deserialize, Serialize};
 
@@ -359,6 +359,27 @@ pub struct ActivityQueryRequest {
     pub work_item_id: Option<WorkItemId>,
 }
 
+/// A protocol-level command, query, or event operation framed by
+/// [`ProtocolRequest`]. Adjacent tagging keeps the wire shape stable and
+/// mirrorable: `{"type": "negotiate_capabilities", "payload": {...}}`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type", content = "payload", rename_all = "snake_case")]
+pub enum ProtocolCommand {
+    NegotiateCapabilities(CapabilityNegotiationRequest),
+    QueryActivity(ActivityQueryRequest),
+    ReplayEvents(EventReplayRequest),
+}
+
+/// The successful payload of a [`ProtocolResponse`] for each
+/// [`ProtocolCommand`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type", content = "payload", rename_all = "snake_case")]
+pub enum ProtocolOutcome {
+    Negotiated(CapabilityNegotiationResponse),
+    Activity(PageResponse<ActivityEvent>),
+    Replayed(EventReplayResponse),
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -460,5 +481,43 @@ mod tests {
         let proto_err = ProtocolError::from_control_error(&ctrl_err);
         assert_eq!(proto_err.code, ControlErrorCode::BudgetStopped);
         assert!(proto_err.message.contains("budget stopped: org_1"));
+    }
+
+    #[test]
+    fn protocol_command_uses_stable_adjacent_tagging() {
+        let command = ProtocolCommand::NegotiateCapabilities(CapabilityNegotiationRequest {
+            client_version: ProtocolVersion::CURRENT,
+            client_name: "altai-cli".to_string(),
+            required_capabilities: vec!["organizations".to_string()],
+        });
+        let json = serde_json::to_value(&command).unwrap();
+        assert_eq!(json["type"], "negotiate_capabilities");
+        assert_eq!(json["payload"]["client_name"], "altai-cli");
+        let round_trip: ProtocolCommand = serde_json::from_value(json).unwrap();
+        assert_eq!(round_trip, command);
+    }
+
+    #[test]
+    fn protocol_outcome_round_trips_every_arm() {
+        let outcomes = vec![
+            ProtocolOutcome::Negotiated(CapabilityNegotiationResponse {
+                server_version: ProtocolVersion::CURRENT,
+                deployment_mode: DeploymentMode::EmbeddedHost,
+                server_capabilities: ControlPlaneCapabilities::full(),
+                compatible: true,
+                missing_capabilities: Vec::new(),
+            }),
+            ProtocolOutcome::Activity(PageResponse::empty()),
+            ProtocolOutcome::Replayed(EventReplayResponse {
+                events: Vec::new(),
+                next_sequence: 7,
+                has_more: false,
+            }),
+        ];
+        for outcome in outcomes {
+            let json = serde_json::to_string(&outcome).unwrap();
+            let round_trip: ProtocolOutcome = serde_json::from_str(&json).unwrap();
+            assert_eq!(round_trip, outcome);
+        }
     }
 }

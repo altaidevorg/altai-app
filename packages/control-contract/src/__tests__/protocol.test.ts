@@ -9,6 +9,8 @@ import {
   type ProtocolRequest,
   type ProtocolResponse,
   type PageResponse,
+  type ProtocolCommand,
+  type ProtocolOutcome,
 } from "../protocol.js";
 import { ControlErrorCode } from "../error.js";
 
@@ -116,5 +118,46 @@ describe("control protocol contracts", () => {
     expect(page.items).toHaveLength(2);
     expect(page.has_more).toBe(true);
     expect(page.next_cursor).toBe("cur_next");
+  });
+
+  it("frames commands with stable adjacent tagging", () => {
+    const command: ProtocolCommand = {
+      type: "negotiate_capabilities",
+      payload: {
+        client_version: CURRENT_PROTOCOL_VERSION,
+        client_name: "altai-desktop-ui",
+        required_capabilities: ["organizations"],
+      },
+    };
+    expect(command.type).toBe("negotiate_capabilities");
+    expect(command.payload.client_name).toBe("altai-desktop-ui");
+    // The wire shape matches the Rust ProtocolCommand adjacent tagging.
+    const json = JSON.stringify(command);
+    expect(json).toContain('"type":"negotiate_capabilities"');
+    expect(json).toContain('"payload"');
+  });
+
+  it("frames outcomes for every command kind", () => {
+    const outcomes: ProtocolOutcome[] = [
+      {
+        type: "negotiated",
+        payload: evaluateCapabilityNegotiation(
+          CURRENT_PROTOCOL_VERSION,
+          "local_daemon",
+          defaultCapabilities(),
+          {
+            client_version: CURRENT_PROTOCOL_VERSION,
+            client_name: "altai-cli",
+            required_capabilities: [],
+          },
+        ),
+      },
+      { type: "activity", payload: { items: [], has_more: false } },
+      { type: "replayed", payload: { events: [], next_sequence: 0, has_more: false } },
+    ];
+    for (const outcome of outcomes) {
+      expect(typeof outcome.type).toBe("string");
+      expect("payload" in outcome).toBe(true);
+    }
   });
 });
