@@ -5,7 +5,7 @@
 //! routine points at its current revision. Nothing here enqueues a wake or
 //! mutates a work item's execution phase.
 
-use altai_control_protocol::{Approval, ApprovalDecision, ApprovalId};
+use altai_control_protocol::{Approval, ApprovalDecision, ApprovalId, OrganizationId};
 use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
 use std::{path::Path, sync::Mutex};
 
@@ -37,6 +37,8 @@ pub trait ApprovalRepository: Send + Sync {
     fn get_decision(&self, approval_id: &ApprovalId) -> Result<Option<ApprovalDecision>, ApprovalError>;
     /// All approvals with no recorded decision yet, for the scheduler to scan.
     fn list_pending(&self) -> Result<Vec<Approval>, ApprovalError>;
+    /// Every approval in an organization, resolved or not (org equality filter).
+    fn list_in_org(&self, organization_id: &OrganizationId) -> Result<Vec<Approval>, ApprovalError>;
 }
 
 pub struct SqliteApprovalRepository {
@@ -195,6 +197,27 @@ impl ApprovalRepository for SqliteApprovalRepository {
         }
         Ok(approvals)
     }
+
+    fn list_in_org(&self, organization_id: &OrganizationId) -> Result<Vec<Approval>, ApprovalError> {
+        let connection = self.lock()?;
+        let mut stmt = connection
+            .prepare("SELECT payload_json FROM control_plane_approvals")
+            .map_err(Self::db)?;
+        let payloads = stmt
+            .query_map([], |row| row.get::<_, String>(0))
+            .map_err(Self::db)?;
+        let mut approvals = Vec::new();
+        for payload in payloads {
+            let approval: Approval =
+                serde_json::from_str(&payload.map_err(Self::db)?).map_err(|e| ApprovalError::Internal {
+                    reason: e.to_string(),
+                })?;
+            if approval.organization_id == *organization_id {
+                approvals.push(approval);
+            }
+        }
+        Ok(approvals)
+    }
 }
 
 impl SqliteApprovalRepository {
@@ -344,5 +367,29 @@ mod tests {
             .map(|a| a.id.value)
             .collect();
         assert_eq!(pending, vec!["apv_pending".to_string()]);
+    }
+
+    #[test]
+    fn list_in_org_returns_only_that_orgs_approvals() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo = SqliteApprovalRepository::open(&dir.path().join("work.db")).unwrap();
+        repo.create(approval("mine-1")).unwrap();
+        repo.create(approval("mine-2")).unwrap();
+        let mut foreign = approval("foreign");
+        foreign.organization_id = OrganizationId::new("other");
+        repo.create(foreign).unwrap();
+
+        let mut ids: Vec<String> = repo
+            .list_in_org(&OrganizationId::new("org"))
+            .unwrap()
+            .into_iter()
+            .map(|a| a.id.value)
+            .collect();
+        ids.sort();
+        assert_eq!(ids, vec!["apv_mine-1".to_string(), "apv_mine-2".to_string()]);
+        // The foreign org sees only its own.
+        let other = repo.list_in_org(&OrganizationId::new("other")).unwrap();
+        assert_eq!(other.len(), 1);
+        assert_eq!(other[0].id.value, "apv_foreign");
     }
 }
