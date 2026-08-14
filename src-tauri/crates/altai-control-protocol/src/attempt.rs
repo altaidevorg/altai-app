@@ -58,3 +58,25 @@ pub struct RunBinding {
     pub run_id: RunId,
     pub bound_at_unix_seconds: u64,
 }
+
+/// Which scheduler backend owns an attempt. Exactly one backend is bound per
+/// attempt and it is immutable once set, so a later managed scheduler (the
+/// package-041 cron bridge) cannot register a second backend for an attempt the
+/// native scheduler already owns. `NativeLocal` is the single-writer CP-07
+/// scheduler; `Managed` is realized by the package-041 cron bridge.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ScheduleBackend {
+    NativeLocal,
+    Managed,
+}
+
+/// Immutable, exactly-one-per-attempt record of which schedule backend owns an
+/// attempt. Mirrors [`RunBinding`]'s immutability contract: rebinding the same
+/// backend is idempotent; a divergent backend fails closed.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ScheduleBackendBinding {
+    pub attempt_id: AttemptId,
+    pub backend: ScheduleBackend,
+    pub bound_at_unix_seconds: u64,
+}

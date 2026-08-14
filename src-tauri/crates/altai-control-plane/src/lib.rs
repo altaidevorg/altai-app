@@ -15,6 +15,7 @@ pub mod legacy_work_bridge;
 pub mod recovery_repository;
 pub mod run_binding_repository;
 pub mod run_context;
+pub mod schedule_backend_repository;
 pub mod scheduler;
 pub mod scope_repository;
 mod service;
@@ -54,6 +55,9 @@ pub use run_context::{
     MAX_RUN_CONTEXT_BYTES,
 };
 pub use scheduler::{ScheduleResult, SchedulerError, SingleWriterScheduler};
+pub use schedule_backend_repository::{
+    ScheduleBackendError, ScheduleBackendRepository, SqliteScheduleBackendRepository,
+};
 pub use scope_repository::{InMemoryScopeRepository, ScopeError, ScopeRepository};
 pub use service::{
     ControlPlane, ControlPlaneConfig, ControlPlaneError, ControlPlaneStore, RegistrationCommit,
