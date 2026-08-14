@@ -127,6 +127,21 @@ impl RoutineRepository for SqliteRoutineRepository {
             .map_err(Self::db)?
             .is_some();
         if !already_present {
+            // Enforce a monotonic intent sequence: a genuinely new revision must
+            // advance past the current one. This keeps the append-only log ordered
+            // once the command port exposes append_revision over the wire.
+            if let Some(current_revision_id) = routine.current_revision_id {
+                let current = Self::read_revision(&tx, &current_revision_id)?.ok_or_else(|| {
+                    RoutineError::Internal {
+                        reason: "routine current revision missing".into(),
+                    }
+                })?;
+                if revision.revision.value() <= current.revision.value() {
+                    return Err(RoutineError::Conflict {
+                        routine_id: routine_id.value.clone(),
+                    });
+                }
+            }
             tx.execute(
                 "INSERT INTO control_plane_routine_revisions (routine_revision_id, routine_id, revision, payload_json) VALUES (?1, ?2, ?3, ?4) ON CONFLICT DO NOTHING",
                 params![
@@ -204,6 +219,27 @@ impl SqliteRoutineRepository {
         let payload: Option<String> = tx
             .query_row(
                 "SELECT payload_json FROM control_plane_routines WHERE routine_id=?1",
+                [&id.value],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(Self::db)?;
+        payload
+            .map(|p| {
+                serde_json::from_str(&p).map_err(|e| RoutineError::Internal {
+                    reason: e.to_string(),
+                })
+            })
+            .transpose()
+    }
+
+    fn read_revision(
+        tx: &rusqlite::Transaction<'_>,
+        id: &RoutineRevisionId,
+    ) -> Result<Option<RoutineRevision>, RoutineError> {
+        let payload: Option<String> = tx
+            .query_row(
+                "SELECT payload_json FROM control_plane_routine_revisions WHERE routine_revision_id=?1",
                 [&id.value],
                 |row| row.get(0),
             )
@@ -370,5 +406,33 @@ mod tests {
             repo.create(divergent),
             Err(RoutineError::Conflict { .. })
         ));
+    }
+
+    #[test]
+    fn append_revision_rejects_a_non_monotonic_sequence() {
+        let dir = tempfile::tempdir().unwrap();
+        let database = dir.path().join("work.db");
+        let repo = SqliteRoutineRepository::open(&database).unwrap();
+        let routine_id = RoutineId::new("rt");
+        repo.create(routine("rt")).unwrap();
+        let trigger = RoutineTrigger::Recurring {
+            cron_expression: "0 9 * * *".into(),
+        };
+        // Advance to intent revision 2.
+        repo.append_revision(&routine_id, revision(&routine_id, 2, trigger.clone()))
+            .unwrap();
+        // A different revision id carrying a lower intent version is rejected:
+        // the append-only log must stay monotonic.
+        let err = repo
+            .append_revision(&routine_id, revision(&routine_id, 1, trigger))
+            .unwrap_err();
+        assert!(matches!(err, RoutineError::Conflict { .. }));
+        // The routine is unchanged: still pointing at revision 2.
+        let stored = repo.get(&routine_id).unwrap().unwrap();
+        assert_eq!(
+            stored.current_revision_id,
+            Some(RoutineRevisionId::new("rev-2"))
+        );
+        assert_eq!(stored.revision, Revision::new(1));
     }
 }
