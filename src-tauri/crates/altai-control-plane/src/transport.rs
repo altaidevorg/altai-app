@@ -5,18 +5,19 @@
 //! module deliberately refuses to make an accidental unauthenticated listener.
 
 use crate::{
-    finalize_attempt, AgentRepository, AgentRepositoryError, ApprovalError, ApprovalRepository,
-    AttemptFinalization, AttemptFinalizationError, AttemptRepository, ControlPlane,
-    ControlPlaneError, RegistrationGrant, RoutineError, RoutineRepository, RunBindingError,
-    RunBindingRepository, RunOutcome, ScopeError, ScopeRepository, WakeError, WakeRepository,
-    WorkGraphError, WorkGraphRepository,
+    capabilities_from_wiring, finalize_attempt, AgentRepository, AgentRepositoryError,
+    ApprovalError, ApprovalRepository, AttemptFinalization, AttemptFinalizationError,
+    AttemptRepository, ControlPlane, ControlPlaneError, ProtocolDispatcher, RegistrationGrant,
+    RoutineError, RoutineRepository, RunBindingError, RunBindingRepository, RunOutcome, ScopeError,
+    ScopeRepository, WakeError, WakeRepository, WorkGraphError, WorkGraphRepository,
 };
 use altai_control_protocol::{
     AgentInstance, AgentProfileRevision, Approval, ApprovalDecision, ApprovalId, ApprovalOutcome,
-    Attempt, AttemptId, ControlPlaneHealth, Goal, GoalId, HostRegistrationRequest, Organization,
-    OrganizationId, Project, ProjectWorkspace, RegisteredHost, Routine, RoutineId, RoutineRevision,
-    RunBinding, WakeRequest, WakeSource, WorkCheckoutLease, WorkComment, WorkDependency,
-    WorkItemId,
+    Attempt, AttemptId, CapabilityNegotiationRequest, CapabilityNegotiationResponse,
+    ControlPlaneHealth, DeploymentMode, Goal, GoalId, HostRegistrationRequest, Organization,
+    OrganizationId, Project, ProjectWorkspace, ProtocolCommand, ProtocolOutcome, ProtocolRequest,
+    ProtocolResponse, RegisteredHost, Routine, RoutineId, RoutineRevision, RunBinding, WakeRequest,
+    WakeSource, WorkCheckoutLease, WorkComment, WorkDependency, WorkItemId,
 };
 use axum::{
     extract::{Path, State},
@@ -93,6 +94,7 @@ struct ApiState {
     attempt_repository: Option<Arc<dyn AttemptRepository>>,
     routine_repository: Option<Arc<dyn RoutineRepository>>,
     approval_repository: Option<Arc<dyn ApprovalRepository>>,
+    protocol_dispatcher: Arc<ProtocolDispatcher>,
 }
 
 /// Routes are versioned from their first public exposure. The health and grant
@@ -135,6 +137,14 @@ pub fn router_with_all_repositories(
     agent_repository: Option<Arc<dyn AgentRepository>>,
     work_graph_repository: Option<Arc<dyn WorkGraphRepository>>,
 ) -> Router {
+    let capabilities = capabilities_from_wiring(
+        scope_repository.is_some(),
+        agent_repository.is_some(),
+        work_graph_repository.is_some(),
+        false,
+        false,
+        false,
+    );
     let state = ApiState {
         plane,
         bootstrap_credential: Arc::new(bootstrap_credential),
@@ -146,11 +156,17 @@ pub fn router_with_all_repositories(
         attempt_repository: None,
         routine_repository: None,
         approval_repository: None,
+        protocol_dispatcher: Arc::new(ProtocolDispatcher::new(
+            DeploymentMode::LocalDaemon,
+            capabilities,
+        )),
     };
     Router::new()
         .route("/v1/health", get(health))
         .route("/v1/registration-grants", post(issue_registration_grant))
         .route("/v1/hosts/register", post(register_host))
+        .route("/v1/protocol/negotiate", post(protocol_negotiate))
+        .route("/v1/protocol/commands", post(protocol_command))
         .route("/v1/organizations", post(create_organization))
         .route("/v1/goals", post(create_goal))
         .route(
@@ -186,6 +202,14 @@ pub fn router_with_control_repositories(
     routine_repository: Option<Arc<dyn RoutineRepository>>,
     approval_repository: Option<Arc<dyn ApprovalRepository>>,
 ) -> Router {
+    let capabilities = capabilities_from_wiring(
+        scope_repository.is_some(),
+        agent_repository.is_some(),
+        work_graph_repository.is_some(),
+        attempt_repository.is_some(),
+        routine_repository.is_some(),
+        approval_repository.is_some(),
+    );
     let state = ApiState {
         plane,
         bootstrap_credential: Arc::new(bootstrap_credential),
@@ -197,11 +221,17 @@ pub fn router_with_control_repositories(
         attempt_repository,
         routine_repository,
         approval_repository,
+        protocol_dispatcher: Arc::new(ProtocolDispatcher::new(
+            DeploymentMode::LocalDaemon,
+            capabilities,
+        )),
     };
     Router::new()
         .route("/v1/health", get(health))
         .route("/v1/registration-grants", post(issue_registration_grant))
         .route("/v1/hosts/register", post(register_host))
+        .route("/v1/protocol/negotiate", post(protocol_negotiate))
+        .route("/v1/protocol/commands", post(protocol_command))
         .route("/v1/wakes", post(enqueue_wake))
         .route("/v1/wakes/{work_item_id}/claim", post(claim_wake))
         .route("/v1/work-checkouts", post(checkout_work))
@@ -583,6 +613,29 @@ async fn health(
 ) -> Result<Json<ControlPlaneHealth>, ApiError> {
     require_bootstrap(&state, &headers)?;
     state.plane.health().map(Json).map_err(ApiError::from)
+}
+
+/// Bootstrap-friendly capability discovery: a client that does not yet know
+/// the server's protocol version can negotiate before framing commands.
+async fn protocol_negotiate(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Json(request): Json<CapabilityNegotiationRequest>,
+) -> Result<Json<CapabilityNegotiationResponse>, ApiError> {
+    require_bootstrap(&state, &headers)?;
+    Ok(Json(state.protocol_dispatcher.negotiate(&request)))
+}
+
+/// Uniform framed protocol entry point. The handler delegates to the same
+/// dispatcher a local caller uses; domain failures are typed errors inside the
+/// response envelope, so the HTTP status stays reserved for transport issues.
+async fn protocol_command(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Json(request): Json<ProtocolRequest<ProtocolCommand>>,
+) -> Result<Json<ProtocolResponse<ProtocolOutcome>>, ApiError> {
+    require_bootstrap(&state, &headers)?;
+    Ok(Json(state.protocol_dispatcher.execute(&request)))
 }
 
 async fn issue_registration_grant(

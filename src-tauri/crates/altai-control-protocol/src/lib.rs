@@ -40,9 +40,9 @@ pub use id::*;
 pub use protocol::{
     ActivityQueryRequest, CapabilityNegotiationRequest, CapabilityNegotiationResponse,
     ControlPlaneCapabilities, DeploymentMode, EventReplayRequest, EventReplayResponse, PageRequest,
-    PageResponse, ProtocolError, ProtocolRequest, ProtocolResponse, ProtocolVersion,
-    CONTROL_PLANE_PROTOCOL_VERSION_MAJOR, CONTROL_PLANE_PROTOCOL_VERSION_MINOR, DEFAULT_PAGE_LIMIT,
-    MAX_PAGE_LIMIT,
+    PageResponse, ProtocolCommand, ProtocolError, ProtocolOutcome, ProtocolRequest,
+    ProtocolResponse, ProtocolVersion, CONTROL_PLANE_PROTOCOL_VERSION_MAJOR,
+    CONTROL_PLANE_PROTOCOL_VERSION_MINOR, DEFAULT_PAGE_LIMIT, MAX_PAGE_LIMIT,
 };
 pub use recovery::{RecoveryDisposition, RecoveryRecord};
 pub use registration::{
