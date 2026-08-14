@@ -22,6 +22,7 @@ pub mod legacy_work_bridge;
 pub mod liveness_monitor;
 pub mod recovery_repository;
 pub mod recovery_service;
+pub mod repository_scope_repository;
 pub mod routine_cron_bridge;
 pub mod routine_materializer;
 pub mod routine_repository;
@@ -41,6 +42,7 @@ pub mod usage_repository;
 pub mod wake_repository;
 pub mod work_graph_repository;
 pub mod work_item_repository;
+pub mod workspace_scope_gate;
 
 pub use agent_repository::{AgentRepository, AgentRepositoryError, InMemoryAgentRepository};
 pub use altai_control_protocol::{
@@ -62,6 +64,9 @@ pub use legacy_work_bridge::{LegacyWorkBridge, LegacyWorkBridgeError};
 pub use liveness_monitor::{LivenessError, LivenessMonitor};
 pub use recovery_repository::{RecoveryError, RecoveryRepository, SqliteRecoveryRepository};
 pub use recovery_service::{RecoveryOutcome, RecoveryService, RecoveryServiceError};
+pub use repository_scope_repository::{
+    RepositoryScopeError, RepositoryScopeRepository, SqliteRepositoryScopeRepository,
+};
 pub use routine_cron_bridge::{RoutineCronBridge, DEFAULT_CRON_TICK};
 pub use routine_materializer::{RoutineMaterializationError, RoutineMaterializer};
 pub use routine_repository::{RoutineError, RoutineRepository, SqliteRoutineRepository};
@@ -99,6 +104,9 @@ pub use completion_gate::{CompletionBlocker, CompletionError, CompletionGate, Co
 pub use delivery_gate::{DeliveryBlocker, DeliveryDecision, DeliveryError, DeliveryGate};
 pub use evidence_repository::{EvidenceError, EvidenceRepository, SqliteEvidenceRepository};
 pub use work_graph_repository::{InMemoryWorkGraphRepository, WorkGraphError, WorkGraphRepository};
+pub use workspace_scope_gate::{
+    DenialReason, ScopePermit, WorkspaceScopeError, WorkspaceScopeGate,
+};
 pub use work_item_repository::{
     SqliteWorkItemRepository, WorkItemRepository, WorkItemRepositoryError,
 };
