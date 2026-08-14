@@ -5,16 +5,18 @@
 //! module deliberately refuses to make an accidental unauthenticated listener.
 
 use crate::{
-    finalize_attempt, AgentRepository, AgentRepositoryError, AttemptFinalization,
-    AttemptFinalizationError, AttemptRepository, ControlPlane, ControlPlaneError, RegistrationGrant,
-    RoutineError, RoutineRepository, RunBindingError, RunBindingRepository, RunOutcome, ScopeError,
-    ScopeRepository, WakeError, WakeRepository, WorkGraphError, WorkGraphRepository,
+    finalize_attempt, AgentRepository, AgentRepositoryError, ApprovalError, ApprovalRepository,
+    AttemptFinalization, AttemptFinalizationError, AttemptRepository, ControlPlane,
+    ControlPlaneError, RegistrationGrant, RoutineError, RoutineRepository, RunBindingError,
+    RunBindingRepository, RunOutcome, ScopeError, ScopeRepository, WakeError, WakeRepository,
+    WorkGraphError, WorkGraphRepository,
 };
 use altai_control_protocol::{
-    AgentInstance, AgentProfileRevision, Attempt, AttemptId, ControlPlaneHealth, Goal, GoalId,
-    HostRegistrationRequest, Organization, OrganizationId, Project, ProjectWorkspace,
-    RegisteredHost, Routine, RoutineId, RoutineRevision, RunBinding, WakeRequest, WakeSource,
-    WorkCheckoutLease, WorkComment, WorkDependency, WorkItemId,
+    AgentInstance, AgentProfileRevision, Approval, ApprovalDecision, ApprovalId, ApprovalOutcome,
+    Attempt, AttemptId, ControlPlaneHealth, Goal, GoalId, HostRegistrationRequest, Organization,
+    OrganizationId, Project, ProjectWorkspace, RegisteredHost, Routine, RoutineId, RoutineRevision,
+    RunBinding, WakeRequest, WakeSource, WorkCheckoutLease, WorkComment, WorkDependency,
+    WorkItemId,
 };
 use axum::{
     extract::{Path, State},
@@ -90,6 +92,7 @@ struct ApiState {
     run_binding_repository: Option<Arc<dyn RunBindingRepository>>,
     attempt_repository: Option<Arc<dyn AttemptRepository>>,
     routine_repository: Option<Arc<dyn RoutineRepository>>,
+    approval_repository: Option<Arc<dyn ApprovalRepository>>,
 }
 
 /// Routes are versioned from their first public exposure. The health and grant
@@ -142,6 +145,7 @@ pub fn router_with_all_repositories(
         run_binding_repository: None,
         attempt_repository: None,
         routine_repository: None,
+        approval_repository: None,
     };
     Router::new()
         .route("/v1/health", get(health))
@@ -180,6 +184,7 @@ pub fn router_with_control_repositories(
     run_binding_repository: Option<Arc<dyn RunBindingRepository>>,
     attempt_repository: Option<Arc<dyn AttemptRepository>>,
     routine_repository: Option<Arc<dyn RoutineRepository>>,
+    approval_repository: Option<Arc<dyn ApprovalRepository>>,
 ) -> Router {
     let state = ApiState {
         plane,
@@ -191,6 +196,7 @@ pub fn router_with_control_repositories(
         run_binding_repository,
         attempt_repository,
         routine_repository,
+        approval_repository,
     };
     Router::new()
         .route("/v1/health", get(health))
@@ -209,6 +215,11 @@ pub fn router_with_control_repositories(
         .route(
             "/v1/routines/{routine_id}/revisions",
             post(append_routine_revision_route),
+        )
+        .route("/v1/approvals", post(create_approval_route))
+        .route(
+            "/v1/approvals/{approval_id}/decisions",
+            post(record_approval_decision_route),
         )
         .with_state(state)
 }
@@ -334,6 +345,49 @@ async fn append_routine_revision_route(
     require_bootstrap(&state, &headers)?;
     routines(&state)?
         .append_revision(&RoutineId::new(routine_id), revision)
+        .map(Json)
+        .map_err(ApiError::from)
+}
+
+async fn create_approval_route(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Json(approval): Json<Approval>,
+) -> Result<Json<Approval>, ApiError> {
+    require_bootstrap(&state, &headers)?;
+    approvals(&state)?
+        .create(approval)
+        .map(Json)
+        .map_err(ApiError::from)
+}
+
+/// One governance decision resolving an approval. The approval id is bound from
+/// the path (not the body), mirroring how attempt finalization binds identity
+/// from its path; only the outcome and audit fields come from the caller.
+#[derive(serde::Deserialize)]
+struct ApprovalDecisionRequest {
+    outcome: ApprovalOutcome,
+    decided_by: String,
+    decided_at_unix_seconds: u64,
+    reason: Option<String>,
+}
+
+async fn record_approval_decision_route(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Path(approval_id): Path<String>,
+    Json(request): Json<ApprovalDecisionRequest>,
+) -> Result<Json<Approval>, ApiError> {
+    require_bootstrap(&state, &headers)?;
+    let decision = ApprovalDecision {
+        approval_id: ApprovalId::new(approval_id),
+        outcome: request.outcome,
+        decided_by: request.decided_by,
+        decided_at_unix_seconds: request.decided_at_unix_seconds,
+        reason: request.reason,
+    };
+    approvals(&state)?
+        .record_decision(decision)
         .map(Json)
         .map_err(ApiError::from)
 }
@@ -514,6 +568,12 @@ fn routines(state: &ApiState) -> Result<&Arc<dyn RoutineRepository>, ApiError> {
     state.routine_repository.as_ref().ok_or(ApiError {
         status: StatusCode::SERVICE_UNAVAILABLE,
         code: "routine_repository_unavailable",
+    })
+}
+fn approvals(state: &ApiState) -> Result<&Arc<dyn ApprovalRepository>, ApiError> {
+    state.approval_repository.as_ref().ok_or(ApiError {
+        status: StatusCode::SERVICE_UNAVAILABLE,
+        code: "approval_repository_unavailable",
     })
 }
 
@@ -746,6 +806,25 @@ impl From<RoutineError> for ApiError {
     }
 }
 
+impl From<ApprovalError> for ApiError {
+    fn from(value: ApprovalError) -> Self {
+        match value {
+            ApprovalError::NotFound { .. } => Self {
+                status: StatusCode::NOT_FOUND,
+                code: "approval_not_found",
+            },
+            ApprovalError::Conflict { .. } => Self {
+                status: StatusCode::CONFLICT,
+                code: "approval_conflict",
+            },
+            ApprovalError::Internal { .. } => Self {
+                status: StatusCode::INTERNAL_SERVER_ERROR,
+                code: "approval_repository_unavailable",
+            },
+        }
+    }
+}
+
 impl IntoResponse for ApiError {
     fn into_response(self) -> axum::response::Response {
         (self.status, Json(ErrorBody { code: self.code })).into_response()
@@ -763,14 +842,15 @@ mod tests {
     use super::*;
     use crate::{
         AttemptRepository, ControlPlaneConfig, ControlPlaneStore, InMemoryAgentRepository,
-        InMemoryScopeRepository, InMemoryWakeRepository, SqliteAttemptRepository,
-        SqliteRoutineRepository, SqliteRunBindingRepository,
+        InMemoryScopeRepository, InMemoryWakeRepository, SqliteApprovalRepository,
+        SqliteAttemptRepository, SqliteRoutineRepository, SqliteRunBindingRepository,
     };
     use altai_control_protocol::{
-        AgentInstanceId, AgentProfileRevisionId, Attempt, AttemptId, AttemptState, HostCapabilities,
-        HostRegistration, Organization, OrganizationId, Revision, Routine, RoutineId,
-        RoutineRevision, RoutineRevisionId, RoutineStatus, RoutineTrigger, RunBinding, RunId,
-        WorkItemId, WorkspaceId, CONTROL_PLANE_PROTOCOL_MAJOR,
+        AgentInstanceId, AgentProfileRevisionId, Approval, ApprovalId, ApprovalOutcome,
+        ApprovalScope, Attempt, AttemptId, AttemptState, HostCapabilities, HostRegistration,
+        Organization, OrganizationId, Revision, Routine, RoutineId, RoutineRevision,
+        RoutineRevisionId, RoutineStatus, RoutineTrigger, RunBinding, RunId, WorkItemId,
+        WorkspaceId, CONTROL_PLANE_PROTOCOL_MAJOR,
     };
     use axum::{body::Body, http::Request};
     use tower::ServiceExt;
@@ -924,6 +1004,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         );
         let body = serde_json::json!({ "work_item_id": { "type": "work_item_id", "value": "work-1" }, "source": "manual", "requested_at": "now" }).to_string();
         let request = || {
@@ -972,6 +1053,7 @@ mod tests {
             Some(Arc::new(
                 SqliteRunBindingRepository::open(&directory.path().join("work.db")).unwrap(),
             )),
+            None,
             None,
             None,
         );
@@ -1077,6 +1159,7 @@ mod tests {
             None,
             Some(attempt_repository),
             None,
+            None,
         );
         let request = |outcome: &str, observed: u64, authenticated: bool| {
             let payload = serde_json::json!({
@@ -1175,6 +1258,7 @@ mod tests {
             None,
             None,
             Some(routine_repository.clone()),
+            None,
         );
 
         let routine_id = RoutineId::new("rt-1");
@@ -1355,6 +1439,179 @@ mod tests {
             .await
             .unwrap()
             .status(),
+            StatusCode::NOT_FOUND
+        );
+    }
+
+    #[tokio::test]
+    async fn approval_routes_require_bootstrap_are_idempotent_and_reject_conflicts() {
+        let directory = tempfile::tempdir().unwrap();
+        let plane = Arc::new(
+            ControlPlane::bootstrap(ControlPlaneConfig {
+                service_version: "0.1.0".into(),
+                store: ControlPlaneStore::Sqlite {
+                    database_path: directory.path().join("control.db").display().to_string(),
+                },
+                registration_ttl_seconds: 60,
+            })
+            .unwrap(),
+        );
+        let approval_repository =
+            Arc::new(SqliteApprovalRepository::open(&directory.path().join("work.db")).unwrap());
+        let app = router_with_control_repositories(
+            plane,
+            BootstrapCredential::from_plaintext("test-bootstrap-token").unwrap(),
+            None,
+            None,
+            None,
+            Arc::new(InMemoryWakeRepository::default()),
+            None,
+            None,
+            None,
+            Some(approval_repository.clone()),
+        );
+
+        let approval = Approval {
+            id: ApprovalId::new("apv-1"),
+            organization_id: OrganizationId::new("org"),
+            scope: ApprovalScope::Plan {
+                attempt_id: AttemptId::new("att-1"),
+            },
+            payload_revision: Revision::new(1),
+            outcome: None,
+            revision: Revision::INITIAL,
+            created_at_unix_seconds: 1,
+            resolved_at_unix_seconds: None,
+        };
+        let create_request = |approval: &Approval, authenticated: bool| {
+            let mut request = Request::builder()
+                .method("POST")
+                .uri("/v1/approvals")
+                .header("content-type", "application/json")
+                .body(Body::from(serde_json::to_vec(approval).unwrap()))
+                .unwrap();
+            if authenticated {
+                request
+                    .headers_mut()
+                    .insert(AUTHORIZATION, "Bearer test-bootstrap-token".parse().unwrap());
+            }
+            request
+        };
+        // Unauthenticated create: rejected before storage is touched.
+        assert_eq!(
+            app.clone()
+                .oneshot(create_request(&approval, false))
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::UNAUTHORIZED
+        );
+        // Authenticated create succeeds and is idempotent on replay.
+        assert_eq!(
+            app.clone()
+                .oneshot(create_request(&approval, true))
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::OK
+        );
+        assert_eq!(
+            app.clone()
+                .oneshot(create_request(&approval, true))
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::OK
+        );
+        // A divergent approval under the same id fails closed (409).
+        let mut divergent = approval.clone();
+        divergent.organization_id = OrganizationId::new("other");
+        assert_eq!(
+            app.clone()
+                .oneshot(create_request(&divergent, true))
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::CONFLICT
+        );
+
+        let decision_request = |approval_path: &str, outcome: &str, authenticated: bool| {
+            let payload = serde_json::json!({
+                "outcome": outcome,
+                "decided_by": "principal",
+                "decided_at_unix_seconds": 100,
+                "reason": "ok"
+            });
+            let uri = format!("/v1/approvals/{approval_path}/decisions");
+            let mut request = Request::builder()
+                .method("POST")
+                .uri(&uri)
+                .header("content-type", "application/json")
+                .body(Body::from(serde_json::to_vec(&payload).unwrap()))
+                .unwrap();
+            if authenticated {
+                request
+                    .headers_mut()
+                    .insert(AUTHORIZATION, "Bearer test-bootstrap-token".parse().unwrap());
+            }
+            request
+        };
+        // Unauthenticated resolve: rejected before storage is touched.
+        assert_eq!(
+            app.clone()
+                .oneshot(decision_request("apv-1", "approved", false))
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::UNAUTHORIZED
+        );
+        // Authenticated resolve advances the outcome to Approved.
+        assert_eq!(
+            app.clone()
+                .oneshot(decision_request("apv-1", "approved", true))
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::OK
+        );
+        let resolved = approval_repository
+            .get(&ApprovalId::new("apv-1"))
+            .unwrap()
+            .unwrap();
+        assert_eq!(resolved.outcome, Some(ApprovalOutcome::Approved));
+        assert_eq!(resolved.resolved_at_unix_seconds, Some(100));
+        // Idempotent re-decision: still OK, no double-advance (revision stays at 1).
+        assert_eq!(
+            app.clone()
+                .oneshot(decision_request("apv-1", "approved", true))
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::OK
+        );
+        assert_eq!(
+            approval_repository
+                .get(&ApprovalId::new("apv-1"))
+                .unwrap()
+                .unwrap()
+                .revision,
+            Revision::new(1)
+        );
+        // A divergent outcome after resolution fails closed (409).
+        assert_eq!(
+            app.clone()
+                .oneshot(decision_request("apv-1", "denied", true))
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::CONFLICT
+        );
+        // Resolving an unknown approval fails closed (404).
+        assert_eq!(
+            app.oneshot(decision_request("ghost", "approved", true))
+                .await
+                .unwrap()
+                .status(),
             StatusCode::NOT_FOUND
         );
     }
