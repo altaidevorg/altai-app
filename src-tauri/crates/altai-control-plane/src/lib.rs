@@ -30,6 +30,7 @@ pub mod sqlite_scope;
 pub mod sqlite_wake;
 pub mod sqlite_work_graph;
 pub mod transport;
+pub mod usage_repository;
 pub mod wake_repository;
 pub mod work_graph_repository;
 pub mod work_item_repository;
@@ -82,6 +83,7 @@ pub use transport::{
     router_with_repositories, router_with_scope_repository, BootstrapCredential, TransportError,
 };
 pub use wake_repository::{InMemoryWakeRepository, WakeError, WakeRepository};
+pub use usage_repository::{SqliteUsageRepository, UsageError, UsageRepository};
 pub use work_graph_repository::{InMemoryWorkGraphRepository, WorkGraphError, WorkGraphRepository};
 pub use work_item_repository::{
     SqliteWorkItemRepository, WorkItemRepository, WorkItemRepositoryError,
