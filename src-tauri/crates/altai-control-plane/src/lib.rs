@@ -7,6 +7,7 @@
 //! ledgers through the registered host identity.
 
 pub mod agent_repository;
+pub mod approval_repository;
 pub mod attempt_finalizer;
 pub mod attempt_repository;
 pub mod cron_due;
@@ -41,6 +42,7 @@ pub use attempt_finalizer::{
     finalize_attempt, AttemptFinalization, AttemptFinalizationError, RunOutcome,
 };
 pub use attempt_repository::{AttemptError, AttemptRepository, SqliteAttemptRepository};
+pub use approval_repository::{ApprovalError, ApprovalRepository, SqliteApprovalRepository};
 pub use dispatch_eligibility::{
     DispatchBlocker, DispatchEligibility, DispatchEligibilityEngine, DispatchEligibilityError,
 };

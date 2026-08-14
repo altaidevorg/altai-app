@@ -9,6 +9,7 @@
 
 pub mod actor;
 pub mod agent;
+pub mod approval;
 pub mod attempt;
 pub mod error;
 pub mod event;
@@ -24,6 +25,7 @@ pub mod work_graph;
 
 pub use actor::{Actor, ActorKind};
 pub use agent::{AgentInstance, AgentProfileRevision, AgentStatus};
+pub use approval::{Approval, ApprovalDecision, ApprovalOutcome, ApprovalScope};
 pub use attempt::{Attempt, AttemptState, RunBinding, ScheduleBackend, ScheduleBackendBinding};
 pub use error::{ControlError, ControlErrorCode};
 pub use event::{ActivityEvent, ControlEvent, EventKind};
