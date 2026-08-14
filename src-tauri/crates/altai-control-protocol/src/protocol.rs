@@ -1,0 +1,464 @@
+//! Public versioned control protocol contracts and capability negotiation.
+//!
+//! Provides the canonical framing, pagination, capability negotiation, and
+//! query/event replay models shared across all ALTAI surfaces (Desktop, IDE,
+//! Studio, CLI, and future remote workers).
+//!
+//! See: docs/PAPERCLIP_STYLE_CONTROL_PLANE_ENGINEERING_PLAN.md §8 CP-15.
+
+use crate::actor::Actor;
+use crate::error::{ControlError, ControlErrorCode};
+use crate::event::{ControlEvent, EventKind};
+use crate::id::{OrganizationId, WorkItemId};
+use serde::{Deserialize, Serialize};
+
+pub const CONTROL_PLANE_PROTOCOL_VERSION_MAJOR: u16 = 1;
+pub const CONTROL_PLANE_PROTOCOL_VERSION_MINOR: u16 = 0;
+
+pub const DEFAULT_PAGE_LIMIT: u32 = 50;
+pub const MAX_PAGE_LIMIT: u32 = 250;
+
+/// Semantic protocol version (major.minor).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProtocolVersion {
+    pub major: u16,
+    pub minor: u16,
+}
+
+impl ProtocolVersion {
+    pub const CURRENT: Self = Self {
+        major: CONTROL_PLANE_PROTOCOL_VERSION_MAJOR,
+        minor: CONTROL_PLANE_PROTOCOL_VERSION_MINOR,
+    };
+
+    pub const fn new(major: u16, minor: u16) -> Self {
+        Self { major, minor }
+    }
+
+    /// Returns true if this version is wire-compatible with the server's current major version.
+    pub fn is_compatible_with(&self, server: &ProtocolVersion) -> bool {
+        self.major == server.major
+    }
+}
+
+impl Default for ProtocolVersion {
+    fn default() -> Self {
+        Self::CURRENT
+    }
+}
+
+/// Deployment mode of the control-plane service.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DeploymentMode {
+    /// Local desktop or headless daemon (work.db SQLite).
+    LocalDaemon,
+    /// Managed or remote deployed multi-tenant backend.
+    DeployedBackend,
+    /// Embedded in-process host.
+    EmbeddedHost,
+}
+
+/// Typed capability set advertised and negotiated by the control-plane protocol.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ControlPlaneCapabilities {
+    pub organizations: bool,
+    pub goals: bool,
+    pub projects: bool,
+    pub workspaces: bool,
+    pub agents: bool,
+    pub work_graph: bool,
+    pub attempts: bool,
+    pub routines: bool,
+    pub approvals: bool,
+    pub budgets: bool,
+    pub evidence: bool,
+    pub activity_audit: bool,
+    pub event_replay: bool,
+    pub workspace_scopes: bool,
+}
+
+impl ControlPlaneCapabilities {
+    /// Standard full capabilities enabled on a fully featured local or deployed instance.
+    pub fn full() -> Self {
+        Self {
+            organizations: true,
+            goals: true,
+            projects: true,
+            workspaces: true,
+            agents: true,
+            work_graph: true,
+            attempts: true,
+            routines: true,
+            approvals: true,
+            budgets: true,
+            evidence: true,
+            activity_audit: true,
+            event_replay: true,
+            workspace_scopes: true,
+        }
+    }
+
+    /// Minimal capability profile for light/bootstrap nodes.
+    pub fn minimal() -> Self {
+        Self {
+            organizations: true,
+            goals: false,
+            projects: true,
+            workspaces: true,
+            agents: true,
+            work_graph: true,
+            attempts: true,
+            routines: false,
+            approvals: false,
+            budgets: false,
+            evidence: false,
+            activity_audit: false,
+            event_replay: false,
+            workspace_scopes: false,
+        }
+    }
+
+    /// Check whether a named capability is enabled.
+    pub fn supports(&self, capability: &str) -> bool {
+        match capability {
+            "organizations" => self.organizations,
+            "goals" => self.goals,
+            "projects" => self.projects,
+            "workspaces" => self.workspaces,
+            "agents" => self.agents,
+            "work_graph" => self.work_graph,
+            "attempts" => self.attempts,
+            "routines" => self.routines,
+            "approvals" => self.approvals,
+            "budgets" => self.budgets,
+            "evidence" => self.evidence,
+            "activity_audit" => self.activity_audit,
+            "event_replay" => self.event_replay,
+            "workspace_scopes" => self.workspace_scopes,
+            _ => false,
+        }
+    }
+}
+
+impl Default for ControlPlaneCapabilities {
+    fn default() -> Self {
+        Self::full()
+    }
+}
+
+/// Request to negotiate protocol version and capabilities with the server.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CapabilityNegotiationRequest {
+    pub client_version: ProtocolVersion,
+    pub client_name: String,
+    pub required_capabilities: Vec<String>,
+}
+
+/// Server response for capability negotiation.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CapabilityNegotiationResponse {
+    pub server_version: ProtocolVersion,
+    pub deployment_mode: DeploymentMode,
+    pub server_capabilities: ControlPlaneCapabilities,
+    pub compatible: bool,
+    pub missing_capabilities: Vec<String>,
+}
+
+impl CapabilityNegotiationResponse {
+    pub fn evaluate(
+        server_version: ProtocolVersion,
+        deployment_mode: DeploymentMode,
+        server_capabilities: ControlPlaneCapabilities,
+        request: &CapabilityNegotiationRequest,
+    ) -> Self {
+        let compatible = request.client_version.is_compatible_with(&server_version);
+        let mut missing = Vec::new();
+        for req in &request.required_capabilities {
+            if !server_capabilities.supports(req) {
+                missing.push(req.clone());
+            }
+        }
+        let is_fully_compatible = compatible && missing.is_empty();
+        Self {
+            server_version,
+            deployment_mode,
+            server_capabilities,
+            compatible: is_fully_compatible,
+            missing_capabilities: missing,
+        }
+    }
+}
+
+/// Standard cursor-based pagination request.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PageRequest {
+    pub cursor: Option<String>,
+    pub limit: u32,
+}
+
+impl PageRequest {
+    pub fn new(cursor: Option<String>, limit: Option<u32>) -> Self {
+        let limit = limit.unwrap_or(DEFAULT_PAGE_LIMIT).clamp(1, MAX_PAGE_LIMIT);
+        Self { cursor, limit }
+    }
+
+    pub fn effective_limit(&self) -> u32 {
+        self.limit.clamp(1, MAX_PAGE_LIMIT)
+    }
+}
+
+impl Default for PageRequest {
+    fn default() -> Self {
+        Self {
+            cursor: None,
+            limit: DEFAULT_PAGE_LIMIT,
+        }
+    }
+}
+
+/// Standard paginated response envelope.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PageResponse<T> {
+    pub items: Vec<T>,
+    pub next_cursor: Option<String>,
+    pub has_more: bool,
+    pub total_count: Option<u64>,
+}
+
+impl<T> PageResponse<T> {
+    pub fn new(
+        items: Vec<T>,
+        next_cursor: Option<String>,
+        has_more: bool,
+        total_count: Option<u64>,
+    ) -> Self {
+        Self {
+            items,
+            next_cursor,
+            has_more,
+            total_count,
+        }
+    }
+
+    pub fn empty() -> Self {
+        Self {
+            items: Vec::new(),
+            next_cursor: None,
+            has_more: false,
+            total_count: Some(0),
+        }
+    }
+}
+
+/// Typed error returned in protocol responses.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProtocolError {
+    pub code: ControlErrorCode,
+    pub message: String,
+    pub data: Option<serde_json::Value>,
+}
+
+impl ProtocolError {
+    pub fn new(code: ControlErrorCode, message: impl Into<String>) -> Self {
+        Self {
+            code,
+            message: message.into(),
+            data: None,
+        }
+    }
+
+    pub fn with_data(
+        code: ControlErrorCode,
+        message: impl Into<String>,
+        data: serde_json::Value,
+    ) -> Self {
+        Self {
+            code,
+            message: message.into(),
+            data: Some(data),
+        }
+    }
+
+    pub fn from_control_error(err: &ControlError) -> Self {
+        Self {
+            code: err.code(),
+            message: err.to_string(),
+            data: None,
+        }
+    }
+}
+
+/// Uniform authenticated request envelope for public control protocol commands/queries.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProtocolRequest<T> {
+    pub id: String,
+    pub version: ProtocolVersion,
+    pub actor: Actor,
+    pub payload: T,
+}
+
+/// Uniform response envelope for public control protocol commands/queries.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProtocolResponse<T> {
+    pub id: String,
+    pub result: Result<T, ProtocolError>,
+}
+
+impl<T> ProtocolResponse<T> {
+    pub fn ok(id: impl Into<String>, value: T) -> Self {
+        Self {
+            id: id.into(),
+            result: Ok(value),
+        }
+    }
+
+    pub fn error(id: impl Into<String>, error: ProtocolError) -> Self {
+        Self {
+            id: id.into(),
+            result: Err(error),
+        }
+    }
+}
+
+/// Request to replay append-only control events since a sequence number.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EventReplayRequest {
+    pub organization_id: OrganizationId,
+    pub since_sequence: u64,
+    pub limit: u32,
+    pub aggregate: Option<String>,
+}
+
+impl EventReplayRequest {
+    pub fn new(organization_id: OrganizationId, since_sequence: u64, limit: Option<u32>) -> Self {
+        let limit = limit.unwrap_or(DEFAULT_PAGE_LIMIT).clamp(1, MAX_PAGE_LIMIT);
+        Self {
+            organization_id,
+            since_sequence,
+            limit,
+            aggregate: None,
+        }
+    }
+}
+
+/// Response containing sequential control events.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EventReplayResponse {
+    pub events: Vec<ControlEvent>,
+    pub next_sequence: u64,
+    pub has_more: bool,
+}
+
+/// Query request for audit-level activity events with filtering and cursor pagination.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ActivityQueryRequest {
+    pub organization_id: OrganizationId,
+    pub page: PageRequest,
+    pub kind: Option<EventKind>,
+    pub work_item_id: Option<WorkItemId>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn protocol_version_compatibility() {
+        let v1_0 = ProtocolVersion::new(1, 0);
+        let v1_1 = ProtocolVersion::new(1, 1);
+        let v2_0 = ProtocolVersion::new(2, 0);
+
+        assert!(v1_0.is_compatible_with(&v1_1));
+        assert!(v1_1.is_compatible_with(&v1_0));
+        assert!(!v1_0.is_compatible_with(&v2_0));
+    }
+
+    #[test]
+    fn capability_negotiation_success() {
+        let server_version = ProtocolVersion::CURRENT;
+        let capabilities = ControlPlaneCapabilities::full();
+        let request = CapabilityNegotiationRequest {
+            client_version: ProtocolVersion::CURRENT,
+            client_name: "altai-desktop-ui".to_string(),
+            required_capabilities: vec!["organizations".to_string(), "work_graph".to_string()],
+        };
+
+        let response = CapabilityNegotiationResponse::evaluate(
+            server_version,
+            DeploymentMode::LocalDaemon,
+            capabilities,
+            &request,
+        );
+
+        assert!(response.compatible);
+        assert!(response.missing_capabilities.is_empty());
+        assert_eq!(response.deployment_mode, DeploymentMode::LocalDaemon);
+    }
+
+    #[test]
+    fn capability_negotiation_reports_missing() {
+        let server_version = ProtocolVersion::CURRENT;
+        let capabilities = ControlPlaneCapabilities::minimal();
+        let request = CapabilityNegotiationRequest {
+            client_version: ProtocolVersion::CURRENT,
+            client_name: "altai-enterprise-cli".to_string(),
+            required_capabilities: vec![
+                "organizations".to_string(),
+                "budgets".to_string(),
+                "event_replay".to_string(),
+            ],
+        };
+
+        let response = CapabilityNegotiationResponse::evaluate(
+            server_version,
+            DeploymentMode::LocalDaemon,
+            capabilities,
+            &request,
+        );
+
+        assert!(!response.compatible);
+        assert_eq!(
+            response.missing_capabilities,
+            vec!["budgets".to_string(), "event_replay".to_string()]
+        );
+    }
+
+    #[test]
+    fn page_request_clamps_limits() {
+        let req_zero = PageRequest::new(None, Some(0));
+        assert_eq!(req_zero.limit, 1);
+
+        let req_huge = PageRequest::new(None, Some(1000));
+        assert_eq!(req_huge.limit, MAX_PAGE_LIMIT);
+
+        let req_normal = PageRequest::new(Some("cur_123".to_string()), Some(30));
+        assert_eq!(req_normal.limit, 30);
+        assert_eq!(req_normal.cursor.as_deref(), Some("cur_123"));
+    }
+
+    #[test]
+    fn protocol_response_serialization() {
+        let response_ok = ProtocolResponse::ok("req_1", "success_value");
+        let json_ok = serde_json::to_string(&response_ok).unwrap();
+        assert!(json_ok.contains("\"id\":\"req_1\""));
+        assert!(json_ok.contains("\"Ok\":\"success_value\""));
+
+        let proto_err = ProtocolError::new(ControlErrorCode::PolicyDenied, "Denied by policy");
+        let response_err: ProtocolResponse<String> = ProtocolResponse::error("req_2", proto_err);
+        let json_err = serde_json::to_string(&response_err).unwrap();
+        assert!(json_err.contains("\"id\":\"req_2\""));
+        assert!(json_err.contains("\"code\":\"PolicyDenied\""));
+        assert!(json_err.contains("Denied by policy"));
+    }
+
+    #[test]
+    fn protocol_error_from_control_error() {
+        let ctrl_err = ControlError::BudgetStopped {
+            scope: "org_1".to_string(),
+        };
+        let proto_err = ProtocolError::from_control_error(&ctrl_err);
+        assert_eq!(proto_err.code, ControlErrorCode::BudgetStopped);
+        assert!(proto_err.message.contains("budget stopped: org_1"));
+    }
+}

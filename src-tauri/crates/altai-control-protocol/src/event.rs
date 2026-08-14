@@ -120,7 +120,6 @@ mod tests {
 
     #[test]
     fn control_event_serializes() {
-        let org = OrganizationId::new("test-org");
         let event = ControlEvent {
             aggregate: "work_item".to_string(),
             aggregate_id: WorkItemId::new("test-wi").to_json_value(),

@@ -16,6 +16,7 @@ pub mod error;
 pub mod event;
 pub mod evidence;
 pub mod id;
+pub mod protocol;
 pub mod recovery;
 pub mod registration;
 pub mod revision;
@@ -36,6 +37,13 @@ pub use error::{ControlError, ControlErrorCode};
 pub use event::{ActivityEvent, ControlEvent, EventKind};
 pub use evidence::Evidence;
 pub use id::*;
+pub use protocol::{
+    ActivityQueryRequest, CapabilityNegotiationRequest, CapabilityNegotiationResponse,
+    ControlPlaneCapabilities, DeploymentMode, EventReplayRequest, EventReplayResponse, PageRequest,
+    PageResponse, ProtocolError, ProtocolRequest, ProtocolResponse, ProtocolVersion,
+    CONTROL_PLANE_PROTOCOL_VERSION_MAJOR, CONTROL_PLANE_PROTOCOL_VERSION_MINOR, DEFAULT_PAGE_LIMIT,
+    MAX_PAGE_LIMIT,
+};
 pub use recovery::{RecoveryDisposition, RecoveryRecord};
 pub use registration::{
     ControlPlaneHealth, HostCapabilities, HostRegistration, HostRegistrationRequest,

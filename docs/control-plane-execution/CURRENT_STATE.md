@@ -25,7 +25,10 @@ All current and future ordering comes from `WORK_OS_PROGRAM_BACKLOG.md`.
 | CP-05-01 | accepted foundation | PRs #721–#724, #735 | 2026-08-13 | Agent profile revision/instance contracts, local SQLite registry and authenticated mutations |
 | CP-06-01/02 | accepted foundation | PRs #725–#728, #735 | 2026-08-13 | Parent/dependency/comment contracts, cycle-safe local SQLite graph and authenticated mutations |
 | CP-LS-01/02 | accepted | PRs #734–#735 | 2026-08-13 | Desktop control-plane persistence consolidated in the existing workspace `work.db`; no Postgres, PGlite, Docker or second local DB |
-| CP-07-01 | accepted | PRs #729–#730 | 2026-08-13 | Wake/lease contracts and in-memory coalescing/exclusive-checkout repository port |
+| CP-07 (020–024) | accepted | PRs #737–#741 | 2026-08-13 | SQLite wake/lease adapter, atomic claim/expiry, dispatch eligibility, retry/dead-letter and authenticated transport |
+| CP-08 (030–036) | accepted | PRs #742–#763 | 2026-08-13 | Attempts, immutable run bindings, bounded run-context assembly, agent lifecycle, AttemptExecutor, event translation, finalization and schedule backend seam |
+| CP-08 (040–045) | accepted | PRs #764–#776 | 2026-08-14 | Routines, cron materializer, approvals & immutable audit, usage/cost ledger & hard-stops, liveness monitor & recovery pass, evidence & governed delivery |
+| CP-08-34/35 (050) | accepted | PRs #777–#778 | 2026-08-14 | Workspace checkout reattachment (identity preserved on disk move), resolution by path hint, and fail-closed repository scopes |
 
 ## Current Schema and Protocol Versions
 
@@ -33,8 +36,8 @@ All current and future ordering comes from `WORK_OS_PROGRAM_BACKLOG.md`.
 | --- | --- | --- |
 | Agent host protocol (`shared/agent-protocol/v1/`) | v1 | accepted (ADR 0002) |
 | Host contract (`packages/host-contract/`) | v1 | accepted |
-| Control-plane protocol (`shared/control-protocol/v1/`) | v1 (partial) | Core identity plus Work, organization/scope, agent, graph/comment and wake/lease contracts accepted; Attempt, Routine, governance and projection contracts remain |
-| Control-plane DB schema | bootstrap v1 (code-created tables) | registration, scope, agent and Work graph local SQLite adapters share `work.db`; versioned migration runner and live integration suite pending |
+| Control-plane protocol (`shared/control-protocol/v1/`) | v1 | Core domain contracts, lifecycle, routines, approvals, usage, evidence, workspace scope and public protocol framing |
+| Control-plane DB schema | bootstrap v1 (code-created tables) | registration, scope, agent, work graph, wakes, attempts, routines, approvals, usage, evidence and repository scopes share `work.db` |
 
 ## Active Feature Flags
 
@@ -54,9 +57,9 @@ All current and future ordering comes from `WORK_OS_PROGRAM_BACKLOG.md`.
 
 | Task ID | Risk | Depends on | Status |
 | --- | --- | --- | --- |
-| CP-07-03 | C | CP-07-01 | **ready next** — SQLite wake/lease adapter |
-| CP-07-04 | C | CP-07-03 | ready next — claim/expiry/compare-and-clear |
-| CP-07-05 | C | CP-07-04 | planned — dispatch eligibility |
+| CP-08-36 | B | CP-08-35 | **in progress** — Public versioned control protocol contracts and capability negotiation (Package 051 PR 1) |
+| CP-08-37 | B | CP-08-36 | ready next — Protocol dispatcher and cross-transport conformance tests (Package 051 PR 2) |
+| CP-08-38 | C | CP-08-37 | planned — Local migration runner and semantic lifecycle for `work.db` (Package 052) |
 
 ## Known Failing Tests / Blockers
 
