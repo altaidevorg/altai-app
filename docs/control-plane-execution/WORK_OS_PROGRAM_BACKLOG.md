@@ -65,46 +65,46 @@ changes only when an exit gate is accepted.
 | 012 | CP-06 Work graph and comments | accepted foundation | #725–#728, #735 | Work graph/comment persistence is local SQLite in `work.db` |
 | 013 | CP-07A Wake coalescing and checkout port | accepted | 011, 012 | Shared models and coalescing/exclusive lease port accepted (#729–#730) |
 
-### Stage 2 — Dispatch correctness (NOW)
+### Stage 2 — Dispatch correctness
 
 | Order | Package | Status | Depends on | Planned PRs | Acceptance gate |
 | ---: | --- | --- | --- | ---: | --- |
-| 020 | SQLite wake/lease adapter | planned | 005, 013 | 1 | Concurrent local enqueues coalesce; one live checkout wins transactionally |
-| 021 | Wake claim, compare-and-clear and expiry | ready | 020 | 1–2 | Stale finalizer cannot release another attempt's lease |
-| 022 | Dispatch eligibility engine | planned | 021 | 2 | Agent, blockers, policy, budget and workspace readiness all pass before attempt creation |
-| 023 | Retry/backoff, recovery and dead-letter | planned | 022 | 1–2 | Trigger evidence is retained; retries are bounded and explainable |
-| 024 | Authenticated wake/checkout transport | planned | 020–023 | 1 | Typed conflicts; no direct run start from assignment/comment |
+| 020 | SQLite wake/lease adapter | accepted | 005, 013 | #737 | Concurrent local enqueues coalesce; one live checkout wins transactionally |
+| 021 | Wake claim, compare-and-clear and expiry | accepted | 020 | #738 | Stale finalizer cannot release another attempt's lease |
+| 022 | Dispatch eligibility engine | accepted | 021 | #739 | Agent, blockers, policy, budget and workspace readiness all pass before attempt creation |
+| 023 | Retry/backoff, recovery and dead-letter | accepted | 022 | #740 | Trigger evidence is retained; retries are bounded and explainable |
+| 024 | Authenticated wake/checkout transport | accepted | 020–023 | #741 | Typed conflicts; no direct run start from assignment/comment |
 
 ### Stage 3 — IsanAgent vertical execution
 
 | Order | Package | Status | Depends on | Planned PRs | Acceptance gate |
 | ---: | --- | --- | --- | ---: | --- |
-| 030 | Attempt and RunBinding contracts/repositories | planned | 024 | 2 | One attempt binds to one IsanAgent run and immutable profile revision |
-| 031 | Bounded run-context pack | planned | 010, 022, 030 | 1–2 | Organization → goal ancestry → project → work context is complete and bounded |
-| 032 | Agent profile import and lifecycle | planned | 011, 030 | 2 | Built-in/`.altai/agents` import; pause/resume/terminate; org-chart cycles rejected |
-| 033 | Mentions, child reporting and durable coordination | planned | 012, 024 | 2 | Comments survive restart; lateral work becomes assigned child Work |
-| 034 | `AttemptExecutor` start/inspect/steer/cancel/replay | planned | 030–033 | 3 | IsanAgent executes without owning PM/scheduler policy |
-| 035 | Event translation and attempt finalization | planned | 034 | 2 | Run completion signals verification; it never directly completes Work |
-| 036 | Schedule backend seam | planned | 034 | 1 | Exactly one backend is visible and immutable per attempt |
+| 030 | Attempt and RunBinding contracts/repositories | accepted | 024 | #742–#744 | One attempt binds to one IsanAgent run and immutable profile revision |
+| 031 | Bounded run-context pack | accepted | 010, 022, 030 | #753–#758 | Organization → goal ancestry → project → work context is complete and bounded |
+| 032 | Agent profile import and lifecycle | accepted | 011, 030 | #748–#749 | Built-in/`.altai/agents` import; pause/resume/terminate; org-chart cycles rejected |
+| 033 | Mentions, child reporting and durable coordination | accepted | 012, 024 | #759–#760 | Comments survive restart; lateral work becomes assigned child Work |
+| 034 | `AttemptExecutor` start/inspect/steer/cancel/replay | accepted | 030–033 | #745–#747, #750–#752 | IsanAgent executes without owning PM/scheduler policy |
+| 035 | Event translation and attempt finalization | accepted | 034 | #761–#762 | Run completion signals verification; it never directly completes Work |
+| 036 | Schedule backend seam | accepted | 034 | #763 | Exactly one backend is visible and immutable per attempt |
 
 ### Stage 4 — Routines, governance and autonomous safety
 
 | Order | Package | Status | Depends on | Planned PRs | Acceptance gate |
 | ---: | --- | --- | --- | ---: | --- |
-| 040 | Routine/revision/run contracts and command port | planned | 024 | 2 | Versioned routine intent exists without registering two schedulers |
-| 041 | Scheduler materialization and cron bridge | planned | 036, 040 | 2 | Managed `cron` creates Routine/Wake; native modes remain supported |
-| 042 | Approvals and governance | planned | 035 | 2–3 | Decisions bind scope and payload revision; audit is immutable |
-| 043 | Usage/cost ledger and budgets | planned | 035 | 2–3 | Cost attributed by org/project/agent/work/attempt; hard stops enforce |
-| 044 | Liveness, monitors and recovery | planned | 023, 035, 041 | 2 | Crash/restart recovery preserves ownership and explainability |
-| 045 | Evidence, quality gates and safe delivery | planned | 035, 042 | 3 | Completion requires evidence/review; delivery actions are governed |
+| 040 | Routine/revision/run contracts and command port | accepted | 024 | #764–#765 | Versioned routine intent exists without registering two schedulers |
+| 041 | Scheduler materialization and cron bridge | accepted | 036, 040 | #766–#767 | Managed `cron` creates Routine/Wake; native modes remain supported |
+| 042 | Approvals and governance | accepted | 035 | #768–#769 | Decisions bind scope and payload revision; audit is immutable |
+| 043 | Usage/cost ledger and budgets | accepted | 035 | #770–#771 | Cost attributed by org/project/agent/work/attempt; hard stops enforce |
+| 044 | Liveness, monitors and recovery | accepted | 023, 035, 041 | #775–#776 | Crash/restart recovery preserves ownership and explainability |
+| 045 | Evidence, quality gates and safe delivery | accepted | 035, 042 | #772–#774 | Completion requires evidence/review; delivery actions are governed |
 
 ### Stage 5 — Workspace, protocol and multi-surface runtime
 
 | Order | Package | Status | Depends on | Planned PRs | Acceptance gate |
 | ---: | --- | --- | --- | ---: | --- |
-| 050 | Workspace resolution/isolation/delivery | planned | 031, 045 | 2 | Moved checkout keeps identity; permissions and repository scopes fail closed |
-| 051 | Public versioned control protocol | planned | 035, 042–044 | 2 | Command/query/event conformance across local and deployed transports |
-| 052 | Local migration runner and lifecycle | planned | 051 | 2 | `work.db` migrations and app lifecycle share one tested local semantic model |
+| 050 | Workspace resolution/isolation/delivery | accepted | 031, 045 | #777–#778 | Moved checkout keeps identity; permissions and repository scopes fail closed |
+| 051 | Public versioned control protocol | **in_progress** | 035, 042–044 | 2 (CP-08-36/37) | Command/query/event conformance across local and deployed transports |
+| 052 | Local migration runner and lifecycle | ready | 051 | 2 | `work.db` migrations and app lifecycle share one tested local semantic model |
 | 053 | Desktop/IDE/Studio/CLI adapters | planned | 051, 052 | 3–4 | Same command causes the same transition on every host |
 
 ### Stage 6 — Operations product surfaces
@@ -169,13 +169,11 @@ architecture, security, and replacement decision. “Study” does not count as 
 
 The next PRs are fixed until this list is updated by an accepted change:
 
-1. `CP-LS-02` — Move scope, agent registry and Work graph persistence to local `work.db` SQLite.
-2. `CP-07-03` — SQLite wake/lease adapter with transactional coalescing.
-3. `CP-07-04` — Claim/expiry/compare-and-clear semantics and concurrency tests.
-4. `CP-07-05` — Dispatch eligibility engine with agent and dependency checks.
-5. `CP-07-06` — Retry/recovery/dead-letter state.
-6. `CP-07-07` — Authenticated wake/checkout transport.
-7. `CP-08-01` — Attempt and RunBinding shared contracts.
+1. `CP-08-36` — Public versioned control protocol contracts and capability negotiation (Package 051 PR 1).
+2. `CP-08-37` — Control-plane protocol dispatcher and cross-transport conformance tests (Package 051 PR 2).
+3. `CP-08-38` — Local migration runner and semantic lifecycle for `work.db` (Package 052 PR 1).
+4. `CP-08-39` — App lifecycle integration and rollback verification (Package 052 PR 2).
+5. `CP-08-40` — Host transport adapters: CLI, Desktop, IDE (Package 053).
 
 ## 5. Project-manager update protocol
 

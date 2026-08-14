@@ -9,3 +9,4 @@ export * from "./work.js";
 export * from "./work-graph.js";
 export * from "./wake.js";
 export * from "./scope.js";
+export * from "./protocol.js";
