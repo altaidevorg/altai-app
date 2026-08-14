@@ -6,16 +6,17 @@
 //! execution phase — that is a later package's job; this is the durable,
 //! immutable-audit seam.
 
-use crate::{ApprovalId, AttemptId, OrganizationId, Revision};
+use crate::{ApprovalId, AttemptId, OrganizationId, Revision, WorkItemId};
 use serde::{Deserialize, Serialize};
 
 /// What an approval governs. Plan approval gates an attempt's plan before it
-/// runs (the `awaiting_plan_approval` execution phase); further scopes land with
-/// the packages that introduce them.
+/// runs (the `awaiting_plan_approval` execution phase); delivery approval
+/// governs releasing a work item's output (the `DeliveryGate` authorization).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ApprovalScope {
     Plan { attempt_id: AttemptId },
+    Delivery { work_item_id: WorkItemId },
 }
 
 /// A recorded governance outcome.

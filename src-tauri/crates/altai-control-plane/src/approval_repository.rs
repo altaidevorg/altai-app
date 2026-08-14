@@ -5,7 +5,7 @@
 //! routine points at its current revision. Nothing here enqueues a wake or
 //! mutates a work item's execution phase.
 
-use altai_control_protocol::{Approval, ApprovalDecision, ApprovalId};
+use altai_control_protocol::{Approval, ApprovalDecision, ApprovalId, OrganizationId};
 use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
 use std::{path::Path, sync::Mutex};
 
@@ -37,6 +37,8 @@ pub trait ApprovalRepository: Send + Sync {
     fn get_decision(&self, approval_id: &ApprovalId) -> Result<Option<ApprovalDecision>, ApprovalError>;
     /// All approvals with no recorded decision yet, for the scheduler to scan.
     fn list_pending(&self) -> Result<Vec<Approval>, ApprovalError>;
+    /// Every approval in an organization, resolved or not (org equality filter).
+    fn list_in_org(&self, organization_id: &OrganizationId) -> Result<Vec<Approval>, ApprovalError>;
 }
 
 pub struct SqliteApprovalRepository {
@@ -190,6 +192,27 @@ impl ApprovalRepository for SqliteApprovalRepository {
                     reason: e.to_string(),
                 })?;
             if approval.outcome.is_none() {
+                approvals.push(approval);
+            }
+        }
+        Ok(approvals)
+    }
+
+    fn list_in_org(&self, organization_id: &OrganizationId) -> Result<Vec<Approval>, ApprovalError> {
+        let connection = self.lock()?;
+        let mut stmt = connection
+            .prepare("SELECT payload_json FROM control_plane_approvals")
+            .map_err(Self::db)?;
+        let payloads = stmt
+            .query_map([], |row| row.get::<_, String>(0))
+            .map_err(Self::db)?;
+        let mut approvals = Vec::new();
+        for payload in payloads {
+            let approval: Approval =
+                serde_json::from_str(&payload.map_err(Self::db)?).map_err(|e| ApprovalError::Internal {
+                    reason: e.to_string(),
+                })?;
+            if approval.organization_id == *organization_id {
                 approvals.push(approval);
             }
         }
