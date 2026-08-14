@@ -17,16 +17,49 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
+      - name: Record resolved İsanAgent revision
+        id: before
+        shell: bash
+        run: |
+          set -euo pipefail
+          source="$(awk '
+            /^\[\[package\]\]$/ { isanagent = 0 }
+            /^name = "isanagent"$/ { isanagent = 1; next }
+            isanagent && /^source = / { sub(/^source = "/, ""); sub(/"$/, ""); print; exit }
+          ' src-tauri/Cargo.lock)"
+          if [[ -z "$source" ]]; then
+            echo "::error::Could not find the resolved isanagent package in src-tauri/Cargo.lock"
+            exit 1
+          fi
+          echo "source=$source" >> "$GITHUB_OUTPUT"
       - name: Resolve latest İsanAgent main
         run: cargo update --manifest-path src-tauri/Cargo.toml -p isanagent
-      - name: Check for a dependency update
+      - name: Check for a real İsanAgent revision update
         id: changes
+        shell: bash
         run: |
-          if git diff --quiet -- src-tauri/Cargo.lock; then
-            echo "changed=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "changed=true" >> "$GITHUB_OUTPUT"
+          set -euo pipefail
+          before='${{ steps.before.outputs.source }}'
+          after="$(awk '
+            /^\[\[package\]\]$/ { isanagent = 0 }
+            /^name = "isanagent"$/ { isanagent = 1; next }
+            isanagent && /^source = / { sub(/^source = "/, ""); sub(/"$/, ""); print; exit }
+          ' src-tauri/Cargo.lock)"
+          if [[ -z "$after" ]]; then
+            echo "::error::Could not find the resolved isanagent package after cargo update"
+            exit 1
           fi
+          if [[ "$before" == "$after" ]]; then
+            echo "No İsanAgent revision change ($after); ignoring unrelated Cargo.lock churn."
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if git diff --quiet -- src-tauri/Cargo.lock; then
+            echo "::error::İsanAgent revision changed without a Cargo.lock diff"
+            exit 1
+          fi
+          echo "İsanAgent revision advanced: $before -> $after"
+          echo "changed=true" >> "$GITHUB_OUTPUT"
       - name: Open and merge PR
         if: steps.changes.outputs.changed == 'true'
         env:
