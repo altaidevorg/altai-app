@@ -9,10 +9,12 @@
 pub mod agent_repository;
 pub mod attempt_finalizer;
 pub mod attempt_repository;
+pub mod cron_due;
 pub mod dispatch_eligibility;
 pub mod execution_repository;
 pub mod legacy_work_bridge;
 pub mod recovery_repository;
+pub mod routine_materializer;
 pub mod routine_repository;
 pub mod run_binding_repository;
 pub mod run_context;
@@ -47,6 +49,7 @@ pub use execution_repository::{
 };
 pub use legacy_work_bridge::{LegacyWorkBridge, LegacyWorkBridgeError};
 pub use recovery_repository::{RecoveryError, RecoveryRepository, SqliteRecoveryRepository};
+pub use routine_materializer::{RoutineMaterializationError, RoutineMaterializer};
 pub use routine_repository::{RoutineError, RoutineRepository, SqliteRoutineRepository};
 pub use run_binding_repository::{
     RunBindingError, RunBindingRepository, SqliteRunBindingRepository,
