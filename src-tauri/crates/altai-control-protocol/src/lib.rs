@@ -16,6 +16,7 @@ pub mod id;
 pub mod recovery;
 pub mod registration;
 pub mod revision;
+pub mod routine;
 pub mod scope;
 pub mod wake;
 pub mod work;
@@ -33,6 +34,7 @@ pub use registration::{
     RegisteredHost, CONTROL_PLANE_PROTOCOL_MAJOR,
 };
 pub use revision::Revision;
+pub use routine::{Routine, RoutineRevision, RoutineStatus, RoutineTrigger};
 pub use scope::{Goal, Organization, Project, ProjectStatus, ProjectWorkspace};
 pub use wake::{WakeRequest, WakeSource, WorkCheckoutLease};
 pub use work::{ExecutionPhase, WorkItem, WorkItemKind, WorkStatus};
