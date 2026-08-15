@@ -1,6 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { formatRelativeTime, WorkInbox, type WorkInboxRow } from "@altai/agent-ui";
+import {
+  formatRelativeTime,
+  SurfaceTabs,
+  WorkInbox,
+  type WorkInboxRow,
+} from "@altai/agent-ui";
 import type {
   WorkAttempt,
   WorkInboxItem,
@@ -13,6 +18,7 @@ import { native } from "@/modules/ai/lib/native";
 import { WORK_INBOX_INVALIDATION_EVENTS } from "@/modules/ai/lib/workInboxAttention";
 import { OperationsStatusBar } from "@/modules/operations";
 import {
+  AgentsPanel,
   RunsHubSection,
   WorkBoard,
   WorkDetailPanel,
@@ -23,6 +29,8 @@ import {
 } from "@/modules/work-board";
 
 type LoadStatus = "loading" | "ready" | "error";
+
+type HomeSurface = "work" | "agents";
 
 type Props = {
   workspacePath: string | null;
@@ -60,6 +68,7 @@ export function DesktopHome({
   const [runs, setRuns] = useState<WorkRun[]>([]);
   const [inbox, setInbox] = useState<WorkInboxItem[]>([]);
   const [selectedWorkId, setSelectedWorkId] = useState<string | null>(null);
+  const [surface, setSurface] = useState<HomeSurface>("work");
   const switchSession = useChatStore((state) => state.switchSession);
   const requestGeneration = useRef(0);
   const hasLoaded = useRef(false);
@@ -117,6 +126,7 @@ export function DesktopHome({
     requestGeneration.current += 1;
     hasLoaded.current = false;
     setSelectedWorkId(null);
+    setSurface("work");
     setWork([]);
     setAttempts([]);
     setRuns([]);
@@ -154,6 +164,12 @@ export function DesktopHome({
   );
   const inboxRows = useMemo(() => inbox.map(toHomeInboxRow), [inbox]);
   const runRows = useMemo<WorkRunRow[]>(() => projectRunsHub(runs), [runs]);
+
+  // Opening Work always lands on the Work surface, whatever tab is active.
+  const openWorkHere = useCallback((workId: string) => {
+    setSelectedWorkId(workId);
+    setSurface("work");
+  }, []);
 
   if (!workspacePath) {
     return (
@@ -213,34 +229,51 @@ export function DesktopHome({
             onGoToWork={onOpenInbox}
             className="min-h-0 flex-1"
           />
-          <RunsHubSection
-            rows={runRows}
-            onOpenWork={setSelectedWorkId}
-          />
+          <RunsHubSection rows={runRows} onOpenWork={openWorkHere} />
         </div>
-        {selectedWorkId ? (
-          <WorkDetailPanel
-            workspacePath={workspacePath}
-            workspaceName={workspaceName}
-            workId={selectedWorkId}
-            onBack={() => setSelectedWorkId(null)}
-            onOpenWork={setSelectedWorkId}
-            onOpenTranscript={switchSession}
-            className="min-h-[280px]"
-          />
-        ) : (
-          <WorkBoard
-            status={status}
-            rows={boardRows}
-            onOpenWork={setSelectedWorkId}
-            onNewWork={onNewWork}
-            onOpenInbox={onOpenInbox}
-            errorMessage={error ?? undefined}
-            onRetry={() => void refresh()}
-            title="My active"
-            className="min-h-[280px]"
-          />
-        )}
+        <div className="flex min-h-[280px] min-w-0 flex-col overflow-hidden bg-card">
+          <div className="shrink-0 border-b border-border-subtle px-3 py-2">
+            <SurfaceTabs
+              label="Home surface"
+              value={surface}
+              onChange={(value) => setSurface(value as HomeSurface)}
+              items={[
+                { id: "work", label: "Work" },
+                { id: "agents", label: "Agents" },
+              ]}
+              className="w-full"
+            />
+          </div>
+          {surface === "agents" ? (
+            <AgentsPanel
+              key={workspacePath}
+              workspacePath={workspacePath}
+              className="min-h-0 flex-1"
+            />
+          ) : selectedWorkId ? (
+            <WorkDetailPanel
+              workspacePath={workspacePath}
+              workspaceName={workspaceName}
+              workId={selectedWorkId}
+              onBack={() => setSelectedWorkId(null)}
+              onOpenWork={openWorkHere}
+              onOpenTranscript={switchSession}
+              className="min-h-0 flex-1"
+            />
+          ) : (
+            <WorkBoard
+              status={status}
+              rows={boardRows}
+              onOpenWork={openWorkHere}
+              onNewWork={onNewWork}
+              onOpenInbox={onOpenInbox}
+              errorMessage={error ?? undefined}
+              onRetry={() => void refresh()}
+              title="My active"
+              className="min-h-0 flex-1"
+            />
+          )}
+        </div>
       </div>
     </section>
   );
