@@ -8,23 +8,25 @@
 //!
 //! Capabilities are derived from what the deployment actually serves
 //! ([`capabilities_from_wiring`]); nothing advertises what it cannot serve.
-//! Commands whose producers do not exist yet (activity queries, event replay —
-//! package 060) answer a typed `PolicyDenied` identically on every transport
-//! rather than guessing or silently 404ing.
+//! Commands whose producers are not wired (budgets, evidence, workspace
+//! scopes — and the event stores on a minimal deployment) answer a typed
+//! `PolicyDenied` identically on every transport rather than guessing or
+//! silently 404ing.
 
 use altai_control_protocol::{
     ActivityQueryRequest, CapabilityNegotiationRequest, CapabilityNegotiationResponse,
-    ControlPlaneCapabilities, ControlErrorCode, DeploymentMode, ProtocolCommand, ProtocolError,
-    ProtocolOutcome, ProtocolRequest, ProtocolResponse, ProtocolVersion,
+    ControlPlaneCapabilities, ControlErrorCode, DeploymentMode, EventReplayRequest,
+    ProtocolCommand, ProtocolError, ProtocolOutcome, ProtocolRequest, ProtocolResponse,
+    ProtocolVersion,
 };
 use std::sync::Arc;
 
-use crate::{ActivityEventRepository, ActivityEventError};
+use crate::{ActivityEventRepository, ControlEventRepository};
 
 /// Capabilities honestly derived from the repositories wired into the
 /// transport. Domains with protocol-facing routes advertise `true`; budgets,
-/// evidence, event replay and workspace scopes stay `false` until they have
-/// serving.
+/// evidence and workspace scopes stay `false` until they have serving.
+#[allow(clippy::too_many_arguments)]
 pub fn capabilities_from_wiring(
     scope_repository: bool,
     agent_repository: bool,
@@ -33,6 +35,7 @@ pub fn capabilities_from_wiring(
     routine_repository: bool,
     approval_repository: bool,
     activity_repository: bool,
+    control_event_repository: bool,
 ) -> ControlPlaneCapabilities {
     ControlPlaneCapabilities {
         organizations: scope_repository,
@@ -47,7 +50,7 @@ pub fn capabilities_from_wiring(
         budgets: false,
         evidence: false,
         activity_audit: activity_repository,
-        event_replay: false,
+        event_replay: control_event_repository,
         workspace_scopes: false,
     }
 }
@@ -59,6 +62,7 @@ pub struct ProtocolDispatcher {
     deployment_mode: DeploymentMode,
     capabilities: ControlPlaneCapabilities,
     activity: Option<Arc<dyn ActivityEventRepository>>,
+    control_events: Option<Arc<dyn ControlEventRepository>>,
 }
 
 impl ProtocolDispatcher {
@@ -70,6 +74,7 @@ impl ProtocolDispatcher {
             deployment_mode,
             capabilities,
             activity: None,
+            control_events: None,
         }
     }
 
@@ -80,6 +85,16 @@ impl ProtocolDispatcher {
         repository: Arc<dyn ActivityEventRepository>,
     ) -> Self {
         self.activity = Some(repository);
+        self
+    }
+
+    /// Attach the append-only control-event log; serving `ReplayEvents`
+    /// and advertising `event_replay` both derive from this wiring.
+    pub fn with_control_event_repository(
+        mut self,
+        repository: Arc<dyn ControlEventRepository>,
+    ) -> Self {
+        self.control_events = Some(repository);
         self
     }
 
@@ -131,7 +146,10 @@ impl ProtocolDispatcher {
                 Some(store) => self.query_activity(store, inner),
                 None => Err(self.unsupported("activity_audit")),
             },
-            ProtocolCommand::ReplayEvents(_) => Err(self.unsupported("event_replay")),
+            ProtocolCommand::ReplayEvents(inner) => match &self.control_events {
+                Some(store) => self.replay_events(store, inner),
+                None => Err(self.unsupported("event_replay")),
+            },
         };
         match outcome {
             Ok(value) => ProtocolResponse::ok(request.id.clone(), value),
@@ -150,7 +168,22 @@ impl ProtocolDispatcher {
             .map_err(|e| self.store_failure("activity query", e))
     }
 
-    fn store_failure(&self, operation: &str, error: ActivityEventError) -> ProtocolError {
+    fn replay_events(
+        &self,
+        store: &Arc<dyn ControlEventRepository>,
+        request: &EventReplayRequest,
+    ) -> Result<ProtocolOutcome, ProtocolError> {
+        store
+            .replay(request)
+            .map(ProtocolOutcome::Replayed)
+            .map_err(|e| self.store_failure("event replay", e))
+    }
+
+    fn store_failure(
+        &self,
+        operation: &str,
+        error: impl std::fmt::Display,
+    ) -> ProtocolError {
         ProtocolError::new(
             ControlErrorCode::InternalError,
             format!("{operation} failed: {error}"),
@@ -172,8 +205,8 @@ mod tests {
         BootstrapCredential, ControlPlane, ControlPlaneConfig, ControlPlaneStore,
         InMemoryAgentRepository, InMemoryScopeRepository, InMemoryWakeRepository,
         InMemoryWorkGraphRepository, ProtocolDispatcher, SqliteActivityEventRepository,
-        SqliteAttemptRepository, SqliteApprovalRepository, SqliteRoutineRepository,
-        SqliteRunBindingRepository, router_with_control_repositories,
+        SqliteAttemptRepository, SqliteApprovalRepository, SqliteControlEventRepository,
+        SqliteRoutineRepository, SqliteRunBindingRepository, router_with_control_repositories,
     };
     use altai_control_protocol::{Actor, OrganizationId, PageRequest};
     use axum::{
@@ -191,6 +224,7 @@ mod tests {
         app: Router,
         dispatcher: Arc<ProtocolDispatcher>,
         activity: Arc<SqliteActivityEventRepository>,
+        control_events: Arc<SqliteControlEventRepository>,
     }
 
     fn harness() -> Harness {
@@ -208,10 +242,15 @@ mod tests {
         let activity = Arc::new(
             SqliteActivityEventRepository::open(&dir.path().join("activity.db")).unwrap(),
         );
-        let capabilities = capabilities_from_wiring(true, true, true, true, true, true, true);
+        let control_events = Arc::new(
+            SqliteControlEventRepository::open(&dir.path().join("events.db")).unwrap(),
+        );
+        let capabilities =
+            capabilities_from_wiring(true, true, true, true, true, true, true, true);
         let dispatcher = Arc::new(
             ProtocolDispatcher::new(DeploymentMode::LocalDaemon, capabilities)
-                .with_activity_repository(activity.clone()),
+                .with_activity_repository(activity.clone())
+                .with_control_event_repository(control_events.clone()),
         );
         // The router builder constructs its own dispatcher from the same
         // wiring (all optional repositories present), so the local and
@@ -236,12 +275,14 @@ mod tests {
                 SqliteApprovalRepository::open(&dir.path().join("approvals.db")).unwrap(),
             )),
             Some(activity.clone()),
+            Some(control_events.clone()),
         );
         Harness {
             _dir: dir,
             app,
             dispatcher,
             activity,
+            control_events,
         }
     }
 
@@ -294,14 +335,16 @@ mod tests {
 
     #[test]
     fn capabilities_reflect_wired_repositories() {
-        let wired = capabilities_from_wiring(true, true, true, true, true, true, true);
+        let wired =
+            capabilities_from_wiring(true, true, true, true, true, true, true, true);
         assert!(wired.organizations && wired.agents && wired.work_graph && wired.attempts);
-        assert!(wired.activity_audit);
-        assert!(!wired.budgets && !wired.evidence);
-        assert!(!wired.event_replay && !wired.workspace_scopes);
+        assert!(wired.activity_audit && wired.event_replay);
+        assert!(!wired.budgets && !wired.evidence && !wired.workspace_scopes);
 
-        let bare = capabilities_from_wiring(false, false, false, false, false, false, false);
+        let bare =
+            capabilities_from_wiring(false, false, false, false, false, false, false, false);
         assert!(!bare.organizations && !bare.attempts && !bare.activity_audit);
+        assert!(!bare.event_replay);
     }
 
     #[tokio::test]
@@ -336,22 +379,76 @@ mod tests {
         }
     }
 
+    fn replay_payload() -> ProtocolCommand {
+        ProtocolCommand::ReplayEvents(altai_control_protocol::EventReplayRequest::new(
+            OrganizationId::new("org"),
+            0,
+            None,
+        ))
+    }
+
     #[tokio::test]
-    async fn event_replay_is_typed_denied_conformantly() {
+    async fn replay_conforms_across_local_and_deployed_transports() {
         let h = harness();
-        let body = request(
-            "req-3",
-            1,
-            ProtocolCommand::ReplayEvents(altai_control_protocol::EventReplayRequest::new(
-                OrganizationId::new("org"),
-                0,
-                None,
-            )),
-        );
+        for (aggregate, aggregate_id, sequence) in
+            [("work_item", "wi_1", 1u64), ("attempt", "at_1", 1), ("work_item", "wi_1", 2)]
+        {
+            h.control_events
+                .append(
+                    &OrganizationId::new("org"),
+                    &altai_control_protocol::ControlEvent {
+                        aggregate: aggregate.to_string(),
+                        aggregate_id: serde_json::json!({ "value": aggregate_id }),
+                        sequence,
+                        kind: altai_control_protocol::EventKind::Updated,
+                        actor: Actor::System {
+                            component: "conformance-test".into(),
+                        },
+                        timestamp: "2026-08-15T00:00:00Z".into(),
+                        revision: altai_control_protocol::Revision::new(sequence),
+                        payload: serde_json::json!({ "aggregate": aggregate }),
+                        correlation_id: None,
+                        causation_id: None,
+                    },
+                )
+                .unwrap();
+        }
+        let body = request("req-3", 1, replay_payload());
         let local = h.dispatcher.execute(&body);
         let deployed = post_command(&h, &body).await;
         assert_eq!(local, deployed);
         match local.result {
+            Ok(ProtocolOutcome::Replayed(replayed)) => {
+                // Global replay order, not per-aggregate order.
+                let order: Vec<(&str, u64)> = replayed
+                    .events
+                    .iter()
+                    .map(|e| {
+                        (
+                            e.aggregate_id["value"].as_str().unwrap(),
+                            e.sequence,
+                        )
+                    })
+                    .collect();
+                assert_eq!(
+                    order,
+                    vec![("wi_1", 1), ("at_1", 1), ("wi_1", 2)]
+                );
+                assert!(!replayed.has_more);
+                assert!(replayed.next_sequence >= 3);
+            }
+            other => panic!("expected replayed outcome, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn replay_without_a_store_is_typed_denied() {
+        let bare = ProtocolDispatcher::new(
+            DeploymentMode::EmbeddedHost,
+            capabilities_from_wiring(true, true, true, true, true, true, true, false),
+        );
+        let response = bare.execute(&request("req-3b", 1, replay_payload()));
+        match response.result {
             Err(error) => {
                 assert_eq!(error.code, ControlErrorCode::PolicyDenied);
                 assert!(error.message.contains("event_replay"));
@@ -409,7 +506,7 @@ mod tests {
     fn activity_query_without_a_store_is_typed_denied() {
         let bare = ProtocolDispatcher::new(
             DeploymentMode::EmbeddedHost,
-            capabilities_from_wiring(true, true, true, true, true, true, false),
+            capabilities_from_wiring(true, true, true, true, true, true, false, false),
         );
         let response = bare.execute(&request("req-4b", 1, activity_payload()));
         match response.result {
