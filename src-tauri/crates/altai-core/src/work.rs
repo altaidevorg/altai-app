@@ -269,6 +269,17 @@ pub struct WorkEventRecord {
     pub created_at_ms: u64,
 }
 
+/// A transition-log event joined with its Work's title — the row an
+/// audit feed renders. Newest first.
+pub struct RecentEventRecord {
+    pub id: i64,
+    pub work_id: String,
+    pub work_title: String,
+    pub kind: String,
+    pub payload_json: String,
+    pub created_at_ms: u64,
+}
+
 /// An attempt joined with its Work — the row a Runs hub renders. The
 /// attempt's phase and the Work's state travel as separate fields; they are
 /// distinct axes, never one label.
@@ -579,6 +590,35 @@ impl WorkStore {
             out.push(row?);
         }
         Ok(out)
+    }
+    /// The workspace's transition log across all Work, newest first —
+    /// the audit feed. Every recorded decision, stop, and transition,
+    /// each row naming the Work it happened to. Bounded like the runs
+    /// hub; an audit page is a page, not a history dump.
+    pub fn list_recent_events(&self, limit: u32) -> Result<Vec<RecentEventRecord>> {
+        let connection = self.connection.lock().expect("work store mutex");
+        let mut statement = connection.prepare(
+            r#"
+            SELECT e.id, e.work_id, w.title, e.kind, e.payload_json, e.created_at_ms
+            FROM work_events AS e
+            JOIN work_items AS w ON w.id = e.work_id
+            ORDER BY e.id DESC
+            LIMIT ?1
+            "#,
+        )?;
+        let events = statement
+            .query_map(params![i64::from(limit)], |row| {
+                Ok(RecentEventRecord {
+                    id: row.get(0)?,
+                    work_id: row.get(1)?,
+                    work_title: row.get(2)?,
+                    kind: row.get(3)?,
+                    payload_json: row.get(4)?,
+                    created_at_ms: row.get::<_, i64>(5)? as u64,
+                })
+            })?
+            .collect::<rusqlite::Result<_>>()?;
+        Ok(events)
     }
 
     /// Register an agent in the embedded registry. The optional reporting
@@ -2058,6 +2098,61 @@ mod tests {
 
         // The limit bounds the hub page.
         assert!(store.list_recent_attempts(0).unwrap().is_empty());
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn list_recent_events_feeds_the_audit_log_newest_first() {
+        let path = temp_db();
+        let store = WorkStore::open(&path).expect("open");
+        store
+            .ensure_project("proj_1", "Demo", "/tmp/demo")
+            .expect("project");
+        let first = store
+            .create_work(CreateWorkInput {
+                project_id: "proj_1".into(),
+                title: "Audit one".into(),
+                description: String::new(),
+                acceptance_criteria: String::new(),
+                assignee_ref: None,
+            })
+            .expect("create one");
+        store
+            .create_work(CreateWorkInput {
+                project_id: "proj_1".into(),
+                title: "Audit two".into(),
+                description: String::new(),
+                acceptance_criteria: String::new(),
+                assignee_ref: None,
+            })
+            .expect("create two");
+        let started = store
+            .start_attempt_with_record(&first.id, first.revision)
+            .expect("start attempt");
+
+        let events = store.list_recent_events(50).expect("events");
+        // Newest first: the attempt start on "Audit one" is the latest
+        // fact, its state change before it, then the two creations.
+        assert_eq!(events[0].kind, "attempt_started");
+        assert_eq!(events[0].work_title, "Audit one");
+        assert_eq!(events[0].work_id, first.id);
+        assert!(events[0].created_at_ms > 0);
+        // Starting an attempt records its lifecycle transitions too — the
+        // feed shows both state changes, newest first.
+        assert_eq!(events[1].kind, "state_changed");
+        assert_eq!(events[1].work_title, "Audit one");
+        assert_eq!(events[2].kind, "state_changed");
+        assert_eq!(events[2].work_title, "Audit one");
+        assert_eq!(events[3].kind, "created");
+        assert_eq!(events[3].work_title, "Audit two");
+        assert_eq!(events[4].kind, "created");
+        assert_eq!(events[4].work_title, "Audit one");
+        assert_eq!(started.attempt.number, 1);
+
+        // The limit bounds the audit page.
+        assert!(store.list_recent_events(1).unwrap().len() == 1);
+        assert!(store.list_recent_events(0).unwrap().is_empty());
 
         let _ = std::fs::remove_file(&path);
     }

@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import type {
   AgentRecord,
   AgentStatusInput,
+  AuditEvent,
   WorkCreateInput,
   WorkAttempt,
   WorkEvent,
@@ -616,6 +617,11 @@ export const native = {
     invoke<WorkRun[]>("work_runs", {
       workspacePath: workspacePath ?? currentWorkspaceEnv(),
       limit: limit ?? 20,
+    }),
+  workEventsRecent: (limit?: number, workspacePath?: string | null) =>
+    invoke<AuditEvent[]>("work_events_recent", {
+      workspacePath: workspacePath ?? currentWorkspaceEnv(),
+      limit: limit ?? 50,
     }),
   agentList: (workspacePath?: string | null) =>
     invoke<AgentRecord[]>("agent_list", {

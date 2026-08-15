@@ -116,7 +116,7 @@ changes only when an exit gate is accepted.
 | 062 | Work board/list/detail/graph | accepted | 024, 060 | #797, #798 | Status, execution phase and attention remain distinct |
 | 063 | Runs hub and Run Inspector | accepted | 035, 045, 060 | #799–#801 | Timeline, transcript, approvals, evidence and delivery are inspectable |
 | 064 | Agents, org chart and profile administration | accepted | 032, 060 | #802, #803 | Lifecycle and reporting mutations use control-plane commands |
-| 065 | Governance, approvals, budgets and audit dashboards | planned | 042, 043, 060 | 2–3 | Every decision/cost/stop is attributable and drillable |
+| 065 | Governance, approvals, budgets and audit dashboards | in_progress | 042, 043, 060 | 2–3 | Every decision/cost/stop is attributable and drillable |
 | 066 | Inbox, My Work, routines and recovery UI | planned | 041, 044, 060 | 2–3 | Attention and scheduled work have one canonical projection |
 | 067 | Chat Work/Task/Automation mini-apps | planned | 062, 063, 066 | 2 | Chat embeds shortcuts/projections; it does not own durable state |
 | 068 | Canvas 2D Work board | planned | 062 | 1–2 | Measured large-graph usability and accessible non-canvas fallback |

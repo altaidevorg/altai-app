@@ -341,6 +341,20 @@ export type WorkEvent = {
 };
 
 /**
+ * A transition-log event joined with its Work's title — the row an audit
+ * feed renders. Same facts as `WorkEvent`, plus the Work it happened to,
+ * so every recorded decision and stop names its owner.
+ */
+export type AuditEvent = {
+  id: number;
+  workId: string;
+  workTitle: string;
+  kind: string;
+  payloadJson: string;
+  createdAtMs: number;
+};
+
+/**
  * An attempt joined with its Work — the row a Runs hub renders. The
  * attempt's `phase` and the Work's `workState` are distinct axes; a
  * running attempt on in-review Work is not the same fact as either label.

@@ -2,6 +2,7 @@ export { WorkBoard } from "./WorkBoard";
 export { WorkDetailPanel } from "./WorkDetailPanel";
 export { WorkGraphSection } from "./WorkGraphSection";
 export { AgentsPanel } from "./AgentsPanel";
+export { AuditPanel } from "./AuditPanel";
 export { RunsHubSection } from "./RunsHubSection";
 export { WorkTimelineSection } from "./WorkTimelineSection";
 export {
@@ -22,6 +23,10 @@ export {
   toWorkTimeline,
   type WorkTimelineRow,
 } from "./lib/runTimelineProjection";
+export {
+  projectAuditFeed,
+  type AuditFeedRow,
+} from "./lib/auditFeedProjection";
 export {
   toWorkDetailModel,
   toWorkGraphModel,

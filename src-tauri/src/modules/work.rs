@@ -7,8 +7,9 @@ use std::path::Path;
 
 use altai_core::{
     resolve_workspace_from, AgentRecord, AgentStatus, AttemptPhase, AttemptReconcileMode,
-    AttemptRecord, CreateWorkInput, RecentAttemptRecord, WorkAttemptStart, WorkEventRecord,
-    WorkInboxRecord, WorkItemKind, WorkItemRecord, WorkListFilter, WorkState, WorkStore,
+    AttemptRecord, CreateWorkInput, RecentAttemptRecord, RecentEventRecord, WorkAttemptStart,
+    WorkEventRecord, WorkInboxRecord, WorkItemKind, WorkItemRecord, WorkListFilter, WorkState,
+    WorkStore,
 };
 use serde::{Deserialize, Serialize};
 use tauri::State;
@@ -624,6 +625,49 @@ impl From<AgentRecord> for AgentDto {
             updated_at_ms: value.updated_at_ms,
         }
     }
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AuditEventDto {
+    pub id: i64,
+    pub work_id: String,
+    pub work_title: String,
+    pub kind: String,
+    pub payload_json: String,
+    pub created_at_ms: u64,
+}
+
+impl From<RecentEventRecord> for AuditEventDto {
+    fn from(value: RecentEventRecord) -> Self {
+        Self {
+            id: value.id,
+            work_id: value.work_id,
+            work_title: value.work_title,
+            kind: value.kind,
+            payload_json: value.payload_json,
+            created_at_ms: value.created_at_ms,
+        }
+    }
+}
+
+/// Bounds on audit events returned per `work_events_recent` call.
+const WORK_AUDIT_LIMIT_MAX: u32 = 100;
+const WORK_AUDIT_LIMIT_DEFAULT: u32 = 50;
+
+#[tauri::command]
+pub fn work_events_recent(
+    registry: State<'_, WorkspaceRegistry>,
+    workspace_path: String,
+    limit: Option<u32>,
+) -> Result<Vec<AuditEventDto>, String> {
+    let workspace = authorized_workspace(&workspace_path, &registry)?;
+    let (_project_id, store) = open_store(&registry, &workspace)?;
+    let bounded = limit.unwrap_or(WORK_AUDIT_LIMIT_DEFAULT).min(WORK_AUDIT_LIMIT_MAX);
+    let events = store
+        .list_recent_events(bounded)
+        .map_err(|error| error.to_string())?;
+    Ok(events.into_iter().map(AuditEventDto::from).collect())
 }
 
 #[tauri::command]
