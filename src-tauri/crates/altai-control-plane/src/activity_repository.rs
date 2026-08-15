@@ -198,7 +198,7 @@ mod tests {
             timestamp: "2026-08-15T00:00:00Z".into(),
             organization_id: OrganizationId::new(org),
             project_id: None,
-            work_item_id: work_item.map(|id| WorkItemId::new(id)),
+            work_item_id: work_item.map(WorkItemId::new),
             attempt_id: None,
             summary: "test event".into(),
             correlation_id: None,

@@ -102,7 +102,7 @@ mod tests {
     struct Harness {
         _dir: tempfile::TempDir,
         gate: WorkspaceScopeGate,
-        scopes: Arc<InMemoryScopeRepository>,
+        _scopes: Arc<InMemoryScopeRepository>,
         grants: Arc<SqliteRepositoryScopeRepository>,
     }
 
@@ -138,7 +138,7 @@ mod tests {
         Harness {
             _dir: dir,
             gate,
-            scopes,
+            _scopes: scopes,
             grants,
         }
     }

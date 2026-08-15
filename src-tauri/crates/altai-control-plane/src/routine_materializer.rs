@@ -137,7 +137,7 @@ mod tests {
             .append_revision(
                 &routine_id,
                 altai_control_protocol::RoutineRevision {
-                    id: RoutineRevisionId::new(&format!("{id}-rev-1")),
+                    id: RoutineRevisionId::new(format!("{id}-rev-1")),
                     routine_id: routine_id.clone(),
                     revision: Revision::new(1),
                     trigger: RoutineTrigger::Recurring {

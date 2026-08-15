@@ -337,7 +337,7 @@ mod tests {
 
     fn revision(routine_id: &RoutineId, seq: u64, trigger: RoutineTrigger) -> RoutineRevision {
         RoutineRevision {
-            id: RoutineRevisionId::new(&format!("rev-{seq}")),
+            id: RoutineRevisionId::new(format!("rev-{seq}")),
             routine_id: routine_id.clone(),
             revision: Revision::new(seq),
             trigger,

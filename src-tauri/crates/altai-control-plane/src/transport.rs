@@ -1978,4 +1978,219 @@ mod tests {
             String::from_utf8_lossy(&refusal_body).contains("plugin_version_did_not_advance")
         );
     }
+
+    /// Package 053's gate closes over the wire: the deployed transport's
+    /// HTTP bytes must equal what the shared dispatcher produces — the same
+    /// value every embedded host (CLI, desktop) returns for the same request.
+    #[tokio::test]
+    async fn protocol_routes_frame_the_shared_dispatcher_wire_format() {
+        use altai_control_protocol::actor::UserId;
+        use altai_control_protocol::{
+            ActivityQueryRequest, Actor, PageRequest, ProtocolVersion,
+        };
+
+        let directory = tempfile::tempdir().unwrap();
+        let work_db = directory.path().join("work.db");
+        let activity = Arc::new(crate::SqliteActivityEventRepository::open(&work_db).unwrap());
+        let control_events =
+            Arc::new(crate::SqliteControlEventRepository::open(&work_db).unwrap());
+        let plane = Arc::new(
+            ControlPlane::bootstrap(ControlPlaneConfig {
+                service_version: "0.1.0".to_string(),
+                store: ControlPlaneStore::Sqlite {
+                    database_path: directory.path().join("control.db").display().to_string(),
+                },
+                registration_ttl_seconds: 60,
+            })
+            .unwrap(),
+        );
+        let app = router_with_control_repositories(
+            plane,
+            BootstrapCredential::from_plaintext("test-bootstrap-token").unwrap(),
+            None,
+            None,
+            None,
+            Arc::new(InMemoryWakeRepository::default()),
+            None,
+            None,
+            None,
+            None,
+            Some(activity.clone()),
+            Some(control_events.clone()),
+            None,
+        );
+        // Reference dispatcher, built exactly the way the router builds its
+        // own (LocalDaemon, honest wiring) — and the way embedded hosts build
+        // theirs, modulo deployment mode.
+        let capabilities =
+            capabilities_from_wiring(false, false, false, false, false, false, true, true);
+        let reference = ProtocolDispatcher::new(DeploymentMode::LocalDaemon, capabilities)
+            .with_activity_repository(activity)
+            .with_control_event_repository(control_events);
+
+        let organization = OrganizationId::new("org-wire-parity");
+        let request = ProtocolRequest {
+            id: "req-wire-parity".into(),
+            version: ProtocolVersion::CURRENT,
+            actor: Actor::User {
+                id: UserId::new(organization.clone(), "transport"),
+                display_name: "Transport Host".into(),
+            },
+            payload: ProtocolCommand::QueryActivity(ActivityQueryRequest {
+                organization_id: organization,
+                page: PageRequest::default(),
+                kind: None,
+                work_item_id: None,
+            }),
+        };
+        let command_body = serde_json::to_string(&request).unwrap();
+        let post_command = |body: String| {
+            let request = Request::builder()
+                .method("POST")
+                .uri("/v1/protocol/commands")
+                .header("content-type", "application/json")
+                .body(Body::from(body))
+                .unwrap();
+            let (mut parts, body) = request.into_parts();
+            parts
+                .headers
+                .insert(AUTHORIZATION, "Bearer test-bootstrap-token".parse().unwrap());
+            Request::from_parts(parts, body)
+        };
+
+        // Transport guard first: the protocol routes sit behind bootstrap.
+        let unauthenticated = Request::builder()
+            .method("POST")
+            .uri("/v1/protocol/commands")
+            .header("content-type", "application/json")
+            .body(Body::from(command_body.clone()))
+            .unwrap();
+        assert_eq!(
+            app.clone()
+                .oneshot(unauthenticated)
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::UNAUTHORIZED
+        );
+
+        let response = app
+            .clone()
+            .oneshot(post_command(command_body))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let over_the_wire: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(
+            over_the_wire,
+            serde_json::to_value(reference.execute(&request)).unwrap()
+        );
+
+        let negotiation = CapabilityNegotiationRequest {
+            client_name: "wire-parity".into(),
+            client_version: ProtocolVersion::CURRENT,
+            required_capabilities: vec![],
+        };
+        let plain_negotiate = Request::builder()
+            .method("POST")
+            .uri("/v1/protocol/negotiate")
+            .header("content-type", "application/json")
+            .body(Body::from(serde_json::to_string(&negotiation).unwrap()))
+            .unwrap();
+        let (mut parts, body) = plain_negotiate.into_parts();
+        parts
+            .headers
+            .insert(AUTHORIZATION, "Bearer test-bootstrap-token".parse().unwrap());
+        let response = app.oneshot(Request::from_parts(parts, body)).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let over_the_wire: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(
+            over_the_wire,
+            serde_json::to_value(reference.negotiate(&negotiation)).unwrap()
+        );
+    }
+
+    /// Domain failures stay inside the protocol envelope: an unwired
+    /// capability answers HTTP 200 with a typed error, keeping the HTTP
+    /// status reserved for transport issues.
+    #[tokio::test]
+    async fn unwired_capabilities_answer_typed_envelope_errors_not_http_errors() {
+        use altai_control_protocol::actor::UserId;
+        use altai_control_protocol::{
+            ActivityQueryRequest, Actor, PageRequest, ProtocolVersion,
+        };
+
+        let directory = tempfile::tempdir().unwrap();
+        let plane = Arc::new(
+            ControlPlane::bootstrap(ControlPlaneConfig {
+                service_version: "0.1.0".to_string(),
+                store: ControlPlaneStore::Sqlite {
+                    database_path: directory.path().join("control.db").display().to_string(),
+                },
+                registration_ttl_seconds: 60,
+            })
+            .unwrap(),
+        );
+        let app = router_with_control_repositories(
+            plane,
+            BootstrapCredential::from_plaintext("test-bootstrap-token").unwrap(),
+            None,
+            None,
+            None,
+            Arc::new(InMemoryWakeRepository::default()),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        );
+
+        let organization = OrganizationId::new("org-unwired");
+        let request = ProtocolRequest {
+            id: "req-unwired".into(),
+            version: ProtocolVersion::CURRENT,
+            actor: Actor::User {
+                id: UserId::new(organization.clone(), "transport"),
+                display_name: "Transport Host".into(),
+            },
+            payload: ProtocolCommand::QueryActivity(ActivityQueryRequest {
+                organization_id: organization,
+                page: PageRequest::default(),
+                kind: None,
+                work_item_id: None,
+            }),
+        };
+        let unauthorized_request = Request::builder()
+            .method("POST")
+            .uri("/v1/protocol/commands")
+            .header("content-type", "application/json")
+            .body(Body::from(serde_json::to_string(&request).unwrap()))
+            .unwrap();
+        let (mut parts, body) = unauthorized_request.into_parts();
+        parts
+            .headers
+            .insert(AUTHORIZATION, "Bearer test-bootstrap-token".parse().unwrap());
+        let response = app.oneshot(Request::from_parts(parts, body)).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let envelope: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(envelope["result"]["Err"]["code"], "PolicyDenied");
+        assert!(
+            envelope["result"]["Err"]["message"]
+                .as_str()
+                .unwrap()
+                .contains("capability not served by this deployment: activity_audit"),
+            "unexpected envelope: {envelope}"
+        );
+    }
 }
