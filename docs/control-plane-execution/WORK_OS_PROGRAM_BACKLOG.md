@@ -35,10 +35,10 @@ Definition of done for every package:
 
 | Measure | Current |
 | --- | ---: |
-| Overall Work OS completion | **23%** |
+| Overall Work OS completion | **24%** |
 | Foundation/control-plane backbone | **57%** |
 | End-to-end autonomous execution | **8%** |
-| Product/UX surfaces | **17%** |
+| Product/UX surfaces | **19%** |
 | Ecosystem/plugin/upstream adoption | **2%** |
 
 These are weighted outcome estimates, not lines-of-code counts. The percentage
@@ -118,8 +118,8 @@ changes only when an exit gate is accepted.
 | 064 | Agents, org chart and profile administration | accepted | 032, 060 | #802, #803 | Lifecycle and reporting mutations use control-plane commands |
 | 065 | Governance, approvals, budgets and audit dashboards | accepted | 042, 043, 060 | #804–#805 | Every decision/cost/stop is attributable and drillable |
 | 066 | Inbox, My Work, routines and recovery UI | accepted | 041, 044, 060 | #806 | Attention and scheduled work have one canonical projection |
-| 067 | Chat Work/Task/Automation mini-apps | in_progress | 062, 063, 066 | #807 | Chat embeds shortcuts/projections; it does not own durable state |
-| 068 | Canvas 2D Work board | planned | 062 | 1–2 | Measured large-graph usability and accessible non-canvas fallback |
+| 067 | Chat Work/Task/Automation mini-apps | accepted | 062, 063, 066 | #807 | Chat embeds shortcuts/projections; it does not own durable state |
+| 068 | Canvas 2D Work board | in_progress | 062 | #808 | Measured large-graph usability and accessible non-canvas fallback |
 
 ### Stage 7 — External systems and application plugins
 
@@ -169,8 +169,8 @@ architecture, security, and replacement decision. “Study” does not count as 
 
 The next PRs are fixed until this list is updated by an accepted change:
 
-1. `CP-08-60` — Chat Work/Task/Automation mini-apps
-   (Package 067 PR 2) or 068 PR 1.
+1. `CP-08-61` — Canvas 2D Work board
+   (Package 068 PR 2: large-graph measurement) or 070 PR 1.
 
 ## 5. Project-manager update protocol
 

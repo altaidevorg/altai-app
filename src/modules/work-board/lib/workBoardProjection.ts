@@ -39,6 +39,8 @@ export const BOARD_COLUMNS: readonly WorkState[] = [
 export type WorkBoardRow = {
   id: string;
   title: string;
+  /** Parent Work's id; the graph's edge source (package 068). */
+  parentWorkId: string | null;
   /** Work lifecycle state — the board's column axis. */
   status: WorkState;
   statusLabel: string;
@@ -99,6 +101,7 @@ export function toWorkBoardRow(input: {
   return {
     id: work.id,
     title: work.title,
+    parentWorkId: work.parentWorkId ?? null,
     status: work.state,
     statusLabel: label(work.state),
     executionPhase: attempt ? attempt.phase : null,
