@@ -19,6 +19,7 @@ import { WORK_INBOX_INVALIDATION_EVENTS } from "@/modules/ai/lib/workInboxAttent
 import { OperationsStatusBar } from "@/modules/operations";
 import {
   AgentsPanel,
+  AuditPanel,
   RunsHubSection,
   WorkBoard,
   WorkDetailPanel,
@@ -30,7 +31,7 @@ import {
 
 type LoadStatus = "loading" | "ready" | "error";
 
-type HomeSurface = "work" | "agents";
+type HomeSurface = "work" | "agents" | "audit";
 
 type Props = {
   workspacePath: string | null;
@@ -240,6 +241,7 @@ export function DesktopHome({
               items={[
                 { id: "work", label: "Work" },
                 { id: "agents", label: "Agents" },
+                { id: "audit", label: "Audit" },
               ]}
               className="w-full"
             />
@@ -248,6 +250,13 @@ export function DesktopHome({
             <AgentsPanel
               key={workspacePath}
               workspacePath={workspacePath}
+              className="min-h-0 flex-1"
+            />
+          ) : surface === "audit" ? (
+            <AuditPanel
+              key={workspacePath}
+              workspacePath={workspacePath}
+              onOpenWork={openWorkHere}
               className="min-h-0 flex-1"
             />
           ) : selectedWorkId ? (
