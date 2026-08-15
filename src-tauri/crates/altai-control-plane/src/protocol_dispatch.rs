@@ -276,6 +276,7 @@ mod tests {
             )),
             Some(activity.clone()),
             Some(control_events.clone()),
+            None,
         );
         Harness {
             _dir: dir,
