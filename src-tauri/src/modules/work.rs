@@ -171,7 +171,10 @@ fn authorized_workspace(
     Ok(canonical.to_string_lossy().replace('\\', "/"))
 }
 
-fn open_store(workspace_path: &str) -> Result<(String, WorkStore), String> {
+fn open_store(
+    registry: &WorkspaceRegistry,
+    workspace_path: &str,
+) -> Result<(String, WorkStore), String> {
     let paths = resolve_workspace_from(Some(Path::new(workspace_path)), Path::new(workspace_path))
         .map_err(|error| error.to_string())?;
     let project_id = paths
@@ -180,6 +183,10 @@ fn open_store(workspace_path: &str) -> Result<(String, WorkStore), String> {
         .and_then(|name| name.to_str())
         .unwrap_or("workspace")
         .to_string();
+    // Every command-level open passes through the one migration lifecycle so
+    // the core store and the control-plane schema owners are brought up (or
+    // refused) together, never piecemeal.
+    registry.ensure_work_db_migrated(&paths.work_db())?;
     let store = WorkStore::open(&paths.work_db()).map_err(|error| error.to_string())?;
     store
         .ensure_project(
@@ -220,7 +227,7 @@ pub fn work_create(
     args: WorkCreateArgs,
 ) -> Result<WorkItemDto, String> {
     let workspace = authorized_workspace(&args.workspace_path, &registry)?;
-    let (project_id, store) = open_store(&workspace)?;
+    let (project_id, store) = open_store(&registry, &workspace)?;
     let kind = args
         .kind
         .as_deref()
@@ -250,7 +257,7 @@ pub fn work_list(
     filter: Option<String>,
 ) -> Result<Vec<WorkItemDto>, String> {
     let workspace = authorized_workspace(&workspace_path, &registry)?;
-    let (project_id, store) = open_store(&workspace)?;
+    let (project_id, store) = open_store(&registry, &workspace)?;
     let listed = store
         .list_work(&project_id, parse_filter(filter.as_deref())?)
         .map_err(|error| error.to_string())?;
@@ -264,7 +271,7 @@ pub fn work_children(
     parent_work_id: String,
 ) -> Result<Vec<WorkItemDto>, String> {
     let workspace = authorized_workspace(&workspace_path, &registry)?;
-    let (_project_id, store) = open_store(&workspace)?;
+    let (_project_id, store) = open_store(&registry, &workspace)?;
     let children = store
         .list_child_work(&parent_work_id)
         .map_err(|error| error.to_string())?;
@@ -277,7 +284,7 @@ pub fn work_inbox_list(
     workspace_path: String,
 ) -> Result<Vec<WorkInboxItemDto>, String> {
     let workspace = authorized_workspace(&workspace_path, &registry)?;
-    let (project_id, store) = open_store(&workspace)?;
+    let (project_id, store) = open_store(&registry, &workspace)?;
     let listed = store
         .list_work_inbox(&project_id)
         .map_err(|error| error.to_string())?;
@@ -291,7 +298,7 @@ pub fn work_get(
     work_id: String,
 ) -> Result<Option<WorkItemDto>, String> {
     let workspace = authorized_workspace(&workspace_path, &registry)?;
-    let (_project_id, store) = open_store(&workspace)?;
+    let (_project_id, store) = open_store(&registry, &workspace)?;
     Ok(store
         .get_work(work_id.trim())
         .map_err(|error| error.to_string())?
@@ -307,7 +314,7 @@ pub fn work_transition(
     next_state: String,
 ) -> Result<WorkItemDto, String> {
     let workspace = authorized_workspace(&workspace_path, &registry)?;
-    let (_project_id, store) = open_store(&workspace)?;
+    let (_project_id, store) = open_store(&registry, &workspace)?;
     let updated = store
         .transition(
             work_id.trim(),
@@ -326,7 +333,7 @@ pub fn work_start(
     expected_revision: i64,
 ) -> Result<WorkItemDto, String> {
     let workspace = authorized_workspace(&workspace_path, &registry)?;
-    let (_project_id, store) = open_store(&workspace)?;
+    let (_project_id, store) = open_store(&registry, &workspace)?;
     let updated = store
         .start_attempt(work_id.trim(), expected_revision)
         .map_err(|error| error.to_string())?;
@@ -361,7 +368,7 @@ pub async fn work_start_attempt(
     session_id: Option<String>,
 ) -> Result<WorkStartResultDto, String> {
     let workspace = authorized_workspace(&workspace_path, &registry)?;
-    let (_project_id, store) = open_store(&workspace)?;
+    let (_project_id, store) = open_store(&registry, &workspace)?;
     // A direct Start may be the first Work command in this host process. Run
     // the one restart-recovery pass before creating current-process state so
     // that the new cold dispatch can never be mistaken for an inherited orphan.
@@ -391,7 +398,7 @@ pub async fn work_attempt_reconcile(
     workspace_path: String,
 ) -> Result<WorkReconcileResultDto, String> {
     let workspace = authorized_workspace(&workspace_path, &registry)?;
-    let (_project_id, store) = open_store(&workspace)?;
+    let (_project_id, store) = open_store(&registry, &workspace)?;
     let (changed_work_ids, recovery_lease) =
         reconcile_store(&agent_runtime, &workspace, &store).await?;
     recovery_lease.commit();
@@ -405,7 +412,7 @@ pub fn work_attempts(
     work_id: String,
 ) -> Result<Vec<WorkAttemptDto>, String> {
     let workspace = authorized_workspace(&workspace_path, &registry)?;
-    let (_project_id, store) = open_store(&workspace)?;
+    let (_project_id, store) = open_store(&registry, &workspace)?;
     let attempts = store
         .list_attempts(work_id.trim())
         .map_err(|error| error.to_string())?;
@@ -422,7 +429,7 @@ pub fn work_attempt_bind(
     run_id: String,
 ) -> Result<WorkAttemptDto, String> {
     let workspace = authorized_workspace(&workspace_path, &registry)?;
-    let (_project_id, store) = open_store(&workspace)?;
+    let (_project_id, store) = open_store(&registry, &workspace)?;
     let attempt = store
         .bind_attempt_run(
             attempt_id.trim(),
@@ -444,7 +451,7 @@ pub fn work_attempt_finish(
     result_json: Option<String>,
 ) -> Result<Option<WorkItemDto>, String> {
     let workspace = authorized_workspace(&workspace_path, &registry)?;
-    let (_project_id, store) = open_store(&workspace)?;
+    let (_project_id, store) = open_store(&registry, &workspace)?;
     let phase = parse_terminal_phase(&phase)?;
     let result_json = result_json.as_deref().unwrap_or("{}");
     let updated = match (
@@ -475,7 +482,7 @@ pub fn work_ready_for_review(
     expected_revision: i64,
 ) -> Result<WorkItemDto, String> {
     let workspace = authorized_workspace(&workspace_path, &registry)?;
-    let (_project_id, store) = open_store(&workspace)?;
+    let (_project_id, store) = open_store(&registry, &workspace)?;
     let updated = store
         .mark_attempt_ready_for_review(work_id.trim(), expected_revision)
         .map_err(|error| error.to_string())?;
@@ -492,7 +499,7 @@ pub fn work_review(
     guidance: Option<String>,
 ) -> Result<WorkItemDto, String> {
     let workspace = authorized_workspace(&workspace_path, &registry)?;
-    let (_project_id, store) = open_store(&workspace)?;
+    let (_project_id, store) = open_store(&registry, &workspace)?;
     let updated = store
         .human_review(
             work_id.trim(),
@@ -506,8 +513,74 @@ pub fn work_review(
 
 #[cfg(test)]
 mod tests {
-    use super::WorkInboxItemDto;
-    use altai_core::{WorkInboxKind, WorkInboxRecord};
+    use super::{open_store, WorkInboxItemDto};
+    use crate::modules::workspace::WorkspaceRegistry;
+    use altai_core::{resolve_workspace_from, WorkInboxKind, WorkInboxRecord};
+
+    #[test]
+    fn open_store_migrates_the_workspace_work_db_and_is_idempotent_per_run() {
+        let directory = tempfile::tempdir().unwrap();
+        let workspace_root = directory.path().join("project");
+        std::fs::create_dir_all(&workspace_root).unwrap();
+        let registry = WorkspaceRegistry::default();
+        let workspace = workspace_root.to_string_lossy().replace('\\', "/");
+
+        open_store(&registry, &workspace)
+            .map(|_| ())
+            .expect("first open should migrate and succeed");
+        open_store(&registry, &workspace)
+            .map(|_| ())
+            .expect("second open in the same run should reuse the lifecycle gate");
+    }
+
+    #[test]
+    fn open_store_fails_closed_on_a_newer_work_db_schema() {
+        let directory = tempfile::tempdir().unwrap();
+        let workspace_root = directory.path().join("project");
+        std::fs::create_dir_all(&workspace_root).unwrap();
+        let paths = resolve_workspace_from(Some(&workspace_root), &workspace_root).unwrap();
+        let database = paths.work_db();
+        if let Some(parent) = database.parent() {
+            std::fs::create_dir_all(parent).unwrap();
+        }
+        // Seed a lifecycle ledger written by a newer host.
+        let connection = rusqlite::Connection::open(&database).unwrap();
+        connection
+            .execute_batch(
+                "CREATE TABLE control_plane_local_migrations (
+                   version INTEGER PRIMARY KEY,
+                   applied_at_unix_seconds INTEGER NOT NULL
+                 );
+                 INSERT INTO control_plane_local_migrations VALUES (99, 0);",
+            )
+            .unwrap();
+        drop(connection);
+
+        let registry = WorkspaceRegistry::default();
+        let workspace = workspace_root.to_string_lossy().replace('\\', "/");
+        let error = open_store(&registry, &workspace)
+            .map(|_| ())
+            .expect_err("newer-schema work.db must fail closed");
+        assert!(
+            error.contains("newer than this build"),
+            "unexpected error: {error}"
+        );
+
+        // Fail-closed: the refused open must not leave adapter DDL behind —
+        // only the seeded ledger table exists.
+        let connection = rusqlite::Connection::open(&database).unwrap();
+        let adapter_tables: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master
+                 WHERE type = 'table'
+                   AND name LIKE 'control_plane_%'
+                   AND name != 'control_plane_local_migrations'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(adapter_tables, 0);
+    }
 
     #[test]
     fn work_inbox_dto_is_camel_case_and_keeps_nullable_source_refs() {
