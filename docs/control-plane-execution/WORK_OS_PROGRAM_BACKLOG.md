@@ -103,15 +103,15 @@ changes only when an exit gate is accepted.
 | Order | Package | Status | Depends on | Planned PRs | Acceptance gate |
 | ---: | --- | --- | --- | ---: | --- |
 | 050 | Workspace resolution/isolation/delivery | accepted | 031, 045 | #777–#778 | Moved checkout keeps identity; permissions and repository scopes fail closed |
-| 051 | Public versioned control protocol | **in_progress** | 035, 042–044 | 2 (CP-08-36/37) | Command/query/event conformance across local and deployed transports |
-| 052 | Local migration runner and lifecycle | ready | 051 | 2 | `work.db` migrations and app lifecycle share one tested local semantic model |
-| 053 | Desktop/IDE/Studio/CLI adapters | planned | 051, 052 | 3–4 | Same command causes the same transition on every host |
+| 051 | Public versioned control protocol | accepted | 035, 042–044 | #779, #783 | Command/query/event conformance across local and deployed transports |
+| 052 | Local migration runner and lifecycle | accepted | 051 | #781, #791 | `work.db` migrations and app lifecycle share one tested local semantic model |
+| 053 | Desktop/IDE/Studio/CLI adapters | accepted | 051, 052 | #792–#794 | Same command causes the same transition on every host |
 
 ### Stage 6 — Operations product surfaces
 
 | Order | Package | Status | Depends on | Planned PRs | Acceptance gate |
 | ---: | --- | --- | --- | ---: | --- |
-| 060 | Read-model projections and activity stream | planned | 035, 042–044 | 2 | Server projections, not frontend store joins, answer operational queries |
+| 060 | Read-model projections and activity stream | accepted | 035, 042–044 | #785, #786 | Server projections, not frontend store joins, answer operational queries |
 | 061 | Operations shell and context switcher | planned | 052, 060 | 2 | Health/offline/org/project context states are explicit |
 | 062 | Work board/list/detail/graph | planned | 024, 060 | 2–3 | Status, execution phase and attention remain distinct |
 | 063 | Runs hub and Run Inspector | planned | 035, 045, 060 | 2–3 | Timeline, transcript, approvals, evidence and delivery are inspectable |
@@ -126,7 +126,7 @@ changes only when an exit gate is accepted.
 | Order | Package | Status | Depends on | Planned PRs | Acceptance gate |
 | ---: | --- | --- | --- | ---: | --- |
 | 070 | ExternalObject model and GitHub adapter | planned | 051, 060 | 2–3 | Idempotent sync, explicit authority and conflict resolution |
-| 071 | Application plugin manifest/capabilities | planned | 051 | 2 | Agent-content and application plugins are distinct; upgrades disclose capability expansion |
+| 071 | Application plugin manifest/capabilities | accepted | 051 | #787, #789 | Agent-content and application plugins are distinct; upgrades disclose capability expansion |
 | 072 | Out-of-process plugin workers | planned | 071 | 2–3 | Crash isolation, health, jobs, webhooks, scoped secrets and idempotency |
 | 073 | Schema-driven/sandboxed plugin UI | planned | 061, 072 | 2 | UI cannot bypass worker capability checks |
 | 074 | Full Gmail multi-account adapter | planned | 071–073 | 2–3 | Account isolation, scoped credentials, idempotent thread/message sync |
@@ -169,11 +169,9 @@ architecture, security, and replacement decision. “Study” does not count as 
 
 The next PRs are fixed until this list is updated by an accepted change:
 
-1. `CP-08-36` — Public versioned control protocol contracts and capability negotiation (Package 051 PR 1).
-2. `CP-08-37` — Control-plane protocol dispatcher and cross-transport conformance tests (Package 051 PR 2).
-3. `CP-08-38` — Local migration runner and semantic lifecycle for `work.db` (Package 052 PR 1).
-4. `CP-08-39` — App lifecycle integration and rollback verification (Package 052 PR 2).
-5. `CP-08-40` — Host transport adapters: CLI, Desktop, IDE (Package 053).
+1. `CP-08-47` — Operations shell and context switcher (Package 061 PR 1).
+2. `CP-08-48` — Operations shell and context switcher (Package 061 PR 2).
+3. `CP-08-49` — Work board/list/detail/graph (Package 062 PR 1).
 
 ## 5. Project-manager update protocol
 
