@@ -11,6 +11,7 @@ pub mod agent_repository;
 pub mod budget_enforcer;
 pub mod budget_repository;
 pub mod approval_repository;
+pub mod plugin_registry;
 pub mod attempt_finalizer;
 pub mod attempt_repository;
 pub mod control_event_projection;
@@ -60,6 +61,7 @@ pub use attempt_finalizer::{
 };
 pub use attempt_repository::{AttemptError, AttemptRepository, SqliteAttemptRepository};
 pub use approval_repository::{ApprovalError, ApprovalRepository, SqliteApprovalRepository};
+pub use plugin_registry::{PluginRegistry, PluginRegistryError, PluginRegistryOutcome, SqlitePluginRegistry};
 pub use control_event_projection::{AggregateCheckpoint, fold_checkpoints};
 pub use control_event_repository::{
     ControlEventError, ControlEventRepository, SqliteControlEventRepository,
