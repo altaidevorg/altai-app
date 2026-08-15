@@ -360,6 +360,23 @@ export type WorkRun = {
   updatedAtMs: number;
 };
 
+/**
+ * One registered agent in the embedded registry. `status` is the agent
+ * lifecycle (`active`, `paused`, `terminated` — terminated is final);
+ * `reportsTo` is the org-chart reporting line, which the host keeps
+ * acyclic.
+ */
+export type AgentRecord = {
+  id: string;
+  name: string;
+  status: "active" | "paused" | "terminated";
+  reportsTo?: string | null;
+  createdAtMs: number;
+  updatedAtMs: number;
+};
+
+export type AgentStatusInput = "active" | "paused" | "terminated";
+
 export type WorkStartRunResult = {
   work: WorkItem;
   attempt: WorkAttempt;

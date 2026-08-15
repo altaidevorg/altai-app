@@ -6,9 +6,9 @@
 use std::path::Path;
 
 use altai_core::{
-    resolve_workspace_from, AttemptPhase, AttemptReconcileMode, AttemptRecord, CreateWorkInput,
-    RecentAttemptRecord, WorkAttemptStart, WorkEventRecord, WorkInboxRecord, WorkItemKind,
-    WorkItemRecord, WorkListFilter, WorkState, WorkStore,
+    resolve_workspace_from, AgentRecord, AgentStatus, AttemptPhase, AttemptReconcileMode,
+    AttemptRecord, CreateWorkInput, RecentAttemptRecord, WorkAttemptStart, WorkEventRecord,
+    WorkInboxRecord, WorkItemKind, WorkItemRecord, WorkListFilter, WorkState, WorkStore,
 };
 use serde::{Deserialize, Serialize};
 use tauri::State;
@@ -600,6 +600,88 @@ pub fn work_review(
         )
         .map_err(|error| error.to_string())?;
     Ok(updated.into())
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentDto {
+    pub id: String,
+    pub name: String,
+    pub status: String,
+    pub reports_to: Option<String>,
+    pub created_at_ms: u64,
+    pub updated_at_ms: u64,
+}
+
+impl From<AgentRecord> for AgentDto {
+    fn from(value: AgentRecord) -> Self {
+        Self {
+            id: value.id,
+            name: value.name,
+            status: value.status.as_str().to_string(),
+            reports_to: value.reports_to,
+            created_at_ms: value.created_at_ms,
+            updated_at_ms: value.updated_at_ms,
+        }
+    }
+}
+
+#[tauri::command]
+pub fn agent_list(
+    registry: State<'_, WorkspaceRegistry>,
+    workspace_path: String,
+) -> Result<Vec<AgentDto>, String> {
+    let workspace = authorized_workspace(&workspace_path, &registry)?;
+    let (_project_id, store) = open_store(&registry, &workspace)?;
+    let agents = store.list_agents().map_err(|error| error.to_string())?;
+    Ok(agents.into_iter().map(AgentDto::from).collect())
+}
+
+#[tauri::command]
+pub fn agent_create(
+    registry: State<'_, WorkspaceRegistry>,
+    workspace_path: String,
+    name: String,
+    reports_to: Option<String>,
+) -> Result<AgentDto, String> {
+    let workspace = authorized_workspace(&workspace_path, &registry)?;
+    let (_project_id, store) = open_store(&registry, &workspace)?;
+    let agent = store
+        .create_agent(name.trim(), reports_to.as_deref())
+        .map_err(|error| error.to_string())?;
+    Ok(agent.into())
+}
+
+#[tauri::command]
+pub fn agent_transition(
+    registry: State<'_, WorkspaceRegistry>,
+    workspace_path: String,
+    agent_id: String,
+    status: String,
+) -> Result<AgentDto, String> {
+    let next = AgentStatus::parse(status.trim())
+        .ok_or_else(|| format!("unknown agent status: {status}"))?;
+    let workspace = authorized_workspace(&workspace_path, &registry)?;
+    let (_project_id, store) = open_store(&registry, &workspace)?;
+    let agent = store
+        .transition_agent_status(agent_id.trim(), next)
+        .map_err(|error| error.to_string())?;
+    Ok(agent.into())
+}
+
+#[tauri::command]
+pub fn agent_set_reporting(
+    registry: State<'_, WorkspaceRegistry>,
+    workspace_path: String,
+    agent_id: String,
+    reports_to: Option<String>,
+) -> Result<AgentDto, String> {
+    let workspace = authorized_workspace(&workspace_path, &registry)?;
+    let (_project_id, store) = open_store(&registry, &workspace)?;
+    let agent = store
+        .set_agent_reporting(agent_id.trim(), reports_to.as_deref())
+        .map_err(|error| error.to_string())?;
+    Ok(agent.into())
 }
 
 #[cfg(test)]

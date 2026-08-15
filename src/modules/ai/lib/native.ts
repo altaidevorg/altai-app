@@ -1,5 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import type {
+  AgentRecord,
+  AgentStatusInput,
   WorkCreateInput,
   WorkAttempt,
   WorkEvent,
@@ -614,6 +616,40 @@ export const native = {
     invoke<WorkRun[]>("work_runs", {
       workspacePath: workspacePath ?? currentWorkspaceEnv(),
       limit: limit ?? 20,
+    }),
+  agentList: (workspacePath?: string | null) =>
+    invoke<AgentRecord[]>("agent_list", {
+      workspacePath: workspacePath ?? currentWorkspaceEnv(),
+    }),
+  agentCreate: (
+    name: string,
+    reportsTo?: string | null,
+    workspacePath?: string | null,
+  ) =>
+    invoke<AgentRecord>("agent_create", {
+      workspacePath: workspacePath ?? currentWorkspaceEnv(),
+      name,
+      reportsTo: reportsTo ?? null,
+    }),
+  agentTransition: (
+    agentId: string,
+    status: AgentStatusInput,
+    workspacePath?: string | null,
+  ) =>
+    invoke<AgentRecord>("agent_transition", {
+      workspacePath: workspacePath ?? currentWorkspaceEnv(),
+      agentId,
+      status,
+    }),
+  agentSetReporting: (
+    agentId: string,
+    reportsTo?: string | null,
+    workspacePath?: string | null,
+  ) =>
+    invoke<AgentRecord>("agent_set_reporting", {
+      workspacePath: workspacePath ?? currentWorkspaceEnv(),
+      agentId,
+      reportsTo: reportsTo ?? null,
     }),
   workInboxList: (workspacePath?: string | null) =>
     invoke<WorkInboxItem[]>("work_inbox_list", {
