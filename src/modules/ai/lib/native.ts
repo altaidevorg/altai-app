@@ -598,9 +598,9 @@ export const native = {
       workspacePath: currentWorkspaceEnv(),
       filter,
     }),
-  workChildren: (parentWorkId: string) =>
+  workChildren: (parentWorkId: string, workspacePath?: string | null) =>
     invoke<WorkItem[]>("work_children", {
-      workspacePath: currentWorkspaceEnv(),
+      workspacePath: workspacePath ?? currentWorkspaceEnv(),
       parentWorkId,
     }),
   workInboxList: (workspacePath?: string | null) =>
@@ -616,9 +616,9 @@ export const native = {
       workspacePath: workspacePath ?? currentWorkspaceEnv(),
       workId,
     }),
-  workGet: (workId: string) =>
+  workGet: (workId: string, workspacePath?: string | null) =>
     invoke<WorkItem | null>("work_get", {
-      workspacePath: currentWorkspaceEnv(),
+      workspacePath: workspacePath ?? currentWorkspaceEnv(),
       workId,
     }),
   workCreate: (input: WorkCreateInput) =>

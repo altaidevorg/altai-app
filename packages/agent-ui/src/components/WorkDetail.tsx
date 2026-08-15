@@ -23,6 +23,9 @@ export type WorkDetailProps = {
   status: "loading" | "ready" | "error" | "not_found";
   title?: string;
   stateLabel?: string;
+  /** Inbox condition on this Work — a distinct axis from the state, so it
+   *  renders as its own chip, never folded into `stateLabel`. */
+  attentionLabel?: string | null;
   projectLabel?: string;
   updatedLabel?: string;
   description?: string;
@@ -60,6 +63,7 @@ export function WorkDetail({
   status,
   title,
   stateLabel,
+  attentionLabel,
   projectLabel,
   updatedLabel,
   description,
@@ -135,8 +139,13 @@ export function WorkDetail({
             <h2 className="truncate text-[13px] font-semibold text-foreground">
               {title}
             </h2>
-            <p className="mt-0.5 flex flex-wrap gap-x-2 text-[10.5px] text-muted-foreground">
+            <p className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[10.5px] text-muted-foreground">
               {stateLabel ? <span>{stateLabel}</span> : null}
+              {attentionLabel ? (
+                <span className="rounded-full bg-warning/15 px-1.5 py-px text-[9.5px] font-medium text-warning">
+                  {attentionLabel}
+                </span>
+              ) : null}
               {projectLabel ? <span>{projectLabel}</span> : null}
               {updatedLabel ? <span>{updatedLabel}</span> : null}
             </p>
