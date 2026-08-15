@@ -24,6 +24,7 @@ pub mod evidence_repository;
 pub mod execution_repository;
 pub mod legacy_work_bridge;
 pub mod liveness_monitor;
+pub mod local_migration;
 pub mod protocol_dispatch;
 pub mod recovery_repository;
 pub mod recovery_service;
@@ -74,6 +75,9 @@ pub use execution_repository::{
     SqliteExecutionSnapshotRepository,
 };
 pub use legacy_work_bridge::{LegacyWorkBridge, LegacyWorkBridgeError};
+pub use local_migration::{
+    LocalMigrationError, LocalMigrationReport, LocalMigrationRunner, LOCAL_WORK_DB_SCHEMA_VERSION,
+};
 pub use liveness_monitor::{LivenessError, LivenessMonitor};
 pub use protocol_dispatch::{ProtocolDispatcher, capabilities_from_wiring};
 pub use recovery_repository::{RecoveryError, RecoveryRepository, SqliteRecoveryRepository};
