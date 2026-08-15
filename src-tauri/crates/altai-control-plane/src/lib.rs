@@ -6,6 +6,7 @@
 //! sync layer will connect the global control database to local execution
 //! ledgers through the registered host identity.
 
+pub mod activity_repository;
 pub mod agent_repository;
 pub mod budget_enforcer;
 pub mod budget_repository;
@@ -45,6 +46,9 @@ pub mod work_graph_repository;
 pub mod work_item_repository;
 pub mod workspace_scope_gate;
 
+pub use activity_repository::{
+    ActivityEventError, ActivityEventRepository, SqliteActivityEventRepository,
+};
 pub use agent_repository::{AgentRepository, AgentRepositoryError, InMemoryAgentRepository};
 pub use altai_control_protocol::{
     ControlPlaneHealth, HostCapabilities, HostRegistration, HostRegistrationRequest, RegisteredHost,
