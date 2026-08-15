@@ -16,6 +16,8 @@ export type WorkDetailAttemptRow = {
   id: string;
   label: string;
   phaseLabel: string;
+  /** The attempt's recorded result (its evidence), when it has one. */
+  resultSummary?: string | null;
   onOpenRun?: () => void;
 };
 
@@ -217,8 +219,15 @@ export function WorkDetail({
                   key={attempt.id}
                   className="flex items-center gap-2 px-2.5 py-2 text-[11px]"
                 >
-                  <span className="min-w-0 flex-1 truncate font-medium text-foreground">
-                    {attempt.label}
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate font-medium text-foreground">
+                      {attempt.label}
+                    </span>
+                    {attempt.resultSummary ? (
+                      <span className="mt-0.5 block truncate text-[10.5px] text-muted-foreground">
+                        {attempt.resultSummary}
+                      </span>
+                    ) : null}
                   </span>
                   <span className="text-muted-foreground">{attempt.phaseLabel}</span>
                   {attempt.onOpenRun ? (

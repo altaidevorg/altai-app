@@ -25,6 +25,8 @@ type Props = {
   onBack: () => void;
   /** Navigate to another Work in the graph. */
   onOpenWork: (workId: string) => void;
+  /** Open an attempt's bound chat — its transcript. */
+  onOpenTranscript?: (chatId: string) => void;
   className?: string;
 };
 
@@ -41,6 +43,7 @@ export function WorkDetailPanel({
   workId,
   onBack,
   onOpenWork,
+  onOpenTranscript,
   className,
 }: Props) {
   const [status, setStatus] = useState<LoadStatus>("loading");
@@ -127,11 +130,18 @@ export function WorkDetailPanel({
           description={model.description}
           acceptanceCriteria={model.acceptanceCriteria}
           blocker={model.blocker}
-          attempts={model.attemptRows.map((row) => ({
-            id: row.id,
-            label: `Attempt ${row.number}`,
-            phaseLabel: row.phaseLabel,
-          }))}
+          attempts={model.attemptRows.map(
+            ({ chatId, ...row }) => ({
+              id: row.id,
+              label: `Attempt ${row.number}`,
+              phaseLabel: row.phaseLabel,
+              resultSummary: row.resultSummary,
+              onOpenRun:
+                chatId && onOpenTranscript
+                  ? () => onOpenTranscript(chatId)
+                  : undefined,
+            }),
+          )}
           onBack={onBack}
           onRetry={() => void refresh()}
           errorMessage={error ?? undefined}
