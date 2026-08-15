@@ -6,7 +6,12 @@ import { EmptyState } from "@/components/altai";
 import { native } from "@/modules/ai/lib/native";
 import { WORK_INBOX_INVALIDATION_EVENTS } from "@/modules/ai/lib/workInboxAttention";
 import { OperationsStatusBar } from "@/modules/operations";
-import { WorkBoard, projectWorkBoard, type WorkBoardRow } from "@/modules/work-board";
+import {
+  WorkBoard,
+  WorkDetailPanel,
+  projectWorkBoard,
+  type WorkBoardRow,
+} from "@/modules/work-board";
 
 type LoadStatus = "loading" | "ready" | "error";
 
@@ -44,6 +49,7 @@ export function DesktopHome({
   const [work, setWork] = useState<WorkItem[]>([]);
   const [attempts, setAttempts] = useState<WorkAttempt[]>([]);
   const [inbox, setInbox] = useState<WorkInboxItem[]>([]);
+  const [selectedWorkId, setSelectedWorkId] = useState<string | null>(null);
   const requestGeneration = useRef(0);
   const hasLoaded = useRef(false);
   const onInboxCountChangeRef = useRef(onInboxCountChange);
@@ -93,6 +99,7 @@ export function DesktopHome({
   useEffect(() => {
     requestGeneration.current += 1;
     hasLoaded.current = false;
+    setSelectedWorkId(null);
     setWork([]);
     setAttempts([]);
     setInbox([]);
@@ -186,17 +193,28 @@ export function DesktopHome({
           onGoToWork={onOpenInbox}
           className="min-h-[240px]"
         />
-        <WorkBoard
-          status={status}
-          rows={boardRows}
-          onOpenWork={onOpenWork}
-          onNewWork={onNewWork}
-          onOpenInbox={onOpenInbox}
-          errorMessage={error ?? undefined}
-          onRetry={() => void refresh()}
-          title="My active"
-          className="min-h-[280px]"
-        />
+        {selectedWorkId ? (
+          <WorkDetailPanel
+            workspacePath={workspacePath}
+            workspaceName={workspaceName}
+            workId={selectedWorkId}
+            onBack={() => setSelectedWorkId(null)}
+            onOpenWork={setSelectedWorkId}
+            className="min-h-[280px]"
+          />
+        ) : (
+          <WorkBoard
+            status={status}
+            rows={boardRows}
+            onOpenWork={setSelectedWorkId}
+            onNewWork={onNewWork}
+            onOpenInbox={onOpenInbox}
+            errorMessage={error ?? undefined}
+            onRetry={() => void refresh()}
+            title="My active"
+            className="min-h-[280px]"
+          />
+        )}
       </div>
     </section>
   );
