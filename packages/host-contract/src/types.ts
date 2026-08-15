@@ -340,6 +340,26 @@ export type WorkEvent = {
   createdAtMs: number;
 };
 
+/**
+ * An attempt joined with its Work — the row a Runs hub renders. The
+ * attempt's `phase` and the Work's `workState` are distinct axes; a
+ * running attempt on in-review Work is not the same fact as either label.
+ */
+export type WorkRun = {
+  id: string;
+  workId: string;
+  workTitle: string;
+  workState: WorkState;
+  number: number;
+  role: string;
+  phase: WorkAttemptPhase;
+  chatId?: string | null;
+  sessionId?: string | null;
+  runId?: string | null;
+  createdAtMs: number;
+  updatedAtMs: number;
+};
+
 export type WorkStartRunResult = {
   work: WorkItem;
   attempt: WorkAttempt;

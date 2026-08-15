@@ -169,9 +169,11 @@ architecture, security, and replacement decision. “Study” does not count as 
 
 The next PRs are fixed until this list is updated by an accepted change:
 
-1. `CP-08-51` — Runs hub and Run Inspector (Package 063 PR 1).
-2. `CP-08-52` — Runs hub and Run Inspector (Package 063 PR 2) or Agents, org
-   chart and profile administration (Package 064 PR 1).
+1. `CP-08-53` — Runs hub and Run Inspector (Package 063 PR 3:
+   transcript, approvals, evidence and delivery inspection — scope to what
+   has producers; defer slices whose producer is missing).
+2. `CP-08-54` — Agents, org chart and profile administration (Package 064
+   PR 1) if 063's remaining scope defers.
 
 ## 5. Project-manager update protocol
 

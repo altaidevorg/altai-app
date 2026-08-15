@@ -1,16 +1,24 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { formatRelativeTime, WorkInbox, type WorkInboxRow } from "@altai/agent-ui";
-import type { WorkAttempt, WorkInboxItem, WorkItem } from "@altai/host-contract";
+import type {
+  WorkAttempt,
+  WorkInboxItem,
+  WorkItem,
+  WorkRun,
+} from "@altai/host-contract";
 import { EmptyState } from "@/components/altai";
 import { native } from "@/modules/ai/lib/native";
 import { WORK_INBOX_INVALIDATION_EVENTS } from "@/modules/ai/lib/workInboxAttention";
 import { OperationsStatusBar } from "@/modules/operations";
 import {
+  RunsHubSection,
   WorkBoard,
   WorkDetailPanel,
+  projectRunsHub,
   projectWorkBoard,
   type WorkBoardRow,
+  type WorkRunRow,
 } from "@/modules/work-board";
 
 type LoadStatus = "loading" | "ready" | "error";
@@ -48,6 +56,7 @@ export function DesktopHome({
   const [error, setError] = useState<string | null>(null);
   const [work, setWork] = useState<WorkItem[]>([]);
   const [attempts, setAttempts] = useState<WorkAttempt[]>([]);
+  const [runs, setRuns] = useState<WorkRun[]>([]);
   const [inbox, setInbox] = useState<WorkInboxItem[]>([]);
   const [selectedWorkId, setSelectedWorkId] = useState<string | null>(null);
   const requestGeneration = useRef(0);
@@ -78,9 +87,15 @@ export function DesktopHome({
           ),
         )
       ).flat();
+      // The Runs hub's page: one projection, no per-Work fan-out. A failure
+      // degrades to the previous page, not a failed Home.
+      const nextRuns = await native
+        .workRuns(20, workspacePath)
+        .catch(() => [] as WorkRun[]);
       if (generation !== requestGeneration.current) return;
       setWork(nextWork);
       setAttempts(nextAttempts);
+      setRuns(nextRuns);
       setInbox(nextInbox);
       setError(null);
       setStatus("ready");
@@ -102,6 +117,7 @@ export function DesktopHome({
     setSelectedWorkId(null);
     setWork([]);
     setAttempts([]);
+    setRuns([]);
     setInbox([]);
     setError(null);
     if (!workspacePath) {
@@ -135,6 +151,7 @@ export function DesktopHome({
     [work, attempts, inbox],
   );
   const inboxRows = useMemo(() => inbox.map(toHomeInboxRow), [inbox]);
+  const runRows = useMemo<WorkRunRow[]>(() => projectRunsHub(runs), [runs]);
 
   if (!workspacePath) {
     return (
@@ -184,15 +201,21 @@ export function DesktopHome({
         <OperationsStatusBar />
       </header>
       <div className="grid min-h-0 flex-1 grid-cols-1 gap-px overflow-hidden bg-border-subtle lg:grid-cols-[minmax(240px,0.3fr)_minmax(420px,0.7fr)]">
-        <WorkInbox
-          status={status}
-          rows={inboxRows}
-          errorMessage={error ?? undefined}
-          onRetry={() => void refresh()}
-          onOpenWork={onOpenWork}
-          onGoToWork={onOpenInbox}
-          className="min-h-[240px]"
-        />
+        <div className="flex min-h-[240px] flex-col overflow-hidden bg-card">
+          <WorkInbox
+            status={status}
+            rows={inboxRows}
+            errorMessage={error ?? undefined}
+            onRetry={() => void refresh()}
+            onOpenWork={onOpenWork}
+            onGoToWork={onOpenInbox}
+            className="min-h-0 flex-1"
+          />
+          <RunsHubSection
+            rows={runRows}
+            onOpenWork={setSelectedWorkId}
+          />
+        </div>
         {selectedWorkId ? (
           <WorkDetailPanel
             workspacePath={workspacePath}

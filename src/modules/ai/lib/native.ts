@@ -3,6 +3,7 @@ import type {
   WorkCreateInput,
   WorkAttempt,
   WorkEvent,
+  WorkRun,
   WorkInboxItem,
   WorkItem,
   WorkListFilter,
@@ -608,6 +609,11 @@ export const native = {
     invoke<WorkEvent[]>("work_events", {
       workspacePath: workspacePath ?? currentWorkspaceEnv(),
       workId,
+    }),
+  workRuns: (limit?: number, workspacePath?: string | null) =>
+    invoke<WorkRun[]>("work_runs", {
+      workspacePath: workspacePath ?? currentWorkspaceEnv(),
+      limit: limit ?? 20,
     }),
   workInboxList: (workspacePath?: string | null) =>
     invoke<WorkInboxItem[]>("work_inbox_list", {

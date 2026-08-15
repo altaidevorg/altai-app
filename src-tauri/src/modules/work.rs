@@ -7,8 +7,8 @@ use std::path::Path;
 
 use altai_core::{
     resolve_workspace_from, AttemptPhase, AttemptReconcileMode, AttemptRecord, CreateWorkInput,
-    WorkAttemptStart, WorkEventRecord, WorkInboxRecord, WorkItemKind, WorkItemRecord, WorkListFilter,
-    WorkState, WorkStore,
+    RecentAttemptRecord, WorkAttemptStart, WorkEventRecord, WorkInboxRecord, WorkItemKind,
+    WorkItemRecord, WorkListFilter, WorkState, WorkStore,
 };
 use serde::{Deserialize, Serialize};
 use tauri::State;
@@ -453,6 +453,61 @@ pub fn work_events(
         .list_work_events(work_id.trim())
         .map_err(|error| error.to_string())?;
     Ok(events.into_iter().map(WorkEventDto::from).collect())
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkRunDto {
+    pub id: String,
+    pub work_id: String,
+    pub work_title: String,
+    pub work_state: String,
+    pub number: i64,
+    pub role: String,
+    pub phase: String,
+    pub chat_id: Option<String>,
+    pub session_id: Option<String>,
+    pub run_id: Option<String>,
+    pub created_at_ms: u64,
+    pub updated_at_ms: u64,
+}
+
+impl From<RecentAttemptRecord> for WorkRunDto {
+    fn from(value: RecentAttemptRecord) -> Self {
+        Self {
+            id: value.id,
+            work_id: value.work_id,
+            work_title: value.work_title,
+            work_state: value.work_state.as_str().to_string(),
+            number: value.number,
+            role: value.role,
+            phase: value.phase.as_str().to_string(),
+            chat_id: value.chat_id,
+            session_id: value.session_id,
+            run_id: value.run_id,
+            created_at_ms: value.created_at_ms,
+            updated_at_ms: value.updated_at_ms,
+        }
+    }
+}
+
+/// Upper bound on runs returned per `work_runs` call.
+const WORK_RUNS_LIMIT_MAX: u32 = 100;
+const WORK_RUNS_LIMIT_DEFAULT: u32 = 20;
+
+#[tauri::command]
+pub fn work_runs(
+    registry: State<'_, WorkspaceRegistry>,
+    workspace_path: String,
+    limit: Option<u32>,
+) -> Result<Vec<WorkRunDto>, String> {
+    let workspace = authorized_workspace(&workspace_path, &registry)?;
+    let (_project_id, store) = open_store(&registry, &workspace)?;
+    let bounded = limit.unwrap_or(WORK_RUNS_LIMIT_DEFAULT).min(WORK_RUNS_LIMIT_MAX);
+    let runs = store
+        .list_recent_attempts(bounded)
+        .map_err(|error| error.to_string())?;
+    Ok(runs.into_iter().map(WorkRunDto::from).collect())
 }
 
 #[tauri::command]

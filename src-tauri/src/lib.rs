@@ -800,6 +800,7 @@ pub fn run() {
             work::work_start_attempt,
             work::work_attempts,
             work::work_events,
+            work::work_runs,
             work::work_attempt_bind,
             work::work_attempt_finish,
             work::work_attempt_reconcile,
