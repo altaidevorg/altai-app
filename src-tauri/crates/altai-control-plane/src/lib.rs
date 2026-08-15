@@ -6,12 +6,16 @@
 //! sync layer will connect the global control database to local execution
 //! ledgers through the registered host identity.
 
+pub mod activity_repository;
 pub mod agent_repository;
 pub mod budget_enforcer;
 pub mod budget_repository;
 pub mod approval_repository;
+pub mod plugin_registry;
 pub mod attempt_finalizer;
 pub mod attempt_repository;
+pub mod control_event_projection;
+pub mod control_event_repository;
 pub mod completion_gate;
 pub mod cron_due;
 pub mod delivery_gate;
@@ -21,6 +25,7 @@ pub mod execution_repository;
 pub mod legacy_work_bridge;
 pub mod liveness_monitor;
 pub mod local_migration;
+pub mod protocol_dispatch;
 pub mod recovery_repository;
 pub mod recovery_service;
 pub mod repository_scope_repository;
@@ -45,6 +50,9 @@ pub mod work_graph_repository;
 pub mod work_item_repository;
 pub mod workspace_scope_gate;
 
+pub use activity_repository::{
+    ActivityEventError, ActivityEventRepository, SqliteActivityEventRepository,
+};
 pub use agent_repository::{AgentRepository, AgentRepositoryError, InMemoryAgentRepository};
 pub use altai_control_protocol::{
     ControlPlaneHealth, HostCapabilities, HostRegistration, HostRegistrationRequest, RegisteredHost,
@@ -54,6 +62,11 @@ pub use attempt_finalizer::{
 };
 pub use attempt_repository::{AttemptError, AttemptRepository, SqliteAttemptRepository};
 pub use approval_repository::{ApprovalError, ApprovalRepository, SqliteApprovalRepository};
+pub use plugin_registry::{PluginRegistry, PluginRegistryError, PluginRegistryOutcome, SqlitePluginRegistry};
+pub use control_event_projection::{AggregateCheckpoint, fold_checkpoints};
+pub use control_event_repository::{
+    ControlEventError, ControlEventRepository, SqliteControlEventRepository,
+};
 pub use dispatch_eligibility::{
     DispatchBlocker, DispatchEligibility, DispatchEligibilityEngine, DispatchEligibilityError,
 };
@@ -66,6 +79,7 @@ pub use local_migration::{
     LocalMigrationError, LocalMigrationReport, LocalMigrationRunner, LOCAL_WORK_DB_SCHEMA_VERSION,
 };
 pub use liveness_monitor::{LivenessError, LivenessMonitor};
+pub use protocol_dispatch::{ProtocolDispatcher, capabilities_from_wiring};
 pub use recovery_repository::{RecoveryError, RecoveryRepository, SqliteRecoveryRepository};
 pub use recovery_service::{RecoveryOutcome, RecoveryService, RecoveryServiceError};
 pub use repository_scope_repository::{

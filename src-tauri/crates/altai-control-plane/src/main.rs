@@ -1,9 +1,11 @@
 use altai_control_plane::{
     router_with_control_repositories, BootstrapCredential, ControlPlane, ControlPlaneConfig,
-    ControlPlaneStore, RoutineCronBridge, RoutineMaterializer, SqliteAgentRepository,
-    SqliteApprovalRepository, SqliteAttemptRepository, SqliteRegistrationRepository,
-    SqliteRoutineRepository, SqliteRunBindingRepository, SqliteScopeRepository,
-    SqliteWakeRepository, SqliteWorkGraphRepository, DEFAULT_CRON_TICK,
+    ControlPlaneStore, RoutineCronBridge, RoutineMaterializer, SqliteActivityEventRepository,
+    SqliteAgentRepository, SqliteApprovalRepository, SqliteAttemptRepository,
+    SqliteControlEventRepository, SqlitePluginRegistry, SqliteRegistrationRepository,
+    SqliteRoutineRepository,
+    SqliteRunBindingRepository, SqliteScopeRepository, SqliteWakeRepository,
+    SqliteWorkGraphRepository, DEFAULT_CRON_TICK,
 };
 use altai_core::resolve_workspace;
 use clap::Parser;
@@ -54,6 +56,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let attempt_repository = Arc::new(SqliteAttemptRepository::open(&work_db)?);
     let routine_repository = Arc::new(SqliteRoutineRepository::open(&work_db)?);
     let approval_repository = Arc::new(SqliteApprovalRepository::open(&work_db)?);
+    let activity_repository = Arc::new(SqliteActivityEventRepository::open(&work_db)?);
+    let control_event_repository =
+        Arc::new(SqliteControlEventRepository::open(&work_db)?);
+    let plugin_registry = Arc::new(SqlitePluginRegistry::open(&work_db)?);
     // Managed cron bridge: periodically materialize active recurring routines
     // into wakes. Clones share the same sqlite connections the router uses.
     let materializer = Arc::new(RoutineMaterializer::new(
@@ -83,6 +89,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             Some(attempt_repository),
             Some(routine_repository),
             Some(approval_repository),
+            Some(activity_repository),
+            Some(control_event_repository),
+            Some(plugin_registry),
         ),
     )
     .await?;

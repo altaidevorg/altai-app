@@ -5,18 +5,22 @@
 //! module deliberately refuses to make an accidental unauthenticated listener.
 
 use crate::{
-    finalize_attempt, AgentRepository, AgentRepositoryError, ApprovalError, ApprovalRepository,
-    AttemptFinalization, AttemptFinalizationError, AttemptRepository, ControlPlane,
-    ControlPlaneError, RegistrationGrant, RoutineError, RoutineRepository, RunBindingError,
-    RunBindingRepository, RunOutcome, ScopeError, ScopeRepository, WakeError, WakeRepository,
-    WorkGraphError, WorkGraphRepository,
+    capabilities_from_wiring, finalize_attempt, ActivityEventRepository, AgentRepository,
+    AgentRepositoryError, ApprovalError, ApprovalRepository, AttemptFinalization,
+    AttemptFinalizationError, AttemptRepository, ControlEventRepository, ControlPlane,
+    ControlPlaneError, PluginRegistry, PluginRegistryError, ProtocolDispatcher, RegistrationGrant,
+    RoutineError, RoutineRepository,
+    RunBindingError, RunBindingRepository, RunOutcome, ScopeError, ScopeRepository, WakeError,
+    WakeRepository, WorkGraphError, WorkGraphRepository,
 };
 use altai_control_protocol::{
     AgentInstance, AgentProfileRevision, Approval, ApprovalDecision, ApprovalId, ApprovalOutcome,
-    Attempt, AttemptId, ControlPlaneHealth, Goal, GoalId, HostRegistrationRequest, Organization,
-    OrganizationId, Project, ProjectWorkspace, RegisteredHost, Routine, RoutineId, RoutineRevision,
-    RunBinding, WakeRequest, WakeSource, WorkCheckoutLease, WorkComment, WorkDependency,
-    WorkItemId,
+    Attempt, AttemptId, CapabilityNegotiationRequest, CapabilityNegotiationResponse,
+    ControlPlaneHealth, DeploymentMode, Goal, GoalId, HostRegistrationRequest, Organization,
+    OrganizationId, PluginManifest, Project, ProjectWorkspace, ProtocolCommand, ProtocolOutcome,
+    ProtocolRequest,
+    ProtocolResponse, RegisteredHost, Routine, RoutineId, RoutineRevision, RunBinding, WakeRequest,
+    WakeSource, WorkCheckoutLease, WorkComment, WorkDependency, WorkItemId,
 };
 use axum::{
     extract::{Path, State},
@@ -93,6 +97,8 @@ struct ApiState {
     attempt_repository: Option<Arc<dyn AttemptRepository>>,
     routine_repository: Option<Arc<dyn RoutineRepository>>,
     approval_repository: Option<Arc<dyn ApprovalRepository>>,
+    plugin_registry: Option<Arc<dyn PluginRegistry>>,
+    protocol_dispatcher: Arc<ProtocolDispatcher>,
 }
 
 /// Routes are versioned from their first public exposure. The health and grant
@@ -135,6 +141,16 @@ pub fn router_with_all_repositories(
     agent_repository: Option<Arc<dyn AgentRepository>>,
     work_graph_repository: Option<Arc<dyn WorkGraphRepository>>,
 ) -> Router {
+    let capabilities = capabilities_from_wiring(
+        scope_repository.is_some(),
+        agent_repository.is_some(),
+        work_graph_repository.is_some(),
+        false,
+        false,
+        false,
+        false,
+        false,
+    );
     let state = ApiState {
         plane,
         bootstrap_credential: Arc::new(bootstrap_credential),
@@ -146,11 +162,18 @@ pub fn router_with_all_repositories(
         attempt_repository: None,
         routine_repository: None,
         approval_repository: None,
+        plugin_registry: None,
+        protocol_dispatcher: Arc::new(ProtocolDispatcher::new(
+            DeploymentMode::LocalDaemon,
+            capabilities,
+        )),
     };
     Router::new()
         .route("/v1/health", get(health))
         .route("/v1/registration-grants", post(issue_registration_grant))
         .route("/v1/hosts/register", post(register_host))
+        .route("/v1/protocol/negotiate", post(protocol_negotiate))
+        .route("/v1/protocol/commands", post(protocol_command))
         .route("/v1/organizations", post(create_organization))
         .route("/v1/goals", post(create_goal))
         .route(
@@ -185,7 +208,28 @@ pub fn router_with_control_repositories(
     attempt_repository: Option<Arc<dyn AttemptRepository>>,
     routine_repository: Option<Arc<dyn RoutineRepository>>,
     approval_repository: Option<Arc<dyn ApprovalRepository>>,
+    activity_repository: Option<Arc<dyn ActivityEventRepository>>,
+    control_event_repository: Option<Arc<dyn ControlEventRepository>>,
+    plugin_registry: Option<Arc<dyn PluginRegistry>>,
 ) -> Router {
+    let capabilities = capabilities_from_wiring(
+        scope_repository.is_some(),
+        agent_repository.is_some(),
+        work_graph_repository.is_some(),
+        attempt_repository.is_some(),
+        routine_repository.is_some(),
+        approval_repository.is_some(),
+        activity_repository.is_some(),
+        control_event_repository.is_some(),
+    );
+    let mut dispatcher = ProtocolDispatcher::new(DeploymentMode::LocalDaemon, capabilities);
+    if let Some(repository) = &activity_repository {
+        dispatcher = dispatcher.with_activity_repository(repository.clone());
+    }
+    if let Some(repository) = &control_event_repository {
+        dispatcher = dispatcher.with_control_event_repository(repository.clone());
+    }
+    let dispatcher = Arc::new(dispatcher);
     let state = ApiState {
         plane,
         bootstrap_credential: Arc::new(bootstrap_credential),
@@ -197,11 +241,15 @@ pub fn router_with_control_repositories(
         attempt_repository,
         routine_repository,
         approval_repository,
+        plugin_registry,
+        protocol_dispatcher: dispatcher,
     };
     Router::new()
         .route("/v1/health", get(health))
         .route("/v1/registration-grants", post(issue_registration_grant))
         .route("/v1/hosts/register", post(register_host))
+        .route("/v1/protocol/negotiate", post(protocol_negotiate))
+        .route("/v1/protocol/commands", post(protocol_command))
         .route("/v1/wakes", post(enqueue_wake))
         .route("/v1/wakes/{work_item_id}/claim", post(claim_wake))
         .route("/v1/work-checkouts", post(checkout_work))
@@ -215,6 +263,11 @@ pub fn router_with_control_repositories(
         .route(
             "/v1/routines/{routine_id}/revisions",
             post(append_routine_revision_route),
+        )
+        .route("/v1/plugins", post(install_plugin_route))
+        .route(
+            "/v1/organizations/{organization_id}/plugins",
+            get(list_plugins_route),
         )
         .route("/v1/approvals", post(create_approval_route))
         .route(
@@ -357,6 +410,39 @@ async fn create_approval_route(
     require_bootstrap(&state, &headers)?;
     approvals(&state)?
         .create(approval)
+        .map(Json)
+        .map_err(ApiError::from)
+}
+
+#[derive(serde::Deserialize)]
+struct PluginInstallRequest {
+    organization_id: OrganizationId,
+    manifest: PluginManifest,
+    /// Explicit consent for capability expansion. Required only when the
+    /// upgrade adds capabilities; ignored for first installs and pure upgrades.
+    accept_expansion: bool,
+}
+
+async fn install_plugin_route(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Json(request): Json<PluginInstallRequest>,
+) -> Result<Json<crate::PluginRegistryOutcome>, ApiError> {
+    require_bootstrap(&state, &headers)?;
+    plugins(&state)?
+        .install(&request.organization_id, request.manifest, request.accept_expansion)
+        .map(Json)
+        .map_err(ApiError::from)
+}
+
+async fn list_plugins_route(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Path(organization_id): Path<String>,
+) -> Result<Json<Vec<PluginManifest>>, ApiError> {
+    require_bootstrap(&state, &headers)?;
+    plugins(&state)?
+        .list_in_org(&OrganizationId::new(organization_id))
         .map(Json)
         .map_err(ApiError::from)
 }
@@ -576,6 +662,12 @@ fn approvals(state: &ApiState) -> Result<&Arc<dyn ApprovalRepository>, ApiError>
         code: "approval_repository_unavailable",
     })
 }
+fn plugins(state: &ApiState) -> Result<&Arc<dyn PluginRegistry>, ApiError> {
+    state.plugin_registry.as_ref().ok_or(ApiError {
+        status: StatusCode::SERVICE_UNAVAILABLE,
+        code: "plugin_registry_unavailable",
+    })
+}
 
 async fn health(
     State(state): State<ApiState>,
@@ -583,6 +675,29 @@ async fn health(
 ) -> Result<Json<ControlPlaneHealth>, ApiError> {
     require_bootstrap(&state, &headers)?;
     state.plane.health().map(Json).map_err(ApiError::from)
+}
+
+/// Bootstrap-friendly capability discovery: a client that does not yet know
+/// the server's protocol version can negotiate before framing commands.
+async fn protocol_negotiate(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Json(request): Json<CapabilityNegotiationRequest>,
+) -> Result<Json<CapabilityNegotiationResponse>, ApiError> {
+    require_bootstrap(&state, &headers)?;
+    Ok(Json(state.protocol_dispatcher.negotiate(&request)))
+}
+
+/// Uniform framed protocol entry point. The handler delegates to the same
+/// dispatcher a local caller uses; domain failures are typed errors inside the
+/// response envelope, so the HTTP status stays reserved for transport issues.
+async fn protocol_command(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Json(request): Json<ProtocolRequest<ProtocolCommand>>,
+) -> Result<Json<ProtocolResponse<ProtocolOutcome>>, ApiError> {
+    require_bootstrap(&state, &headers)?;
+    Ok(Json(state.protocol_dispatcher.execute(&request)))
 }
 
 async fn issue_registration_grant(
@@ -828,6 +943,28 @@ impl From<ApprovalError> for ApiError {
         }
     }
 }
+impl From<PluginRegistryError> for ApiError {
+    fn from(value: PluginRegistryError) -> Self {
+        match value {
+            PluginRegistryError::InvalidManifest { .. } => Self {
+                status: StatusCode::BAD_REQUEST,
+                code: "invalid_plugin_manifest",
+            },
+            PluginRegistryError::VersionDidNotAdvance { .. } => Self {
+                status: StatusCode::CONFLICT,
+                code: "plugin_version_did_not_advance",
+            },
+            PluginRegistryError::ExpansionNotAccepted { .. } => Self {
+                status: StatusCode::CONFLICT,
+                code: "plugin_expansion_not_accepted",
+            },
+            PluginRegistryError::Internal { .. } => Self {
+                status: StatusCode::INTERNAL_SERVER_ERROR,
+                code: "plugin_registry_unavailable",
+            },
+        }
+    }
+}
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> axum::response::Response {
@@ -846,15 +983,16 @@ mod tests {
     use super::*;
     use crate::{
         AttemptRepository, ControlPlaneConfig, ControlPlaneStore, InMemoryAgentRepository,
-        InMemoryScopeRepository, InMemoryWakeRepository, SqliteApprovalRepository,
-        SqliteAttemptRepository, SqliteRoutineRepository, SqliteRunBindingRepository,
+        InMemoryScopeRepository, InMemoryWakeRepository, PluginRegistryOutcome, SqliteApprovalRepository,
+        SqliteAttemptRepository, SqlitePluginRegistry, SqliteRoutineRepository,
+        SqliteRunBindingRepository,
     };
     use altai_control_protocol::{
         AgentInstanceId, AgentProfileRevisionId, Approval, ApprovalId, ApprovalOutcome,
         ApprovalScope, Attempt, AttemptId, AttemptState, HostCapabilities, HostRegistration,
-        Organization, OrganizationId, Revision, Routine, RoutineId, RoutineRevision,
-        RoutineRevisionId, RoutineStatus, RoutineTrigger, RunBinding, RunId, WorkItemId,
-        WorkspaceId, CONTROL_PLANE_PROTOCOL_MAJOR,
+        Organization, OrganizationId, PluginCapability, PluginKind, PluginManifest, PluginVersion,
+        Revision, Routine, RoutineId, RoutineRevision, RoutineRevisionId, RoutineStatus,
+        RoutineTrigger, RunBinding, RunId, WorkItemId, WorkspaceId, CONTROL_PLANE_PROTOCOL_MAJOR,
     };
     use axum::{body::Body, http::Request};
     use tower::ServiceExt;
@@ -1009,6 +1147,9 @@ mod tests {
             None,
             None,
             None,
+            None,
+            None,
+            None,
         );
         let body = serde_json::json!({ "work_item_id": { "type": "work_item_id", "value": "work-1" }, "source": "manual", "requested_at": "now" }).to_string();
         let request = || {
@@ -1057,6 +1198,9 @@ mod tests {
             Some(Arc::new(
                 SqliteRunBindingRepository::open(&directory.path().join("work.db")).unwrap(),
             )),
+            None,
+            None,
+            None,
             None,
             None,
             None,
@@ -1164,6 +1308,9 @@ mod tests {
             Some(attempt_repository),
             None,
             None,
+            None,
+            None,
+            None,
         );
         let request = |outcome: &str, observed: u64, authenticated: bool| {
             let payload = serde_json::json!({
@@ -1262,6 +1409,9 @@ mod tests {
             None,
             None,
             Some(routine_repository.clone()),
+            None,
+            None,
+            None,
             None,
         );
 
@@ -1473,6 +1623,9 @@ mod tests {
             None,
             None,
             Some(approval_repository.clone()),
+            None,
+            None,
+            None,
         );
 
         let approval = Approval {
@@ -1617,6 +1770,212 @@ mod tests {
                 .unwrap()
                 .status(),
             StatusCode::NOT_FOUND
+        );
+    }
+
+    fn application_manifest(major: u32, capabilities: Vec<PluginCapability>) -> PluginManifest {
+        PluginManifest {
+            plugin_id: altai_control_protocol::PluginId::new("plg_http"),
+            kind: PluginKind::Application,
+            version: PluginVersion::new(major, 0, 0),
+            display_name: "HTTP plugin".into(),
+            capabilities,
+        }
+    }
+
+    #[tokio::test]
+    async fn plugin_installs_enforce_expansion_consent_over_http() {
+        let directory = tempfile::tempdir().unwrap();
+        let plane = Arc::new(
+            ControlPlane::bootstrap(ControlPlaneConfig {
+                service_version: "0.1.0".into(),
+                store: ControlPlaneStore::Sqlite {
+                    database_path: directory.path().join("control.db").display().to_string(),
+                },
+                registration_ttl_seconds: 60,
+            })
+            .unwrap(),
+        );
+        let app = router_with_control_repositories(
+            plane,
+            BootstrapCredential::from_plaintext("test-bootstrap-token").unwrap(),
+            None,
+            None,
+            None,
+            Arc::new(InMemoryWakeRepository::default()),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            Some(Arc::new(
+                SqlitePluginRegistry::open(&directory.path().join("work.db")).unwrap(),
+            )),
+        );
+        let install_request = |manifest: &PluginManifest, accept: bool| {
+            let body = serde_json::json!({
+                "organization_id": { "type": "organization_id", "value": "org_http" },
+                "manifest": manifest,
+                "accept_expansion": accept,
+            })
+            .to_string();
+            let mut request = Request::builder()
+                .method("POST")
+                .uri("/v1/plugins")
+                .header("content-type", "application/json")
+                .body(Body::from(body))
+                .unwrap();
+            request.headers_mut().insert(
+                AUTHORIZATION,
+                "Bearer test-bootstrap-token".parse().unwrap(),
+            );
+            request
+        };
+        // Unauthenticated installs are rejected before touching the registry.
+        let unauthenticated = Request::builder()
+            .method("POST")
+            .uri("/v1/plugins")
+            .header("content-type", "application/json")
+            .body(Body::from(
+                serde_json::json!({
+                    "organization_id": { "type": "organization_id", "value": "org_http" },
+                    "manifest": application_manifest(1, vec![PluginCapability::Jobs]),
+                    "accept_expansion": false,
+                })
+                .to_string(),
+            ))
+            .unwrap();
+        assert_eq!(
+            app.clone().oneshot(unauthenticated).await.unwrap().status(),
+            StatusCode::UNAUTHORIZED
+        );
+        // First install commits without any consent flag.
+        let response = app
+            .clone()
+            .oneshot(install_request(&application_manifest(1, vec![PluginCapability::Jobs]), false))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let installed: PluginRegistryOutcome =
+            serde_json::from_slice(&axum::body::to_bytes(response.into_body(), usize::MAX)
+                .await
+                .unwrap())
+            .unwrap();
+        assert!(matches!(installed, PluginRegistryOutcome::Installed { .. }));
+        // An upgrade that adds capabilities is refused without consent (409).
+        let expanded = application_manifest(2, vec![PluginCapability::Jobs, PluginCapability::Webhooks]);
+        let response = app
+            .clone()
+            .oneshot(install_request(&expanded, false))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::CONFLICT);
+        let refusal_body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        assert!(String::from_utf8_lossy(&refusal_body).contains("plugin_expansion_not_accepted"));
+        // The same upgrade with explicit consent commits and discloses.
+        let response = app
+            .clone()
+            .oneshot(install_request(&expanded, true))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let upgraded: PluginRegistryOutcome =
+            serde_json::from_slice(&axum::body::to_bytes(response.into_body(), usize::MAX)
+                .await
+                .unwrap())
+            .unwrap();
+        let PluginRegistryOutcome::Upgraded { disclosure, .. } = upgraded else {
+            panic!("expected Upgraded");
+        };
+        assert_eq!(disclosure.added_capabilities, vec![PluginCapability::Webhooks]);
+        // The org listing reflects the committed upgrade.
+        let mut list = Request::builder()
+            .method("GET")
+            .uri("/v1/organizations/org_http/plugins")
+            .body(Body::empty())
+            .unwrap();
+        list.headers_mut().insert(
+            AUTHORIZATION,
+            "Bearer test-bootstrap-token".parse().unwrap(),
+        );
+        let response = app.oneshot(list).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let listed: Vec<PluginManifest> =
+            serde_json::from_slice(&axum::body::to_bytes(response.into_body(), usize::MAX)
+                .await
+                .unwrap())
+            .unwrap();
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].version.to_string(), "2.0.0");
+        assert_eq!(listed[0].capabilities, vec![PluginCapability::Jobs, PluginCapability::Webhooks]);
+    }
+
+    #[tokio::test]
+    async fn plugin_downgrades_are_refused_over_http() {
+        let directory = tempfile::tempdir().unwrap();
+        let plane = Arc::new(
+            ControlPlane::bootstrap(ControlPlaneConfig {
+                service_version: "0.1.0".into(),
+                store: ControlPlaneStore::Sqlite {
+                    database_path: directory.path().join("control.db").display().to_string(),
+                },
+                registration_ttl_seconds: 60,
+            })
+            .unwrap(),
+        );
+        let app = router_with_control_repositories(
+            plane,
+            BootstrapCredential::from_plaintext("test-bootstrap-token").unwrap(),
+            None,
+            None,
+            None,
+            Arc::new(InMemoryWakeRepository::default()),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            Some(Arc::new(
+                SqlitePluginRegistry::open(&directory.path().join("work.db")).unwrap(),
+            )),
+        );
+        let send = |manifest: &PluginManifest| {
+            let body = serde_json::json!({
+                "organization_id": { "type": "organization_id", "value": "org_http" },
+                "manifest": manifest,
+                "accept_expansion": true,
+            })
+            .to_string();
+            let mut request = Request::builder()
+                .method("POST")
+                .uri("/v1/plugins")
+                .header("content-type", "application/json")
+                .body(Body::from(body))
+                .unwrap();
+            request.headers_mut().insert(
+                AUTHORIZATION,
+                "Bearer test-bootstrap-token".parse().unwrap(),
+            );
+            request
+        };
+        assert_eq!(
+            app.clone()
+                .oneshot(send(&application_manifest(2, vec![])))
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::OK
+        );
+        let response = app
+            .oneshot(send(&application_manifest(1, vec![])))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::CONFLICT);
+        let refusal_body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        assert!(
+            String::from_utf8_lossy(&refusal_body).contains("plugin_version_did_not_advance")
         );
     }
 }

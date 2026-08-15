@@ -16,6 +16,7 @@ pub mod error;
 pub mod event;
 pub mod evidence;
 pub mod id;
+pub mod plugin;
 pub mod protocol;
 pub mod recovery;
 pub mod registration;
@@ -40,14 +41,18 @@ pub use id::*;
 pub use protocol::{
     ActivityQueryRequest, CapabilityNegotiationRequest, CapabilityNegotiationResponse,
     ControlPlaneCapabilities, DeploymentMode, EventReplayRequest, EventReplayResponse, PageRequest,
-    PageResponse, ProtocolError, ProtocolRequest, ProtocolResponse, ProtocolVersion,
-    CONTROL_PLANE_PROTOCOL_VERSION_MAJOR, CONTROL_PLANE_PROTOCOL_VERSION_MINOR, DEFAULT_PAGE_LIMIT,
-    MAX_PAGE_LIMIT,
+    PageResponse, ProtocolCommand, ProtocolError, ProtocolOutcome, ProtocolRequest,
+    ProtocolResponse, ProtocolVersion, CONTROL_PLANE_PROTOCOL_VERSION_MAJOR,
+    CONTROL_PLANE_PROTOCOL_VERSION_MINOR, DEFAULT_PAGE_LIMIT, MAX_PAGE_LIMIT,
 };
 pub use recovery::{RecoveryDisposition, RecoveryRecord};
 pub use registration::{
     ControlPlaneHealth, HostCapabilities, HostRegistration, HostRegistrationRequest,
     RegisteredHost, CONTROL_PLANE_PROTOCOL_MAJOR,
+};
+pub use plugin::{
+    PluginCapability, PluginKind, PluginManifest, PluginManifestError, PluginUpgradeDisclosure,
+    PluginVersion,
 };
 pub use revision::Revision;
 pub use routine::{Routine, RoutineRevision, RoutineStatus, RoutineTrigger};

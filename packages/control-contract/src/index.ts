@@ -10,3 +10,4 @@ export * from "./work-graph.js";
 export * from "./wake.js";
 export * from "./scope.js";
 export * from "./protocol.js";
+export * from "./plugin.js";
