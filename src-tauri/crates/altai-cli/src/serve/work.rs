@@ -479,7 +479,8 @@ mod tests {
 
     #[test]
     fn router_exposes_only_canonical_methods_and_rejects_snake_case_params() {
-        assert_eq!(CAPABILITIES.len(), 10);
+        assert_eq!(CAPABILITIES.len(), 11);
+        assert!(handles("work/children/list"));
         assert!(handles("work/ready-for-review"));
         assert!(handles("work/inbox/list"));
         assert!(handles("work/start-run"));

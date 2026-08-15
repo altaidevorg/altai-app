@@ -220,6 +220,8 @@ name = "altai-cli"
 version = "0.7.2"
 dependencies = [
  "altai-agent-service",
+ "altai-control-plane",
+ "altai-control-protocol",
  "altai-core",
  "altai-protocol",
  "async-trait",
@@ -231,6 +233,7 @@ dependencies = [
  "isanagent",
  "keyring",
  "log",
+ "rusqlite",
  "serde",
  "serde_json",
  "tempfile",
