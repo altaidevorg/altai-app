@@ -137,6 +137,7 @@ import {
   WORKSPACE_PANEL_ID,
 } from "@/modules/tabs";
 import { folderName, useWorkspaceFolderStore } from "@/modules/workspace/folder";
+import { useOperationsProbe } from "@/modules/operations";
 import { useAssignmentsStore } from "@/modules/github/store/assignmentsStore";
 import { OrchestrationController } from "@/modules/orchestration";
 import {
@@ -1182,6 +1183,12 @@ export default function App() {
   }, [closeFolder, resetWorkspace, setSessionWorkspace]);
 
   const activeChatWorkspacePath = activeChatSession?.workspacePath ?? null;
+  // Package 061: the operations context store's single driver. One probe per
+  // workspace change; the statusbar badge and DesktopHome line only read.
+  useOperationsProbe(
+    activeChatWorkspacePath,
+    activeChatWorkspacePath ? folderName(activeChatWorkspacePath) : null,
+  );
   useEffect(() => {
     if (appMode !== "studio" || !workspaceHydrated) return;
     const fromUrl = getStudioFolderFromUrl();

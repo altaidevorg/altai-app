@@ -21,10 +21,26 @@ export type OperationsConnection =
   | "degraded"
   | "healthy";
 
+/**
+ * The deployment's organization/project context. The embedded desktop host
+ * serves no org/project projections over the protocol yet (it wires only
+ * `activity_audit` and `event_replay`), so the explicit scope today is the
+ * local workspace: one local organization, the open workspace as the
+ * project. When the protocol grows org/project queries, this becomes
+ * protocol-sourced instead of workspace-derived.
+ */
+export type OperationsScope = {
+  kind: "workspace-local";
+  organization: "local";
+  project: string;
+};
+
 export type OperationsContext = {
   connection: OperationsConnection;
   workspacePath: string | null;
   workspaceName: string | null;
+  /** The org/project context above; null exactly when no workspace is open. */
+  scope: OperationsScope | null;
   /** Deployment mode from the last healthy negotiation, e.g. `embedded_host`. */
   deploymentMode: string | null;
   /** Protocol version from the last healthy negotiation, e.g. `1.0`. */
@@ -53,6 +69,7 @@ const OFFLINE: OperationsContext = {
   connection: "offline",
   workspacePath: null,
   workspaceName: null,
+  scope: null,
   deploymentMode: null,
   protocolVersion: null,
   detail: null,
@@ -65,6 +82,7 @@ function connecting(path: string, name: string | null): OperationsContext {
     connection: "connecting",
     workspacePath: path,
     workspaceName: name,
+    scope: { kind: "workspace-local", organization: "local", project: name ?? path },
   };
 }
 

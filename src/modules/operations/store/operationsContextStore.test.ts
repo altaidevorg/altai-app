@@ -7,6 +7,7 @@ function reset() {
     connection: "offline",
     workspacePath: null,
     workspaceName: null,
+    scope: null,
     deploymentMode: null,
     protocolVersion: null,
     detail: null,
@@ -31,9 +32,22 @@ describe("operations context store", () => {
     const state = useOperationsContextStore.getState();
     expect(state.connection).toBe("offline");
     expect(state.workspacePath).toBeNull();
+    expect(state.scope).toBeNull();
     expect(state.deploymentMode).toBeNull();
     expect(state.protocolVersion).toBeNull();
     expect(state.checkedAtMs).toBeNull();
+  });
+
+  it("exposes an explicit workspace-local scope while a workspace is open", () => {
+    useOperationsContextStore.getState().setWorkspace("/workspace-a", "alpha");
+    expect(useOperationsContextStore.getState().scope).toEqual({
+      kind: "workspace-local",
+      organization: "local",
+      project: "alpha",
+    });
+    // The scope survives classification — it is context, not health.
+    useOperationsContextStore.getState().applyHealth("/workspace-a", healthy, 111);
+    expect(useOperationsContextStore.getState().scope?.project).toBe("alpha");
   });
 
   it("opening a workspace enters connecting and clears stale protocol context", () => {
@@ -50,6 +64,7 @@ describe("operations context store", () => {
     expect(state.deploymentMode).toBeNull();
     expect(state.protocolVersion).toBeNull();
     expect(state.checkedAtMs).toBeNull();
+    expect(state.scope?.project).toBe("beta");
   });
 
   it("closing the workspace enters offline and clears protocol context", () => {
@@ -61,6 +76,7 @@ describe("operations context store", () => {
     expect(state.connection).toBe("offline");
     expect(state.workspacePath).toBeNull();
     expect(state.workspaceName).toBeNull();
+    expect(state.scope).toBeNull();
     expect(state.deploymentMode).toBeNull();
     expect(state.protocolVersion).toBeNull();
     expect(state.checkedAtMs).toBeNull();
