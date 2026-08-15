@@ -114,7 +114,7 @@ changes only when an exit gate is accepted.
 | 060 | Read-model projections and activity stream | accepted | 035, 042–044 | #785, #786 | Server projections, not frontend store joins, answer operational queries |
 | 061 | Operations shell and context switcher | accepted | 052, 060 | #795, #796 | Health/offline/org/project context states are explicit |
 | 062 | Work board/list/detail/graph | accepted | 024, 060 | #797, #798 | Status, execution phase and attention remain distinct |
-| 063 | Runs hub and Run Inspector | planned | 035, 045, 060 | 2–3 | Timeline, transcript, approvals, evidence and delivery are inspectable |
+| 063 | Runs hub and Run Inspector | in_progress | 035, 045, 060 | 2–3 | Timeline, transcript, approvals, evidence and delivery are inspectable |
 | 064 | Agents, org chart and profile administration | planned | 032, 060 | 2 | Lifecycle and reporting mutations use control-plane commands |
 | 065 | Governance, approvals, budgets and audit dashboards | planned | 042, 043, 060 | 2–3 | Every decision/cost/stop is attributable and drillable |
 | 066 | Inbox, My Work, routines and recovery UI | planned | 041, 044, 060 | 2–3 | Attention and scheduled work have one canonical projection |

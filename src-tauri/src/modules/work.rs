@@ -7,8 +7,8 @@ use std::path::Path;
 
 use altai_core::{
     resolve_workspace_from, AttemptPhase, AttemptReconcileMode, AttemptRecord, CreateWorkInput,
-    WorkAttemptStart, WorkInboxRecord, WorkItemKind, WorkItemRecord, WorkListFilter, WorkState,
-    WorkStore,
+    WorkAttemptStart, WorkEventRecord, WorkInboxRecord, WorkItemKind, WorkItemRecord, WorkListFilter,
+    WorkState, WorkStore,
 };
 use serde::{Deserialize, Serialize};
 use tauri::State;
@@ -417,6 +417,42 @@ pub fn work_attempts(
         .list_attempts(work_id.trim())
         .map_err(|error| error.to_string())?;
     Ok(attempts.into_iter().map(WorkAttemptDto::from).collect())
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkEventDto {
+    pub id: i64,
+    pub work_id: String,
+    pub kind: String,
+    pub payload_json: String,
+    pub created_at_ms: u64,
+}
+
+impl From<WorkEventRecord> for WorkEventDto {
+    fn from(value: WorkEventRecord) -> Self {
+        Self {
+            id: value.id,
+            work_id: value.work_id,
+            kind: value.kind,
+            payload_json: value.payload_json,
+            created_at_ms: value.created_at_ms,
+        }
+    }
+}
+
+#[tauri::command]
+pub fn work_events(
+    registry: State<'_, WorkspaceRegistry>,
+    workspace_path: String,
+    work_id: String,
+) -> Result<Vec<WorkEventDto>, String> {
+    let workspace = authorized_workspace(&workspace_path, &registry)?;
+    let (_project_id, store) = open_store(&registry, &workspace)?;
+    let events = store
+        .list_work_events(work_id.trim())
+        .map_err(|error| error.to_string())?;
+    Ok(events.into_iter().map(WorkEventDto::from).collect())
 }
 
 #[tauri::command]

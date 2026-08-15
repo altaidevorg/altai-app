@@ -325,6 +325,21 @@ export type WorkAttempt = {
   updatedAtMs: number;
 };
 
+/**
+ * One immutable transition record from the Work store's event log. Appended
+ * in the same transaction as the mutation it describes; `kind` is the
+ * transition (`created`, `state_changed`, `attempt_started`,
+ * `attempt_run_bound`, `attempt_finished`, `accepted`, `returned`) and
+ * `payloadJson` carries the transition's typed detail.
+ */
+export type WorkEvent = {
+  id: number;
+  workId: string;
+  kind: string;
+  payloadJson: string;
+  createdAtMs: number;
+};
+
 export type WorkStartRunResult = {
   work: WorkItem;
   attempt: WorkAttempt;
