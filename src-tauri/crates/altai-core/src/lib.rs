@@ -41,8 +41,8 @@ pub use palette::{
 };
 pub use policy::{shell_edit_modes_for, PermissionPolicyMode, ShellEditPolicyModes};
 pub use work::{
-    AttemptPhase, AttemptReconcileMode, AttemptRecord, CreateWorkInput, WorkAttemptStart,
-    WorkEventRecord, WorkInboxKind, WorkInboxRecord, WorkItemKind, WorkItemRecord, WorkListFilter,
-    WorkState, WorkStore, WorkStoreError,
+    AttemptPhase, AttemptReconcileMode, AttemptRecord, CreateWorkInput, RecentAttemptRecord,
+    WorkAttemptStart, WorkEventRecord, WorkInboxKind, WorkInboxRecord, WorkItemKind, WorkItemRecord,
+    WorkListFilter, WorkState, WorkStore, WorkStoreError,
 };
 pub use workspace::{resolve_workspace, resolve_workspace_from, WorkspaceError, WorkspacePaths};

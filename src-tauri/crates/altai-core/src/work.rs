@@ -252,6 +252,25 @@ pub struct WorkEventRecord {
     pub created_at_ms: u64,
 }
 
+/// An attempt joined with its Work — the row a Runs hub renders. The
+/// attempt's phase and the Work's state travel as separate fields; they are
+/// distinct axes, never one label.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RecentAttemptRecord {
+    pub id: String,
+    pub work_id: String,
+    pub work_title: String,
+    pub work_state: WorkState,
+    pub number: i64,
+    pub role: String,
+    pub phase: AttemptPhase,
+    pub chat_id: Option<String>,
+    pub session_id: Option<String>,
+    pub run_id: Option<String>,
+    pub created_at_ms: u64,
+    pub updated_at_ms: u64,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WorkInboxKind {
     ReviewRequired,
@@ -496,6 +515,55 @@ impl WorkStore {
                 kind: row.get(2)?,
                 payload_json: row.get(3)?,
                 created_at_ms: row.get::<_, i64>(4)? as u64,
+            })
+        })?;
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(row?);
+        }
+        Ok(out)
+    }
+
+    /// The workspace's most recently updated attempts with their Work
+    /// joined in — one query, no per-Work fan-out. Newest first.
+    pub fn list_recent_attempts(&self, limit: u32) -> Result<Vec<RecentAttemptRecord>> {
+        let connection = self.connection.lock().expect("work store mutex");
+        let mut statement = connection.prepare(
+            r#"
+            SELECT a.id, a.work_id, w.title, w.state, a.number, a.role, a.phase,
+                   a.chat_id, a.session_id, a.run_id, a.created_at_ms, a.updated_at_ms
+            FROM attempts a
+            JOIN work_items w ON w.id = a.work_id
+            ORDER BY a.updated_at_ms DESC, a.id DESC
+            LIMIT ?1
+            "#,
+        )?;
+        let rows = statement.query_map(params![limit], |row| {
+            let work_state_raw: String = row.get(3)?;
+            let phase_raw: String = row.get(6)?;
+            Ok(RecentAttemptRecord {
+                id: row.get(0)?,
+                work_id: row.get(1)?,
+                work_title: row.get(2)?,
+                work_state: WorkState::parse(&work_state_raw)
+                    .ok_or_else(|| rusqlite::Error::FromSqlConversionFailure(
+                        3,
+                        rusqlite::types::Type::Text,
+                        format!("unknown work state {work_state_raw}").into(),
+                    ))?,
+                number: row.get(4)?,
+                role: row.get(5)?,
+                phase: AttemptPhase::parse(&phase_raw)
+                    .ok_or_else(|| rusqlite::Error::FromSqlConversionFailure(
+                        6,
+                        rusqlite::types::Type::Text,
+                        format!("unknown attempt phase {phase_raw}").into(),
+                    ))?,
+                chat_id: row.get(7)?,
+                session_id: row.get(8)?,
+                run_id: row.get(9)?,
+                created_at_ms: row.get::<_, i64>(10)? as u64,
+                updated_at_ms: row.get::<_, i64>(11)? as u64,
             })
         })?;
         let mut out = Vec::new();
@@ -1698,6 +1766,42 @@ mod tests {
             .as_nanos();
         let sequence = NEXT_ID_SEQUENCE.fetch_add(1, Ordering::Relaxed);
         std::env::temp_dir().join(format!("altai-work-store-{nanos}-{sequence}.db"))
+    }
+
+    #[test]
+    fn list_recent_attempts_joins_work_and_orders_newest_first() {
+        let path = temp_db();
+        let store = WorkStore::open(&path).expect("open");
+        store
+            .ensure_project("proj_1", "Demo", "/tmp/demo")
+            .expect("project");
+        let created = store
+            .create_work(CreateWorkInput {
+                project_id: "proj_1".into(),
+                title: "Hub work".into(),
+                description: String::new(),
+                acceptance_criteria: String::new(),
+                assignee_ref: None,
+            })
+            .expect("create");
+        let started = store
+            .start_attempt_with_record(&created.id, created.revision)
+            .expect("start");
+        assert_eq!(started.work.state, WorkState::InProgress);
+
+        let runs = store.list_recent_attempts(20).expect("runs");
+        assert_eq!(runs.len(), 1);
+        let run = &runs[0];
+        assert_eq!(run.id, started.attempt.id);
+        assert_eq!(run.work_title, "Hub work");
+        assert_eq!(run.work_state, WorkState::InProgress);
+        assert_eq!(run.phase, AttemptPhase::Queued);
+        assert_eq!(run.number, 1);
+
+        // The limit bounds the hub page.
+        assert!(store.list_recent_attempts(0).unwrap().is_empty());
+
+        let _ = std::fs::remove_file(&path);
     }
 
     #[test]

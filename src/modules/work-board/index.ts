@@ -1,6 +1,7 @@
 export { WorkBoard } from "./WorkBoard";
 export { WorkDetailPanel } from "./WorkDetailPanel";
 export { WorkGraphSection } from "./WorkGraphSection";
+export { RunsHubSection } from "./RunsHubSection";
 export { WorkTimelineSection } from "./WorkTimelineSection";
 export {
   ATTENTION_PRIORITY,
@@ -11,6 +12,11 @@ export {
   toWorkBoardRow,
   type WorkBoardRow,
 } from "./lib/workBoardProjection";
+export {
+  projectRunsHub,
+  toWorkRunRow,
+  type WorkRunRow,
+} from "./lib/runsHubProjection";
 export {
   toWorkTimeline,
   type WorkTimelineRow,
