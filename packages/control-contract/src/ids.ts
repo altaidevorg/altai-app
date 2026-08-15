@@ -27,7 +27,8 @@ export type IdKind =
   | "routine_revision_id"
   | "routine_run_id"
   | "approval_id"
-  | "external_object_id";
+  | "external_object_id"
+  | "plugin_id";
 
 export type TypedId = {
   readonly type: IdKind;
@@ -75,6 +76,7 @@ const ID_SPECS: Record<IdKind, IdSpec> = {
   routine_run_id: { type: "routine_run_id", prefix: "rr_" },
   approval_id: { type: "approval_id", prefix: "apv_" },
   external_object_id: { type: "external_object_id", prefix: "ext_" },
+  plugin_id: { type: "plugin_id", prefix: "plg_" },
 };
 
 function defineId<K extends IdKind>(kind: K) {
@@ -133,6 +135,7 @@ export const RoutineRevisionId = defineId("routine_revision_id");
 export const RoutineRunId = defineId("routine_run_id");
 export const ApprovalId = defineId("approval_id");
 export const ExternalObjectId = defineId("external_object_id");
+export const PluginId = defineId("plugin_id");
 
 /** Serialize a TypedId to the canonical compact JSON form. */
 export function serializeId(id: TypedId): string {
