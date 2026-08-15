@@ -7,10 +7,10 @@
 use crate::{
     capabilities_from_wiring, finalize_attempt, ActivityEventRepository, AgentRepository,
     AgentRepositoryError, ApprovalError, ApprovalRepository, AttemptFinalization,
-    AttemptFinalizationError, AttemptRepository, ControlPlane, ControlPlaneError,
-    ProtocolDispatcher, RegistrationGrant, RoutineError, RoutineRepository, RunBindingError,
-    RunBindingRepository, RunOutcome, ScopeError, ScopeRepository, WakeError, WakeRepository,
-    WorkGraphError, WorkGraphRepository,
+    AttemptFinalizationError, AttemptRepository, ControlEventRepository, ControlPlane,
+    ControlPlaneError, ProtocolDispatcher, RegistrationGrant, RoutineError, RoutineRepository,
+    RunBindingError, RunBindingRepository, RunOutcome, ScopeError, ScopeRepository, WakeError,
+    WakeRepository, WorkGraphError, WorkGraphRepository,
 };
 use altai_control_protocol::{
     AgentInstance, AgentProfileRevision, Approval, ApprovalDecision, ApprovalId, ApprovalOutcome,
@@ -146,6 +146,7 @@ pub fn router_with_all_repositories(
         false,
         false,
         false,
+        false,
     );
     let state = ApiState {
         plane,
@@ -204,6 +205,7 @@ pub fn router_with_control_repositories(
     routine_repository: Option<Arc<dyn RoutineRepository>>,
     approval_repository: Option<Arc<dyn ApprovalRepository>>,
     activity_repository: Option<Arc<dyn ActivityEventRepository>>,
+    control_event_repository: Option<Arc<dyn ControlEventRepository>>,
 ) -> Router {
     let capabilities = capabilities_from_wiring(
         scope_repository.is_some(),
@@ -213,14 +215,16 @@ pub fn router_with_control_repositories(
         routine_repository.is_some(),
         approval_repository.is_some(),
         activity_repository.is_some(),
+        control_event_repository.is_some(),
     );
-    let dispatcher = match &activity_repository {
-        Some(repository) => Arc::new(
-            ProtocolDispatcher::new(DeploymentMode::LocalDaemon, capabilities)
-                .with_activity_repository(repository.clone()),
-        ),
-        None => Arc::new(ProtocolDispatcher::new(DeploymentMode::LocalDaemon, capabilities)),
-    };
+    let mut dispatcher = ProtocolDispatcher::new(DeploymentMode::LocalDaemon, capabilities);
+    if let Some(repository) = &activity_repository {
+        dispatcher = dispatcher.with_activity_repository(repository.clone());
+    }
+    if let Some(repository) = &control_event_repository {
+        dispatcher = dispatcher.with_control_event_repository(repository.clone());
+    }
+    let dispatcher = Arc::new(dispatcher);
     let state = ApiState {
         plane,
         bootstrap_credential: Arc::new(bootstrap_credential),
@@ -1071,6 +1075,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         );
         let body = serde_json::json!({ "work_item_id": { "type": "work_item_id", "value": "work-1" }, "source": "manual", "requested_at": "now" }).to_string();
         let request = || {
@@ -1119,6 +1124,7 @@ mod tests {
             Some(Arc::new(
                 SqliteRunBindingRepository::open(&directory.path().join("work.db")).unwrap(),
             )),
+            None,
             None,
             None,
             None,
@@ -1228,6 +1234,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         );
         let request = |outcome: &str, observed: u64, authenticated: bool| {
             let payload = serde_json::json!({
@@ -1326,6 +1333,7 @@ mod tests {
             None,
             None,
             Some(routine_repository.clone()),
+            None,
             None,
             None,
         );
@@ -1538,6 +1546,7 @@ mod tests {
             None,
             None,
             Some(approval_repository.clone()),
+            None,
             None,
         );
 

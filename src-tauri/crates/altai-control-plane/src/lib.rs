@@ -13,6 +13,8 @@ pub mod budget_repository;
 pub mod approval_repository;
 pub mod attempt_finalizer;
 pub mod attempt_repository;
+pub mod control_event_projection;
+pub mod control_event_repository;
 pub mod completion_gate;
 pub mod cron_due;
 pub mod delivery_gate;
@@ -58,6 +60,10 @@ pub use attempt_finalizer::{
 };
 pub use attempt_repository::{AttemptError, AttemptRepository, SqliteAttemptRepository};
 pub use approval_repository::{ApprovalError, ApprovalRepository, SqliteApprovalRepository};
+pub use control_event_projection::{AggregateCheckpoint, fold_checkpoints};
+pub use control_event_repository::{
+    ControlEventError, ControlEventRepository, SqliteControlEventRepository,
+};
 pub use dispatch_eligibility::{
     DispatchBlocker, DispatchEligibility, DispatchEligibilityEngine, DispatchEligibilityError,
 };
