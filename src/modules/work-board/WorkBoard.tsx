@@ -1,6 +1,9 @@
+import { useState } from "react";
+
 import { cn } from "@/lib/utils";
 import type { WorkAttemptPhase, WorkInboxKind, WorkState } from "@altai/host-contract";
 import { BOARD_COLUMNS, type WorkBoardRow } from "./lib/workBoardProjection";
+import { WorkCanvasBoard } from "./WorkCanvasBoard";
 
 type Props = {
   status: "loading" | "ready" | "error";
@@ -59,6 +62,10 @@ export function WorkBoard({
   title = "Work board",
   className,
 }: Props) {
+  // The column board is the default and the keyboard-accessible view; the
+  // canvas graph (package 068) is the spatial view of the same rows.
+  const [view, setView] = useState<"board" | "graph">("board");
+
   return (
     <div
       className={cn(
@@ -70,6 +77,28 @@ export function WorkBoard({
         <h2 className="min-w-0 flex-1 text-[13px] font-semibold text-foreground">
           {title}
         </h2>
+        <div
+          role="group"
+          aria-label="Board view"
+          className="inline-flex shrink-0 overflow-hidden rounded-md border border-border-subtle"
+        >
+          {(["board", "graph"] as const).map((candidate) => (
+            <button
+              key={candidate}
+              type="button"
+              aria-pressed={view === candidate}
+              onClick={() => setView(candidate)}
+              className={cn(
+                "h-7 px-2.5 text-[11px] font-medium capitalize transition-colors",
+                view === candidate
+                  ? "bg-foreground text-background"
+                  : "text-muted-foreground hover:bg-muted hover:text-foreground",
+              )}
+            >
+              {candidate}
+            </button>
+          ))}
+        </div>
         <button
           type="button"
           onClick={onNewWork}
@@ -127,7 +156,10 @@ export function WorkBoard({
             </div>
           </div>
         ) : null}
-        {status === "ready" && rows.length > 0 ? (
+        {status === "ready" && rows.length > 0 && view === "graph" ? (
+          <WorkCanvasBoard rows={rows} onOpenWork={onOpenWork} />
+        ) : null}
+        {status === "ready" && rows.length > 0 && view === "board" ? (
           <div
             role="list"
             aria-label="Work by status"

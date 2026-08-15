@@ -1,4 +1,5 @@
 export { WorkBoard } from "./WorkBoard";
+export { WorkCanvasBoard } from "./WorkCanvasBoard";
 export { WorkDetailPanel } from "./WorkDetailPanel";
 export { WorkGraphSection } from "./WorkGraphSection";
 export { AgentsPanel } from "./AgentsPanel";
@@ -15,6 +16,19 @@ export {
   toWorkBoardRow,
   type WorkBoardRow,
 } from "./lib/workBoardProjection";
+export {
+  layoutWorkGraph,
+  graphTitleAnchor,
+  GRAPH_NODE_WIDTH,
+  GRAPH_NODE_HEIGHT,
+  GRAPH_COLUMN_GAP,
+  GRAPH_ROW_GAP,
+  GRAPH_PADDING,
+  type GraphLayout,
+  type GraphNodeLayout,
+  type GraphEdgeLayout,
+  type GraphRow,
+} from "./lib/canvasGraphProjection";
 export {
   projectRunsHub,
   toWorkRunRow,
