@@ -36,6 +36,12 @@ export {
   type RoutinesSummary,
 } from "./lib/routinesProjection";
 export {
+  homeSurfaceFromOperationsIntent,
+  type HomeSurface,
+  type OperationsIntentView,
+  type OperationsWorkHubView,
+} from "./lib/operationsIntentProjection";
+export {
   toWorkDetailModel,
   toWorkGraphModel,
   type WorkDetailAttemptRow,

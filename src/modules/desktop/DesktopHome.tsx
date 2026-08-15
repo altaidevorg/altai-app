@@ -24,15 +24,24 @@ import {
   RunsHubSection,
   WorkBoard,
   WorkDetailPanel,
+  homeSurfaceFromOperationsIntent,
   projectRunsHub,
   projectWorkBoard,
   type WorkBoardRow,
+  type HomeSurface,
+  type OperationsIntentView,
+  type OperationsWorkHubView,
   type WorkRunRow,
 } from "@/modules/work-board";
 
 type LoadStatus = "loading" | "ready" | "error";
 
-type HomeSurface = "work" | "agents" | "audit" | "routines";
+type OperationsIntent = {
+  /** Changes per intent, so repeated intents re-apply. */
+  nonce: number;
+  view: OperationsIntentView;
+  workHubView?: OperationsWorkHubView | null;
+};
 
 type Props = {
   workspacePath: string | null;
@@ -41,6 +50,8 @@ type Props = {
   onOpenInbox: () => void;
   onNewWork: () => void;
   onInboxCountChange?: (count: number) => void;
+  /** A chat-shortcut intent to apply: land on the Home surface it names. */
+  operationsIntent?: OperationsIntent | null;
 };
 
 export function toHomeInboxRow(item: WorkInboxItem): WorkInboxRow {
@@ -62,6 +73,7 @@ export function DesktopHome({
   onOpenInbox,
   onNewWork,
   onInboxCountChange,
+  operationsIntent,
 }: Props) {
   const [status, setStatus] = useState<LoadStatus>("loading");
   const [error, setError] = useState<string | null>(null);
@@ -172,6 +184,18 @@ export function DesktopHome({
     setSelectedWorkId(workId);
     setSurface("work");
   }, []);
+
+  // A chat-shortcut intent lands on the surface it names. The nonce makes
+  // each dispatch a distinct apply, even when it names the same surface.
+  useEffect(() => {
+    if (!operationsIntent) return;
+    setSurface(
+      homeSurfaceFromOperationsIntent(
+        operationsIntent.view,
+        operationsIntent.workHubView,
+      ),
+    );
+  }, [operationsIntent]);
 
   if (!workspacePath) {
     return (
