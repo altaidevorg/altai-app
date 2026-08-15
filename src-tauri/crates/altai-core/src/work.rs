@@ -11,10 +11,13 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-const SCHEMA_VERSION: i64 = 3;
+const SCHEMA_VERSION: i64 = 4;
 
 /// Upper bound on events returned by [`WorkStore::list_work_events`].
 const WORK_EVENTS_MAX: i64 = 500;
+
+/// Bound on the org-chart walk when validating a reporting line.
+const AGENT_REPORTING_WALK_MAX: usize = 1_000;
 static NEXT_ID_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 
 const MIGRATION_V1: &str = r#"
@@ -110,6 +113,20 @@ CREATE UNIQUE INDEX IF NOT EXISTS attempts_one_active_per_work
 CREATE UNIQUE INDEX IF NOT EXISTS attempts_one_binding_per_run
     ON attempts (run_id)
     WHERE run_id IS NOT NULL;
+"#;
+
+const MIGRATION_V4: &str = r#"
+CREATE TABLE IF NOT EXISTS agents (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    status TEXT NOT NULL CHECK (status IN ('active', 'paused', 'terminated')),
+    reports_to TEXT REFERENCES agents(id),
+    created_at_ms INTEGER NOT NULL CHECK (created_at_ms >= 0),
+    updated_at_ms INTEGER NOT NULL CHECK (updated_at_ms >= 0)
+);
+
+CREATE INDEX IF NOT EXISTS agents_status
+    ON agents (status, name);
 "#;
 
 const MIGRATION_V3: &str = r#"
@@ -267,6 +284,46 @@ pub struct RecentAttemptRecord {
     pub chat_id: Option<String>,
     pub session_id: Option<String>,
     pub run_id: Option<String>,
+    pub created_at_ms: u64,
+    pub updated_at_ms: u64,
+}
+
+/// Canonical agent lifecycle status (mirrors the control protocol's
+/// `AgentStatus`): a terminated agent is final — no transition leaves it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AgentStatus {
+    Active,
+    Paused,
+    Terminated,
+}
+
+impl AgentStatus {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Active => "active",
+            Self::Paused => "paused",
+            Self::Terminated => "terminated",
+        }
+    }
+
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "active" => Some(Self::Active),
+            "paused" => Some(Self::Paused),
+            "terminated" => Some(Self::Terminated),
+            _ => None,
+        }
+    }
+}
+
+/// One registered agent in the embedded registry. The reporting line
+/// (`reports_to`) forms the org chart; the store rejects cycles.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AgentRecord {
+    pub id: String,
+    pub name: String,
+    pub status: AgentStatus,
+    pub reports_to: Option<String>,
     pub created_at_ms: u64,
     pub updated_at_ms: u64,
 }
@@ -522,6 +579,137 @@ impl WorkStore {
             out.push(row?);
         }
         Ok(out)
+    }
+
+    /// Register an agent in the embedded registry. The optional reporting
+    /// line must point at an existing agent and must not form a cycle.
+    pub fn create_agent(
+        &self,
+        name: &str,
+        reports_to: Option<&str>,
+    ) -> Result<AgentRecord> {
+        let trimmed = name.trim();
+        if trimmed.is_empty() {
+            return Err(WorkStoreError::InvalidState("agent name is required"));
+        }
+        let now = now_ms();
+        let id = new_id("agent");
+        let mut connection = self.connection.lock().expect("work store mutex");
+        let tx = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        if let Some(manager) = reports_to.map(str::trim).filter(|v| !v.is_empty()) {
+            ensure_reporting_line(&tx, &id, manager)?;
+        }
+        tx.execute(
+            r#"
+            INSERT INTO agents (id, name, status, reports_to, created_at_ms, updated_at_ms)
+            VALUES (?1, ?2, 'active', ?3, ?4, ?4)
+            "#,
+            params![
+                &id,
+                trimmed,
+                reports_to.map(str::trim).filter(|v| !v.is_empty()),
+                now as i64
+            ],
+        )?;
+        tx.commit()?;
+        drop(connection);
+        self.get_agent(&id)?
+            .ok_or_else(|| WorkStoreError::NotFound(id))
+    }
+
+    /// The registry, ordered by name for a stable org-chart listing.
+    pub fn list_agents(&self) -> Result<Vec<AgentRecord>> {
+        let connection = self.connection.lock().expect("work store mutex");
+        let mut statement = connection.prepare(
+            r#"
+            SELECT id, name, status, reports_to, created_at_ms, updated_at_ms
+            FROM agents ORDER BY name ASC, id ASC
+            "#,
+        )?;
+        let records = statement
+            .query_map([], map_agent_row)?
+            .collect::<rusqlite::Result<_>>()?;
+        Ok(records)
+    }
+
+    pub fn get_agent(&self, id: &str) -> Result<Option<AgentRecord>> {
+        let connection = self.connection.lock().expect("work store mutex");
+        let record = connection
+            .query_row(
+                r#"
+                SELECT id, name, status, reports_to, created_at_ms, updated_at_ms
+                FROM agents WHERE id = ?1
+                "#,
+                params![id.trim()],
+                map_agent_row,
+            )
+            .optional()?;
+        Ok(record)
+    }
+
+    /// Lifecycle transition. `terminated` is final: only a same-status
+    /// replay is accepted afterwards (idempotent), any other transition
+    /// fails closed.
+    pub fn transition_agent_status(
+        &self,
+        id: &str,
+        next: AgentStatus,
+    ) -> Result<AgentRecord> {
+        let now = now_ms();
+        let mut connection = self.connection.lock().expect("work store mutex");
+        let tx = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let current = tx
+            .query_row(
+                "SELECT status FROM agents WHERE id = ?1",
+                params![id.trim()],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?
+            .ok_or_else(|| WorkStoreError::NotFound(id.trim().to_string()))?;
+        let current =
+            AgentStatus::parse(&current).ok_or(WorkStoreError::InvalidState("unknown agent status"))?;
+        if current == AgentStatus::Terminated && next != AgentStatus::Terminated {
+            return Err(WorkStoreError::InvalidState(
+                "a terminated agent is final",
+            ));
+        }
+        tx.execute(
+            "UPDATE agents SET status = ?1, updated_at_ms = ?2 WHERE id = ?3",
+            params![next.as_str(), now as i64, id.trim()],
+        )?;
+        tx.commit()?;
+        drop(connection);
+        self.get_agent(id)?
+            .ok_or_else(|| WorkStoreError::NotFound(id.trim().to_string()))
+    }
+
+    /// Move an agent's reporting line. The new manager must exist and the
+    /// resulting org chart must stay acyclic — a reporting line that loops
+    /// back to the agent is rejected before anything is written.
+    pub fn set_agent_reporting(&self, id: &str, reports_to: Option<&str>) -> Result<AgentRecord> {
+        let now = now_ms();
+        let trimmed_id = id.trim();
+        let manager = reports_to.map(str::trim).filter(|v| !v.is_empty());
+        if let Some(manager_id) = &manager {
+            if &**manager_id == trimmed_id {
+                return Err(WorkStoreError::InvalidState(
+                    "an agent cannot report to itself",
+                ));
+            }
+        }
+        let mut connection = self.connection.lock().expect("work store mutex");
+        let tx = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        if let Some(manager_id) = &manager {
+            ensure_reporting_line(&tx, trimmed_id, manager_id)?;
+        }
+        tx.execute(
+            "UPDATE agents SET reports_to = ?1, updated_at_ms = ?2 WHERE id = ?3",
+            params![manager, now as i64, trimmed_id],
+        )?;
+        tx.commit()?;
+        drop(connection);
+        self.get_agent(trimmed_id)?
+            .ok_or_else(|| WorkStoreError::NotFound(trimmed_id.to_string()))
     }
 
     /// The workspace's most recently updated attempts with their Work
@@ -1632,6 +1820,69 @@ fn map_work_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<WorkItemRecord> {
     })
 }
 
+fn map_agent_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<AgentRecord> {
+    let status_raw: String = row.get(2)?;
+    let status =
+        AgentStatus::parse(&status_raw).ok_or_else(|| rusqlite::Error::FromSqlConversionFailure(
+            2,
+            rusqlite::types::Type::Text,
+            format!("unknown agent status {status_raw}").into(),
+        ))?;
+    Ok(AgentRecord {
+        id: row.get(0)?,
+        name: row.get(1)?,
+        status,
+        reports_to: row.get(3)?,
+        created_at_ms: row.get::<_, i64>(4)? as u64,
+        updated_at_ms: row.get::<_, i64>(5)? as u64,
+    })
+}
+
+/// Validate a reporting line inside the caller's transaction: the manager
+/// exists, and following `reports_to` up from the manager never reaches
+/// the agent — the org chart stays acyclic.
+fn ensure_reporting_line(
+    tx: &rusqlite::Transaction<'_>,
+    agent_id: &str,
+    manager_id: &str,
+) -> Result<()> {
+    let manager: Option<String> = tx
+        .query_row(
+            "SELECT id FROM agents WHERE id = ?1",
+            params![manager_id],
+            |row| row.get(0),
+        )
+        .optional()?;
+    if manager.is_none() {
+        return Err(WorkStoreError::NotFound(manager_id.to_string()));
+    }
+    // Walk up from the manager; a bounded walk guards against pre-existing
+    // corruption looping forever.
+    let mut current = manager_id.to_string();
+    for _ in 0..AGENT_REPORTING_WALK_MAX {
+        if current == agent_id {
+            return Err(WorkStoreError::InvalidState(
+                "reporting line would form an org-chart cycle",
+            ));
+        }
+        let next: Option<String> = tx
+            .query_row(
+                "SELECT reports_to FROM agents WHERE id = ?1",
+                params![&current],
+                |row| row.get(0),
+            )
+            .optional()?
+            .flatten();
+        match next {
+            Some(parent) => current = parent,
+            None => return Ok(()),
+        }
+    }
+    Err(WorkStoreError::InvalidState(
+        "reporting line is too deep to validate",
+    ))
+}
+
 fn map_attempt_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<AttemptRecord> {
     let phase_raw: String = row.get(4)?;
     let phase = AttemptPhase::parse(&phase_raw).unwrap_or(AttemptPhase::Queued);
@@ -1726,6 +1977,13 @@ fn migrate(connection: &mut Connection) -> Result<()> {
         tx.execute_batch(MIGRATION_V3)?;
         tx.execute(
             "INSERT INTO work_store_migrations (version, applied_at_ms) VALUES (3, ?1)",
+            params![now_ms() as i64],
+        )?;
+    }
+    if current < 4 {
+        tx.execute_batch(MIGRATION_V4)?;
+        tx.execute(
+            "INSERT INTO work_store_migrations (version, applied_at_ms) VALUES (4, ?1)",
             params![now_ms() as i64],
         )?;
     }
@@ -2789,6 +3047,186 @@ mod tests {
         }, WorkItemKind::Task, Some(campaign.id));
         assert!(matches!(cross_project, Err(WorkStoreError::InvalidState(_))));
         let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn agent_lifecycle_transitions_and_terminal_is_final() {
+        let path = temp_db();
+        let store = WorkStore::open(&path).expect("open");
+        let agent = store.create_agent("Atlas", None).expect("create");
+        assert_eq!(agent.status, AgentStatus::Active);
+        assert_eq!(agent.reports_to, None);
+
+        let paused = store
+            .transition_agent_status(&agent.id, AgentStatus::Paused)
+            .expect("pause");
+        assert_eq!(paused.status, AgentStatus::Paused);
+
+        let resumed = store
+            .transition_agent_status(&agent.id, AgentStatus::Active)
+            .expect("resume");
+        assert_eq!(resumed.status, AgentStatus::Active);
+
+        let terminated = store
+            .transition_agent_status(&agent.id, AgentStatus::Terminated)
+            .expect("terminate");
+        assert_eq!(terminated.status, AgentStatus::Terminated);
+
+        // Terminated is final: re-terminating is an idempotent replay, but
+        // reviving fails closed.
+        store
+            .transition_agent_status(&agent.id, AgentStatus::Terminated)
+            .expect("re-terminate replay");
+        let revived = store.transition_agent_status(&agent.id, AgentStatus::Active);
+        assert!(matches!(
+            revived,
+            Err(WorkStoreError::InvalidState("a terminated agent is final"))
+        ));
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn agent_registry_lists_by_name_and_rejects_blank_names() {
+        let path = temp_db();
+        let store = WorkStore::open(&path).expect("open");
+        let zed = store.create_agent("Zed", None).expect("zed");
+        store.create_agent("  Atlas  ", None).expect("atlas");
+
+        let agents = store.list_agents().expect("list");
+        assert_eq!(agents.len(), 2);
+        // Names are trimmed on write and drive the stable ordering.
+        assert_eq!(agents[0].name, "Atlas");
+        assert_eq!(agents[1].name, "Zed");
+        assert_eq!(agents[1].id, zed.id);
+        assert!(store.create_agent("   ", None).is_err());
+        let missing = store.transition_agent_status("agent_missing", AgentStatus::Paused);
+        assert!(matches!(missing, Err(WorkStoreError::NotFound(_))));
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn agent_reporting_moves_reject_cycles_and_missing_managers() {
+        let path = temp_db();
+        let store = WorkStore::open(&path).expect("open");
+        let lead = store.create_agent("Atlas", None).expect("lead");
+        let mid = store.create_agent("Brix", Some(&lead.id)).expect("mid");
+        let junior = store.create_agent("Cade", Some(&mid.id)).expect("junior");
+
+        // Direct inversion: the manager reporting to their own report.
+        let cycle = store.set_agent_reporting(&lead.id, Some(&junior.id));
+        assert!(matches!(
+            cycle,
+            Err(WorkStoreError::InvalidState("reporting line would form an org-chart cycle"))
+        ));
+        // Self-reference is rejected before touching the database.
+        let self_ref = store.set_agent_reporting(&lead.id, Some(&lead.id));
+        assert!(matches!(
+            self_ref,
+            Err(WorkStoreError::InvalidState("an agent cannot report to itself"))
+        ));
+        // Unknown managers fail closed.
+        let ghost = store.set_agent_reporting(&lead.id, Some("agent_ghost"));
+        assert!(matches!(ghost, Err(WorkStoreError::NotFound(_))));
+
+        // Nothing was written: the org chart is unchanged.
+        assert_eq!(
+            store.get_agent(&lead.id).expect("lead").expect("row").reports_to,
+            None
+        );
+
+        // A legal move lands and is readable back.
+        let moved = store
+            .set_agent_reporting(&junior.id, Some(&lead.id))
+            .expect("move");
+        assert_eq!(moved.reports_to.as_deref(), Some(lead.id.as_str()));
+
+        // Detaching clears the line.
+        let detached = store.set_agent_reporting(&junior.id, None).expect("detach");
+        assert_eq!(detached.reports_to, None);
+
+        // Creating an agent under an unknown manager also fails closed.
+        let orphan = store.create_agent("Orphan", Some("agent_ghost"));
+        assert!(matches!(orphan, Err(WorkStoreError::NotFound(_))));
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn schema_v4_adds_agents_table_and_preserves_work_data() {
+        let path = temp_db();
+        let store = WorkStore::open(&path).expect("open v4");
+        store
+            .ensure_project("proj_1", "Demo", "/tmp/demo")
+            .expect("project");
+        let created = store
+            .create_work(CreateWorkInput {
+                project_id: "proj_1".into(),
+                title: "Survives".into(),
+                description: String::new(),
+                acceptance_criteria: String::new(),
+                assignee_ref: None,
+            })
+            .expect("create");
+        let agent = store.create_agent("Atlas", None).expect("agent");
+        drop(store);
+
+        // A real v3 database (pre-agents) migrates up without losing data:
+        // roll a fresh store back to v3, add work, then reopen.
+        let legacy_path = temp_db();
+        {
+            let legacy = WorkStore::open(&legacy_path).expect("open");
+            let connection = legacy.connection.lock().expect("work store mutex");
+            connection
+                .execute_batch(
+                    "
+                    DROP TABLE agents;
+                    DELETE FROM work_store_migrations WHERE version >= 4;
+                    ",
+                )
+                .expect("roll back to v3");
+            drop(connection);
+            drop(legacy);
+            let v3 = WorkStore::open(&legacy_path).expect("reopen at v3");
+            v3.ensure_project("proj_1", "Demo", "/tmp/demo")
+                .expect("project");
+            let migrated_work = v3
+                .create_work(CreateWorkInput {
+                    project_id: "proj_1".into(),
+                    title: "Legacy".into(),
+                    description: String::new(),
+                    acceptance_criteria: String::new(),
+                    assignee_ref: None,
+                })
+                .expect("legacy work");
+            drop(v3);
+            let upgraded = WorkStore::open(&legacy_path).expect("migrate v3 to v4");
+            assert_eq!(
+                upgraded
+                    .get_work(&migrated_work.id)
+                    .expect("work")
+                    .expect("row")
+                    .title,
+                "Legacy"
+            );
+            assert!(upgraded
+                .create_agent("Post", None)
+                .expect("agent")
+                .id
+                .starts_with("agent_"));
+            let _ = std::fs::remove_file(&legacy_path);
+        }
+
+        // The fresh store round-trips both agents and work.
+        let reopened = WorkStore::open(&path).expect("reopen");
+        assert!(reopened.get_work(&created.id).expect("work").is_some());
+        let agents = reopened.list_agents().expect("agents");
+        assert_eq!(agents.len(), 1);
+        assert_eq!(agents[0].id, agent.id);
+        assert_eq!(agents[0].status, AgentStatus::Active);
+
+        let _ = std::fs::remove_file(&path);
     }
 
     #[test]
