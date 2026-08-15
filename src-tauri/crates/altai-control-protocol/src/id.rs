@@ -215,6 +215,12 @@ define_typed_id!(
     "evidence_id",
     "ev_",
 );
+define_typed_id!(
+    /// An installed plugin (agent content or application).
+    PluginId,
+    "plugin_id",
+    "plg_",
+);
 
 // ---------------------------------------------------------------------------
 // Error
@@ -293,7 +299,7 @@ mod tests {
             AgentInstanceId::TYPE, AgentProfileId::TYPE, AgentProfileRevisionId::TYPE,
             WorkItemId::TYPE, AttemptId::TYPE, RunId::TYPE, SessionId::TYPE,
             RoutineId::TYPE, RoutineRevisionId::TYPE, RoutineRunId::TYPE,
-            ApprovalId::TYPE, ExternalObjectId::TYPE,
+            ApprovalId::TYPE, ExternalObjectId::TYPE, PluginId::TYPE,
         ];
         let mut seen = std::collections::HashSet::new();
         for t in types {

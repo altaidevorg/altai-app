@@ -16,6 +16,7 @@ pub mod error;
 pub mod event;
 pub mod evidence;
 pub mod id;
+pub mod plugin;
 pub mod protocol;
 pub mod recovery;
 pub mod registration;
@@ -48,6 +49,10 @@ pub use recovery::{RecoveryDisposition, RecoveryRecord};
 pub use registration::{
     ControlPlaneHealth, HostCapabilities, HostRegistration, HostRegistrationRequest,
     RegisteredHost, CONTROL_PLANE_PROTOCOL_MAJOR,
+};
+pub use plugin::{
+    PluginCapability, PluginKind, PluginManifest, PluginManifestError, PluginUpgradeDisclosure,
+    PluginVersion,
 };
 pub use revision::Revision;
 pub use routine::{Routine, RoutineRevision, RoutineStatus, RoutineTrigger};
