@@ -7,6 +7,7 @@ import {
   projectAuditFeed,
   type AuditFeedRow,
 } from "./lib/auditFeedProjection";
+import { UsageLedgerSection } from "./UsageLedgerSection";
 
 type Props = {
   workspacePath: string;
@@ -24,6 +25,7 @@ type LoadStatus = "loading" | "ready" | "error";
  * audit trail is a record, not an editor.
  */
 export function AuditPanel({ workspacePath, onOpenWork, className }: Props) {
+  const [view, setView] = useState<"feed" | "usage">("feed");
   const [status, setStatus] = useState<LoadStatus>("loading");
   const [error, setError] = useState<string | null>(null);
   const [events, setEvents] = useState<AuditEvent[]>([]);
@@ -57,47 +59,73 @@ export function AuditPanel({ workspacePath, onOpenWork, className }: Props) {
         className,
       )}
     >
-      <header className="flex shrink-0 items-baseline gap-2 border-b border-border-subtle px-3 py-2">
+      <header className="flex shrink-0 items-center gap-2 border-b border-border-subtle px-3 py-2">
         <h2 className="min-w-0 flex-1 text-[13px] font-semibold text-foreground">
           Audit
         </h2>
-        <p className="shrink-0 text-[10px] text-muted-foreground">
-          Decisions, stops and transitions
-        </p>
+        <div className="flex shrink-0 items-center gap-1">
+          {(
+            [
+              ["feed", "Feed"],
+              ["usage", "Usage"],
+            ] as const
+          ).map(([key, title]) => (
+            <button
+              key={key}
+              type="button"
+              onClick={() => setView(key)}
+              className={cn(
+                "rounded px-1.5 py-0.5 text-[10.5px] transition-colors",
+                view === key
+                  ? "bg-muted font-medium text-foreground"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+              aria-pressed={view === key}
+            >
+              {title}
+            </button>
+          ))}
+        </div>
       </header>
 
-      {status === "loading" ? (
-        <p className="px-3 py-6 text-[11px] text-muted-foreground">
-          Loading the audit feed…
-        </p>
-      ) : null}
-      {status === "error" ? (
-        <div className="m-3 rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-[11px] text-red-500">
-          <p>{error ?? "Audit feed failed to load."}</p>
-          <button
-            type="button"
-            onClick={() => void load()}
-            className="mt-1 underline underline-offset-2"
-          >
-            Retry
-          </button>
-        </div>
-      ) : null}
+      {view === "usage" ? (
+        <UsageLedgerSection workspacePath={workspacePath} onOpenWork={onOpenWork} />
+      ) : (
+        <>
+          {status === "loading" ? (
+            <p className="px-3 py-6 text-[11px] text-muted-foreground">
+              Loading the audit feed…
+            </p>
+          ) : null}
+          {status === "error" ? (
+            <div className="m-3 rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-[11px] text-red-500">
+              <p>{error ?? "Audit feed failed to load."}</p>
+              <button
+                type="button"
+                onClick={() => void load()}
+                className="mt-1 underline underline-offset-2"
+              >
+                Retry
+              </button>
+            </div>
+          ) : null}
 
-      {status === "ready" && rows.length === 0 ? (
-        <p className="px-3 py-6 text-center text-[11px] text-muted-foreground">
-          No recorded activity yet — decisions and stops land here as they
-          happen.
-        </p>
-      ) : null}
+          {status === "ready" && rows.length === 0 ? (
+            <p className="px-3 py-6 text-center text-[11px] text-muted-foreground">
+              No recorded activity yet — decisions and stops land here as they
+              happen.
+            </p>
+          ) : null}
 
-      {status === "ready" && rows.length > 0 ? (
-        <ul className="min-h-0 flex-1 divide-y divide-border-subtle overflow-y-auto">
-          {rows.map((row) => (
-            <AuditRow key={row.id} row={row} onOpenWork={onOpenWork} />
-          ))}
-        </ul>
-      ) : null}
+          {status === "ready" && rows.length > 0 ? (
+            <ul className="min-h-0 flex-1 divide-y divide-border-subtle overflow-y-auto">
+              {rows.map((row) => (
+                <AuditRow key={row.id} row={row} onOpenWork={onOpenWork} />
+              ))}
+            </ul>
+          ) : null}
+        </>
+      )}
     </div>
   );
 }

@@ -114,6 +114,20 @@ pub struct RunJournalSummary {
     pub terminal_payload: Option<Value>,
 }
 
+/// Token usage recorded for one chat, summed across its journaled
+/// `usage` events. The journal is the durable producer — every run's
+/// usage telemetry is appended there — so attribution is a read.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ChatUsageTotals {
+    pub chat_id: String,
+    pub prompt_tokens: u64,
+    pub completion_tokens: u64,
+    pub total_tokens: u64,
+    pub cache_read_tokens: u64,
+    pub cache_creation_tokens: u64,
+    pub event_count: u64,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct ChatJournalSummary {
     pub chat_id: String,
@@ -496,6 +510,50 @@ impl EventJournal {
 
     /// Lists one latest run per chat, newest first. Session titles remain a UI
     /// concern until the shared session metadata schema lands.
+    /// Sum the journaled `usage` events for the given chats. Chats with
+    /// no usage events are absent from the result. Malformed payloads
+    /// contribute nothing rather than failing the whole rollup.
+    pub fn chat_usage_totals(&self, chat_ids: &[&str]) -> JournalResult<Vec<ChatUsageTotals>> {
+        if chat_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let placeholders = chat_ids.iter().map(|_| "?").collect::<Vec<_>>().join(", ");
+        let sql = format!(
+            r#"
+            SELECT chat_id,
+                   COALESCE(SUM(CAST(json_extract(payload_json, '$.prompt_tokens') AS INTEGER)), 0),
+                   COALESCE(SUM(CAST(json_extract(payload_json, '$.completion_tokens') AS INTEGER)), 0),
+                   COALESCE(SUM(CAST(json_extract(payload_json, '$.total_tokens') AS INTEGER)), 0),
+                   COALESCE(SUM(CAST(json_extract(payload_json, '$.cache_read_tokens') AS INTEGER)), 0),
+                   COALESCE(SUM(CAST(json_extract(payload_json, '$.cache_creation_tokens') AS INTEGER)), 0),
+                   COUNT(*)
+            FROM agent_event_journal_events
+            WHERE kind = 'usage' AND chat_id IN ({placeholders})
+            GROUP BY chat_id
+            "#
+        );
+        let params: Vec<&str> = chat_ids.to_vec();
+        let connection = self
+            .connection
+            .lock()
+            .map_err(|_| JournalError::LockPoisoned)?;
+        let mut statement = connection.prepare(&sql)?;
+        let rows = statement
+            .query_map(rusqlite::params_from_iter(params), |row| {
+                Ok(ChatUsageTotals {
+                    chat_id: row.get(0)?,
+                    prompt_tokens: row.get::<_, i64>(1)? as u64,
+                    completion_tokens: row.get::<_, i64>(2)? as u64,
+                    total_tokens: row.get::<_, i64>(3)? as u64,
+                    cache_read_tokens: row.get::<_, i64>(4)? as u64,
+                    cache_creation_tokens: row.get::<_, i64>(5)? as u64,
+                    event_count: row.get::<_, i64>(6)? as u64,
+                })
+            })?
+            .collect::<rusqlite::Result<_>>()?;
+        Ok(rows)
+    }
+
     pub fn list_chat_summaries(&self, limit: usize) -> JournalResult<Vec<ChatJournalSummary>> {
         if limit == 0 || limit > MAX_FETCH_LIMIT {
             return Err(JournalError::InvalidField("limit"));
@@ -1034,6 +1092,74 @@ mod tests {
             kind: kind.to_string(),
             payload,
         }
+    }
+
+    #[test]
+    fn chat_usage_totals_sums_journaled_usage_per_chat() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let journal = EventJournal::open(temp.path().join("events.sqlite3")).expect("open");
+        let usage = |prompt: u32, completion: u32| {
+            serde_json::json!({
+                "type": "usage",
+                "prompt_tokens": prompt,
+                "completion_tokens": completion,
+                "total_tokens": prompt + completion,
+                "cache_read_tokens": 0,
+                "cache_creation_tokens": 0,
+            })
+        };
+        journal
+            .append(&event(1, "usage", usage(100, 50)))
+            .expect("append");
+        journal
+            .append(&event(
+                2,
+                "agent_message",
+                serde_json::json!({"type": "agent_message"}),
+            ))
+            .expect("append non-usage");
+        journal
+            .append(&event(3, "usage", usage(30, 20)))
+            .expect("append");
+
+        // A second chat with its own run logs its own usage.
+        let other = JournalEvent {
+            run_id: "run-2".to_string(),
+            chat_id: "chat-2".to_string(),
+            seq: 1,
+            ..event(1, "usage", usage(10, 5))
+        };
+        journal.append(&other).expect("append other");
+
+        let totals = journal
+            .chat_usage_totals(&["chat-1", "chat-2", "chat-none"])
+            .expect("totals");
+        assert_eq!(totals.len(), 2);
+        assert_eq!(
+            totals[0],
+            ChatUsageTotals {
+                chat_id: "chat-1".to_string(),
+                prompt_tokens: 130,
+                completion_tokens: 70,
+                total_tokens: 200,
+                cache_read_tokens: 0,
+                cache_creation_tokens: 0,
+                event_count: 2,
+            }
+        );
+        assert_eq!(totals[1].chat_id, "chat-2");
+        assert_eq!(totals[1].total_tokens, 15);
+
+        // An empty request is a no-op, not an error.
+        assert!(journal.chat_usage_totals(&[]).unwrap().is_empty());
+
+        // Malformed payloads degrade to zero contribution, not failure.
+        journal
+            .append(&event(4, "usage", serde_json::json!({"type": "usage"})))
+            .expect("append malformed");
+        let degraded = journal.chat_usage_totals(&["chat-1"]).expect("totals");
+        assert_eq!(degraded[0].event_count, 3);
+        assert_eq!(degraded[0].total_tokens, 200);
     }
 
     #[test]

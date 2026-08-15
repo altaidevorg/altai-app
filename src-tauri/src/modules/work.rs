@@ -5,7 +5,10 @@
 
 use std::path::Path;
 
+use std::collections::HashMap;
+
 use altai_core::{
+    journal::{ChatUsageTotals, EventJournal},
     resolve_workspace_from, AgentRecord, AgentStatus, AttemptPhase, AttemptReconcileMode,
     AttemptRecord, CreateWorkInput, RecentAttemptRecord, RecentEventRecord, WorkAttemptStart,
     WorkEventRecord, WorkInboxRecord, WorkItemKind, WorkItemRecord, WorkListFilter, WorkState,
@@ -670,6 +673,126 @@ pub fn work_events_recent(
     Ok(events.into_iter().map(AuditEventDto::from).collect())
 }
 
+#[derive(Debug, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkUsageDto {
+    pub attempt_id: String,
+    pub work_id: String,
+    pub work_title: String,
+    pub number: i64,
+    pub phase: String,
+    pub chat_id: Option<String>,
+    pub run_id: Option<String>,
+    pub updated_at_ms: u64,
+    /// Token usage attributed through the attempt's chat binding. `None`
+    /// when the attempt never bound to a chat — there is nothing to
+    /// attribute, which is a different fact from zero usage.
+    pub usage: Option<WorkUsageTotalsDto>,
+}
+
+#[derive(Debug, Serialize, PartialEq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkUsageTotalsDto {
+    pub prompt_tokens: u64,
+    pub completion_tokens: u64,
+    pub total_tokens: u64,
+    pub cache_read_tokens: u64,
+    pub cache_creation_tokens: u64,
+    pub event_count: u64,
+}
+
+impl From<&ChatUsageTotals> for WorkUsageTotalsDto {
+    fn from(value: &ChatUsageTotals) -> Self {
+        Self {
+            prompt_tokens: value.prompt_tokens,
+            completion_tokens: value.completion_tokens,
+            total_tokens: value.total_tokens,
+            cache_read_tokens: value.cache_read_tokens,
+            cache_creation_tokens: value.cache_creation_tokens,
+            event_count: value.event_count,
+        }
+    }
+}
+
+/// Attribute journaled usage to the attempts that carry the chat
+/// binding. Unbound attempts stay `usage: None`; a bound chat with no
+/// recorded usage is zero, not missing.
+fn attribute_usage(
+    attempts: Vec<RecentAttemptRecord>,
+    totals: HashMap<String, ChatUsageTotals>,
+) -> Vec<WorkUsageDto> {
+    attempts
+        .into_iter()
+        .map(|attempt| {
+            let usage = attempt
+                .chat_id
+                .as_ref()
+                .and_then(|chat_id| totals.get(chat_id))
+                .map(WorkUsageTotalsDto::from)
+                .or_else(|| {
+                    attempt
+                        .chat_id
+                        .as_ref()
+                        .map(|_| WorkUsageTotalsDto::default())
+                });
+            WorkUsageDto {
+                attempt_id: attempt.id,
+                work_id: attempt.work_id,
+                work_title: attempt.work_title,
+                number: attempt.number,
+                phase: attempt.phase.as_str().to_string(),
+                chat_id: attempt.chat_id,
+                run_id: attempt.run_id,
+                updated_at_ms: attempt.updated_at_ms,
+                usage,
+            }
+        })
+        .collect()
+}
+
+/// Open the workspace's agent event journal the same way the desktop
+/// host does, and roll up usage for the given chats. A workspace whose
+/// journal does not exist yet has simply recorded no usage.
+fn load_workspace_usage_totals(
+    workspace: &str,
+    chat_ids: &[String],
+) -> Result<HashMap<String, ChatUsageTotals>, String> {
+    if chat_ids.is_empty() {
+        return Ok(HashMap::new());
+    }
+    let dir = isanagent::workspace::resolve_workspace_root(Some(workspace));
+    let journal_path = dir.join(".system_generated").join("agent_event_journal.db");
+    if !journal_path.exists() {
+        return Ok(HashMap::new());
+    }
+    let journal = EventJournal::open(&journal_path).map_err(|error| error.to_string())?;
+    let refs: Vec<&str> = chat_ids.iter().map(String::as_str).collect();
+    let totals = journal
+        .chat_usage_totals(&refs)
+        .map_err(|error| error.to_string())?;
+    Ok(totals
+        .into_iter()
+        .map(|record| (record.chat_id.clone(), record))
+        .collect())
+}
+
+#[tauri::command]
+pub fn work_usage_recent(
+    registry: State<'_, WorkspaceRegistry>,
+    workspace_path: String,
+    limit: Option<u32>,
+) -> Result<Vec<WorkUsageDto>, String> {
+    let workspace = authorized_workspace(&workspace_path, &registry)?;
+    let (_project_id, store) = open_store(&registry, &workspace)?;
+    let bounded = limit.unwrap_or(WORK_RUNS_LIMIT_DEFAULT).min(WORK_RUNS_LIMIT_MAX);
+    let attempts = store
+        .list_recent_attempts(bounded)
+        .map_err(|error| error.to_string())?;
+    let chat_ids: Vec<String> = attempts.iter().filter_map(|a| a.chat_id.clone()).collect();
+    let totals = load_workspace_usage_totals(&workspace, &chat_ids)?;
+    Ok(attribute_usage(attempts, totals))
+}
+
 #[tauri::command]
 pub fn agent_list(
     registry: State<'_, WorkspaceRegistry>,
@@ -730,9 +853,17 @@ pub fn agent_set_reporting(
 
 #[cfg(test)]
 mod tests {
-    use super::{open_store, WorkInboxItemDto};
+    use super::{
+        attribute_usage, load_workspace_usage_totals, open_store, WorkInboxItemDto,
+        WorkUsageTotalsDto,
+    };
     use crate::modules::workspace::WorkspaceRegistry;
-    use altai_core::{resolve_workspace_from, WorkInboxKind, WorkInboxRecord};
+    use altai_core::journal::{EventJournal, JournalEvent};
+    use altai_core::{
+        resolve_workspace_from, AttemptPhase, ChatUsageTotals, RecentAttemptRecord, WorkInboxKind,
+        WorkInboxRecord, WorkState,
+    };
+    use std::collections::HashMap;
 
     #[test]
     fn open_store_migrates_the_workspace_work_db_and_is_idempotent_per_run() {
@@ -797,6 +928,133 @@ mod tests {
             )
             .unwrap();
         assert_eq!(adapter_tables, 0);
+    }
+
+    fn usage_attempt(id: &str, chat_id: Option<&str>) -> RecentAttemptRecord {
+        RecentAttemptRecord {
+            id: id.into(),
+            work_id: "work_1".into(),
+            work_title: "Ship the ledger".into(),
+            work_state: WorkState::InProgress,
+            number: 1,
+            role: "executor".into(),
+            phase: AttemptPhase::Succeeded,
+            chat_id: chat_id.map(Into::into),
+            session_id: None,
+            run_id: Some(format!("run_{id}")),
+            created_at_ms: 1,
+            updated_at_ms: 2,
+        }
+    }
+
+    fn journal_usage_payload(prompt: u64, completion: u64) -> serde_json::Value {
+        serde_json::json!({
+            "type": "usage",
+            "prompt_tokens": prompt,
+            "completion_tokens": completion,
+            "total_tokens": prompt + completion,
+        })
+    }
+
+    #[test]
+    fn attribute_usage_maps_bound_chats_and_keeps_unbound_attempts_distinct() {
+        let mut totals = HashMap::new();
+        totals.insert(
+            "chat_with_usage".into(),
+            ChatUsageTotals {
+                chat_id: "chat_with_usage".into(),
+                prompt_tokens: 130,
+                completion_tokens: 70,
+                total_tokens: 200,
+                cache_read_tokens: 11,
+                cache_creation_tokens: 7,
+                event_count: 2,
+            },
+        );
+
+        let rows = attribute_usage(
+            vec![
+                usage_attempt("a1", Some("chat_with_usage")),
+                usage_attempt("a2", Some("chat_without_events")),
+                usage_attempt("a3", None),
+            ],
+            totals,
+        );
+
+        assert_eq!(rows.len(), 3);
+        assert_eq!(
+            rows[0].usage,
+            Some(WorkUsageTotalsDto {
+                prompt_tokens: 130,
+                completion_tokens: 70,
+                total_tokens: 200,
+                cache_read_tokens: 11,
+                cache_creation_tokens: 7,
+                event_count: 2,
+            })
+        );
+        // A bound chat that journaled no usage is zero, not missing.
+        assert_eq!(rows[1].usage, Some(WorkUsageTotalsDto::default()));
+        // An attempt that never bound a chat has nothing to attribute.
+        assert_eq!(rows[2].usage, None);
+        assert_eq!(rows[2].chat_id, None);
+        assert_eq!(rows[0].phase, "succeeded");
+        assert_eq!(rows[0].work_title, "Ship the ledger");
+    }
+
+    #[test]
+    fn load_workspace_usage_totals_reads_the_journal_and_tolerates_absence() {
+        let directory = tempfile::tempdir().unwrap();
+        let workspace_root = directory.path().join("project");
+        std::fs::create_dir_all(&workspace_root).unwrap();
+        let workspace = workspace_root.to_string_lossy().replace('\\', "/");
+
+        // No journal yet: the workspace simply recorded no usage.
+        let empty = load_workspace_usage_totals(&workspace, &["chat_1".to_string()]).unwrap();
+        assert!(empty.is_empty());
+
+        // Seed the journal exactly where the desktop host opens it.
+        let journal_dir = workspace_root.join(".system_generated");
+        std::fs::create_dir_all(&journal_dir).unwrap();
+        let journal = EventJournal::open(journal_dir.join("agent_event_journal.db")).unwrap();
+        journal
+            .append(&JournalEvent::now(
+                1,
+                "run_1",
+                1,
+                "chat_1",
+                "usage",
+                journal_usage_payload(100, 50),
+            ))
+            .unwrap();
+        journal
+            .append(&JournalEvent::now(
+                1,
+                "run_1",
+                2,
+                "chat_1",
+                "message",
+                serde_json::json!({"type": "message"}),
+            ))
+            .unwrap();
+        drop(journal);
+
+        let totals = load_workspace_usage_totals(
+            &workspace,
+            &["chat_1".to_string(), "chat_other".to_string()],
+        )
+        .unwrap();
+        assert_eq!(totals.len(), 1, "only chats with journaled rows appear");
+        let chat_1 = &totals["chat_1"];
+        assert_eq!(chat_1.prompt_tokens, 100);
+        assert_eq!(chat_1.completion_tokens, 50);
+        assert_eq!(chat_1.total_tokens, 150);
+        assert_eq!(chat_1.event_count, 1);
+
+        // Asking for nothing is a no-op even with a journal present.
+        assert!(load_workspace_usage_totals(&workspace, &[])
+            .unwrap()
+            .is_empty());
     }
 
     #[test]
