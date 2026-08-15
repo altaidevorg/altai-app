@@ -369,6 +369,26 @@ export type WorkUsageTotals = {
 };
 
 /**
+ * A scheduled-work routine joined with its current intent and firing
+ * state — the row a routines surface renders. `nextFireAtMs` may be in
+ * the past: an overdue routine is one the cron bridge has not caught up
+ * on, which is a fact to surface, not hide.
+ */
+export type Routine = {
+  id: string;
+  status: "active" | "paused" | "retired";
+  revision: number;
+  triggerKind: "recurring" | "event";
+  cronExpression?: string | null;
+  eventSource?: string | null;
+  targetWorkId?: string | null;
+  targetWorkTitle?: string | null;
+  lastFiredAtMs?: number | null;
+  nextFireAtMs?: number | null;
+  updatedAtMs: number;
+};
+
+/**
  * An attempt joined with its Work and with the token usage its chat
  * recorded in the agent event journal — the row a usage ledger renders.
  */

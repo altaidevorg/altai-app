@@ -13,6 +13,7 @@ pub mod orchestration;
 pub mod os_integration;
 pub mod os_menu;
 pub mod proc;
+pub mod routines;
 pub mod pty;
 pub mod secrets;
 pub mod shell;
