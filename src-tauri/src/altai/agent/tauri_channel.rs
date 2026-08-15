@@ -6,10 +6,7 @@ pub type TauriChannel = altai_agent_service::ServiceChannel;
 
 #[cfg(test)]
 mod tests {
-    use altai_agent_service::{
-        map_lifecycle_to_event, map_telemetry_to_event, telemetry_chat_id, Event,
-    };
-    use isanagent::bus::{RunLifecycleEvent, TelemetryEvent};
+    use altai_agent_service::{map_telemetry_to_event, telemetry_chat_id, Event};
 
     // --- map_telemetry_to_event exhaustive coverage ---
 
@@ -34,6 +31,8 @@ mod tests {
             Event::NotificationUpdated { .. } => "notification_updated",
             Event::SubagentSpawned { .. } => "subagent_spawned",
             Event::SubagentFinished { .. } => "subagent_finished",
+            Event::StreamDelta { .. } => "stream_delta",
+            Event::SessionProjection { .. } => "session_projection",
             Event::NotebookOutput { .. } => "notebook_output",
             Event::ExperimentResult { .. } => "experiment_result",
         }

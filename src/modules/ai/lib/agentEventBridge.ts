@@ -19,6 +19,7 @@ import {
   type RunState,
 } from "../store/agentRunsStore";
 import { useTodosStore } from "../store/todoStore";
+import { useSessionProjectionStore } from "../store/sessionProjectionStore";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import { appendBackgroundMessage } from "./backgroundTranscript";
 import { pruneOldToolOutputs } from "./compaction";
@@ -153,6 +154,19 @@ export type AgentEvent =
       child_chat_id: string;
       status: string;
       agent_name: string | null;
+    }
+  | {
+      type: "session_projection";
+      projection_seq: number;
+      timestamp_rfc3339: string;
+      run_status: string;
+      todos: Record<string, unknown>[];
+      subagents: Record<string, unknown>[];
+      jobs: Record<string, unknown>[];
+    }
+  | {
+      type: "stream_delta";
+      chunk: { type: string; data?: unknown };
     }
   | { type: "notebook_output"; notebook_id: string; cell_index: number; output: unknown }
   | { type: "experiment_result"; experiment_id: string; metrics: unknown; artifacts: string[] };
@@ -321,6 +335,8 @@ const AGENT_EVENT_TYPES = new Set<AgentEvent["type"]>([
   "notification_updated",
   "subagent_spawned",
   "subagent_finished",
+  "session_projection",
+  "stream_delta",
   "notebook_output",
   "experiment_result",
 ]);
@@ -513,7 +529,88 @@ const systemEventSchemas: Partial<Record<AgentEvent["type"], z.ZodType>> = {
     notification_id: nonBlankString,
     state: nonBlankString,
   }),
+  session_projection: z.object({
+    type: z.literal("session_projection"),
+    projection_seq: nonnegativeInteger,
+    timestamp_rfc3339: nonBlankString,
+    run_status: nonBlankString,
+    todos: z.array(z.record(z.string(), z.unknown())),
+    subagents: z.array(z.record(z.string(), z.unknown())),
+    jobs: z.array(z.record(z.string(), z.unknown())),
+  }),
+  stream_delta: z.object({
+    type: z.literal("stream_delta"),
+    chunk: z.object({ type: nonBlankString, data: z.unknown().optional() }),
+  }),
 };
+
+function projectionString(
+  value: Record<string, unknown>,
+  ...keys: string[]
+): string | null {
+  for (const key of keys) {
+    const candidate = value[key];
+    if (typeof candidate === "string" && candidate.trim()) {
+      return candidate.trim();
+    }
+  }
+  return null;
+}
+
+function applySessionProjection(
+  payload: Extract<ParsedAgentEvent, { type: "session_projection" }>,
+): void {
+  const chatId = payload.chat_id;
+  if (!chatId) return;
+
+  const accepted = useSessionProjectionStore.getState().apply(chatId, {
+    seq: payload.projection_seq,
+    timestampRfc3339: payload.timestamp_rfc3339,
+    runStatus: payload.run_status,
+    todos: payload.todos,
+    subagents: payload.subagents,
+    jobs: payload.jobs,
+  });
+  if (!accepted) return;
+
+  const todos: Todo[] = parseTodoWriteItems(payload.todos, chatId).map(
+    (item) => ({
+      id: item.id,
+      title: item.title,
+      status: item.status as TodoStatus,
+      description: item.description,
+    }),
+  );
+  useTodosStore.getState().setTodos(chatId, todos);
+
+  const subagents = payload.subagents.map((item, index) => ({
+    taskId:
+      projectionString(item, "task_id", "taskId", "id") ??
+      `${chatId}:subagent:${index}`,
+    childChatId:
+      projectionString(item, "child_chat_id", "childChatId", "chat_id") ??
+      "",
+    displayName: projectionString(item, "display_name", "displayName"),
+    agentName: projectionString(item, "agent_name", "agentName", "name"),
+  }));
+  useAgentRunsStore
+    .getState()
+    .applyProjection(chatId, payload.run_status, subagents);
+  const chat = useChatStore.getState();
+  if (chat.activeSessionId === chatId) {
+    const projectedRun = useAgentRunsStore.getState().runs[chatId];
+    chat.patchAgentMeta({
+      status: projectedRun.status,
+      activeSubagents: projectedRun.subagents,
+    });
+  }
+
+  window.dispatchEvent(
+    new CustomEvent("altai:agent-session-projection", {
+      detail: { chatId, ...payload },
+    }),
+  );
+}
 
 /**
  * Validate the lifecycle envelope at the desktop IPC trust boundary.
@@ -644,6 +741,18 @@ export function ingestAgentEventEnvelope(
     // state or re-dispatch a mutation. Both paths still use this parser and the
     // exact same run reducer above.
     if (source === "replay") return;
+    if (payload.type === "session_projection") {
+      applySessionProjection(payload);
+      return;
+    }
+    if (payload.type === "stream_delta") {
+      window.dispatchEvent(
+        new CustomEvent("altai:agent-stream-delta", {
+          detail: { chatId: payload.chat_id, chunk: payload.chunk },
+        }),
+      );
+      return;
+    }
     // Persist a BACKGROUND run's assistant messages to its own thread so "Open
     // transcript" replays the result, not just the seed. The focused chat
     // persists itself via nativeMessages, so skip it here.

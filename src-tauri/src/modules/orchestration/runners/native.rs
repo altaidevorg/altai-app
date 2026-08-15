@@ -539,6 +539,8 @@ pub fn map_event(event: &Event) -> Option<RunnerEventKind> {
         | Event::NotificationUpdated { .. }
         | Event::SubagentSpawned { .. }
         | Event::SubagentFinished { .. }
+        | Event::StreamDelta { .. }
+        | Event::SessionProjection { .. }
         | Event::NotebookOutput { .. }
         | Event::ExperimentResult { .. } => None,
     }

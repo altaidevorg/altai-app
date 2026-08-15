@@ -14,6 +14,8 @@ import {
 import { native } from "./native";
 import { useAgentRunsStore } from "../store/agentRunsStore";
 import { useChatStore } from "../store/chatStore";
+import { useSessionProjectionStore } from "../store/sessionProjectionStore";
+import { useTodosStore } from "../store/todoStore";
 
 const envelope = (event: unknown, overrides: Record<string, unknown> = {}) => ({
   version: 1 as const,
@@ -29,11 +31,60 @@ describe("durable event replay", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     useAgentRunsStore.setState({ runs: {} });
+    useSessionProjectionStore.setState({ bySession: {} });
+    useTodosStore.setState({ bySession: {}, hydrated: new Set() });
     useChatStore.setState({
       activeSessionId: "chat-1",
       nativeMessages: [],
       sessions: [],
     });
+  });
+
+  it("applies authoritative projections to todos and active subagents", () => {
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("window", { dispatchEvent });
+    vi.stubGlobal(
+      "CustomEvent",
+      class TestCustomEvent {
+        constructor(
+          public type: string,
+          public init: { detail: unknown },
+        ) {}
+      },
+    );
+
+    ingestAgentEventEnvelope({
+      version: 1,
+      scope: "system",
+      chatId: "chat-1",
+      event: {
+        type: "session_projection",
+        projection_seq: 1,
+        timestamp_rfc3339: "2026-08-15T10:00:00Z",
+        run_status: "running",
+        todos: [{ id: "todo-1", content: "Adopt plugins", status: "in_progress" }],
+        subagents: [
+          {
+            task_id: "task-1",
+            child_chat_id: "child-1",
+            agent_name: "researcher",
+          },
+        ],
+        jobs: [{ job_id: "job-1", status: "running" }],
+      },
+    });
+
+    expect(useTodosStore.getState().bySession["chat-1"]).toMatchObject([
+      { id: "todo-1", title: "Adopt plugins", status: "in_progress" },
+    ]);
+    expect(useAgentRunsStore.getState().runs["chat-1"]).toMatchObject({
+      status: "thinking",
+      subagents: [{ taskId: "task-1", childChatId: "child-1" }],
+    });
+    expect(
+      useSessionProjectionStore.getState().bySession["chat-1"].jobs,
+    ).toEqual([{ job_id: "job-1", status: "running" }]);
+    vi.unstubAllGlobals();
   });
 
   it("announces the typed terminal after journal-backed delivery", () => {
@@ -560,6 +611,47 @@ describe("parseAgentEventPayload", () => {
         event: { type: "run_started", run_id: "run-1" },
       }),
     ).toBeNull();
+  });
+
+  it("accepts an authoritative session projection in system scope", () => {
+    expect(
+      parseAgentEventPayload({
+        version: 1,
+        scope: "system",
+        chatId: "chat-1",
+        event: {
+          type: "session_projection",
+          projection_seq: 7,
+          timestamp_rfc3339: "2026-08-15T10:00:00Z",
+          run_status: "running",
+          todos: [{ id: "todo-1", content: "Implement projections" }],
+          subagents: [{ task_id: "task-1", agent_name: "researcher" }],
+          jobs: [{ job_id: "job-1", status: "running" }],
+        },
+      }),
+    ).toMatchObject({
+      type: "session_projection",
+      projection_seq: 7,
+      scope: "system",
+    });
+  });
+
+  it("accepts a native stream delta in system scope", () => {
+    expect(
+      parseAgentEventPayload({
+        version: 1,
+        scope: "system",
+        chatId: "chat-1",
+        event: {
+          type: "stream_delta",
+          chunk: { type: "text_delta", data: "partial" },
+        },
+      }),
+    ).toMatchObject({
+      type: "stream_delta",
+      chunk: { type: "text_delta", data: "partial" },
+      scope: "system",
+    });
   });
 
   it.each([

@@ -124,6 +124,19 @@ pub enum Event {
         status: String,
         agent_name: Option<String>,
     },
+    StreamDelta {
+        chunk: serde_json::Value,
+    },
+    /// Server-owned snapshot of the current session state. `projection_seq`
+    /// belongs to the projection stream, not the run-event journal sequence.
+    SessionProjection {
+        projection_seq: u64,
+        timestamp_rfc3339: String,
+        run_status: String,
+        todos: Vec<serde_json::Value>,
+        subagents: Vec<serde_json::Value>,
+        jobs: Vec<serde_json::Value>,
+    },
     NotebookOutput {
         notebook_id: String,
         cell_index: usize,

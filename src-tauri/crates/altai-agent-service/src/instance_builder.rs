@@ -109,7 +109,21 @@ where
     // workspace's model-instances so history transfers and DB access is
     // serialized through a single actor (no contention).
     let session_manager = SessionManager::new(memory_node.clone());
-    let skills = SkillRegistry::new(workspace.skills_path());
+    let mut skills = SkillRegistry::new(workspace.skills_path());
+    // Agent Plugins 1.0 discovery must use the actual project root in embedded
+    // hosts. `workspace.dir` is ALTAI's state directory (`<project>/.isanagent`),
+    // while plugin roots live beside it (`<project>/.agents/plugins`,
+    // `<project>/.isanagent/plugins`, and `<project>/plugins`).
+    let plugin_workspace_root = workspace_dir
+        .parent()
+        .map(|path| path.to_path_buf())
+        .unwrap_or_else(|| workspace.dir.clone());
+    let global_plugin_root = resolve_workspace_root(None);
+    let plugins = isanagent::plugins::PluginRegistry::discover(
+        &plugin_workspace_root,
+        Some(&global_plugin_root),
+    );
+    plugins.populate_skill_registry(&mut skills);
     // Outbound channel for agent → UI (typed as BusMessage per IsanAgent API)
     let (global_outbound_tx, mut global_outbound_rx) = mpsc::channel::<BusMessage>(100);
     // Inbound bus
@@ -274,6 +288,7 @@ where
     tools.register(Box::new(isanagent::tools::recall::RecallToolResultTool {
         memory_node: memory_node.clone(),
         outbound_tx: global_outbound_tx.clone(),
+        spill_store: Some(isanagent::spill::SpillStore::new(&workspace.dir)),
     }));
 
     // Execution harness (if enabled)
@@ -377,6 +392,14 @@ where
         );
     }
 
+    // Plugin-provided stdio MCP servers are started during instance creation
+    // and their advertised tools become ordinary IsanAgent tools. Resolve uv
+    // through the same workspace config used by the execution harness.
+    let uv_binary = workspace.config.execution_uv_binary();
+    plugins
+        .populate_tool_registry(&mut tools, &uv_binary)
+        .await;
+
     // Register discovery last so its shared catalog contains every concrete
     // tool available to this instance. This mirrors IsanAgent's reference
     // binary and lets the model find opt-in MCP, execution, worktree, and
@@ -436,6 +459,10 @@ where
         .unwrap_or_default();
     // System prompt
     let mut system_prompt = workspace.compile_system_prompt();
+    let plugin_overlays = plugins.compile_overlay_prompts();
+    if !plugin_overlays.is_empty() {
+        system_prompt.push_str(&plugin_overlays);
+    }
     if workspace.config.ml_engineer_harness_enabled() {
         system_prompt.push_str("\n\n");
         system_prompt.push_str(isanagent::ml_engineer::HARNESS_OVERLAY);
@@ -474,10 +501,12 @@ where
             defs
         }
     };
-    let agent_registry = Arc::new(isanagent::agent::AgentRegistry::from_definitions(
+    let mut agent_registry = isanagent::agent::AgentRegistry::from_definitions(
         &agent_defs,
         &sandbox_dir,
-    ));
+    );
+    plugins.populate_agent_registry(&mut agent_registry);
+    let agent_registry = Arc::new(agent_registry);
     let agent_prompt_section = agent_registry.compile_agent_prompt_section();
     if !agent_prompt_section.is_empty() {
         system_prompt.push_str(&agent_prompt_section);
@@ -881,6 +910,41 @@ where
                                 ),
                             }
                         }
+                    }
+                }
+                BusMessage::StreamDelta { chat_id, chunk } => {
+                    let event = crate::event::Event::StreamDelta {
+                        chunk: serde_json::to_value(chunk)
+                            .expect("IsanAgent stream chunks are serializable by contract"),
+                    };
+                    if let Err(error) = crate::delivery::emit_event(
+                        sink_for_outbound.as_ref(),
+                        &chat_id,
+                        &event,
+                        None,
+                    ) {
+                        log::warn!("Could not deliver stream delta for chat {chat_id}: {error}");
+                    }
+                }
+                BusMessage::SessionProjection(projection) => {
+                    let chat_id = projection.chat_id;
+                    let event = crate::event::Event::SessionProjection {
+                        projection_seq: projection.seq,
+                        timestamp_rfc3339: projection.timestamp_rfc3339,
+                        run_status: projection.run_status,
+                        todos: projection.todos,
+                        subagents: projection.subagents,
+                        jobs: projection.jobs,
+                    };
+                    if let Err(error) = crate::delivery::emit_event(
+                        sink_for_outbound.as_ref(),
+                        &chat_id,
+                        &event,
+                        None,
+                    ) {
+                        log::warn!(
+                            "Could not deliver session projection for chat {chat_id}: {error}"
+                        );
                     }
                 }
                 _ => {}
