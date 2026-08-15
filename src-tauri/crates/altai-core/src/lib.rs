@@ -22,7 +22,7 @@ pub use config::{
     AgentConfigLayer, ConfigSource, ResolvedAgentConfig, ResolvedConfig,
 };
 pub use event::{EventEnvelope, EVENT_SCHEMA_VERSION};
-pub use journal::{
+pub use journal::{ChatUsageTotals, 
     AppendStatus, ChatJournalSummary, EventJournal, JournalError, JournalEvent, JournalResult,
     RunJournalSummary, SessionJournalMetadata, TaskRunJournalMetadata,
 };

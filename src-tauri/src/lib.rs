@@ -802,6 +802,7 @@ pub fn run() {
             work::work_events,
             work::work_runs,
             work::work_events_recent,
+            work::work_usage_recent,
             work::agent_list,
             work::agent_create,
             work::agent_transition,

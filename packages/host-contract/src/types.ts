@@ -355,6 +355,36 @@ export type AuditEvent = {
 };
 
 /**
+ * Token usage attributed to one attempt through its chat binding.
+ * `usage` is absent when the attempt never bound a chat — nothing to
+ * attribute is a different fact from zero usage.
+ */
+export type WorkUsageTotals = {
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+  cacheReadTokens: number;
+  cacheCreationTokens: number;
+  eventCount: number;
+};
+
+/**
+ * An attempt joined with its Work and with the token usage its chat
+ * recorded in the agent event journal — the row a usage ledger renders.
+ */
+export type WorkUsage = {
+  attemptId: string;
+  workId: string;
+  workTitle: string;
+  number: number;
+  phase: WorkAttemptPhase;
+  chatId?: string | null;
+  runId?: string | null;
+  updatedAtMs: number;
+  usage?: WorkUsageTotals | null;
+};
+
+/**
  * An attempt joined with its Work — the row a Runs hub renders. The
  * attempt's `phase` and the Work's `workState` are distinct axes; a
  * running attempt on in-review Work is not the same fact as either label.

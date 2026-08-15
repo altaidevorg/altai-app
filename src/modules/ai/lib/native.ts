@@ -6,7 +6,7 @@ import type {
   WorkCreateInput,
   WorkAttempt,
   WorkEvent,
-  WorkRun,
+  WorkRun, WorkUsage,
   WorkInboxItem,
   WorkItem,
   WorkListFilter,
@@ -622,6 +622,11 @@ export const native = {
     invoke<AuditEvent[]>("work_events_recent", {
       workspacePath: workspacePath ?? currentWorkspaceEnv(),
       limit: limit ?? 50,
+    }),
+  workUsageRecent: (limit?: number, workspacePath?: string | null) =>
+    invoke<WorkUsage[]>("work_usage_recent", {
+      workspacePath: workspacePath ?? currentWorkspaceEnv(),
+      limit: limit ?? 20,
     }),
   agentList: (workspacePath?: string | null) =>
     invoke<AgentRecord[]>("agent_list", {
