@@ -20,6 +20,7 @@ import { OperationsStatusBar } from "@/modules/operations";
 import {
   AgentsPanel,
   AuditPanel,
+  RoutinesPanel,
   RunsHubSection,
   WorkBoard,
   WorkDetailPanel,
@@ -31,7 +32,7 @@ import {
 
 type LoadStatus = "loading" | "ready" | "error";
 
-type HomeSurface = "work" | "agents" | "audit";
+type HomeSurface = "work" | "agents" | "audit" | "routines";
 
 type Props = {
   workspacePath: string | null;
@@ -242,6 +243,7 @@ export function DesktopHome({
                 { id: "work", label: "Work" },
                 { id: "agents", label: "Agents" },
                 { id: "audit", label: "Audit" },
+                { id: "routines", label: "Routines" },
               ]}
               className="w-full"
             />
@@ -254,6 +256,13 @@ export function DesktopHome({
             />
           ) : surface === "audit" ? (
             <AuditPanel
+              key={workspacePath}
+              workspacePath={workspacePath}
+              onOpenWork={openWorkHere}
+              className="min-h-0 flex-1"
+            />
+          ) : surface === "routines" ? (
+            <RoutinesPanel
               key={workspacePath}
               workspacePath={workspacePath}
               onOpenWork={openWorkHere}

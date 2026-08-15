@@ -3,6 +3,7 @@ export { WorkDetailPanel } from "./WorkDetailPanel";
 export { WorkGraphSection } from "./WorkGraphSection";
 export { AgentsPanel } from "./AgentsPanel";
 export { AuditPanel } from "./AuditPanel";
+export { RoutinesPanel } from "./RoutinesPanel";
 export { RunsHubSection } from "./RunsHubSection";
 export { WorkTimelineSection } from "./WorkTimelineSection";
 export {
@@ -27,6 +28,13 @@ export {
   projectAuditFeed,
   type AuditFeedRow,
 } from "./lib/auditFeedProjection";
+export {
+  formatScheduleTime,
+  projectRoutines,
+  summarizeRoutines,
+  type RoutineRow,
+  type RoutinesSummary,
+} from "./lib/routinesProjection";
 export {
   toWorkDetailModel,
   toWorkGraphModel,

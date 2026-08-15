@@ -125,6 +125,28 @@ impl LegacyWorkBridge {
         Ok(canonical)
     }
 
+    /// Reverse lookup for read-side projections: the legacy WorkStore id a
+    /// canonical WorkItem was projected from, if the bridge ever projected
+    /// it. `None` means the canonical id has no legacy counterpart (yet).
+    pub fn legacy_id_for(
+        &self,
+        canonical_work_item_id: &WorkItemId,
+    ) -> Result<Option<String>, LegacyWorkBridgeError> {
+        let connection = self
+            .connection
+            .lock()
+            .map_err(|_| LegacyWorkBridgeError::Internal("legacy bridge lock poisoned".into()))?;
+        connection
+            .query_row(
+                "SELECT legacy_work_id FROM control_plane_legacy_work_mappings
+                 WHERE canonical_work_item_id = ?1",
+                [&canonical_work_item_id.value],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|error| LegacyWorkBridgeError::Internal(error.to_string()))
+    }
+
     /// Advance a projection only if no independent canonical writer changed it
     /// since this bridge last recorded ownership.
     pub fn reconcile(

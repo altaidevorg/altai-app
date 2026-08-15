@@ -43,6 +43,10 @@ pub trait RoutineRepository: Send + Sync {
     ) -> Result<Option<RoutineRevision>, RoutineError>;
     /// All routines in the `Active` lifecycle state, for the cron bridge to scan.
     fn list_active(&self) -> Result<Vec<Routine>, RoutineError>;
+    /// Every routine regardless of lifecycle state, for read-side
+    /// projections: a paused or retired routine is still scheduled work
+    /// someone chose to silence, not a fact that stops existing.
+    fn list_all(&self) -> Result<Vec<Routine>, RoutineError>;
     /// The most recent cron fire the bridge materialized for this routine, if any.
     fn last_fired(&self, routine_id: &RoutineId) -> Result<Option<u64>, RoutineError>;
     /// Record that the bridge materialized a fire at `fired_at_unix_seconds`,
@@ -224,6 +228,14 @@ impl RoutineRepository for SqliteRoutineRepository {
     }
 
     fn list_active(&self) -> Result<Vec<Routine>, RoutineError> {
+        Ok(self
+            .list_all()?
+            .into_iter()
+            .filter(|routine| routine.status == RoutineStatus::Active)
+            .collect())
+    }
+
+    fn list_all(&self) -> Result<Vec<Routine>, RoutineError> {
         let connection = self.lock()?;
         let mut stmt = connection
             .prepare("SELECT payload_json FROM control_plane_routines")
@@ -237,9 +249,7 @@ impl RoutineRepository for SqliteRoutineRepository {
                 serde_json::from_str(&payload.map_err(Self::db)?).map_err(|e| RoutineError::Internal {
                     reason: e.to_string(),
                 })?;
-            if routine.status == RoutineStatus::Active {
-                routines.push(routine);
-            }
+            routines.push(routine);
         }
         Ok(routines)
     }
@@ -450,6 +460,25 @@ mod tests {
             )
             .unwrap_err();
         assert!(matches!(err, RoutineError::NotFound { .. }));
+    }
+
+    #[test]
+    fn list_all_keeps_paused_and_retired_routines_readable() {
+        let dir = tempfile::tempdir().unwrap();
+        let database = dir.path().join("work.db");
+        let repo = SqliteRoutineRepository::open(&database).unwrap();
+        let mut paused = routine("rt-paused");
+        paused.status = altai_control_protocol::RoutineStatus::Paused;
+        let mut retired = routine("rt-retired");
+        retired.status = altai_control_protocol::RoutineStatus::Retired;
+        repo.create(routine("rt-active")).unwrap();
+        repo.create(paused).unwrap();
+        repo.create(retired).unwrap();
+
+        let all = repo.list_all().unwrap();
+        assert_eq!(all.len(), 3, "every lifecycle state stays readable");
+        // list_active remains the cron bridge's scan: Active only.
+        assert_eq!(repo.list_active().unwrap().len(), 1);
     }
 
     #[test]

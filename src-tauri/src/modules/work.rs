@@ -158,7 +158,7 @@ pub struct WorkCreateArgs {
     pub parent_work_id: Option<String>,
 }
 
-fn authorized_workspace(
+pub(crate) fn authorized_workspace(
     workspace_path: &str,
     registry: &WorkspaceRegistry,
 ) -> Result<String, String> {
@@ -175,7 +175,7 @@ fn authorized_workspace(
     Ok(canonical.to_string_lossy().replace('\\', "/"))
 }
 
-fn open_store(
+pub(crate) fn open_store(
     registry: &WorkspaceRegistry,
     workspace_path: &str,
 ) -> Result<(String, WorkStore), String> {
@@ -200,6 +200,16 @@ fn open_store(
         )
         .map_err(|error| error.to_string())?;
     Ok((project_id, store))
+}
+
+/// The workspace's `work.db` path, for read-side companions that share
+/// the store's file (the routine aggregates the control plane owns).
+/// Resolve only — callers that also need the store go through
+/// [`open_store`], which owns the migration lifecycle.
+pub(crate) fn resolve_work_db(workspace: &str) -> Result<std::path::PathBuf, String> {
+    let paths = resolve_workspace_from(Some(Path::new(workspace)), Path::new(workspace))
+        .map_err(|error| error.to_string())?;
+    Ok(paths.work_db())
 }
 
 fn parse_filter(raw: Option<&str>) -> Result<WorkListFilter, String> {
