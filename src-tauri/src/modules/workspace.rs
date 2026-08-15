@@ -6,6 +6,8 @@ use std::time::{Duration, Instant};
 use serde::{Deserialize, Serialize};
 use tauri::Manager;
 
+use super::control_protocol::ControlProtocolHost;
+
 // Short TTL keeps the auth-check TOCTOU window tight while still coalescing the
 // burst of canonicalize calls within a single panel refresh (~100ms).
 const CANONICAL_TTL: Duration = Duration::from_secs(1);
@@ -120,6 +122,7 @@ pub struct WorkspaceRegistry {
     opened_roots: Mutex<HashMap<PathBuf, WorkspaceRootIdentity>>,
     canonical_cache: Mutex<HashMap<PathBuf, CanonicalEntry>>,
     migrated_work_dbs: Mutex<HashSet<PathBuf>>,
+    control_hosts: Mutex<HashMap<PathBuf, std::sync::Arc<ControlProtocolHost>>>,
 }
 
 impl WorkspaceRegistry {
@@ -245,8 +248,8 @@ impl WorkspaceRegistry {
         if migrated.contains(database) {
             return Ok(());
         }
-        altai_control_plane::LocalMigrationRunner::migrate(database).map_err(|error| {
-            match error {
+        altai_control_plane::LocalMigrationRunner::migrate(database).map_err(
+            |error| match error {
                 altai_control_plane::LocalMigrationError::UnsupportedSchema {
                     current,
                     supported,
@@ -257,10 +260,35 @@ impl WorkspaceRegistry {
                 altai_control_plane::LocalMigrationError::Database { reason } => {
                     format!("work.db migration failed: {reason}")
                 }
-            }
-        })?;
+            },
+        )?;
         migrated.insert(database.to_path_buf());
         Ok(())
+    }
+
+    /// One control-protocol host per workspace `work.db` for this app run,
+    /// shared by every desktop command (Studio included). Built only after
+    /// the migration gate accepts the database; failures are not cached so
+    /// an updated database recovers without an app restart.
+    pub fn control_protocol_host(
+        &self,
+        database: &Path,
+    ) -> Result<std::sync::Arc<ControlProtocolHost>, String> {
+        if let Some(host) = self
+            .control_hosts
+            .lock()
+            .expect("workspace registry poisoned")
+            .get(database)
+        {
+            return Ok(host.clone());
+        }
+        self.ensure_work_db_migrated(database)?;
+        let host = std::sync::Arc::new(ControlProtocolHost::open(database)?);
+        self.control_hosts
+            .lock()
+            .expect("workspace registry poisoned")
+            .insert(database.to_path_buf(), host.clone());
+        Ok(host)
     }
 
     pub fn canonicalize_cached<P: AsRef<Path>>(&self, path: P) -> std::io::Result<PathBuf> {

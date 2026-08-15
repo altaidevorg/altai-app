@@ -3,8 +3,8 @@ mod modules;
 
 use altai::agent::commands as agent_commands;
 use modules::{
-    app_menu, fs, git, github, lsp_install, mcp, net, notebook, orchestration, os_menu, proc, pty,
-    secrets, shell, webview, work, work_import, workspace,
+    app_menu, control_protocol, fs, git, github, lsp_install, mcp, net, notebook, orchestration,
+    os_menu, proc, pty, secrets, shell, webview, work, work_import, workspace,
 };
 use serde::{Deserialize, Serialize};
 use std::sync::Mutex;
@@ -805,6 +805,9 @@ pub fn run() {
             work::work_ready_for_review,
             work::work_review,
             work_import::work_legacy_import_preview,
+            // ALTAI — Work OS control protocol (CP-08-45)
+            control_protocol::control_protocol_negotiate,
+            control_protocol::control_protocol_execute,
             net::lm_ping,
             net::ai_http_request,
             net::ai_http_stream,
