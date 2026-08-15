@@ -8,6 +8,7 @@ import type {
   WorkRun,
 } from "@altai/host-contract";
 import { EmptyState } from "@/components/altai";
+import { useChatStore } from "@/modules/ai/store/chatStore";
 import { native } from "@/modules/ai/lib/native";
 import { WORK_INBOX_INVALIDATION_EVENTS } from "@/modules/ai/lib/workInboxAttention";
 import { OperationsStatusBar } from "@/modules/operations";
@@ -59,6 +60,7 @@ export function DesktopHome({
   const [runs, setRuns] = useState<WorkRun[]>([]);
   const [inbox, setInbox] = useState<WorkInboxItem[]>([]);
   const [selectedWorkId, setSelectedWorkId] = useState<string | null>(null);
+  const switchSession = useChatStore((state) => state.switchSession);
   const requestGeneration = useRef(0);
   const hasLoaded = useRef(false);
   const onInboxCountChangeRef = useRef(onInboxCountChange);
@@ -223,6 +225,7 @@ export function DesktopHome({
             workId={selectedWorkId}
             onBack={() => setSelectedWorkId(null)}
             onOpenWork={setSelectedWorkId}
+            onOpenTranscript={switchSession}
             className="min-h-[280px]"
           />
         ) : (

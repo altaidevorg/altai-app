@@ -19,10 +19,43 @@ function label(value: string): string {
   return value.replace(/_/g, " ");
 }
 
+const RESULT_SUMMARY_FIELDS = ["failure", "error", "message", "summary"] as const;
+const RESULT_SUMMARY_MAX = 200;
+
+/** Extract the human-readable line from an attempt's recorded result.
+ *  The store writes free-form JSON (failure results, journal outcomes);
+ *  anything without a readable field degrades to null, never raw JSON. */
+function resultSummary(resultJson: string | null | undefined): string | null {
+  if (!resultJson) return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(resultJson);
+  } catch {
+    return null;
+  }
+  if (typeof parsed !== "object" || parsed === null) return null;
+  const record = parsed as Record<string, unknown>;
+  for (const field of RESULT_SUMMARY_FIELDS) {
+    const value = record[field];
+    if (typeof value === "string" && value.trim().length > 0) {
+      const trimmed = value.trim();
+      return trimmed.length > RESULT_SUMMARY_MAX
+        ? `${trimmed.slice(0, RESULT_SUMMARY_MAX - 1)}…`
+        : trimmed;
+    }
+  }
+  return null;
+}
+
 export type WorkDetailAttemptRow = {
   id: string;
   number: number;
   phaseLabel: string;
+  /** The attempt's recorded result — its evidence — or null when the
+   *  attempt has not recorded one. */
+  resultSummary: string | null;
+  /** The chat this attempt's transcript lives in; null when unbound. */
+  chatId: string | null;
 };
 
 export type WorkDetailModel = {
@@ -81,6 +114,8 @@ export function toWorkDetailModel(input: {
       id: attempt.id,
       number: attempt.number,
       phaseLabel: label(attempt.phase),
+      resultSummary: resultSummary(attempt.resultJson),
+      chatId: attempt.chatId ?? null,
     })),
     revision: work.revision,
     createdAtMs: work.createdAtMs,
