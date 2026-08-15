@@ -611,9 +611,9 @@ export const native = {
     invoke<{ changedWorkIds: string[] }>("work_attempt_reconcile", {
       workspacePath: workspacePath ?? currentWorkspaceEnv(),
     }),
-  workAttempts: (workId: string) =>
+  workAttempts: (workId: string, workspacePath?: string | null) =>
     invoke<WorkAttempt[]>("work_attempts", {
-      workspacePath: currentWorkspaceEnv(),
+      workspacePath: workspacePath ?? currentWorkspaceEnv(),
       workId,
     }),
   workGet: (workId: string) =>

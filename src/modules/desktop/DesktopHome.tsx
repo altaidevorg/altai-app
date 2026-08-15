@@ -1,16 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import {
-  formatRelativeTime,
-  WorkInbox,
-  WorkList,
-  type WorkInboxRow,
-  type WorkListRow,
-} from "@altai/agent-ui";
-import type { WorkInboxItem, WorkItem } from "@altai/host-contract";
+import { formatRelativeTime, WorkInbox, type WorkInboxRow } from "@altai/agent-ui";
+import type { WorkAttempt, WorkInboxItem, WorkItem } from "@altai/host-contract";
 import { EmptyState } from "@/components/altai";
+import { native } from "@/modules/ai/lib/native";
 import { WORK_INBOX_INVALIDATION_EVENTS } from "@/modules/ai/lib/workInboxAttention";
 import { OperationsStatusBar } from "@/modules/operations";
+import { WorkBoard, projectWorkBoard, type WorkBoardRow } from "@/modules/work-board";
 
 type LoadStatus = "loading" | "ready" | "error";
 
@@ -22,24 +18,6 @@ type Props = {
   onNewWork: () => void;
   onInboxCountChange?: (count: number) => void;
 };
-
-function stateLabel(state: string): string {
-  return state.replace(/_/g, " ");
-}
-
-export function toHomeWorkRow(
-  item: WorkItem,
-  projectLabel: string,
-): WorkListRow {
-  return {
-    id: item.id,
-    title: item.title,
-    projectLabel,
-    stateLabel: stateLabel(item.state),
-    attemptLabel: "—",
-    updatedLabel: formatRelativeTime(item.updatedAtMs),
-  };
-}
 
 export function toHomeInboxRow(item: WorkInboxItem): WorkInboxRow {
   return {
@@ -64,6 +42,7 @@ export function DesktopHome({
   const [status, setStatus] = useState<LoadStatus>("loading");
   const [error, setError] = useState<string | null>(null);
   const [work, setWork] = useState<WorkItem[]>([]);
+  const [attempts, setAttempts] = useState<WorkAttempt[]>([]);
   const [inbox, setInbox] = useState<WorkInboxItem[]>([]);
   const requestGeneration = useRef(0);
   const hasLoaded = useRef(false);
@@ -85,8 +64,17 @@ export function DesktopHome({
         }),
         invoke<WorkInboxItem[]>("work_inbox_list", { workspacePath }),
       ]);
+      // The board's second axis: the latest attempt's phase per Work.
+      const nextAttempts = (
+        await Promise.all(
+          nextWork.map((item) =>
+            native.workAttempts(item.id, workspacePath).catch(() => [] as WorkAttempt[]),
+          ),
+        )
+      ).flat();
       if (generation !== requestGeneration.current) return;
       setWork(nextWork);
+      setAttempts(nextAttempts);
       setInbox(nextInbox);
       setError(null);
       setStatus("ready");
@@ -106,6 +94,7 @@ export function DesktopHome({
     requestGeneration.current += 1;
     hasLoaded.current = false;
     setWork([]);
+    setAttempts([]);
     setInbox([]);
     setError(null);
     if (!workspacePath) {
@@ -128,9 +117,15 @@ export function DesktopHome({
     };
   }, [refresh, workspacePath]);
 
-  const workRows = useMemo(
-    () => work.map((item) => toHomeWorkRow(item, workspaceName)),
-    [work, workspaceName],
+  const boardRows = useMemo<WorkBoardRow[]>(
+    () =>
+      projectWorkBoard({
+        work,
+        attempts,
+        inbox,
+        formatUpdated: formatRelativeTime,
+      }),
+    [work, attempts, inbox],
   );
   const inboxRows = useMemo(() => inbox.map(toHomeInboxRow), [inbox]);
 
@@ -181,7 +176,7 @@ export function DesktopHome({
         </h2>
         <OperationsStatusBar />
       </header>
-      <div className="grid min-h-0 flex-1 grid-cols-1 gap-px overflow-hidden bg-border-subtle lg:grid-cols-[minmax(260px,0.38fr)_minmax(380px,0.62fr)]">
+      <div className="grid min-h-0 flex-1 grid-cols-1 gap-px overflow-hidden bg-border-subtle lg:grid-cols-[minmax(240px,0.3fr)_minmax(420px,0.7fr)]">
         <WorkInbox
           status={status}
           rows={inboxRows}
@@ -191,17 +186,14 @@ export function DesktopHome({
           onGoToWork={onOpenInbox}
           className="min-h-[240px]"
         />
-        <WorkList
+        <WorkBoard
           status={status}
-          filter="my_active"
-          onFilterChange={() => undefined}
-          rows={workRows}
+          rows={boardRows}
           onOpenWork={onOpenWork}
           onNewWork={onNewWork}
           onOpenInbox={onOpenInbox}
           errorMessage={error ?? undefined}
           onRetry={() => void refresh()}
-          showFilters={false}
           title="My active"
           className="min-h-[280px]"
         />
