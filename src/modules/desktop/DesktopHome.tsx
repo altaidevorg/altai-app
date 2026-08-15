@@ -151,7 +151,7 @@ export function DesktopHome({
           <p className="mt-0.5 text-[11px] text-muted-foreground">
             What needs you and the Work already in motion.
           </p>
-          <OperationsStatusBar workspacePath={null} workspaceName={null} />
+          <OperationsStatusBar />
         </header>
         <EmptyState
           className="min-h-0 flex-1"
@@ -179,7 +179,7 @@ export function DesktopHome({
         >
           Home
         </h2>
-        <OperationsStatusBar workspacePath={workspacePath} workspaceName={workspaceName} />
+        <OperationsStatusBar />
       </header>
       <div className="grid min-h-0 flex-1 grid-cols-1 gap-px overflow-hidden bg-border-subtle lg:grid-cols-[minmax(260px,0.38fr)_minmax(380px,0.62fr)]">
         <WorkInbox

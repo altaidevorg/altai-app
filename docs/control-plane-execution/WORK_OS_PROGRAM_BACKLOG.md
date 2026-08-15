@@ -35,10 +35,10 @@ Definition of done for every package:
 
 | Measure | Current |
 | --- | ---: |
-| Overall Work OS completion | **15%** |
+| Overall Work OS completion | **16%** |
 | Foundation/control-plane backbone | **57%** |
 | End-to-end autonomous execution | **8%** |
-| Product/UX surfaces | **3%** |
+| Product/UX surfaces | **5%** |
 | Ecosystem/plugin/upstream adoption | **2%** |
 
 These are weighted outcome estimates, not lines-of-code counts. The percentage
@@ -112,7 +112,7 @@ changes only when an exit gate is accepted.
 | Order | Package | Status | Depends on | Planned PRs | Acceptance gate |
 | ---: | --- | --- | --- | ---: | --- |
 | 060 | Read-model projections and activity stream | accepted | 035, 042–044 | #785, #786 | Server projections, not frontend store joins, answer operational queries |
-| 061 | Operations shell and context switcher | in_progress | 052, 060 | 2 | Health/offline/org/project context states are explicit |
+| 061 | Operations shell and context switcher | accepted | 052, 060 | #795, #796 | Health/offline/org/project context states are explicit |
 | 062 | Work board/list/detail/graph | planned | 024, 060 | 2–3 | Status, execution phase and attention remain distinct |
 | 063 | Runs hub and Run Inspector | planned | 035, 045, 060 | 2–3 | Timeline, transcript, approvals, evidence and delivery are inspectable |
 | 064 | Agents, org chart and profile administration | planned | 032, 060 | 2 | Lifecycle and reporting mutations use control-plane commands |
@@ -169,9 +169,10 @@ architecture, security, and replacement decision. “Study” does not count as 
 
 The next PRs are fixed until this list is updated by an accepted change:
 
-1. `CP-08-47` — Operations shell and context switcher (Package 061 PR 1).
-2. `CP-08-48` — Operations shell and context switcher (Package 061 PR 2).
-3. `CP-08-49` — Work board/list/detail/graph (Package 062 PR 1).
+1. `CP-08-49` — Work board/list/detail/graph (Package 062 PR 1).
+2. `CP-08-50` — Work board/list/detail/graph (Package 062 PR 2).
+3. `CP-08-51` — Work board/list/detail/graph (Package 062 PR 3, if 062 needs
+   it) or Runs hub and Run Inspector (Package 063 PR 1).
 
 ## 5. Project-manager update protocol
 

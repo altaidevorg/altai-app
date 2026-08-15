@@ -1,4 +1,9 @@
-export { OperationsStatusBar } from "./OperationsStatusBar";
+export { OperationsContextBadge } from "./OperationsContextBadge";
+export {
+  OperationsStatusBar,
+  recheckOperations,
+  useOperationsProbe,
+} from "./OperationsStatusBar";
 export {
   OPERATIONS_CLIENT_NAME,
   OPERATIONS_PROTOCOL_CLIENT_VERSION,
@@ -13,4 +18,5 @@ export {
   useOperationsContextStore,
   type OperationsConnection,
   type OperationsContext,
+  type OperationsScope,
 } from "./store/operationsContextStore";
