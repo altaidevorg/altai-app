@@ -698,6 +698,13 @@ export default function App() {
   const [desktopInboxCount, setDesktopInboxCount] = useState(0);
   const [desktopWorkNavigation, setDesktopWorkNavigation] =
     useState<ProjectBoardNavigation>();
+  // Chat-shortcut intents for the Work OS Home: set when an operations
+  // intent fires in agent mode, consumed by DesktopHome's surface effect.
+  const [homeOperationsIntent, setHomeOperationsIntent] = useState<{
+    nonce: number;
+    view: "overview" | "work" | "runs" | "inbox";
+    workHubView?: "runs" | "scheduled" | null;
+  } | null>(null);
   const [studioHasOpened, setStudioHasOpened] = useState(
     initialMode === "studio",
   );
@@ -1930,6 +1937,20 @@ export default function App() {
         workHubView?: "runs" | "scheduled";
       }>).detail;
       if (!detail?.view) return;
+      // In the desktop agent mode, operations intents land on the Work OS
+      // Home — the canonical surfaces — instead of yanking the user into
+      // studio's legacy board. Studio keeps its own routing.
+      if (appMode === "agent") {
+        setDesktopDestination("home");
+        persistDesktopDestination("home");
+        setHomeOperationsIntent({
+          nonce: Date.now(),
+          view: detail.view,
+          workHubView: detail.workHubView ?? null,
+        });
+        announce("Home");
+        return;
+      }
       void openProjectBoardFromContext({
         view: detail.view,
         workHubView: detail.workHubView,
@@ -1938,7 +1959,12 @@ export default function App() {
     window.addEventListener("altai:open-operations", openOperations);
     return () =>
       window.removeEventListener("altai:open-operations", openOperations);
-  }, [openProjectBoardFromContext]);
+  }, [
+    announce,
+    appMode,
+    openProjectBoardFromContext,
+    persistDesktopDestination,
+  ]);
 
   const handleSidebarRailSelect = useCallback(
     (item: SidebarRailItemId) => {
@@ -2980,6 +3006,7 @@ export default function App() {
                             onNewWork={() =>
                               showDesktopWork({ action: "new-work" })
                             }
+                            operationsIntent={homeOperationsIntent}
                           />
                         </div>
                         {desktopDestination === "work" ? (
