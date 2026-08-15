@@ -13,6 +13,8 @@ path = "src/main.rs"
 [dependencies]
 altai-core = { path = "../altai-core" }
 altai-agent-service = { path = "../altai-agent-service" }
+altai-control-plane = { path = "../altai-control-plane" }
+altai-control-protocol = { path = "../altai-control-protocol" }
 altai-protocol = { path = "../altai-protocol" }
 async-trait = "0.1"
 base64 = "0.22"
@@ -30,6 +32,7 @@ dirs = "5"
 
 [dev-dependencies]
 tempfile = "3"
+rusqlite = { version = "0.38.0", features = ["bundled"] }
 
 [target.'cfg(windows)'.dependencies]
 keyring = { version = "3.6", default-features = false, features = ["windows-native"] }

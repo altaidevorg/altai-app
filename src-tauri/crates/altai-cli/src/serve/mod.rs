@@ -20,6 +20,7 @@ use crate::stdio_host::StdioHost;
 use crate::stdio_sink::{write_framed, SharedStdout, StdioEventSink};
 
 mod edit_proposals;
+mod protocol;
 mod provider_credentials;
 mod skills;
 mod work;
@@ -60,6 +61,10 @@ pub async fn run(workspace: WorkspacePaths) -> Result<(), String> {
         run_coordinator.clone(),
     ));
     let edit_proposals: SharedEditProposalStore = new_edit_proposal_store();
+    // Embedded control-plane host: one dispatcher over the workspace work.db,
+    // brought to schema (or refused) before the first command is served.
+    let control_protocol = protocol::ControlProtocolState::open(&workspace)
+        .map_err(|error| format!("could not open control protocol host: {error}"))?;
 
     let mut stdin = tokio::io::stdin();
     let mut decoder = FrameDecoder::new(FrameLimits::default());
@@ -168,6 +173,8 @@ pub async fn run(workspace: WorkspacePaths) -> Result<(), String> {
                                 "run/replay",
                                 "clarification/respond",
                                 "context/compact",
+                                "control/negotiate",
+                                "control/execute",
                                 "checkpoints/list",
                                 "checkpoints/restore",
                                 "review/proposals/list",
@@ -180,6 +187,38 @@ pub async fn run(workspace: WorkspacePaths) -> Result<(), String> {
                         None,
                     )
                     .await?;
+                }
+                "control/negotiate" if initialized => {
+                    match control_protocol.negotiate(params.clone()) {
+                        Ok(value) => {
+                            respond(&writer, id, Some(value), None).await?;
+                        }
+                        Err(message) => {
+                            respond(
+                                &writer,
+                                id,
+                                None,
+                                Some(error_value(-32602, &message)),
+                            )
+                            .await?;
+                        }
+                    }
+                }
+                "control/execute" if initialized => {
+                    match control_protocol.execute(params.clone()) {
+                        Ok(value) => {
+                            respond(&writer, id, Some(value), None).await?;
+                        }
+                        Err(message) => {
+                            respond(
+                                &writer,
+                                id,
+                                None,
+                                Some(error_value(-32602, &message)),
+                            )
+                            .await?;
+                        }
+                    }
                 }
                 "workspace/status" if initialized => {
                     let journal_path = workspace.agent_event_journal_db();
