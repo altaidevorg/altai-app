@@ -13,15 +13,18 @@
 //! rather than guessing or silently 404ing.
 
 use altai_control_protocol::{
-    CapabilityNegotiationRequest, CapabilityNegotiationResponse, ControlPlaneCapabilities,
-    ControlErrorCode, DeploymentMode, ProtocolCommand, ProtocolError, ProtocolOutcome,
-    ProtocolRequest, ProtocolResponse, ProtocolVersion,
+    ActivityQueryRequest, CapabilityNegotiationRequest, CapabilityNegotiationResponse,
+    ControlPlaneCapabilities, ControlErrorCode, DeploymentMode, ProtocolCommand, ProtocolError,
+    ProtocolOutcome, ProtocolRequest, ProtocolResponse, ProtocolVersion,
 };
+use std::sync::Arc;
+
+use crate::{ActivityEventRepository, ActivityEventError};
 
 /// Capabilities honestly derived from the repositories wired into the
 /// transport. Domains with protocol-facing routes advertise `true`; budgets,
-/// evidence, activity audit, event replay and workspace scopes stay `false`
-/// until they have serving.
+/// evidence, event replay and workspace scopes stay `false` until they have
+/// serving.
 pub fn capabilities_from_wiring(
     scope_repository: bool,
     agent_repository: bool,
@@ -29,6 +32,7 @@ pub fn capabilities_from_wiring(
     attempt_repository: bool,
     routine_repository: bool,
     approval_repository: bool,
+    activity_repository: bool,
 ) -> ControlPlaneCapabilities {
     ControlPlaneCapabilities {
         organizations: scope_repository,
@@ -42,7 +46,7 @@ pub fn capabilities_from_wiring(
         approvals: approval_repository,
         budgets: false,
         evidence: false,
-        activity_audit: false,
+        activity_audit: activity_repository,
         event_replay: false,
         workspace_scopes: false,
     }
@@ -54,6 +58,7 @@ pub fn capabilities_from_wiring(
 pub struct ProtocolDispatcher {
     deployment_mode: DeploymentMode,
     capabilities: ControlPlaneCapabilities,
+    activity: Option<Arc<dyn ActivityEventRepository>>,
 }
 
 impl ProtocolDispatcher {
@@ -64,7 +69,18 @@ impl ProtocolDispatcher {
         Self {
             deployment_mode,
             capabilities,
+            activity: None,
         }
+    }
+
+    /// Attach the durable activity stream; serving `QueryActivity` and
+    /// advertising `activity_audit` both derive from this wiring.
+    pub fn with_activity_repository(
+        mut self,
+        repository: Arc<dyn ActivityEventRepository>,
+    ) -> Self {
+        self.activity = Some(repository);
+        self
     }
 
     pub fn capabilities(&self) -> &ControlPlaneCapabilities {
@@ -111,17 +127,34 @@ impl ProtocolDispatcher {
             ProtocolCommand::NegotiateCapabilities(inner) => {
                 Ok(ProtocolOutcome::Negotiated(self.negotiate(inner)))
             }
-            ProtocolCommand::QueryActivity(_) => {
-                // The activity producer arrives with package 060; until then
-                // the dispatcher honestly denies instead of guessing.
-                Err(self.unsupported("activity_audit"))
-            }
+            ProtocolCommand::QueryActivity(inner) => match &self.activity {
+                Some(store) => self.query_activity(store, inner),
+                None => Err(self.unsupported("activity_audit")),
+            },
             ProtocolCommand::ReplayEvents(_) => Err(self.unsupported("event_replay")),
         };
         match outcome {
             Ok(value) => ProtocolResponse::ok(request.id.clone(), value),
             Err(error) => ProtocolResponse::error(request.id.clone(), error),
         }
+    }
+
+    fn query_activity(
+        &self,
+        store: &Arc<dyn ActivityEventRepository>,
+        request: &ActivityQueryRequest,
+    ) -> Result<ProtocolOutcome, ProtocolError> {
+        store
+            .query(request)
+            .map(ProtocolOutcome::Activity)
+            .map_err(|e| self.store_failure("activity query", e))
+    }
+
+    fn store_failure(&self, operation: &str, error: ActivityEventError) -> ProtocolError {
+        ProtocolError::new(
+            ControlErrorCode::InternalError,
+            format!("{operation} failed: {error}"),
+        )
     }
 
     fn unsupported(&self, capability: &str) -> ProtocolError {
@@ -138,9 +171,9 @@ mod tests {
     use crate::{
         BootstrapCredential, ControlPlane, ControlPlaneConfig, ControlPlaneStore,
         InMemoryAgentRepository, InMemoryScopeRepository, InMemoryWakeRepository,
-        InMemoryWorkGraphRepository, ProtocolDispatcher, SqliteAttemptRepository,
-        SqliteApprovalRepository, SqliteRoutineRepository, SqliteRunBindingRepository,
-        router_with_control_repositories,
+        InMemoryWorkGraphRepository, ProtocolDispatcher, SqliteActivityEventRepository,
+        SqliteAttemptRepository, SqliteApprovalRepository, SqliteRoutineRepository,
+        SqliteRunBindingRepository, router_with_control_repositories,
     };
     use altai_control_protocol::{Actor, OrganizationId, PageRequest};
     use axum::{
@@ -157,6 +190,7 @@ mod tests {
         _dir: tempfile::TempDir,
         app: Router,
         dispatcher: Arc<ProtocolDispatcher>,
+        activity: Arc<SqliteActivityEventRepository>,
     }
 
     fn harness() -> Harness {
@@ -171,11 +205,14 @@ mod tests {
             })
             .unwrap(),
         );
-        let capabilities = capabilities_from_wiring(true, true, true, true, true, true);
-        let dispatcher = Arc::new(ProtocolDispatcher::new(
-            DeploymentMode::LocalDaemon,
-            capabilities,
-        ));
+        let activity = Arc::new(
+            SqliteActivityEventRepository::open(&dir.path().join("activity.db")).unwrap(),
+        );
+        let capabilities = capabilities_from_wiring(true, true, true, true, true, true, true);
+        let dispatcher = Arc::new(
+            ProtocolDispatcher::new(DeploymentMode::LocalDaemon, capabilities)
+                .with_activity_repository(activity.clone()),
+        );
         // The router builder constructs its own dispatcher from the same
         // wiring (all optional repositories present), so the local and
         // deployed sides below share one capability truth by construction.
@@ -198,11 +235,13 @@ mod tests {
             Some(Arc::new(
                 SqliteApprovalRepository::open(&dir.path().join("approvals.db")).unwrap(),
             )),
+            Some(activity.clone()),
         );
         Harness {
             _dir: dir,
             app,
             dispatcher,
+            activity,
         }
     }
 
@@ -255,13 +294,14 @@ mod tests {
 
     #[test]
     fn capabilities_reflect_wired_repositories() {
-        let wired = capabilities_from_wiring(true, true, true, true, true, true);
+        let wired = capabilities_from_wiring(true, true, true, true, true, true, true);
         assert!(wired.organizations && wired.agents && wired.work_graph && wired.attempts);
-        assert!(!wired.budgets && !wired.evidence && !wired.activity_audit);
+        assert!(wired.activity_audit);
+        assert!(!wired.budgets && !wired.evidence);
         assert!(!wired.event_replay && !wired.workspace_scopes);
 
-        let bare = capabilities_from_wiring(false, false, false, false, false, false);
-        assert!(!bare.organizations && !bare.attempts);
+        let bare = capabilities_from_wiring(false, false, false, false, false, false, false);
+        assert!(!bare.organizations && !bare.attempts && !bare.activity_audit);
     }
 
     #[tokio::test]
@@ -320,23 +360,59 @@ mod tests {
         }
     }
 
+    fn activity_payload() -> ProtocolCommand {
+        ProtocolCommand::QueryActivity(altai_control_protocol::ActivityQueryRequest {
+            organization_id: OrganizationId::new("org"),
+            page: PageRequest::default(),
+            kind: None,
+            work_item_id: None,
+        })
+    }
+
     #[tokio::test]
-    async fn activity_query_is_typed_denied_conformantly() {
+    async fn activity_query_conforms_across_local_and_deployed_transports() {
         let h = harness();
-        let body = request(
-            "req-4",
-            1,
-            ProtocolCommand::QueryActivity(altai_control_protocol::ActivityQueryRequest {
-                organization_id: OrganizationId::new("org"),
-                page: PageRequest::default(),
-                kind: None,
-                work_item_id: None,
-            }),
-        );
+        for index in 1..=3 {
+            h.activity
+                .append(altai_control_protocol::ActivityEvent {
+                    event_id: format!("evt_{index}"),
+                    kind: altai_control_protocol::EventKind::Created,
+                    actor: Actor::System {
+                        component: "conformance-test".into(),
+                    },
+                    timestamp: "2026-08-15T00:00:00Z".into(),
+                    organization_id: OrganizationId::new("org"),
+                    project_id: None,
+                    work_item_id: None,
+                    attempt_id: None,
+                    summary: format!("event {index}"),
+                    correlation_id: None,
+                    causation_id: None,
+                })
+                .unwrap();
+        }
+        let body = request("req-4", 1, activity_payload());
         let local = h.dispatcher.execute(&body);
         let deployed = post_command(&h, &body).await;
         assert_eq!(local, deployed);
         match local.result {
+            Ok(ProtocolOutcome::Activity(page)) => {
+                let ids: Vec<&str> = page.items.iter().map(|e| e.event_id.as_str()).collect();
+                assert_eq!(ids, vec!["evt_1", "evt_2", "evt_3"]);
+                assert!(!page.has_more);
+            }
+            other => panic!("expected activity page, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn activity_query_without_a_store_is_typed_denied() {
+        let bare = ProtocolDispatcher::new(
+            DeploymentMode::EmbeddedHost,
+            capabilities_from_wiring(true, true, true, true, true, true, false),
+        );
+        let response = bare.execute(&request("req-4b", 1, activity_payload()));
+        match response.result {
             Err(error) => {
                 assert_eq!(error.code, ControlErrorCode::PolicyDenied);
                 assert!(error.message.contains("activity_audit"));
