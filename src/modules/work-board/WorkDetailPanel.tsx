@@ -2,16 +2,19 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { formatRelativeTime, WorkDetail } from "@altai/agent-ui";
 import type {
   WorkAttempt,
+  WorkEvent,
   WorkInboxItem,
   WorkItem,
 } from "@altai/host-contract";
 import { native } from "@/modules/ai/lib/native";
+import { toWorkTimeline } from "./lib/runTimelineProjection";
 import {
   toWorkDetailModel,
   toWorkGraphModel,
   type WorkGraphModel,
 } from "./lib/workDetailProjection";
 import { WorkGraphSection } from "./WorkGraphSection";
+import { WorkTimelineSection } from "./WorkTimelineSection";
 
 type LoadStatus = "loading" | "ready" | "error" | "not_found";
 
@@ -47,6 +50,7 @@ export function WorkDetailPanel({
   const [children, setChildren] = useState<WorkItem[]>([]);
   const [attempts, setAttempts] = useState<WorkAttempt[]>([]);
   const [inbox, setInbox] = useState<WorkInboxItem[]>([]);
+  const [events, setEvents] = useState<WorkEvent[]>([]);
   const generation = useRef(0);
 
   const refresh = useCallback(async () => {
@@ -60,7 +64,7 @@ export function WorkDetailPanel({
         setStatus("not_found");
         return;
       }
-      const [nextAttempts, nextInbox, nextChildren, nextParent] =
+      const [nextAttempts, nextInbox, nextChildren, nextParent, nextEvents] =
         await Promise.all([
           native.workAttempts(workId, workspacePath).catch(() => [] as WorkAttempt[]),
           native
@@ -74,11 +78,13 @@ export function WorkDetailPanel({
                 .workGet(nextWork.parentWorkId, workspacePath)
                 .catch(() => null)
             : Promise.resolve(null),
+          native.workEvents(workId, workspacePath).catch(() => [] as WorkEvent[]),
         ]);
       if (current !== generation.current) return;
       setWork(nextWork);
       setAttempts(nextAttempts);
       setInbox(nextInbox);
+      setEvents(nextEvents);
       setChildren(nextChildren);
       setParent(nextParent);
       setError(null);
@@ -103,6 +109,7 @@ export function WorkDetailPanel({
   const graph: WorkGraphModel | null = work
     ? toWorkGraphModel({ work, parent, children })
     : null;
+  const timelineRows = toWorkTimeline(events);
 
   return (
     <div
@@ -138,6 +145,7 @@ export function WorkDetailPanel({
           errorMessage={error ?? undefined}
         />
       )}
+      {work ? <WorkTimelineSection rows={timelineRows} /> : null}
       {graph ? <WorkGraphSection graph={graph} onOpenWork={onOpenWork} /> : null}
     </div>
   );

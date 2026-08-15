@@ -12,6 +12,9 @@ use std::sync::Mutex;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 const SCHEMA_VERSION: i64 = 3;
+
+/// Upper bound on events returned by [`WorkStore::list_work_events`].
+const WORK_EVENTS_MAX: i64 = 500;
 static NEXT_ID_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 
 const MIGRATION_V1: &str = r#"
@@ -237,6 +240,18 @@ pub struct AttemptRecord {
     pub updated_at_ms: u64,
 }
 
+/// One row of the per-Work transition log (`work_events`). Appended in the
+/// same transaction as the mutation it describes, so the log can never
+/// disagree with the state it explains.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WorkEventRecord {
+    pub id: i64,
+    pub work_id: String,
+    pub kind: String,
+    pub payload_json: String,
+    pub created_at_ms: u64,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WorkInboxKind {
     ReviewRequired,
@@ -459,6 +474,35 @@ impl WorkStore {
         Ok(statement
             .query_row(params![id], map_attempt_row)
             .optional()?)
+    }
+
+    /// The Work's transition log, oldest first — the timeline a Run
+    /// Inspector renders. Bounded so a pathological Work cannot page an
+    /// unbounded history through IPC.
+    pub fn list_work_events(&self, work_id: &str) -> Result<Vec<WorkEventRecord>> {
+        let connection = self.connection.lock().expect("work store mutex");
+        let mut statement = connection.prepare(
+            r#"
+            SELECT id, work_id, kind, payload_json, created_at_ms
+            FROM work_events WHERE work_id = ?1
+            ORDER BY id ASC
+            LIMIT ?2
+            "#,
+        )?;
+        let rows = statement.query_map(params![work_id, WORK_EVENTS_MAX], |row| {
+            Ok(WorkEventRecord {
+                id: row.get(0)?,
+                work_id: row.get(1)?,
+                kind: row.get(2)?,
+                payload_json: row.get(3)?,
+                created_at_ms: row.get::<_, i64>(4)? as u64,
+            })
+        })?;
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(row?);
+        }
+        Ok(out)
     }
 
     pub fn list_attempts(&self, work_id: &str) -> Result<Vec<AttemptRecord>> {
@@ -1654,6 +1698,73 @@ mod tests {
             .as_nanos();
         let sequence = NEXT_ID_SEQUENCE.fetch_add(1, Ordering::Relaxed);
         std::env::temp_dir().join(format!("altai-work-store-{nanos}-{sequence}.db"))
+    }
+
+    #[test]
+    fn list_work_events_returns_the_transition_log_oldest_first() {
+        let path = temp_db();
+        let store = WorkStore::open(&path).expect("open");
+        store
+            .ensure_project("proj_1", "Demo", "/tmp/demo")
+            .expect("project");
+        let created = store
+            .create_work(CreateWorkInput {
+                project_id: "proj_1".into(),
+                title: "Timeline".into(),
+                description: String::new(),
+                acceptance_criteria: String::new(),
+                assignee_ref: None,
+            })
+            .expect("create");
+        let ready = store
+            .transition(&created.id, created.revision, WorkState::Ready)
+            .expect("ready");
+        let started = store
+            .start_attempt_with_record(&ready.id, ready.revision)
+            .expect("start");
+        store
+            .finish_attempt_by_id(
+                &started.attempt.id,
+                AttemptPhase::Failed,
+                "{}",
+            )
+            .expect("finish");
+
+        let events = store
+            .list_work_events(&created.id)
+            .expect("events");
+        let kinds: Vec<&str> = events.iter().map(|event| event.kind.as_str()).collect();
+        assert_eq!(
+            kinds,
+            vec![
+                "created",
+                "state_changed",
+                "state_changed",
+                "attempt_started",
+                "attempt_finished"
+            ]
+        );
+        // Ascending ids: the inspector renders the log as a timeline.
+        assert!(events.windows(2).all(|pair| pair[0].id < pair[1].id));
+        let finished = events.last().expect("finished event");
+        assert!(finished.payload_json.contains("\"failed\""));
+        for event in &events {
+            assert_eq!(event.work_id, created.id);
+        }
+
+        // Another Work's log stays out.
+        let other = store
+            .create_work(CreateWorkInput {
+                project_id: "proj_1".into(),
+                title: "Other".into(),
+                description: String::new(),
+                acceptance_criteria: String::new(),
+                assignee_ref: None,
+            })
+            .expect("other");
+        assert_eq!(store.list_work_events(&other.id).unwrap().len(), 1);
+
+        let _ = std::fs::remove_file(&path);
     }
 
     #[test]
