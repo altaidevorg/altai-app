@@ -335,4 +335,43 @@ mod tests {
         }
         assert_eq!(walked, vec!["wi_1", "at_1", "wi_1", "at_1", "wi_2"]);
     }
+
+    #[test]
+    fn replay_past_the_tail_returns_an_empty_window() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo =
+            SqliteControlEventRepository::open(&dir.path().join("work.db")).unwrap();
+        repo.append(&org("org"), &event("work_item", "wi_1", 1, "a"))
+            .unwrap();
+        let response = repo.replay(&request("org", 9_999, None)).unwrap();
+        assert!(response.events.is_empty());
+        assert!(!response.has_more);
+        // The checkpoint does not move for an empty window.
+        assert_eq!(response.next_sequence, 9_999);
+    }
+
+    #[test]
+    fn corrupt_payload_rows_surface_as_typed_internal_errors() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("work.db");
+        let repo = SqliteControlEventRepository::open(&path).unwrap();
+        repo.append(&org("org"), &event("work_item", "wi_1", 1, "a"))
+            .unwrap();
+        // Corrupt one row behind the repository's back; replay must answer
+        // a typed internal error rather than panic or skip silently.
+        let direct = Connection::open(&path).unwrap();
+        direct
+            .execute(
+                "UPDATE control_plane_control_events SET payload_json = '{not json' WHERE global_sequence = 1",
+                [],
+            )
+            .unwrap();
+        drop(direct);
+        match repo.replay(&request("org", 0, None)) {
+            Err(ControlEventError::Internal { reason }) => {
+                assert!(!reason.is_empty());
+            }
+            other => panic!("expected typed internal error, got {other:?}"),
+        }
+    }
 }

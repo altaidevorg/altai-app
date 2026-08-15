@@ -22,6 +22,11 @@ pub struct AggregateCheckpoint {
 /// keyed by `(aggregate, aggregate_id)`; input order (the global replay
 /// order) defines "later". Folding a second window over the checkpoints of
 /// the first continues the same state — the fold is incremental by design.
+///
+/// Keys are structural (`serde_json::Value` equality), which identifies the
+/// same aggregates the store's canonical string form keys on — the two
+/// representations never meet, they only have to agree on identity, and
+/// both do.
 pub fn fold_checkpoints(
     checkpoints: HashMap<(String, serde_json::Value), AggregateCheckpoint>,
     events: &[ControlEvent],
