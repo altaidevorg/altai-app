@@ -214,6 +214,8 @@ pub fn is_system_event(event: &Event) -> bool {
         Event::BackgroundJobUpdated { .. }
             | Event::NotificationCreated { .. }
             | Event::NotificationUpdated { .. }
+            | Event::StreamDelta { .. }
+            | Event::SessionProjection { .. }
     )
 }
 

@@ -11,9 +11,9 @@ use altai_agent_service::{
 };
 #[cfg(test)]
 use altai_agent_service::{
-    coordinator_guard, persist_and_deliver_run_event, persist_run_event, persist_run_payload,
-    redacted_event_payload, AgentEventEnvelope, RunAdmission, RunEventDeliveryError,
-    RunEventTransition, RunTransitionError,
+    coordinator_guard, persist_and_deliver_run_event, persist_run_event, redacted_event_payload,
+    AgentEventEnvelope, RunAdmission, RunEventDeliveryError, RunEventTransition,
+    RunTransitionError,
 };
 use super::event_journal::EventJournal;
 #[cfg(test)]

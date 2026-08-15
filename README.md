@@ -145,6 +145,10 @@ Altai reads per-repo configuration you can check into version control:
 - **`.isanagentignore`** — keep files away from agents, search, and the explorer
 - **`.altai/agents/`** — agent profiles for orchestration
 - **`.isanagent/mcp.json`** — workspace MCP servers
+- **`.agents/plugins/`** — Agent Plugins 1.0 packages (skills, subagents, prompt overlays, and stdio MCP tools)
+
+Altai also discovers user-wide plugins from `~/.agent-plugins/` and
+`~/.isanagent/plugins/`. Workspace plugins take precedence when names collide.
 
 ## Tech stack
 

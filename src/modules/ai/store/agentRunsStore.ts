@@ -79,6 +79,11 @@ type State = {
   admitAccepted: (chatId: string, runId: string) => boolean;
   ingest: (chatId: string, ev: ParsedAgentEvent) => boolean;
   markCancelling: (chatId: string, runId: string) => boolean;
+  applyProjection: (
+    chatId: string,
+    runStatus: string,
+    subagents: SubagentTask[],
+  ) => void;
   clearWarning: (chatId: string) => void;
   clear: (chatId: string) => void;
 };
@@ -146,6 +151,31 @@ export const useAgentRunsStore = create<State>((set) => ({
     });
     return accepted;
   },
+  applyProjection: (chatId, runStatus, subagents) =>
+    set((state) => {
+      const current = state.runs[chatId] ?? emptyRunState();
+      const normalized = runStatus.trim().toLowerCase().replace(/-/g, "_");
+      const status: AgentRunStatus =
+        normalized === "failed" || normalized === "error"
+          ? "error"
+          : normalized === "waiting_user" || normalized === "awaiting_approval"
+            ? "awaiting-approval"
+            : normalized === "running" ||
+                normalized === "thinking" ||
+                normalized === "streaming"
+              ? "thinking"
+              : "idle";
+      return {
+        runs: {
+          ...state.runs,
+          [chatId]: {
+            ...current,
+            status,
+            subagents,
+          },
+        },
+      };
+    }),
   clearWarning: (chatId) =>
     set((s) => {
       const current = s.runs[chatId];
