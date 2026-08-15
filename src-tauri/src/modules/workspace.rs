@@ -119,6 +119,7 @@ pub struct WorkspaceRegistry {
     roots: Mutex<HashSet<PathBuf>>,
     opened_roots: Mutex<HashMap<PathBuf, WorkspaceRootIdentity>>,
     canonical_cache: Mutex<HashMap<PathBuf, CanonicalEntry>>,
+    migrated_work_dbs: Mutex<HashSet<PathBuf>>,
 }
 
 impl WorkspaceRegistry {
@@ -228,6 +229,38 @@ impl WorkspaceRegistry {
     pub fn is_authorized(&self, target: &Path) -> bool {
         let set = self.roots.lock().expect("workspace registry poisoned");
         set.iter().any(|root| target.starts_with(root))
+    }
+
+    /// Bring a workspace's `work.db` to the current Work OS schema once per
+    /// app run. The desktop's per-command store opens share this single
+    /// lifecycle entry point, so repository-open order can never decide which
+    /// tables exist. A database written by a newer host fails closed here,
+    /// before any adapter opens it; failures are not cached so an updated
+    /// database recovers without an app restart.
+    pub fn ensure_work_db_migrated(&self, database: &Path) -> Result<(), String> {
+        let mut migrated = self
+            .migrated_work_dbs
+            .lock()
+            .expect("workspace registry poisoned");
+        if migrated.contains(database) {
+            return Ok(());
+        }
+        altai_control_plane::LocalMigrationRunner::migrate(database).map_err(|error| {
+            match error {
+                altai_control_plane::LocalMigrationError::UnsupportedSchema {
+                    current,
+                    supported,
+                } => format!(
+                    "This workspace's work.db uses schema {current}, which is newer than this \
+                     build's supported schema {supported}. Update Altai to open this workspace."
+                ),
+                altai_control_plane::LocalMigrationError::Database { reason } => {
+                    format!("work.db migration failed: {reason}")
+                }
+            }
+        })?;
+        migrated.insert(database.to_path_buf());
+        Ok(())
     }
 
     pub fn canonicalize_cached<P: AsRef<Path>>(&self, path: P) -> std::io::Result<PathBuf> {
@@ -718,6 +751,54 @@ printf %s "$shell""#;
 
     let out = run_wsl_sh(&distro, SCRIPT)?;
     Ok(normalize_wsl_value(out, "/bin/sh"))
+}
+
+#[cfg(test)]
+mod work_db_lifecycle_tests {
+    use super::*;
+
+    #[test]
+    fn work_db_migration_runs_once_per_app_run() {
+        let directory = tempfile::tempdir().unwrap();
+        let database = directory.path().join("work.db");
+        let registry = WorkspaceRegistry::default();
+
+        registry.ensure_work_db_migrated(&database).unwrap();
+        assert!(database.exists());
+
+        std::fs::remove_file(&database).unwrap();
+        // Cached for this run: the gate skips the runner instead of
+        // recreating the database behind the caller's back.
+        registry.ensure_work_db_migrated(&database).unwrap();
+        assert!(!database.exists());
+    }
+
+    #[test]
+    fn a_newer_work_db_fails_closed_and_is_not_cached() {
+        let directory = tempfile::tempdir().unwrap();
+        let database = directory.path().join("work.db");
+        let connection = rusqlite::Connection::open(&database).unwrap();
+        connection
+            .execute_batch(
+                "CREATE TABLE control_plane_local_migrations (
+                   version INTEGER PRIMARY KEY,
+                   applied_at_unix_seconds INTEGER NOT NULL
+                 );
+                 INSERT INTO control_plane_local_migrations VALUES (99, 0);",
+            )
+            .unwrap();
+        drop(connection);
+
+        let registry = WorkspaceRegistry::default();
+        let error = registry.ensure_work_db_migrated(&database).unwrap_err();
+        assert!(
+            error.contains("newer than this build"),
+            "unexpected error: {error}"
+        );
+        // Failures stay uncached so an updated database recovers without an
+        // app restart — assert by looking at the still-present refusal.
+        assert!(registry.ensure_work_db_migrated(&database).is_err());
+    }
 }
 
 #[cfg(all(test, windows))]
