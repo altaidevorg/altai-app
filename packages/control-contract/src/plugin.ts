@@ -66,8 +66,16 @@ export const diffPluginUpgrade = (
 ): PluginUpgradeDisclosure => {
   const previousSet = new Set(previous.capabilities);
   const nextSet = new Set(next.capabilities);
-  const added = next.capabilities.filter((capability) => !previousSet.has(capability));
-  const removed = previous.capabilities.filter((capability) => !nextSet.has(capability));
+  // Deduplicate and sort in the Rust enum's declaration order so the JSON
+  // matches the Rust disclosure (BTreeSet difference there) exactly.
+  const order = (a: PluginCapability, b: PluginCapability) =>
+    APPLICATION_CAPABILITIES.indexOf(a) - APPLICATION_CAPABILITIES.indexOf(b);
+  const added = [...new Set(next.capabilities)]
+    .filter((capability) => !previousSet.has(capability))
+    .sort(order);
+  const removed = [...new Set(previous.capabilities)]
+    .filter((capability) => !nextSet.has(capability))
+    .sort(order);
   return {
     plugin_id: next.plugin_id,
     from_version: previous.version,

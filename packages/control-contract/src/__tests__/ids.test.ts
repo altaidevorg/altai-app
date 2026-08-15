@@ -16,6 +16,7 @@ import {
   RoutineRunId,
   ApprovalId,
   ExternalObjectId,
+  PluginId,
   ALL_ID_KINDS,
   IdError,
   serializeId,
@@ -44,9 +45,9 @@ describe("typed IDs", () => {
     expect(parsed).toEqual(id);
   });
 
-  it("all 16 kinds are distinct", () => {
+  it("all 17 kinds are distinct", () => {
     const kinds = new Set(ALL_ID_KINDS);
-    expect(kinds.size).toBe(16);
+    expect(kinds.size).toBe(17);
   });
 
   it("each kind has a distinct prefix", () => {
@@ -67,12 +68,13 @@ describe("typed IDs", () => {
       RoutineRunId.create("x"),
       ApprovalId.create("x"),
       ExternalObjectId.create("x"),
+      PluginId.create("x"),
     ];
-    expect(ids).toHaveLength(16);
+    expect(ids).toHaveLength(17);
     const values = new Set(ids.map((id) => id.value));
-    expect(values.size).toBe(16);
+    expect(values.size).toBe(17);
     const types = new Set(ids.map((id) => id.type));
-    expect(types.size).toBe(16);
+    expect(types.size).toBe(17);
   });
 
   it("rejects wrong type", () => {

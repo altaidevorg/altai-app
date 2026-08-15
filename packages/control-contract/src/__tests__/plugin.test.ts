@@ -1,4 +1,5 @@
 import { describe, expect, test } from "vitest";
+import { ALL_ID_KINDS, PluginId } from "../ids.js";
 import {
   allowedCapabilities,
   diffPluginUpgrade,
@@ -78,5 +79,37 @@ describe("plugin upgrade disclosure", () => {
     expect(isVersionAdvance(diffPluginUpgrade(previous, next))).toBe(true);
     const downgrade = { ...previous, version: { major: 0, minor: 99, patch: 0 } };
     expect(isVersionAdvance(diffPluginUpgrade(previous, downgrade))).toBe(false);
+    const equal = { ...previous, version: { major: 1, minor: 0, patch: 0 } };
+    expect(isVersionAdvance(diffPluginUpgrade(previous, equal))).toBe(false);
+  });
+
+  test("diff output is deduplicated and enum-ordered like the Rust disclosure", () => {
+    const previous = manifest("application", []);
+    const next = manifest("application", [
+      "plugin_ui", "webhooks", "jobs", "webhooks",
+    ]);
+    const disclosure = diffPluginUpgrade(previous, next);
+    // Rust's BTreeSet difference yields enum declaration order: jobs,
+    // webhooks, scoped_secrets, plugin_ui — independent of input order or
+    // duplicates.
+    expect(disclosure.added_capabilities).toEqual(["jobs", "webhooks", "plugin_ui"]);
+  });
+});
+
+describe("plugin manifest JSON shape", () => {
+  test("round-trips through JSON with snake_case kinds and capabilities", () => {
+    const original = manifest("application", ["jobs", "plugin_ui"]);
+    const json = JSON.stringify(original);
+    expect(json).toContain('"kind":"application"');
+    expect(json).toContain('"plugin_ui"');
+    expect(JSON.parse(json)).toEqual(original);
+  });
+
+  test("plugin ids use the plugin_id typed-id shape", () => {
+    expect(PluginId.create("demo")).toEqual({
+      type: "plugin_id",
+      value: "plg_demo",
+    });
+    expect(ALL_ID_KINDS).toContain("plugin_id");
   });
 });

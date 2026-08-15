@@ -19,6 +19,11 @@ use std::collections::BTreeSet;
 /// packages: `072` (jobs, webhooks, scoped secrets) and `073`
 /// (schema-driven UI). All of them assume a worker — so they are
 /// application-plugin capabilities.
+///
+/// The derived `Ord` (declaration order: jobs, webhooks, scoped_secrets,
+/// plugin_ui) is a wire-visible invariant: the upgrade disclosure lists
+/// capabilities in this order, and the TS mirror sorts to match it. Do not
+/// reorder the variants without updating `plugin.ts`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PluginCapability {
