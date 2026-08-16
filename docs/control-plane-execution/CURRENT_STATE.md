@@ -5,7 +5,7 @@
 >
 > **Date:** 2026-08-16
 >
-> **Last updated by:** Out-of-process plugin workers through PRs #815–#818, #820
+> **Last updated by:** Schema-driven/sandboxed plugin UI through PRs #822–#823
 
 ## Accepted Tasks
 
@@ -31,6 +31,7 @@ All current and future ordering comes from `WORK_OS_PROGRAM_BACKLOG.md`.
 | CP-08-34/35 (050) | accepted | PRs #777–#778 | 2026-08-14 | Workspace checkout reattachment (identity preserved on disk move), resolution by path hint, and fail-closed repository scopes |
 | CP-08 (070) | accepted | PRs #809–#812 | 2026-08-16 | External-object storage keyed by provider identity, idempotent sync engine with explicit per-object authority, GitHub issues provider, and two-directional conflict resolution audited as activity events |
 | CP-08 (072) | accepted | PRs #815–#818, #820 | 2026-08-16 | Out-of-process plugin workers: supervised crash-isolated child processes over stdio IPC, health probing with restart budgets, at-most-once job and webhook dispatch ledgers, and per-process scoped-secret hand-off re-provisioned across restarts |
+| CP-08 (073) | accepted | PRs #822–#823 | 2026-08-16 | Schema-driven plugin UI: declarative surface/action contract (Section/Text/Table/Action, bounded) validated at registration with the same first-error order on both sides, and runtime dispatch where the installed declaration is the whitelist — invoke_ui_action re-checks the capability at the dispatch boundary and rides the at-most-once ledger, so the UI cannot bypass worker capability checks |
 
 ## Current Schema and Protocol Versions
 
