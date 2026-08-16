@@ -35,8 +35,8 @@ Definition of done for every package:
 
 | Measure | Current |
 | --- | ---: |
-| Overall Work OS completion | **27%** |
-| Foundation/control-plane backbone | **59%** |
+| Overall Work OS completion | **28%** |
+| Foundation/control-plane backbone | **60%** |
 | End-to-end autonomous execution | **8%** |
 | Product/UX surfaces | **21%** |
 | Ecosystem/plugin/upstream adoption | **2%** |
@@ -128,8 +128,8 @@ changes only when an exit gate is accepted.
 | 070 | ExternalObject model and GitHub adapter | accepted | 051, 060 | #809, #810, #811, #812 | Idempotent sync, explicit authority and conflict resolution |
 | 071 | Application plugin manifest/capabilities | accepted | 051 | #787, #789 | Agent-content and application plugins are distinct; upgrades disclose capability expansion |
 | 072 | Out-of-process plugin workers | accepted | 071 | #815–#818, #820 | Crash isolation, health, jobs, webhooks, scoped secrets and idempotency |
-| 073 | Schema-driven/sandboxed plugin UI | in_progress | 061, 072 | #822, CP-08-74 | UI cannot bypass worker capability checks |
-| 074 | Full Gmail multi-account adapter | planned | 071–073 | 2–3 | Account isolation, scoped credentials, idempotent thread/message sync |
+| 073 | Schema-driven/sandboxed plugin UI | accepted | 061, 072 | #822, #823 | UI cannot bypass worker capability checks |
+| 074 | Full Gmail multi-account adapter | in_progress | 071–073 | 2–3 | Account isolation, scoped credentials, idempotent thread/message sync |
 
 ### Stage 8 — Upstream product/code adoption tracks
 
@@ -169,12 +169,12 @@ architecture, security, and replacement decision. “Study” does not count as 
 
 The next PRs are fixed until this list is updated by an accepted change:
 
-1. `CP-08-75` — Accept package 073 (bookkeeping)
-   (Both halves of the gate shipped and green: the schema contract
-   validated at registration in #822, the runtime dispatch enforcement
-   in CP-08-74. Mark 073 `accepted`, bump the dashboard, record the
-   state row, and move the next dependency-satisfied package — 074,
-   Full Gmail multi-account adapter — to `in_progress`.)
+1. `CP-08-76` — Full Gmail multi-account adapter
+   (Package 074 PR 1: the account model — per-account identity and
+   scoped credential storage in the 071 plugin-capability world, so
+   one account's credentials are never visible to another account's
+   adapter instance; sync itself, thread/message idempotency and the
+   full external-object mapping follow in PR 2.)
 
 ## 5. Project-manager update protocol
 
