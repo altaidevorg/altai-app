@@ -8,7 +8,7 @@
 use crate::{
     SqliteAgentRepository, SqliteApprovalRepository, SqliteAttemptRepository,
     SqliteBudgetRepository, SqliteEvidenceRepository, SqliteExecutionSnapshotRepository,
-    SqliteExternalObjectRepository,
+    SqliteExternalAccountRepository, SqliteExternalObjectRepository,
     SqliteRecoveryRepository, SqliteRegistrationRepository, SqliteRepositoryScopeRepository,
     SqliteRoutineRepository, SqliteRunBindingRepository, SqliteScheduleBackendRepository,
     SqliteScopeRepository, SqliteUsageRepository, SqliteWakeRepository, SqliteWorkGraphRepository,
@@ -20,7 +20,7 @@ use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// The semantic lifecycle version of the complete local `work.db` topology.
-pub const LOCAL_WORK_DB_SCHEMA_VERSION: i64 = 2;
+pub const LOCAL_WORK_DB_SCHEMA_VERSION: i64 = 3;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LocalMigrationReport {
@@ -139,6 +139,7 @@ impl LocalMigrationRunner {
         SqliteScheduleBackendRepository::open(database).map_err(repository_error)?;
         SqliteApprovalRepository::open(database).map_err(repository_error)?;
         SqliteEvidenceRepository::open(database).map_err(repository_error)?;
+        SqliteExternalAccountRepository::open(database).map_err(repository_error)?;
         SqliteExternalObjectRepository::open(database).map_err(repository_error)?;
         SqliteUsageRepository::open(database).map_err(repository_error)?;
         SqliteBudgetRepository::open(database).map_err(repository_error)?;

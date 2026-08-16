@@ -198,6 +198,14 @@ define_typed_id!(
     "ext_",
 );
 define_typed_id!(
+    /// One connected account at an external provider (074). Multiple
+    /// accounts may exist for one integration; objects and credentials
+    /// are scoped to exactly one.
+    ExternalAccountId,
+    "external_account_id",
+    "exta_",
+);
+define_typed_id!(
     /// One immutable meter reading in the usage/cost ledger.
     UsageRecordId,
     "usage_record_id",
@@ -299,7 +307,7 @@ mod tests {
             AgentInstanceId::TYPE, AgentProfileId::TYPE, AgentProfileRevisionId::TYPE,
             WorkItemId::TYPE, AttemptId::TYPE, RunId::TYPE, SessionId::TYPE,
             RoutineId::TYPE, RoutineRevisionId::TYPE, RoutineRunId::TYPE,
-            ApprovalId::TYPE, ExternalObjectId::TYPE, PluginId::TYPE,
+            ApprovalId::TYPE, ExternalObjectId::TYPE, ExternalAccountId::TYPE, PluginId::TYPE,
         ];
         let mut seen = std::collections::HashSet::new();
         for t in types {
