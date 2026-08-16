@@ -15,6 +15,10 @@ pub enum WorkerError {
     NotAnApplication { plugin_id: PluginId },
     /// The observation cannot follow the state the worker is in.
     InvalidObservation { plugin_id: PluginId, reason: String },
+    /// The worker process could not be launched.
+    Launch { plugin_id: PluginId, reason: String },
+    /// Interacting with a launched worker process failed.
+    Process { reason: String },
 }
 
 impl std::fmt::Display for WorkerError {
@@ -145,7 +149,14 @@ impl WorkerSupervisor {
                 | WorkerHealth::Stopped => Err(invalid("healthy observation for a worker that is not running")),
             },
             WorkerObservation::Crashed { reason } => match self.state.clone() {
-                WorkerHealth::Starting | WorkerHealth::Healthy => {
+                WorkerHealth::Starting
+                | WorkerHealth::Healthy
+                // A replacement can die before its first probe: the
+                // crash-before-healthy sequence is legal and consumes
+                // budget like any other crash.
+                | WorkerHealth::Crashed {
+                    exhausted: false, ..
+                } => {
                     if self.restarts < self.policy.max_restarts {
                         self.restarts += 1;
                         self.state = WorkerHealth::Crashed {
@@ -166,7 +177,9 @@ impl WorkerSupervisor {
                 // An exit racing the host's stop request is the stop
                 // completing, not a new crash.
                 WorkerHealth::Stopped => Ok(WorkerDirective::None),
-                WorkerHealth::Crashed { .. } => Err(invalid("crash observed for an already dead worker")),
+                WorkerHealth::Crashed { exhausted: true, .. } => Err(invalid(
+                    "crash observed for an already given-up worker",
+                )),
             },
             WorkerObservation::StoppedByHost => {
                 self.state = WorkerHealth::Stopped;
@@ -249,6 +262,42 @@ mod tests {
                 .observe(WorkerObservation::Crashed { reason: "oom".into() })
                 .unwrap(),
             WorkerDirective::Restart
+        );
+    }
+
+    #[test]
+    fn a_replacement_that_dies_before_its_first_probe_consumes_budget() {
+        // Real supervision found this sequence: a replacement can exit
+        // before it ever answers a probe, so a crash can follow a crash.
+        // Each death burns budget; only the spent budget is terminal.
+        let mut supervisor = supervisor(2);
+        supervisor.observe(WorkerObservation::Healthy).unwrap();
+        assert_eq!(
+            supervisor
+                .observe(WorkerObservation::Crashed { reason: "first".into() })
+                .unwrap(),
+            WorkerDirective::Restart
+        );
+        assert_eq!(
+            supervisor
+                .observe(WorkerObservation::Crashed { reason: "replacement died".into() })
+                .unwrap(),
+            WorkerDirective::Restart
+        );
+        assert_eq!(
+            supervisor.health(),
+            &WorkerHealth::Crashed {
+                restarts: 2,
+                exhausted: false,
+                reason: "replacement died".into(),
+            }
+        );
+        // Budget spent: the next crash is terminal.
+        assert_eq!(
+            supervisor
+                .observe(WorkerObservation::Crashed { reason: "third".into() })
+                .unwrap(),
+            WorkerDirective::GiveUp
         );
     }
 
