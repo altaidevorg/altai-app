@@ -128,7 +128,7 @@ changes only when an exit gate is accepted.
 | 070 | ExternalObject model and GitHub adapter | accepted | 051, 060 | #809, #810, #811, #812 | Idempotent sync, explicit authority and conflict resolution |
 | 071 | Application plugin manifest/capabilities | accepted | 051 | #787, #789 | Agent-content and application plugins are distinct; upgrades disclose capability expansion |
 | 072 | Out-of-process plugin workers | accepted | 071 | #815–#818, #820 | Crash isolation, health, jobs, webhooks, scoped secrets and idempotency |
-| 073 | Schema-driven/sandboxed plugin UI | in_progress | 061, 072 | 2 | UI cannot bypass worker capability checks |
+| 073 | Schema-driven/sandboxed plugin UI | in_progress | 061, 072 | #822, CP-08-74 | UI cannot bypass worker capability checks |
 | 074 | Full Gmail multi-account adapter | planned | 071–073 | 2–3 | Account isolation, scoped credentials, idempotent thread/message sync |
 
 ### Stage 8 — Upstream product/code adoption tracks
@@ -169,12 +169,12 @@ architecture, security, and replacement decision. “Study” does not count as 
 
 The next PRs are fixed until this list is updated by an accepted change:
 
-1. `CP-08-74` — Schema-driven/sandboxed plugin UI
-   (Package 073 PR 2: the runtime half of the gate — an action
-   dispatched from a UI surface travels the 072 worker path and is
-   refused unless the manifest declared the capability, whatever the
-   client sends; the static half, the schema contract validated at
-   registration, shipped in #822).
+1. `CP-08-75` — Accept package 073 (bookkeeping)
+   (Both halves of the gate shipped and green: the schema contract
+   validated at registration in #822, the runtime dispatch enforcement
+   in CP-08-74. Mark 073 `accepted`, bump the dashboard, record the
+   state row, and move the next dependency-satisfied package — 074,
+   Full Gmail multi-account adapter — to `in_progress`.)
 
 ## 5. Project-manager update protocol
 

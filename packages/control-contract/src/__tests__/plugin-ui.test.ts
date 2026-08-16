@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
 import {
+  declaresAction,
   MAX_DEPTH,
   MAX_NODES_PER_SURFACE,
   MAX_SURFACES,
@@ -136,6 +137,25 @@ describe("plugin ui declaration", () => {
         [...uiCapabilities],
       ),
     ).toEqual({ type: "too_many_table_rows", count: MAX_TABLE_ROWS + 1 });
+  });
+
+  test("the declaration is the action whitelist", () => {
+    const declaration: PluginUiDeclaration = {
+      surfaces: [surface("panel", jobAction("job_refresh")), surface("other", text())],
+    };
+    const action = jobAction("job_refresh").action;
+    expect(declaresAction(declaration, "panel", action)).toBe(true);
+    // Right action, wrong surface.
+    expect(declaresAction(declaration, "other", action)).toBe(false);
+    // Right surface, undeclared job.
+    expect(declaresAction(declaration, "panel", { type: "invoke_job", job_id: "nope" })).toBe(false);
+    // Unknown surface.
+    expect(declaresAction(declaration, "nowhere", action)).toBe(false);
+    // A nested action is still declared.
+    const nestedDeclaration: PluginUiDeclaration = {
+      surfaces: [surface("panel", nested(3, jobAction("job_deep")))],
+    };
+    expect(declaresAction(nestedDeclaration, "panel", { type: "invoke_job", job_id: "job_deep" })).toBe(true);
   });
 
   test("actions need a label, a target, and their capability", () => {

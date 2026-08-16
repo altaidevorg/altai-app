@@ -99,6 +99,29 @@ impl PluginUiAction {
     }
 }
 
+impl PluginUiDeclaration {
+    /// Whether `surface_id` exists and its tree declares an action
+    /// exactly equal to `action`. An action's identity is what it does,
+    /// so equality is the whitelist: runtime dispatch asks this before
+    /// acting on anything a client sent (073 PR 2).
+    pub fn declares_action(&self, surface_id: &str, action: &PluginUiAction) -> bool {
+        self.surfaces
+            .iter()
+            .any(|surface| surface.surface_id == surface_id && node_declares(&surface.root, action))
+    }
+}
+
+/// Whether any node in this subtree is an action equal to `action`.
+fn node_declares(node: &PluginUiNode, action: &PluginUiAction) -> bool {
+    match node {
+        PluginUiNode::Section { children, .. } => {
+            children.iter().any(|child| node_declares(child, action))
+        }
+        PluginUiNode::Action { action: declared, .. } => declared == action,
+        PluginUiNode::Text { .. } | PluginUiNode::Table { .. } => false,
+    }
+}
+
 /// Typed UI-declaration validation failure.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PluginUiError {
@@ -478,6 +501,57 @@ mod tests {
                 count: MAX_TABLE_ROWS + 1
             })
         );
+    }
+
+    #[test]
+    fn the_declaration_is_the_action_whitelist() {
+        let declaration = PluginUiDeclaration {
+            surfaces: vec![
+                surface("panel", job_action("job_refresh")),
+                surface("other", PluginUiNode::Text {
+                    label: "Hi".into(),
+                    value: "there".into(),
+                }),
+            ],
+        };
+        // Declared surface, declared action.
+        assert!(declaration.declares_action(
+            "panel",
+            &PluginUiAction::InvokeJob {
+                job_id: "job_refresh".into()
+            }
+        ));
+        // Right action, wrong surface.
+        assert!(!declaration.declares_action(
+            "other",
+            &PluginUiAction::InvokeJob {
+                job_id: "job_refresh".into()
+            }
+        ));
+        // Right surface, undeclared job.
+        assert!(!declaration.declares_action(
+            "panel",
+            &PluginUiAction::InvokeJob {
+                job_id: "job_never_declared".into()
+            }
+        ));
+        // Unknown surface.
+        assert!(!declaration.declares_action(
+            "nowhere",
+            &PluginUiAction::InvokeJob {
+                job_id: "job_refresh".into()
+            }
+        ));
+        // A nested action is still declared.
+        let nested_declaration = PluginUiDeclaration {
+            surfaces: vec![surface("panel", nested(3, job_action("job_deep")))],
+        };
+        assert!(nested_declaration.declares_action(
+            "panel",
+            &PluginUiAction::InvokeJob {
+                job_id: "job_deep".into()
+            }
+        ));
     }
 
     #[test]

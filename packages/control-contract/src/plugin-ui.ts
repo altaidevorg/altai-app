@@ -62,6 +62,33 @@ export const requiredCapability = (action: PluginUiAction): PluginCapability => 
   }
 };
 
+export const declaresAction = (
+  declaration: PluginUiDeclaration,
+  surface_id: string,
+  action: PluginUiAction,
+): boolean =>
+  declaration.surfaces.some(
+    (surface) => surface.surface_id === surface_id && nodeDeclares(surface.root, action),
+  );
+
+const actionsEqual = (a: PluginUiAction, b: PluginUiAction): boolean => {
+  if (a.type !== b.type) return false;
+  if (a.type === "invoke_job" && b.type === "invoke_job") return a.job_id === b.job_id;
+  return false;
+};
+
+const nodeDeclares = (node: PluginUiNode, action: PluginUiAction): boolean => {
+  switch (node.type) {
+    case "section":
+      return node.children.some((child) => nodeDeclares(child, action));
+    case "action":
+      return actionsEqual(node.action, action);
+    case "text":
+    case "table":
+      return false;
+  }
+};
+
 export const validatePluginUi = (
   declaration: PluginUiDeclaration,
   capabilities: readonly PluginCapability[],

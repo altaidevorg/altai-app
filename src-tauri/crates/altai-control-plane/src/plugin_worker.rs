@@ -28,6 +28,14 @@ pub enum WorkerError {
         plugin_id: PluginId,
         capability: PluginCapability,
     },
+    /// The asked-for UI action is not part of the installed manifest's
+    /// declared UI — unknown surface, or an action the surface never
+    /// declared. The declaration is the whitelist: a client can invoke
+    /// what was declared, and nothing else (073).
+    UiActionNotDeclared {
+        plugin_id: PluginId,
+        surface_id: String,
+    },
 }
 
 impl std::fmt::Display for WorkerError {
