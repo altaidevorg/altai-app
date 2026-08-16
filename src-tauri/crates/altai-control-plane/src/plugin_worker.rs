@@ -2,9 +2,12 @@
 //! plugin runs a worker process; a crash in that process must be a fact
 //! the host observes and answers by policy — never a reason the control
 //! plane itself dies or spins. This module owns that policy as a pure
-//! state machine over observations: the host (a later PR) launches real
-//! processes, feeds what it saw here, and acts on the directive it gets
-//! back. Nothing here performs process I/O.
+//! state machine over observations: the launcher and transport modules
+//! launch real processes and produce real probe answers, feed what they
+//! saw here, and act on the directive they get back. Nothing here
+//! performs process I/O.
+
+use std::time::Duration;
 
 use altai_control_protocol::{PluginId, PluginKind, PluginManifest};
 
@@ -41,6 +44,19 @@ impl WorkerRestartPolicy {
     pub const fn new(max_restarts: u32) -> Self {
         Self { max_restarts }
     }
+}
+
+/// When and how to ask a live worker how it feels. Probing is opt-in:
+/// without a policy, a process that has not exited is considered
+/// running; with one, silence inside the window is a crash fact the
+/// restart budget answers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct HealthProbePolicy {
+    /// How long a freshly launched worker has to boot before its first
+    /// probe: a worker still starting is not yet silent.
+    pub startup_grace: Duration,
+    /// How long each probe waits for the worker's answer.
+    pub probe_window: Duration,
 }
 
 /// What the host observed its worker process do.
