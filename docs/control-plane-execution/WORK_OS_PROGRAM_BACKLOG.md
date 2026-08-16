@@ -169,12 +169,12 @@ architecture, security, and replacement decision. “Study” does not count as 
 
 The next PRs are fixed until this list is updated by an accepted change:
 
-1. `CP-08-78` — Full Gmail multi-account adapter
-   (Package 074 PR 3: the wiring — a real Gmail client over the
-   transport seam with account-scoped credentials from the
-   CP-08-76 store, and the account sync command that closes the
-   package gate: account isolation, scoped credentials, idempotent
-   thread/message sync, all live.)
+1. `CP-08-79` — Accept package 074 + program bookkeeping
+   (074's exit gate — account isolation, scoped credentials, idempotent
+   thread/message sync — is closed by #825, #826 and CP-08-78: flip the
+   row to accepted with the PR evidence, bump the dashboard from the
+   accepted gate, advance the queue to the next package, and record
+   CURRENT_STATE.)
 
 ## 5. Project-manager update protocol
 

@@ -233,6 +233,17 @@ export type ExternalSyncReport = {
   conflicts: ExternalSyncConflict[];
 };
 
+/** One connected Gmail account (package 074): metadata only — the
+ *  credential lives in platform secret storage under the account's own
+ *  scope and never crosses this boundary. */
+export type GmailAccount = {
+  id: string;
+  accountRef: string;
+  displayName: string;
+  createdAtUnixSeconds: number;
+  updatedAtUnixSeconds: number;
+};
+
 /** An explicit decision on a refused external-object overwrite (package 070). */
 export type ExternalObjectResolution = "take_external" | "keep_local";
 
@@ -1408,6 +1419,46 @@ export const native = {
       workspacePath,
       owner,
       repo,
+    }),
+  /**
+   * Connect (or reconnect) one Gmail account (package 074): the account
+   * row keeps its identity across reconnects, and the access token is
+   * stored under the account's own credential scope.
+   */
+  gmailConnectAccount: (
+    workspacePath: string,
+    accountRef: string,
+    displayName: string,
+    accessToken: string,
+  ) =>
+    invoke<GmailAccount>("gmail_connect_account", {
+      workspacePath,
+      accountRef,
+      displayName,
+      accessToken,
+    }),
+  /** Every connected Gmail account, oldest first. */
+  gmailAccountsList: (workspacePath: string) =>
+    invoke<GmailAccount[]>("gmail_accounts_list", { workspacePath }),
+  /**
+   * Disconnect one Gmail account (package 074): its credential is
+   * forgotten and every other account's scope is untouched; the account
+   * identity stays so synced history remains attributable.
+   */
+  gmailDisconnectAccount: (workspacePath: string, accountId: string) =>
+    invoke<GmailAccount>("gmail_disconnect_account", {
+      workspacePath,
+      accountId,
+    }),
+  /**
+   * Sync one Gmail account's threads and messages (package 074). The
+   * sync window is that account's alone; it fails closed when the
+   * account is unknown or its credential is gone.
+   */
+  gmailSyncAccount: (workspacePath: string, accountId: string) =>
+    invoke<ExternalSyncReport>("gmail_sync_account", {
+      workspacePath,
+      accountId,
     }),
   /**
    * Apply an explicit decision to a refused external-object overwrite
