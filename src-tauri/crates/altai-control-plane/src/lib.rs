@@ -15,7 +15,9 @@ pub mod plugin_registry;
 pub mod plugin_worker;
 pub mod plugin_worker_jobs;
 pub mod plugin_worker_launcher;
+pub mod plugin_worker_secrets;
 pub mod plugin_worker_transport;
+pub mod plugin_worker_webhooks;
 pub mod attempt_finalizer;
 pub mod attempt_repository;
 pub mod control_event_projection;
@@ -77,9 +79,13 @@ pub use plugin_worker_launcher::{
     CommandWorkerLauncher, SupervisedWorker, WorkerLauncher, WorkerProcess,
 };
 pub use plugin_worker_jobs::{
-    JobDispatch, JobDispatchLedger, JobRequest, JobResult, JobState,
+    DispatchLedger, DispatchOutcome, DispatchState, JobRequest, JobResult,
+};
+pub use plugin_worker_secrets::{
+    SecretAck, SecretHandoff, SecretHandoffOutcome, SecretString,
 };
 pub use plugin_worker_transport::{StdioWorkerTransport, WorkerFrame};
+pub use plugin_worker_webhooks::{WebhookAck, WebhookDelivery};
 pub use control_event_projection::{AggregateCheckpoint, fold_checkpoints};
 pub use control_event_repository::{
     ControlEventError, ControlEventRepository, SqliteControlEventRepository,

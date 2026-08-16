@@ -16,6 +16,13 @@
 //! core was designed around, silence inside the window kills the worker
 //! and is observed as the crash it is. Without a policy, a process that
 //! has not exited is considered running.
+//!
+//! PR 5 adds the remaining capability pair over the same wire: webhook
+//! deliveries (at-most-once like jobs, in their own ledger) and scoped
+//! secrets — deliberately *not* at-most-once, because a relaunched
+//! worker is a fresh process that must be handed its secrets again. The
+//! host remembers every brokered value and re-hands the unhanded ones on
+//! each reconcile, so a restart is transparent to the plugin.
 
 use std::process::{Child, Command, Stdio};
 use std::sync::Arc;
@@ -28,8 +35,22 @@ use crate::plugin_worker::{
     HealthProbePolicy, WorkerDirective, WorkerError, WorkerHealth, WorkerObservation,
     WorkerRestartPolicy, WorkerSupervisor,
 };
-use crate::plugin_worker_jobs::{JobDispatch, JobDispatchLedger, JobRequest, JobResult, JobState};
+use crate::plugin_worker_jobs::{
+    DispatchLedger, DispatchOutcome, DispatchState, JobRequest, JobResult,
+};
+use crate::plugin_worker_secrets::{
+    SecretAck, SecretHandoff, SecretHandoffOutcome, SecretString,
+};
 use crate::plugin_worker_transport::{StdioWorkerTransport, WorkerFrame};
+use crate::plugin_worker_webhooks::{WebhookAck, WebhookDelivery};
+
+/// One secret this host has brokered for the worker: the value (kept
+/// for restarts — a relaunched process needs it again) and whether the
+/// current process has been given it.
+struct SecretProvision {
+    value: SecretString,
+    handed_to_process: bool,
+}
 
 /// How to launch one plugin's worker process. Implemented by the host
 /// environment; [`CommandWorkerLauncher`] is the std-process default.
@@ -118,6 +139,28 @@ impl WorkerProcess {
         self.transport.await_result(job_id, window)
     }
 
+    /// Send one webhook delivery to this worker.
+    pub fn send_webhook(&mut self, delivery: &WebhookDelivery) -> Result<(), WorkerError> {
+        self.transport
+            .send(&WorkerFrame::WebhookDelivery(delivery.clone()))
+    }
+
+    /// Wait for one webhook delivery's ack.
+    pub fn await_webhook_ack(&mut self, delivery_id: &str, window: Duration) -> Option<WebhookAck> {
+        self.transport.await_webhook_ack(delivery_id, window)
+    }
+
+    /// Send one scoped secret to this worker.
+    pub fn send_secret(&mut self, handoff: &SecretHandoff) -> Result<(), WorkerError> {
+        self.transport
+            .send(&WorkerFrame::SecretHandoff(handoff.clone()))
+    }
+
+    /// Wait for one secret's ack.
+    pub fn await_secret_ack(&mut self, name: &str, window: Duration) -> Option<SecretAck> {
+        self.transport.await_secret_ack(name, window)
+    }
+
     /// Terminate the process and reap it, so a killed worker does not
     /// linger. Deliberately infallible: killing an already-exited
     /// process is the no-op it should be — the fact "this process is
@@ -139,7 +182,9 @@ pub struct SupervisedWorker {
     process: Option<WorkerProcess>,
     probe: Option<HealthProbePolicy>,
     launched_at: Instant,
-    jobs: JobDispatchLedger,
+    jobs: DispatchLedger,
+    webhooks: DispatchLedger,
+    secrets: std::collections::HashMap<String, SecretProvision>,
 }
 
 impl std::fmt::Debug for SupervisedWorker {
@@ -170,7 +215,9 @@ impl SupervisedWorker {
             process: Some(process),
             probe,
             launched_at: Instant::now(),
-            jobs: JobDispatchLedger::new(),
+            jobs: DispatchLedger::new(),
+            webhooks: DispatchLedger::new(),
+            secrets: std::collections::HashMap::new(),
         })
     }
 
@@ -201,6 +248,7 @@ impl SupervisedWorker {
     }
 
     fn reconcile_alive(&mut self) -> Result<WorkerDirective, WorkerError> {
+        self.re_provision_secrets()?;
         let Some(policy) = self.probe else {
             return Ok(WorkerDirective::None);
         };
@@ -235,6 +283,11 @@ impl SupervisedWorker {
         if directive == WorkerDirective::Restart {
             self.process = Some(self.launcher.launch(&self.manifest)?);
             self.launched_at = Instant::now();
+            // A fresh process has been given nothing: every secret must
+            // be handed again, and the next reconcile's sweep does.
+            for provision in self.secrets.values_mut() {
+                provision.handed_to_process = false;
+            }
         }
         Ok(directive)
     }
@@ -259,7 +312,7 @@ impl SupervisedWorker {
         &mut self,
         job_id: &str,
         payload: Value,
-    ) -> Result<JobDispatch, WorkerError> {
+    ) -> Result<DispatchOutcome, WorkerError> {
         if !self
             .manifest
             .capabilities
@@ -271,10 +324,10 @@ impl SupervisedWorker {
             });
         }
         if self.jobs.state(job_id).is_some() {
-            return Ok(JobDispatch::AlreadyKnown);
+            return Ok(DispatchOutcome::AlreadyKnown);
         }
         let Some(process) = self.process.as_mut() else {
-            return Ok(JobDispatch::WorkerDown);
+            return Ok(DispatchOutcome::WorkerDown);
         };
         // Record before sending: the at-most-once guarantee. A crash
         // between these lines cannot lead to a second send.
@@ -283,7 +336,7 @@ impl SupervisedWorker {
             job_id: job_id.to_string(),
             payload,
         })?;
-        Ok(JobDispatch::Sent)
+        Ok(DispatchOutcome::Sent)
     }
 
     /// Wait for one job's result, recording it when it arrives. A
@@ -295,7 +348,7 @@ impl SupervisedWorker {
         job_id: &str,
         window: Duration,
     ) -> Result<Option<JobResult>, WorkerError> {
-        if let Some(JobState::Completed { ok, output }) = self.jobs.state(job_id) {
+        if let Some(DispatchState::Completed { ok, output }) = self.jobs.state(job_id) {
             return Ok(Some(JobResult {
                 job_id: job_id.to_string(),
                 ok: *ok,
@@ -318,8 +371,163 @@ impl SupervisedWorker {
     }
 
     /// What the host knows about one job id.
-    pub fn job_state(&self, job_id: &str) -> Option<&JobState> {
+    pub fn job_state(&self, job_id: &str) -> Option<&DispatchState> {
         self.jobs.state(job_id)
+    }
+
+    /// What the host knows about one webhook delivery id.
+    pub fn webhook_state(&self, delivery_id: &str) -> Option<&DispatchState> {
+        self.webhooks.state(delivery_id)
+    }
+
+    /// Hand one inbound webhook to this worker. Same at-most-once
+    /// contract as [`dispatch_job`](Self::dispatch_job), keyed by
+    /// `delivery_id` in its own ledger. Requires the `Webhooks`
+    /// capability.
+    pub fn deliver_webhook(
+        &mut self,
+        delivery_id: &str,
+        event: &str,
+        payload: Value,
+    ) -> Result<DispatchOutcome, WorkerError> {
+        if !self.manifest.capabilities.contains(&PluginCapability::Webhooks) {
+            return Err(WorkerError::CapabilityMissing {
+                plugin_id: self.manifest.plugin_id.clone(),
+                capability: PluginCapability::Webhooks,
+            });
+        }
+        if self.webhooks.state(delivery_id).is_some() {
+            return Ok(DispatchOutcome::AlreadyKnown);
+        }
+        let Some(process) = self.process.as_mut() else {
+            return Ok(DispatchOutcome::WorkerDown);
+        };
+        // Record before sending: the at-most-once guarantee.
+        self.webhooks.record_dispatch(delivery_id);
+        process.send_webhook(&WebhookDelivery {
+            delivery_id: delivery_id.to_string(),
+            event: event.to_string(),
+            payload,
+        })?;
+        Ok(DispatchOutcome::Sent)
+    }
+
+    /// Wait for one webhook delivery's ack; a completed delivery answers
+    /// instantly from the ledger. `Ok(None)`: no ack in `window`.
+    pub fn await_webhook_ack(
+        &mut self,
+        delivery_id: &str,
+        window: Duration,
+    ) -> Result<Option<WebhookAck>, WorkerError> {
+        if let Some(DispatchState::Completed { ok, .. }) = self.webhooks.state(delivery_id) {
+            return Ok(Some(WebhookAck {
+                delivery_id: delivery_id.to_string(),
+                ok: *ok,
+            }));
+        }
+        if self.webhooks.state(delivery_id).is_none() {
+            return Ok(None);
+        }
+        let Some(process) = self.process.as_mut() else {
+            return Ok(None);
+        };
+        match process.await_webhook_ack(delivery_id, window) {
+            Some(ack) => {
+                self.webhooks
+                    .record_completion(delivery_id, ack.ok, Value::Null);
+                Ok(Some(ack))
+            }
+            None => Ok(None),
+        }
+    }
+
+    /// Hand one scoped secret to this worker. Requires the
+    /// `ScopedSecrets` capability. The value is remembered so a
+    /// relaunched process is re-provisioned — secrets are per-process
+    /// state, not at-most-once dispatches.
+    pub fn hand_secret(
+        &mut self,
+        name: &str,
+        value: SecretString,
+        ack_window: Duration,
+    ) -> Result<SecretHandoffOutcome, WorkerError> {
+        if !self
+            .manifest
+            .capabilities
+            .contains(&PluginCapability::ScopedSecrets)
+        {
+            return Err(WorkerError::CapabilityMissing {
+                plugin_id: self.manifest.plugin_id.clone(),
+                capability: PluginCapability::ScopedSecrets,
+            });
+        }
+        if self
+            .secrets
+            .get(name)
+            .is_some_and(|provision| provision.handed_to_process)
+        {
+            return Ok(SecretHandoffOutcome::AlreadyProvided);
+        }
+        // Remember before sending, unhanded: a send that fails or a
+        // worker that dies racing it leaves the secret pending for the
+        // reconcile sweep, not lost.
+        self.secrets.insert(
+            name.to_string(),
+            SecretProvision {
+                value,
+                handed_to_process: false,
+            },
+        );
+        let Some(process) = self.process.as_mut() else {
+            return Ok(SecretHandoffOutcome::WorkerDown);
+        };
+        let handoff = SecretHandoff {
+            name: name.to_string(),
+            value: self
+                .secrets
+                .get(name)
+                .expect("the provision was just inserted")
+                .value
+                .clone(),
+        };
+        process.send_secret(&handoff)?;
+        let confirmed = process.await_secret_ack(name, ack_window).is_some();
+        if let Some(provision) = self.secrets.get_mut(name) {
+            provision.handed_to_process = true;
+        }
+        Ok(SecretHandoffOutcome::Delivered { confirmed })
+    }
+
+    /// Give every unhanded secret to the live process: after a restart
+    /// nothing has been handed, and a send that raced an exit is simply
+    /// retried here. Idempotent — handed secrets are not re-sent.
+    fn re_provision_secrets(&mut self) -> Result<(), WorkerError> {
+        let pending: Vec<String> = self
+            .secrets
+            .iter()
+            .filter(|(_, provision)| !provision.handed_to_process)
+            .map(|(name, _)| name.clone())
+            .collect();
+        for name in pending {
+            let Some(process) = self.process.as_mut() else {
+                return Ok(());
+            };
+            let Some(provision) = self.secrets.get(&name) else {
+                continue;
+            };
+            let handoff = SecretHandoff {
+                name: name.clone(),
+                value: provision.value.clone(),
+            };
+            if process.send_secret(&handoff).is_ok() {
+                if let Some(provision) = self.secrets.get_mut(&name) {
+                    provision.handed_to_process = true;
+                }
+            }
+            // A failed send stays pending: the next reconcile retries,
+            // and the exit path (if the worker died) resets everything.
+        }
+        Ok(())
     }
 }
 
@@ -338,7 +546,11 @@ mod tests {
             kind: PluginKind::Application,
             version: PluginVersion::new(1, 0, 0),
             display_name: "Test plugin".into(),
-            capabilities: vec![PluginCapability::Jobs],
+            capabilities: vec![
+                PluginCapability::Jobs,
+                PluginCapability::Webhooks,
+                PluginCapability::ScopedSecrets,
+            ],
         }
     }
 
@@ -366,7 +578,8 @@ mod tests {
             Ok("crash") => std::process::exit(7),
             Ok("hang") => std::thread::sleep(Duration::from_secs(60)),
             Ok("probe") => serve_probes(),
-            Ok("jobs") => serve_jobs(),
+            Ok("jobs") => serve_full_protocol(false),
+            Ok("jobs_exit_after_secret") => serve_full_protocol(true),
             _ => {}
         }
     }
@@ -388,17 +601,23 @@ mod tests {
         std::process::exit(0);
     }
 
-    /// The jobs-mode child: a full-protocol worker. It counts the job
-    /// requests it receives and reports that count when a job's payload
-    /// asks (`{"report_requests": true}`), so tests can prove how many
-    /// requests actually reached the worker; other jobs get their payload
-    /// echoed back.
-    fn serve_jobs() {
+    /// The jobs-mode child: a full-protocol worker. It counts what it
+    /// receives — job requests, webhook deliveries, secret hand-offs —
+    /// and reports those counts when a job's payload asks
+    /// (`{"report_requests": true}` and siblings), so tests can prove
+    /// how many of each actually reached the worker; other jobs get
+    /// their payload echoed back. In `jobs_exit_after_secret` mode it
+    /// answers one secret hand-off and then dies: the stand-in for a
+    /// worker that crashes right after taking a secret.
+    fn serve_full_protocol(exit_after_secret: bool) {
         let mut requests = 0u64;
+        let mut deliveries = 0u64;
+        let mut handoffs = 0u64;
         let stdin = std::io::stdin();
         let mut stdout = std::io::stdout();
         for line in stdin.lock().lines() {
             let Ok(line) = line else { break };
+            let mut die_now = false;
             let reply = match WorkerFrame::from_line(&line) {
                 Some(WorkerFrame::HealthProbe) => WorkerFrame::HealthOk.to_line(),
                 Some(WorkerFrame::JobRequest(request)) => {
@@ -407,6 +626,14 @@ mod tests {
                         == Some(&serde_json::json!(true))
                     {
                         serde_json::json!({ "requests": requests })
+                    } else if request.payload.get("report_deliveries")
+                        == Some(&serde_json::json!(true))
+                    {
+                        serde_json::json!({ "deliveries": deliveries })
+                    } else if request.payload.get("report_handoffs")
+                        == Some(&serde_json::json!(true))
+                    {
+                        serde_json::json!({ "handoffs": handoffs })
                     } else {
                         request.payload
                     };
@@ -417,6 +644,22 @@ mod tests {
                     })
                     .to_line()
                 }
+                Some(WorkerFrame::WebhookDelivery(delivery)) => {
+                    deliveries += 1;
+                    WorkerFrame::WebhookAck(WebhookAck {
+                        delivery_id: delivery.delivery_id,
+                        ok: true,
+                    })
+                    .to_line()
+                }
+                Some(WorkerFrame::SecretHandoff(handoff)) => {
+                    handoffs += 1;
+                    die_now = exit_after_secret;
+                    WorkerFrame::SecretAck(SecretAck {
+                        name: handoff.name,
+                    })
+                    .to_line()
+                }
                 _ => continue,
             };
             if writeln!(stdout, "{reply}")
@@ -424,6 +667,9 @@ mod tests {
                 .is_err()
             {
                 break;
+            }
+            if die_now {
+                std::process::exit(0);
             }
         }
         std::process::exit(0);
@@ -727,7 +973,7 @@ mod tests {
             worker
                 .dispatch_job("job_1", serde_json::json!({"input": 7}))
                 .unwrap(),
-            JobDispatch::Sent
+            DispatchOutcome::Sent
         );
         let result = worker
             .await_job_result("job_1", Duration::from_secs(5))
@@ -737,7 +983,7 @@ mod tests {
         assert_eq!(result.output, serde_json::json!({"input": 7}));
         assert!(matches!(
             worker.job_state("job_1"),
-            Some(JobState::Completed { ok: true, .. })
+            Some(DispatchState::Completed { ok: true, .. })
         ));
 
         // The id is burned: a re-dispatch sends nothing.
@@ -745,7 +991,7 @@ mod tests {
             worker
                 .dispatch_job("job_1", serde_json::json!({"input": 8}))
                 .unwrap(),
-            JobDispatch::AlreadyKnown
+            DispatchOutcome::AlreadyKnown
         );
         // And a completed job answers from the ledger, instantly.
         let replayed = worker
@@ -826,7 +1072,7 @@ mod tests {
         );
         assert_eq!(
             worker.dispatch_job("job_1", serde_json::json!({})).unwrap(),
-            JobDispatch::WorkerDown
+            DispatchOutcome::WorkerDown
         );
         // Nothing was sent, so nothing was recorded: the id is not
         // burned, a later dispatch to a healthy worker is safe.
@@ -853,6 +1099,311 @@ mod tests {
             .unwrap()
             .expect("the result survives the probe");
         assert!(result.ok);
+        worker.stop().unwrap();
+    }
+    #[test]
+    fn a_webhook_round_trips_over_real_stdio() {
+        let mut worker = SupervisedWorker::start(
+            manifest(),
+            WorkerRestartPolicy::new(3),
+            None,
+            launcher("jobs"),
+        )
+        .unwrap();
+
+        assert_eq!(
+            worker
+                .deliver_webhook("wh_1", "issue.opened", serde_json::json!({"n": 1}))
+                .unwrap(),
+            DispatchOutcome::Sent
+        );
+        let ack = worker
+            .await_webhook_ack("wh_1", Duration::from_secs(5))
+            .unwrap()
+            .expect("the jobs child acks deliveries");
+        assert!(ack.ok);
+        assert!(matches!(
+            worker.webhook_state("wh_1"),
+            Some(DispatchState::Completed { ok: true, .. })
+        ));
+
+        // The delivery id is burned: a re-delivery sends nothing.
+        assert_eq!(
+            worker
+                .deliver_webhook("wh_1", "issue.opened", serde_json::json!({"n": 2}))
+                .unwrap(),
+            DispatchOutcome::AlreadyKnown
+        );
+        // A completed delivery answers from the ledger, instantly.
+        let replayed = worker
+            .await_webhook_ack("wh_1", Duration::from_millis(1))
+            .unwrap()
+            .expect("completed deliveries answer from the ledger");
+        assert!(replayed.ok);
+        worker.stop().unwrap();
+    }
+
+    #[test]
+    fn a_re_delivered_webhook_never_reaches_the_worker() {
+        // The child counts its deliveries and reports the count, so a
+        // re-sent delivery would show up as one delivery too many.
+        let mut worker = SupervisedWorker::start(
+            manifest(),
+            WorkerRestartPolicy::new(3),
+            None,
+            launcher("jobs"),
+        )
+        .unwrap();
+        worker
+            .deliver_webhook("wh_1", "issue.opened", serde_json::json!({"n": 1}))
+            .unwrap();
+        worker
+            .await_webhook_ack("wh_1", Duration::from_secs(5))
+            .unwrap()
+            .expect("first delivery completes");
+        // Already known: nothing is sent for the re-delivery.
+        worker
+            .deliver_webhook("wh_1", "issue.opened", serde_json::json!({"n": 2}))
+            .unwrap();
+
+        worker
+            .deliver_webhook("wh_2", "issue.closed", serde_json::json!({"n": 3}))
+            .unwrap();
+        worker
+            .await_webhook_ack("wh_2", Duration::from_secs(5))
+            .unwrap()
+            .expect("the second delivery completes");
+        worker
+            .dispatch_job("count", serde_json::json!({"report_deliveries": true}))
+            .unwrap();
+        let report = worker
+            .await_job_result("count", Duration::from_secs(5))
+            .unwrap()
+            .expect("the report job completes");
+        // wh_1 once + wh_2 once: the re-delivery added nothing.
+        assert_eq!(report.output, serde_json::json!({ "deliveries": 2 }));
+        worker.stop().unwrap();
+    }
+
+    #[test]
+    fn a_worker_without_the_webhooks_capability_refuses_delivery() {
+        let mut manifest = manifest();
+        manifest.capabilities = vec![PluginCapability::Jobs];
+        let mut worker = SupervisedWorker::start(
+            manifest,
+            WorkerRestartPolicy::new(3),
+            None,
+            launcher("jobs"),
+        )
+        .unwrap();
+        assert_eq!(
+            worker
+                .deliver_webhook("wh_1", "issue.opened", serde_json::json!({}))
+                .unwrap_err(),
+            WorkerError::CapabilityMissing {
+                plugin_id: PluginId::new("plug_1"),
+                capability: PluginCapability::Webhooks,
+            }
+        );
+        worker.stop().unwrap();
+    }
+
+    #[test]
+    fn a_webhook_ack_that_arrives_during_a_probe_is_not_lost() {
+        // Deliver, then reconcile (probe): the ack can land while the
+        // probe waits. Either receive order must deliver the ack.
+        let mut worker = SupervisedWorker::start(
+            manifest(),
+            WorkerRestartPolicy::new(3),
+            probing(0, Duration::from_secs(5)),
+            launcher("jobs"),
+        )
+        .unwrap();
+        worker
+            .deliver_webhook("wh_1", "issue.opened", serde_json::json!({"n": 1}))
+            .unwrap();
+        worker.reconcile().unwrap();
+        let ack = worker
+            .await_webhook_ack("wh_1", Duration::from_secs(5))
+            .unwrap()
+            .expect("the ack survives the probe");
+        assert!(ack.ok);
+        worker.stop().unwrap();
+    }
+
+    #[test]
+    fn a_webhook_to_a_dead_worker_records_nothing_and_says_so() {
+        let mut worker = SupervisedWorker::start(
+            manifest(),
+            WorkerRestartPolicy::new(0),
+            None,
+            launcher("crash"),
+        )
+        .unwrap();
+        assert_eq!(
+            reconcile_until_decided(&mut worker, 100),
+            WorkerDirective::GiveUp
+        );
+        assert_eq!(
+            worker
+                .deliver_webhook("wh_1", "issue.opened", serde_json::json!({}))
+                .unwrap(),
+            DispatchOutcome::WorkerDown
+        );
+        assert_eq!(worker.webhook_state("wh_1"), None);
+    }
+
+    #[test]
+    fn a_secret_is_acked_once_and_not_re_sent_to_the_same_process() {
+        let mut worker = SupervisedWorker::start(
+            manifest(),
+            WorkerRestartPolicy::new(3),
+            None,
+            launcher("jobs"),
+        )
+        .unwrap();
+        assert_eq!(
+            worker
+                .hand_secret(
+                    "api_token",
+                    SecretString::new("super-secret-key"),
+                    Duration::from_secs(5)
+                )
+                .unwrap(),
+            SecretHandoffOutcome::Delivered { confirmed: true }
+        );
+        // The same live process already has it: not sent again.
+        assert_eq!(
+            worker
+                .hand_secret(
+                    "api_token",
+                    SecretString::new("super-secret-key"),
+                    Duration::from_secs(5)
+                )
+                .unwrap(),
+            SecretHandoffOutcome::AlreadyProvided
+        );
+        worker
+            .dispatch_job("count", serde_json::json!({"report_handoffs": true}))
+            .unwrap();
+        let report = worker
+            .await_job_result("count", Duration::from_secs(5))
+            .unwrap()
+            .expect("the report job completes");
+        assert_eq!(report.output, serde_json::json!({ "handoffs": 1 }));
+        worker.stop().unwrap();
+    }
+
+    #[test]
+    fn a_secret_to_a_dead_worker_is_remembered_and_not_burned() {
+        let mut worker = SupervisedWorker::start(
+            manifest(),
+            WorkerRestartPolicy::new(0),
+            None,
+            launcher("crash"),
+        )
+        .unwrap();
+        assert_eq!(
+            reconcile_until_decided(&mut worker, 100),
+            WorkerDirective::GiveUp
+        );
+        assert_eq!(
+            worker
+                .hand_secret(
+                    "api_token",
+                    SecretString::new("super-secret-key"),
+                    Duration::from_secs(5)
+                )
+                .unwrap(),
+            SecretHandoffOutcome::WorkerDown
+        );
+        // Unlike a dispatch, the secret is remembered — a returning
+        // worker must be given it, and AlreadyProvided is not claimed
+        // for a hand-off that never happened.
+        assert_eq!(
+            worker
+                .hand_secret(
+                    "api_token",
+                    SecretString::new("super-secret-key"),
+                    Duration::from_secs(5)
+                )
+                .unwrap(),
+            SecretHandoffOutcome::WorkerDown
+        );
+    }
+
+    #[test]
+    fn a_worker_without_the_secrets_capability_refuses_a_hand_off() {
+        let mut manifest = manifest();
+        manifest.capabilities = vec![PluginCapability::Jobs];
+        let mut worker = SupervisedWorker::start(
+            manifest,
+            WorkerRestartPolicy::new(3),
+            None,
+            launcher("jobs"),
+        )
+        .unwrap();
+        assert_eq!(
+            worker
+                .hand_secret(
+                    "api_token",
+                    SecretString::new("super-secret-key"),
+                    Duration::from_secs(5)
+                )
+                .unwrap_err(),
+            WorkerError::CapabilityMissing {
+                plugin_id: PluginId::new("plug_1"),
+                capability: PluginCapability::ScopedSecrets,
+            }
+        );
+        worker.stop().unwrap();
+    }
+
+    #[test]
+    fn a_restarted_worker_is_handed_its_secrets_again() {
+        // Launch 1 crashes; launch 2 takes the secret, acks it, and
+        // dies; launch 3 behaves. The hand-off to launch 3 must happen
+        // without the host being told again — restart transparency.
+        let mut worker = SupervisedWorker::start(
+            manifest(),
+            WorkerRestartPolicy::new(3),
+            None,
+            sequencing_launcher(&["crash", "jobs_exit_after_secret", "jobs"]),
+        )
+        .unwrap();
+        assert_eq!(
+            reconcile_until_decided(&mut worker, 100),
+            WorkerDirective::Restart
+        );
+        assert_eq!(
+            worker
+                .hand_secret(
+                    "api_token",
+                    SecretString::new("super-secret-key"),
+                    Duration::from_secs(5)
+                )
+                .unwrap(),
+            SecretHandoffOutcome::Delivered { confirmed: true }
+        );
+        // The second child acked and exited: its death is observed and
+        // the well-behaved replacement takes over.
+        assert_eq!(
+            reconcile_until_decided(&mut worker, 100),
+            WorkerDirective::Restart
+        );
+        // The reconcile sweep re-hands the secret to the new process.
+        worker.reconcile().unwrap();
+
+        worker
+            .dispatch_job("count", serde_json::json!({"report_handoffs": true}))
+            .unwrap();
+        let report = worker
+            .await_job_result("count", Duration::from_secs(5))
+            .unwrap()
+            .expect("the report job completes");
+        // Exactly one hand-off in this process: not zero (transparently
+        // re-handed), not two (only re-handed once).
+        assert_eq!(report.output, serde_json::json!({ "handoffs": 1 }));
         worker.stop().unwrap();
     }
 }
