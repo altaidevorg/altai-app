@@ -218,6 +218,21 @@ export type GitHubRawHttpResponse = {
   body: number[];
 };
 
+/** One external object the sync refused to overwrite: local authority holds it. */
+export type ExternalSyncConflict = {
+  externalObjectId: string;
+  storedContentHash: string;
+  incomingContentHash: string;
+};
+
+/** What one external-object sync run did (package 070). */
+export type ExternalSyncReport = {
+  inserted: number;
+  unchanged: number;
+  updated: number;
+  conflicts: ExternalSyncConflict[];
+};
+
 /** A pre-edit checkpoint of a file the agent mutated, for one-step undo. */
 export type CheckpointInfo = {
   id: string;
@@ -1362,6 +1377,21 @@ export const native = {
       method,
       path,
       body,
+    }),
+  /**
+   * Sync one GitHub repository's issues into the workspace's external
+   * objects (package 070). Requires GitHub to be connected. The audit trail
+   * lands in the control-plane activity stream, not this report.
+   */
+  externalSyncGithubIssues: (
+    workspacePath: string,
+    owner: string,
+    repo: string,
+  ) =>
+    invoke<ExternalSyncReport>("external_sync_github_issues", {
+      workspacePath,
+      owner,
+      repo,
     }),
   orchestrationSnapshot: (workspaceKey: string) =>
     invoke<OrchestrationSnapshot>("orchestration_snapshot", { workspaceKey }),
