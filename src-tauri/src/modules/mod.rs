@@ -3,6 +3,7 @@ pub mod control_protocol;
 pub mod fs;
 pub mod git;
 pub mod github;
+pub mod gmail;
 pub mod lsp_install;
 #[cfg(target_os = "macos")]
 pub mod macos_webview;

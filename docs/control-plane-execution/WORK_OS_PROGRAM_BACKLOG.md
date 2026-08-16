@@ -169,11 +169,12 @@ architecture, security, and replacement decision. “Study” does not count as 
 
 The next PRs are fixed until this list is updated by an accepted change:
 
-1. `CP-08-77` — Full Gmail multi-account adapter
-   (Package 074 PR 2: account-aware sync — the Gmail provider maps
-   threads and messages into account-scoped ExternalObjects through
-   the 070 engine, idempotent per content hash per account; the
-   account model and scoped credential store landed in CP-08-76.)
+1. `CP-08-78` — Full Gmail multi-account adapter
+   (Package 074 PR 3: the wiring — a real Gmail client over the
+   transport seam with account-scoped credentials from the
+   CP-08-76 store, and the account sync command that closes the
+   package gate: account isolation, scoped credentials, idempotent
+   thread/message sync, all live.)
 
 ## 5. Project-manager update protocol
 

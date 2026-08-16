@@ -14,8 +14,8 @@
 use std::sync::Arc;
 
 use altai_control_protocol::{
-    Actor, ActivityEvent, EventKind, ExternalAuthority, ExternalObject, ExternalObjectId,
-    OrganizationId,
+    Actor, ActivityEvent, EventKind, ExternalAccountId, ExternalAuthority, ExternalObject,
+    ExternalObjectId, OrganizationId,
 };
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
@@ -89,6 +89,10 @@ pub fn content_hash(content: &str) -> String {
 
 pub struct ExternalSyncService {
     organization_id: OrganizationId,
+    /// The account every mapped object is stamped with and the watermark
+    /// is scoped to (package 074). `None` is an unattributed sync: a
+    /// single-account integration's objects, as before.
+    account_id: Option<ExternalAccountId>,
     provider: Arc<dyn ExternalObjectProvider>,
     repository: Arc<dyn ExternalObjectRepository>,
     activity: Arc<dyn ActivityEventRepository>,
@@ -105,8 +109,42 @@ impl ExternalSyncService {
         activity: Arc<dyn ActivityEventRepository>,
         default_authority: ExternalAuthority,
     ) -> Self {
+        Self::with_account(None, organization_id, provider, repository, activity, default_authority)
+    }
+
+    /// An account-scoped engine (package 074): every object it maps
+    /// carries the account, and the sync window is that account's alone —
+    /// one account's newest change never narrows another account's fetch.
+    pub fn for_account(
+        account_id: ExternalAccountId,
+        organization_id: OrganizationId,
+        provider: Arc<dyn ExternalObjectProvider>,
+        repository: Arc<dyn ExternalObjectRepository>,
+        activity: Arc<dyn ActivityEventRepository>,
+        default_authority: ExternalAuthority,
+    ) -> Self {
+        Self::with_account(
+            Some(account_id),
+            organization_id,
+            provider,
+            repository,
+            activity,
+            default_authority,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn with_account(
+        account_id: Option<ExternalAccountId>,
+        organization_id: OrganizationId,
+        provider: Arc<dyn ExternalObjectProvider>,
+        repository: Arc<dyn ExternalObjectRepository>,
+        activity: Arc<dyn ActivityEventRepository>,
+        default_authority: ExternalAuthority,
+    ) -> Self {
         Self {
             organization_id,
+            account_id,
             provider,
             repository,
             activity,
@@ -118,7 +156,8 @@ impl ExternalSyncService {
     /// by the caller so runs are deterministic under test. The provider is
     /// asked for changes since the newest provider-reported change already
     /// in the store — the watermark travels with the provider's clock, not
-    /// ours, so an unsynced period never widens into a full refetch.
+    /// ours, so an unsynced period never widens into a full refetch. For
+    /// an account-scoped engine, only that account's objects count.
     pub fn run(
         &self,
         now_unix_seconds: u64,
@@ -130,6 +169,7 @@ impl ExternalSyncService {
             .list_by_integration(&self.organization_id, integration)
             .map_err(ExternalSyncError::Repository)?
             .iter()
+            .filter(|object| object.account_id.as_ref() == self.account_id.as_ref())
             .filter_map(|object| object.external_updated_at_unix_seconds)
             .max();
         let fetched = self
@@ -143,10 +183,7 @@ impl ExternalSyncService {
                 id: ExternalObjectId::new(Uuid::new_v4().to_string()),
                 organization_id: self.organization_id.clone(),
                 integration: integration.to_string(),
-                // Unattributed: this engine serves single-account
-                // integrations. Account-backed sync (074) carries the
-                // account on every object it maps.
-                account_id: None,
+                account_id: self.account_id.clone(),
                 external_id: provider_object.external_id.clone(),
                 object_kind: provider_object.object_kind.clone(),
                 url: provider_object.url.clone(),
@@ -362,6 +399,27 @@ mod tests {
         activity: Arc<SqliteActivityEventRepository>,
     ) -> Harness {
         let service = ExternalSyncService::new(
+            OrganizationId::new("org"),
+            provider,
+            repository.clone(),
+            activity.clone(),
+            ExternalAuthority::External,
+        );
+        Harness {
+            service,
+            repository,
+            activity,
+        }
+    }
+
+    fn account_harness(
+        account_id: ExternalAccountId,
+        provider: Arc<FakeProvider>,
+        repository: Arc<SqliteExternalObjectRepository>,
+        activity: Arc<SqliteActivityEventRepository>,
+    ) -> Harness {
+        let service = ExternalSyncService::for_account(
+            account_id,
             OrganizationId::new("org"),
             provider,
             repository.clone(),
@@ -651,6 +709,94 @@ mod tests {
         assert_eq!(
             *provider.fetched.lock().unwrap(),
             vec![None, Some(5_000)]
+        );
+    }
+
+    #[test]
+    fn an_account_scoped_run_stamps_its_objects_with_the_account() {
+        let (repository, activity, _dir) = stores();
+        let account = ExternalAccountId::new("exta_work");
+        let provider = Arc::new(FakeProvider::new(
+            "gmail",
+            vec![FakeProvider::page(vec![provider_object(
+                "msg_1",
+                "A message",
+                "content-a",
+            )])],
+        ));
+        let harness = account_harness(account.clone(), provider, repository, activity);
+
+        let report = harness.service.run(2_000, "2026-08-15T00:00:00Z").unwrap();
+        assert_eq!(report.inserted, 1);
+
+        let stored = harness
+            .repository
+            .find("gmail", Some(&account), "msg_1")
+            .unwrap()
+            .expect("the account's lookup finds it");
+        assert_eq!(stored.account_id.as_ref(), Some(&account));
+        assert!(
+            harness.repository.find("gmail", None, "msg_1").unwrap().is_none(),
+            "an unattributed lookup does not see the account's object"
+        );
+    }
+
+    #[test]
+    fn the_watermark_is_scoped_to_the_account() {
+        let (repository, activity, _dir) = stores();
+        let work = ExternalAccountId::new("exta_work");
+        let personal = ExternalAccountId::new("exta_personal");
+
+        // Work has synced a change at 5_000; personal has synced nothing.
+        {
+            let provider = Arc::new(FakeProvider::new(
+                "gmail",
+                vec![FakeProvider::page(vec![ProviderObject {
+                    external_updated_at_unix_seconds: Some(5_000),
+                    ..provider_object("msg_work", "Work message", "content-a")
+                }])],
+            ));
+            let harness = account_harness(work.clone(), provider, repository.clone(), activity.clone());
+            harness.service.run(2_000, "2026-08-15T00:00:00Z").unwrap();
+        }
+
+        let provider = Arc::new(FakeProvider::new("gmail", vec![FakeProvider::page(Vec::new())]));
+        let harness = account_harness(personal.clone(), provider.clone(), repository, activity);
+        harness.service.run(9_000, "2026-08-15T02:00:00Z").unwrap();
+
+        // Personal's run asked for everything (None): work's 5_000 is not
+        // personal's watermark, so it never narrowed personal's window.
+        assert_eq!(*provider.fetched.lock().unwrap(), vec![None]);
+    }
+
+    #[test]
+    fn identical_content_under_two_accounts_is_two_objects() {
+        let (repository, activity, _dir) = stores();
+        let work = ExternalAccountId::new("exta_work");
+        let personal = ExternalAccountId::new("exta_personal");
+
+        for account in [&work, &personal] {
+            let provider = Arc::new(FakeProvider::new(
+                "gmail",
+                vec![FakeProvider::page(vec![provider_object(
+                    "msg_shared",
+                    "Same provider payload",
+                    "content-a",
+                )])],
+            ));
+            let harness =
+                account_harness(account.clone(), provider, repository.clone(), activity.clone());
+            let report = harness.service.run(2_000, "2026-08-15T00:00:00Z").unwrap();
+            assert_eq!(report.inserted, 1, "each account inserts its own object");
+            assert_eq!(report.unchanged, 0);
+        }
+
+        assert_eq!(
+            repository
+                .list_by_integration(&OrganizationId::new("org"), "gmail")
+                .unwrap()
+                .len(),
+            2
         );
     }
 
