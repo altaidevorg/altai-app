@@ -13,6 +13,7 @@ pub mod budget;
 pub mod approval;
 pub mod attempt;
 pub mod error;
+pub mod external;
 pub mod event;
 pub mod evidence;
 pub mod id;
@@ -36,6 +37,7 @@ pub use budget::Budget;
 pub use attempt::{Attempt, AttemptState, RunBinding, ScheduleBackend, ScheduleBackendBinding};
 pub use error::{ControlError, ControlErrorCode};
 pub use event::{ActivityEvent, ControlEvent, EventKind};
+pub use external::{ExternalAuthority, ExternalObject};
 pub use evidence::Evidence;
 pub use id::*;
 pub use protocol::{

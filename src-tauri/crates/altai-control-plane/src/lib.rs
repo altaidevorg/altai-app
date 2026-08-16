@@ -21,6 +21,7 @@ pub mod cron_due;
 pub mod delivery_gate;
 pub mod dispatch_eligibility;
 pub mod evidence_repository;
+pub mod external_object_repository;
 pub mod execution_repository;
 pub mod legacy_work_bridge;
 pub mod liveness_monitor;
@@ -87,6 +88,10 @@ pub use repository_scope_repository::{
 };
 pub use routine_cron_bridge::{RoutineCronBridge, DEFAULT_CRON_TICK};
 pub use routine_materializer::{RoutineMaterializationError, RoutineMaterializer};
+pub use external_object_repository::{
+    ExternalObjectError, ExternalObjectRepository, ExternalSyncOutcome,
+    SqliteExternalObjectRepository,
+};
 pub use routine_repository::{RoutineError, RoutineRepository, SqliteRoutineRepository};
 pub use run_binding_repository::{
     RunBindingError, RunBindingRepository, SqliteRunBindingRepository,

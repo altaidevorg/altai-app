@@ -8,6 +8,7 @@
 use crate::{
     SqliteAgentRepository, SqliteApprovalRepository, SqliteAttemptRepository,
     SqliteBudgetRepository, SqliteEvidenceRepository, SqliteExecutionSnapshotRepository,
+    SqliteExternalObjectRepository,
     SqliteRecoveryRepository, SqliteRegistrationRepository, SqliteRepositoryScopeRepository,
     SqliteRoutineRepository, SqliteRunBindingRepository, SqliteScheduleBackendRepository,
     SqliteScopeRepository, SqliteUsageRepository, SqliteWakeRepository, SqliteWorkGraphRepository,
@@ -19,7 +20,7 @@ use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// The semantic lifecycle version of the complete local `work.db` topology.
-pub const LOCAL_WORK_DB_SCHEMA_VERSION: i64 = 1;
+pub const LOCAL_WORK_DB_SCHEMA_VERSION: i64 = 2;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LocalMigrationReport {
@@ -138,6 +139,7 @@ impl LocalMigrationRunner {
         SqliteScheduleBackendRepository::open(database).map_err(repository_error)?;
         SqliteApprovalRepository::open(database).map_err(repository_error)?;
         SqliteEvidenceRepository::open(database).map_err(repository_error)?;
+        SqliteExternalObjectRepository::open(database).map_err(repository_error)?;
         SqliteUsageRepository::open(database).map_err(repository_error)?;
         SqliteBudgetRepository::open(database).map_err(repository_error)?;
         SqliteRecoveryRepository::open(database).map_err(repository_error)?;
@@ -213,6 +215,7 @@ mod tests {
             "control_plane_usage_records",
             "control_plane_recovery_records",
             "control_plane_registered_hosts",
+            "control_plane_external_objects",
         ] {
             let exists: i64 = connection
                 .query_row(
