@@ -35,8 +35,8 @@ Definition of done for every package:
 
 | Measure | Current |
 | --- | ---: |
-| Overall Work OS completion | **28%** |
-| Foundation/control-plane backbone | **60%** |
+| Overall Work OS completion | **29%** |
+| Foundation/control-plane backbone | **61%** |
 | End-to-end autonomous execution | **8%** |
 | Product/UX surfaces | **21%** |
 | Ecosystem/plugin/upstream adoption | **2%** |
@@ -129,7 +129,7 @@ changes only when an exit gate is accepted.
 | 071 | Application plugin manifest/capabilities | accepted | 051 | #787, #789 | Agent-content and application plugins are distinct; upgrades disclose capability expansion |
 | 072 | Out-of-process plugin workers | accepted | 071 | #815–#818, #820 | Crash isolation, health, jobs, webhooks, scoped secrets and idempotency |
 | 073 | Schema-driven/sandboxed plugin UI | accepted | 061, 072 | #822, #823 | UI cannot bypass worker capability checks |
-| 074 | Full Gmail multi-account adapter | in_progress | 071–073 | 2–3 | Account isolation, scoped credentials, idempotent thread/message sync |
+| 074 | Full Gmail multi-account adapter | accepted | 071–073 | #825, #826, #827 | Account isolation, scoped credentials, idempotent thread/message sync |
 
 ### Stage 8 — Upstream product/code adoption tracks
 
@@ -138,7 +138,7 @@ architecture, security, and replacement decision. “Study” does not count as 
 
 | Order | Track | Status | Depends on | Required decision and outcome |
 | ---: | --- | --- | --- | --- |
-| 080 | Paperclip downstream/codebase | planned | 034, 060 | Organization-owned downstream; preserve license/history/base SHA; select modules through adapter boundaries |
+| 080 | Paperclip downstream/codebase | in_progress | 034, 060 | Organization-owned downstream; preserve license/history/base SHA; select modules through adapter boundaries |
 | 081 | LongHorizon codebase | planned | 035, 044 | Adopt long-running recovery/evaluation mechanisms only after conformance benchmark |
 | 082 | Macro codebase | blocked: legal gate | 071 | License/provenance clearance before any Apache artifact; then isolate adopted modules |
 | 083 | OpenTag codebase | planned | 051, 071 | Normalize tag/metadata concepts without creating a second identity system |
@@ -169,12 +169,14 @@ architecture, security, and replacement decision. “Study” does not count as 
 
 The next PRs are fixed until this list is updated by an accepted change:
 
-1. `CP-08-79` — Accept package 074 + program bookkeeping
-   (074's exit gate — account isolation, scoped credentials, idempotent
-   thread/message sync — is closed by #825, #826 and CP-08-78: flip the
-   row to accepted with the PR evidence, bump the dashboard from the
-   accepted gate, advance the queue to the next package, and record
-   CURRENT_STATE.)
+1. `CP-08-80` — Paperclip downstream charter (080 PR 1)
+   (Record the organization-owned downstream DEC-001 authorized: the
+   downstream repository and its upstream base SHA, license and history
+   preservation, the update/rebase policy, and the module selection
+   through narrow ALTAI adapter boundaries. "Study" does not count as
+   shipped — the charter names concrete modules and the boundaries they
+   ride; adopting code itself follows in later PRs against that
+   charter.)
 
 ## 5. Project-manager update protocol
 

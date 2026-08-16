@@ -5,7 +5,7 @@
 >
 > **Date:** 2026-08-16
 >
-> **Last updated by:** Schema-driven/sandboxed plugin UI through PRs #822–#823
+> **Last updated by:** Full Gmail multi-account adapter through PRs #825–#827
 
 ## Accepted Tasks
 
@@ -32,6 +32,7 @@ All current and future ordering comes from `WORK_OS_PROGRAM_BACKLOG.md`.
 | CP-08 (070) | accepted | PRs #809–#812 | 2026-08-16 | External-object storage keyed by provider identity, idempotent sync engine with explicit per-object authority, GitHub issues provider, and two-directional conflict resolution audited as activity events |
 | CP-08 (072) | accepted | PRs #815–#818, #820 | 2026-08-16 | Out-of-process plugin workers: supervised crash-isolated child processes over stdio IPC, health probing with restart budgets, at-most-once job and webhook dispatch ledgers, and per-process scoped-secret hand-off re-provisioned across restarts |
 | CP-08 (073) | accepted | PRs #822–#823 | 2026-08-16 | Schema-driven plugin UI: declarative surface/action contract (Section/Text/Table/Action, bounded) validated at registration with the same first-error order on both sides, and runtime dispatch where the installed declaration is the whitelist — invoke_ui_action re-checks the capability at the dispatch boundary and rides the at-most-once ledger, so the UI cannot bypass worker capability checks |
+| CP-08 (074) | accepted | PRs #825–#827 | 2026-08-16 | Full Gmail multi-account adapter: account model with per-account identity and a (plugin, account, name)-scoped credential store, an account-scoped sync engine where every object carries the account and the watermark is the account's alone, and the live wiring — Gmail client over the SSRF-safe transport, connect/list/disconnect/sync commands, TS bindings — so account isolation, scoped credentials and idempotent thread/message sync hold end to end |
 
 ## Current Schema and Protocol Versions
 
