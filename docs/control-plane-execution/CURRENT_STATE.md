@@ -3,9 +3,9 @@
 > **Rule:** This file is updated **only** when a task is accepted (merged/reviewed),
 > not when an agent says it finished. It records canonical progress.
 >
-> **Date:** 2026-08-13
+> **Date:** 2026-08-16
 >
-> **Last updated by:** Local SQLite consolidation through PRs #734–#735
+> **Last updated by:** External objects and GitHub adapter through PRs #809–#812
 
 ## Accepted Tasks
 
@@ -29,6 +29,7 @@ All current and future ordering comes from `WORK_OS_PROGRAM_BACKLOG.md`.
 | CP-08 (030–036) | accepted | PRs #742–#763 | 2026-08-13 | Attempts, immutable run bindings, bounded run-context assembly, agent lifecycle, AttemptExecutor, event translation, finalization and schedule backend seam |
 | CP-08 (040–045) | accepted | PRs #764–#776 | 2026-08-14 | Routines, cron materializer, approvals & immutable audit, usage/cost ledger & hard-stops, liveness monitor & recovery pass, evidence & governed delivery |
 | CP-08-34/35 (050) | accepted | PRs #777–#778 | 2026-08-14 | Workspace checkout reattachment (identity preserved on disk move), resolution by path hint, and fail-closed repository scopes |
+| CP-08 (070) | accepted | PRs #809–#812 | 2026-08-16 | External-object storage keyed by provider identity, idempotent sync engine with explicit per-object authority, GitHub issues provider, and two-directional conflict resolution audited as activity events |
 
 ## Current Schema and Protocol Versions
 
