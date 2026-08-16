@@ -1,4 +1,9 @@
 import type { TypedId } from "./ids.js";
+import {
+  validatePluginUi,
+  type PluginUiDeclaration,
+  type PluginUiError,
+} from "./plugin-ui.js";
 
 // Plugin manifest and capability contracts (package 071). Mirrors
 // src-tauri/crates/altai-control-protocol/src/plugin.rs — keep both sides
@@ -20,12 +25,15 @@ export type PluginManifest = {
   readonly plugin_id: TypedId; readonly kind: PluginKind;
   readonly version: PluginVersion; readonly display_name: string;
   readonly capabilities: readonly PluginCapability[];
+  /** Declared UI surfaces (073). Optional; validated with the manifest. */
+  readonly ui?: PluginUiDeclaration;
 };
 
 export type PluginManifestError =
   | { readonly type: "duplicate_capability"; readonly capability: PluginCapability }
   | { readonly type: "capability_not_allowed_for_kind"; readonly kind: PluginKind; readonly capability: PluginCapability }
-  | { readonly type: "empty_display_name" };
+  | { readonly type: "empty_display_name" }
+  | { readonly type: "invalid_ui"; readonly reason: PluginUiError };
 
 const APPLICATION_CAPABILITIES: readonly PluginCapability[] = [
   "jobs", "webhooks", "scoped_secrets", "plugin_ui",
@@ -41,6 +49,10 @@ export const validatePluginManifest = (
   manifest: PluginManifest,
 ): PluginManifestError | null => {
   if (manifest.display_name.trim() === "") return { type: "empty_display_name" };
+  if (manifest.ui) {
+    const reason = validatePluginUi(manifest.ui, manifest.capabilities);
+    if (reason) return { type: "invalid_ui", reason };
+  }
   const seen = new Set<PluginCapability>();
   for (const capability of manifest.capabilities) {
     if (seen.has(capability)) return { type: "duplicate_capability", capability };

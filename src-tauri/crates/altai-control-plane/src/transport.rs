@@ -1780,6 +1780,7 @@ mod tests {
             version: PluginVersion::new(major, 0, 0),
             display_name: "HTTP plugin".into(),
             capabilities,
+            ui: None,
         }
     }
 

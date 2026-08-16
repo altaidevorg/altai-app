@@ -18,6 +18,7 @@ pub mod event;
 pub mod evidence;
 pub mod id;
 pub mod plugin;
+pub mod plugin_ui;
 pub mod protocol;
 pub mod recovery;
 pub mod registration;
@@ -55,6 +56,10 @@ pub use registration::{
 pub use plugin::{
     PluginCapability, PluginKind, PluginManifest, PluginManifestError, PluginUpgradeDisclosure,
     PluginVersion,
+};
+pub use plugin_ui::{
+    PluginUiAction, PluginUiDeclaration, PluginUiError, PluginUiNode, PluginUiSurface,
+    MAX_DEPTH, MAX_NODES_PER_SURFACE, MAX_SURFACES, MAX_TABLE_COLUMNS, MAX_TABLE_ROWS,
 };
 pub use revision::Revision;
 pub use routine::{Routine, RoutineRevision, RoutineStatus, RoutineTrigger};

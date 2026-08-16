@@ -226,6 +226,7 @@ mod tests {
                 PluginKind::Application => vec![PluginCapability::Jobs],
                 PluginKind::AgentContent => Vec::new(),
             },
+            ui: None,
         }
     }
 

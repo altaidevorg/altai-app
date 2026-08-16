@@ -128,7 +128,7 @@ changes only when an exit gate is accepted.
 | 070 | ExternalObject model and GitHub adapter | accepted | 051, 060 | #809, #810, #811, #812 | Idempotent sync, explicit authority and conflict resolution |
 | 071 | Application plugin manifest/capabilities | accepted | 051 | #787, #789 | Agent-content and application plugins are distinct; upgrades disclose capability expansion |
 | 072 | Out-of-process plugin workers | accepted | 071 | #815–#818, #820 | Crash isolation, health, jobs, webhooks, scoped secrets and idempotency |
-| 073 | Schema-driven/sandboxed plugin UI | planned | 061, 072 | 2 | UI cannot bypass worker capability checks |
+| 073 | Schema-driven/sandboxed plugin UI | in_progress | 061, 072 | 2 | UI cannot bypass worker capability checks |
 | 074 | Full Gmail multi-account adapter | planned | 071–073 | 2–3 | Account isolation, scoped credentials, idempotent thread/message sync |
 
 ### Stage 8 — Upstream product/code adoption tracks
@@ -169,11 +169,12 @@ architecture, security, and replacement decision. “Study” does not count as 
 
 The next PRs are fixed until this list is updated by an accepted change:
 
-1. `CP-08-73` — Schema-driven/sandboxed plugin UI
-   (Package 073 PR 1: the declarative UI schema contract — what a
-   plugin may declare as surfaces, validated at registration; the
-   sandbox enforcement, UI cannot bypass worker capability checks,
-   follows in PR 2).
+1. `CP-08-74` — Schema-driven/sandboxed plugin UI
+   (Package 073 PR 2: the runtime half of the gate — an action
+   dispatched from a UI surface travels the 072 worker path and is
+   refused unless the manifest declared the capability, whatever the
+   client sends; the static half, the schema contract validated at
+   registration, shipped in #822).
 
 ## 5. Project-manager update protocol
 
