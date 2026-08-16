@@ -86,9 +86,16 @@ hand-run demo.
 - Nothing in this charter unblocks 082 (Macro, AGPL-3.0): its legal
   gate is independent and unchanged.
 
-## 6. Next step
+## 6. Stand-up record
 
-CP-08-81 stands the downstream up per §2: the organization-owned
-repository from upstream `f0e6c0f`, `UPSTREAM_BASE.md`, branch/sync
-policy, and the security-review checklist — before any module in §3 is
-touched.
+CP-08-81 stood the downstream up per §2 (2026-08-16):
+[`altaidevorg/paperclip`](https://github.com/altaidevorg/paperclip)
+(private), `master` = upstream base `f0e6c0f` plus root policy files
+only (`UPSTREAM_BASE.md`, `DOWNSTREAM.md`, `SECURITY_REVIEW.md` —
+commit `e7536aa9`); full history preserved (3,597 commits, 1,155 tags
+reachable from the base); `upstream` remote set; the §2.8 security
+review is recorded as **unpassed** — nothing is exposed beyond
+localhost until it is.
+
+Next: the §4 acceptance spike, through the reviewed conformance
+harness.
