@@ -38,6 +38,7 @@ use crate::plugin_worker::{
 use crate::plugin_worker_jobs::{
     DispatchLedger, DispatchOutcome, DispatchState, JobRequest, JobResult,
 };
+use altai_control_protocol::PluginUiAction;
 use crate::plugin_worker_secrets::{
     SecretAck, SecretHandoff, SecretHandoffOutcome, SecretString,
 };
@@ -375,6 +376,37 @@ impl SupervisedWorker {
         self.jobs.state(job_id)
     }
 
+    /// Invoke one UI action a client says was triggered. The runtime
+    /// half of the 073 gate: the *installed manifest's* declaration is
+    /// the whitelist — an unknown surface, or an action the surface
+    /// never declared, is refused no matter what the client sent — and
+    /// the dispatch itself goes through [`dispatch_job`](Self::dispatch_job),
+    /// which re-checks the capability and the at-most-once ledger. A
+    /// repeated trigger (a double-click) answers `AlreadyKnown`: the
+    /// job was sent once, ever, and the second click changes nothing.
+    pub fn invoke_ui_action(
+        &mut self,
+        surface_id: &str,
+        action: &PluginUiAction,
+    ) -> Result<DispatchOutcome, WorkerError> {
+        let declared = self
+            .manifest
+            .ui
+            .as_ref()
+            .is_some_and(|ui| ui.declares_action(surface_id, action));
+        if !declared {
+            return Err(WorkerError::UiActionNotDeclared {
+                plugin_id: self.manifest.plugin_id.clone(),
+                surface_id: surface_id.to_string(),
+            });
+        }
+        match action {
+            PluginUiAction::InvokeJob { job_id } => {
+                self.dispatch_job(job_id, serde_json::Value::Null)
+            }
+        }
+    }
+
     /// What the host knows about one webhook delivery id.
     pub fn webhook_state(&self, delivery_id: &str) -> Option<&DispatchState> {
         self.webhooks.state(delivery_id)
@@ -535,7 +567,10 @@ impl SupervisedWorker {
 mod tests {
     use super::*;
     use crate::plugin_worker_transport::WorkerFrame;
-    use altai_control_protocol::{PluginCapability, PluginId, PluginKind, PluginVersion};
+    use altai_control_protocol::{
+        PluginCapability, PluginId, PluginKind, PluginUiAction, PluginUiDeclaration, PluginUiNode,
+        PluginUiSurface, PluginVersion,
+    };
     use std::io::{BufRead, Write};
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::time::Duration;
@@ -552,6 +587,38 @@ mod tests {
                 PluginCapability::ScopedSecrets,
             ],
             ui: None,
+        }
+    }
+
+    /// A manifest whose UI declares one invoke-job action on `panel`.
+    fn ui_manifest(capabilities: Vec<PluginCapability>) -> PluginManifest {
+        PluginManifest {
+            plugin_id: PluginId::new("plug_1"),
+            kind: PluginKind::Application,
+            version: PluginVersion::new(1, 0, 0),
+            display_name: "Test plugin".into(),
+            capabilities,
+            ui: Some(PluginUiDeclaration {
+                surfaces: vec![PluginUiSurface {
+                    surface_id: "panel".into(),
+                    title: "Panel".into(),
+                    root: PluginUiNode::Section {
+                        title: "Overview".into(),
+                        children: vec![PluginUiNode::Action {
+                            label: "Refresh".into(),
+                            action: PluginUiAction::InvokeJob {
+                                job_id: "job_refresh".into(),
+                            },
+                        }],
+                    },
+                }],
+            }),
+        }
+    }
+
+    fn refresh_action() -> PluginUiAction {
+        PluginUiAction::InvokeJob {
+            job_id: "job_refresh".into(),
         }
     }
 
@@ -1407,4 +1474,163 @@ mod tests {
         assert_eq!(report.output, serde_json::json!({ "handoffs": 1 }));
         worker.stop().unwrap();
     }
+
+    #[test]
+    fn a_declared_ui_action_dispatches_its_job_to_a_real_worker() {
+        let mut worker = SupervisedWorker::start(
+            ui_manifest(vec![PluginCapability::Jobs, PluginCapability::PluginUi]),
+            WorkerRestartPolicy::new(3),
+            None,
+            launcher("jobs"),
+        )
+        .unwrap();
+        assert_eq!(
+            worker.invoke_ui_action("panel", &refresh_action()).unwrap(),
+            DispatchOutcome::Sent
+        );
+        let result = worker
+            .await_job_result("job_refresh", Duration::from_secs(5))
+            .unwrap()
+            .expect("the jobs child answers the UI-dispatched job");
+        assert!(result.ok);
+        assert!(matches!(
+            worker.job_state("job_refresh"),
+            Some(DispatchState::Completed { ok: true, .. })
+        ));
+        worker.stop().unwrap();
+    }
+
+    #[test]
+    fn a_double_click_sends_the_job_once_ever() {
+        // The UI trigger routes through the dispatch ledger, so a second
+        // invocation of the same declared action is AlreadyKnown — and
+        // the child's request counter proves nothing was re-sent.
+        let mut worker = SupervisedWorker::start(
+            ui_manifest(vec![PluginCapability::Jobs, PluginCapability::PluginUi]),
+            WorkerRestartPolicy::new(3),
+            None,
+            launcher("jobs"),
+        )
+        .unwrap();
+        worker.invoke_ui_action("panel", &refresh_action()).unwrap();
+        worker
+            .await_job_result("job_refresh", Duration::from_secs(5))
+            .unwrap()
+            .expect("the first trigger completes");
+        assert_eq!(
+            worker.invoke_ui_action("panel", &refresh_action()).unwrap(),
+            DispatchOutcome::AlreadyKnown
+        );
+
+        worker
+            .dispatch_job("count", serde_json::json!({"report_requests": true}))
+            .unwrap();
+        let report = worker
+            .await_job_result("count", Duration::from_secs(5))
+            .unwrap()
+            .expect("the report job completes");
+        // job_refresh once + the report itself: the double-click sent
+        // nothing.
+        assert_eq!(report.output, serde_json::json!({ "requests": 2 }));
+        worker.stop().unwrap();
+    }
+
+    #[test]
+    fn an_undeclared_action_is_refused_whatever_the_client_sends() {
+        let mut worker = SupervisedWorker::start(
+            ui_manifest(vec![PluginCapability::Jobs, PluginCapability::PluginUi]),
+            WorkerRestartPolicy::new(3),
+            None,
+            launcher("jobs"),
+        )
+        .unwrap();
+        // A job id no surface ever declared.
+        let undeclared = PluginUiAction::InvokeJob {
+            job_id: "job_never_declared".into(),
+        };
+        assert_eq!(
+            worker.invoke_ui_action("panel", &undeclared).unwrap_err(),
+            WorkerError::UiActionNotDeclared {
+                plugin_id: PluginId::new("plug_1"),
+                surface_id: "panel".into(),
+            }
+        );
+        // The right action on a surface that does not exist.
+        assert_eq!(
+            worker.invoke_ui_action("nowhere", &refresh_action()).unwrap_err(),
+            WorkerError::UiActionNotDeclared {
+                plugin_id: PluginId::new("plug_1"),
+                surface_id: "nowhere".into(),
+            }
+        );
+        // Refused means refused: nothing was recorded, the worker saw
+        // nothing, and the ledger has no entry to burn.
+        assert_eq!(worker.job_state("job_never_declared"), None);
+        worker.stop().unwrap();
+    }
+
+    #[test]
+    fn a_manifest_without_a_ui_declaration_refuses_every_action() {
+        let mut worker = SupervisedWorker::start(
+            manifest(),
+            WorkerRestartPolicy::new(3),
+            None,
+            launcher("jobs"),
+        )
+        .unwrap();
+        assert_eq!(
+            worker.invoke_ui_action("panel", &refresh_action()).unwrap_err(),
+            WorkerError::UiActionNotDeclared {
+                plugin_id: PluginId::new("plug_1"),
+                surface_id: "panel".into(),
+            }
+        );
+        worker.stop().unwrap();
+    }
+
+    #[test]
+    fn a_handcrafted_manifest_cannot_bypass_the_capability_check() {
+        // The static half (registration) would refuse this manifest: it
+        // declares a UI without Jobs. The runtime half must refuse the
+        // invocation anyway — the capability check lives at the dispatch
+        // boundary, not in the client's good behavior.
+        let mut worker = SupervisedWorker::start(
+            ui_manifest(vec![PluginCapability::PluginUi]),
+            WorkerRestartPolicy::new(3),
+            None,
+            launcher("jobs"),
+        )
+        .unwrap();
+        assert_eq!(
+            worker.invoke_ui_action("panel", &refresh_action()).unwrap_err(),
+            WorkerError::CapabilityMissing {
+                plugin_id: PluginId::new("plug_1"),
+                capability: PluginCapability::Jobs,
+            }
+        );
+        // Nothing was dispatched: the id is not burned.
+        assert_eq!(worker.job_state("job_refresh"), None);
+        worker.stop().unwrap();
+    }
+
+    #[test]
+    fn an_invocation_against_a_dead_worker_reports_worker_down() {
+        let mut worker = SupervisedWorker::start(
+            ui_manifest(vec![PluginCapability::Jobs, PluginCapability::PluginUi]),
+            WorkerRestartPolicy::new(0),
+            None,
+            launcher("crash"),
+        )
+        .unwrap();
+        assert_eq!(
+            reconcile_until_decided(&mut worker, 100),
+            WorkerDirective::GiveUp
+        );
+        assert_eq!(
+            worker.invoke_ui_action("panel", &refresh_action()).unwrap(),
+            DispatchOutcome::WorkerDown
+        );
+        assert_eq!(worker.job_state("job_refresh"), None);
+    }
 }
+
