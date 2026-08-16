@@ -123,8 +123,8 @@ pub use external_object_repository::{
     SqliteExternalObjectRepository,
 };
 pub use external_sync::{
-    resolve_external_conflict, ExternalObjectProvider, ExternalSyncConflict, ExternalSyncError,
-    ExternalSyncReport, ExternalSyncService, ProviderObject,
+    content_hash, resolve_external_conflict, ExternalObjectProvider, ExternalSyncConflict,
+    ExternalSyncError, ExternalSyncReport, ExternalSyncService, ProviderObject,
 };
 pub use routine_repository::{RoutineError, RoutineRepository, SqliteRoutineRepository};
 pub use run_binding_repository::{
