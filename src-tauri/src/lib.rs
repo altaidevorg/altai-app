@@ -3,8 +3,9 @@ mod modules;
 
 use altai::agent::commands as agent_commands;
 use modules::{
-    app_menu, control_protocol, fs, git, github, lsp_install, mcp, net, notebook, orchestration,
-    os_menu, proc, pty, routines, secrets, shell, webview, work, work_import, workspace,
+    app_menu, control_protocol, external_sync, fs, git, github, lsp_install, mcp, net, notebook,
+    orchestration, os_menu, proc, pty, routines, secrets, shell, webview, work, work_import,
+    workspace,
 };
 use serde::{Deserialize, Serialize};
 use std::sync::Mutex;
@@ -708,6 +709,7 @@ pub fn run() {
             github::commands::github_api_request,
             github::commands::github_create_repo,
             github::external_sync::external_sync_github_issues,
+            external_sync::external_object_resolve_conflict,
             // ALTAI — local project orchestration (ALTAI/IsanAgent runtime)
             orchestration::orchestration_snapshot,
             orchestration::orchestration_start,

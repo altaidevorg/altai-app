@@ -90,12 +90,12 @@ pub use repository_scope_repository::{
 pub use routine_cron_bridge::{RoutineCronBridge, DEFAULT_CRON_TICK};
 pub use routine_materializer::{RoutineMaterializationError, RoutineMaterializer};
 pub use external_object_repository::{
-    ExternalObjectError, ExternalObjectRepository, ExternalSyncOutcome,
+    ConflictResolution, ExternalObjectError, ExternalObjectRepository, ExternalSyncOutcome,
     SqliteExternalObjectRepository,
 };
 pub use external_sync::{
-    ExternalObjectProvider, ExternalSyncConflict, ExternalSyncError, ExternalSyncReport,
-    ExternalSyncService, ProviderObject,
+    resolve_external_conflict, ExternalObjectProvider, ExternalSyncConflict, ExternalSyncError,
+    ExternalSyncReport, ExternalSyncService, ProviderObject,
 };
 pub use routine_repository::{RoutineError, RoutineRepository, SqliteRoutineRepository};
 pub use run_binding_repository::{

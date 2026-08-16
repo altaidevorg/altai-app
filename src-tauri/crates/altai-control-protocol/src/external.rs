@@ -41,6 +41,14 @@ pub struct ExternalObject {
     pub content_hash: String,
     /// Conflict-resolution rule for this object.
     pub authority: ExternalAuthority,
+    /// The external content the last sync refused, awaiting a decision.
+    /// Presenting state for a resolver — it is not itself a decision.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub refused_content_hash: Option<String>,
+    /// The external content a `KeepLocal` resolution dismissed. An
+    /// identical provider payload stops re-conflicting; a new hash does not.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub declined_content_hash: Option<String>,
     /// The local Work item this object is linked to, if any.
     pub linked_work_item_id: Option<WorkItemId>,
     /// Provider-reported last change, for sync windows.
