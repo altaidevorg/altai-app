@@ -3,9 +3,8 @@
 //! the wire that observation travels on. One JSON line each way over the
 //! worker's piped stdio: the host writes a
 //! [`WorkerFrame::HealthProbe`], the worker answers
-//! [`WorkerFrame::HealthOk`]. PR 4 adds the job pair —
-//! [`WorkerFrame::JobRequest`] out, [`WorkerFrame::JobResult`] back —
-//! and later 072 PRs (webhooks, scoped secrets) extend the vocabulary
+//! [`WorkerFrame::HealthOk`]. PR 4 added the job pair and PR 5 the
+//! webhook and secret pairs — later Work OS PRs extend the vocabulary
 //! in place: the transport moves frames, it does not interpret them.
 
 use std::collections::VecDeque;
@@ -18,6 +17,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::plugin_worker::WorkerError;
 use crate::plugin_worker_jobs::{JobRequest, JobResult};
+use crate::plugin_worker_secrets::{SecretAck, SecretHandoff};
+use crate::plugin_worker_webhooks::{WebhookAck, WebhookDelivery};
 
 /// One frame of the host↔worker wire protocol, as a single JSON line.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -31,6 +32,16 @@ pub enum WorkerFrame {
     JobRequest(JobRequest),
     /// Worker → host: the job finished (072 PR 4).
     JobResult(JobResult),
+    /// Host → worker: one inbound webhook delivery (072 PR 5).
+    WebhookDelivery(WebhookDelivery),
+    /// Worker → host: the delivery was processed (072 PR 5).
+    WebhookAck(WebhookAck),
+    /// Host → worker: one scoped secret (072 PR 5). The value is a
+    /// [`SecretString`](crate::plugin_worker_secrets::SecretString):
+    /// printing this frame redacts it.
+    SecretHandoff(SecretHandoff),
+    /// Worker → host: the secret was received (072 PR 5).
+    SecretAck(SecretAck),
 }
 
 impl WorkerFrame {
@@ -52,15 +63,16 @@ impl WorkerFrame {
 /// direct read cannot); it exits when the pipe closes, at which point
 /// the inbound channel disconnects.
 ///
-/// Two frame kinds arrive unsolicited — health answers and job results —
-/// so every receive routes what it got: a probe keeps waiting past job
-/// results (stashing them), and a job wait keeps waiting past health
-/// answers (ignoring them — every health answer is evidence of a serving
-/// worker, consumed by whoever probes next or not at all).
+/// Several frame kinds arrive unsolicited — health answers, job
+/// results, webhook acks, secret acks — so every receive routes what it
+/// got: whatever a waiter is not waiting for is stashed for the waiter
+/// that is. No receive consumes another kind's evidence.
 pub struct StdioWorkerTransport {
     stdin: ChildStdin,
     inbound: Receiver<WorkerFrame>,
     stashed_results: VecDeque<JobResult>,
+    stashed_webhook_acks: VecDeque<WebhookAck>,
+    stashed_secret_acks: VecDeque<SecretAck>,
 }
 
 impl StdioWorkerTransport {
@@ -82,6 +94,8 @@ impl StdioWorkerTransport {
             stdin,
             inbound: rx,
             stashed_results: VecDeque::new(),
+            stashed_webhook_acks: VecDeque::new(),
+            stashed_secret_acks: VecDeque::new(),
         }
     }
 
@@ -92,6 +106,23 @@ impl StdioWorkerTransport {
             .map_err(|error| WorkerError::Process {
                 reason: format!("cannot write to worker stdin: {error}"),
             })
+    }
+
+    /// The next frame to arrive within `window`, if any.
+    fn next_inbound(&mut self, window: Duration) -> Option<WorkerFrame> {
+        self.inbound.recv_timeout(window).ok()
+    }
+
+    /// Route one inbound frame this waiter is not waiting for into its
+    /// stash. Health answers are consumed: they are evidence for
+    /// whoever probes next, not a fact to queue.
+    fn stash_unwanted(&mut self, frame: WorkerFrame) {
+        match frame {
+            WorkerFrame::JobResult(result) => self.stashed_results.push_back(result),
+            WorkerFrame::WebhookAck(ack) => self.stashed_webhook_acks.push_back(ack),
+            WorkerFrame::SecretAck(ack) => self.stashed_secret_acks.push_back(ack),
+            _ => {}
+        }
     }
 
     /// Ask the worker how it is and wait for its answer. `Ok(true)`: it
@@ -112,18 +143,15 @@ impl StdioWorkerTransport {
             if remaining.is_zero() {
                 return Ok(false);
             }
-            match self.inbound.recv_timeout(remaining) {
-                Ok(WorkerFrame::HealthOk) => return Ok(true),
-                Ok(WorkerFrame::JobResult(result)) => self.stashed_results.push_back(result),
-                Ok(_) => {}
-                Err(_) => return Ok(false),
+            match self.next_inbound(remaining) {
+                Some(WorkerFrame::HealthOk) => return Ok(true),
+                Some(frame) => self.stash_unwanted(frame),
+                None => return Ok(false),
             }
         }
     }
 
-    /// Wait for one job's result. Results for other jobs that arrive
-    /// meanwhile are stashed for their own awaiters. `None`: no result
-    /// within `window`.
+    /// Wait for one job's result. `None`: no result within `window`.
     pub fn await_result(&mut self, job_id: &str, window: Duration) -> Option<JobResult> {
         if let Some(index) = self
             .stashed_results
@@ -138,13 +166,60 @@ impl StdioWorkerTransport {
             if remaining.is_zero() {
                 return None;
             }
-            match self.inbound.recv_timeout(remaining) {
-                Ok(WorkerFrame::JobResult(result)) if result.job_id == job_id => {
+            match self.next_inbound(remaining) {
+                Some(WorkerFrame::JobResult(result)) if result.job_id == job_id => {
                     return Some(result)
                 }
-                Ok(WorkerFrame::JobResult(result)) => self.stashed_results.push_back(result),
-                Ok(_) => {}
-                Err(_) => return None,
+                Some(frame) => self.stash_unwanted(frame),
+                None => return None,
+            }
+        }
+    }
+
+    /// Wait for one webhook delivery's ack. `None`: none within `window`.
+    pub fn await_webhook_ack(&mut self, delivery_id: &str, window: Duration) -> Option<WebhookAck> {
+        if let Some(index) = self
+            .stashed_webhook_acks
+            .iter()
+            .position(|ack| ack.delivery_id == delivery_id)
+        {
+            return self.stashed_webhook_acks.remove(index);
+        }
+        let deadline = Instant::now() + window;
+        loop {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                return None;
+            }
+            match self.next_inbound(remaining) {
+                Some(WorkerFrame::WebhookAck(ack)) if ack.delivery_id == delivery_id => {
+                    return Some(ack)
+                }
+                Some(frame) => self.stash_unwanted(frame),
+                None => return None,
+            }
+        }
+    }
+
+    /// Wait for one secret's ack. `None`: none within `window`.
+    pub fn await_secret_ack(&mut self, name: &str, window: Duration) -> Option<SecretAck> {
+        if let Some(index) = self
+            .stashed_secret_acks
+            .iter()
+            .position(|ack| ack.name == name)
+        {
+            return self.stashed_secret_acks.remove(index);
+        }
+        let deadline = Instant::now() + window;
+        loop {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                return None;
+            }
+            match self.next_inbound(remaining) {
+                Some(WorkerFrame::SecretAck(ack)) if ack.name == name => return Some(ack),
+                Some(frame) => self.stash_unwanted(frame),
+                None => return None,
             }
         }
     }
@@ -153,6 +228,7 @@ impl StdioWorkerTransport {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::plugin_worker_secrets::SecretString;
     use serde_json::json;
 
     #[test]
@@ -168,6 +244,22 @@ mod tests {
                 job_id: "job_1".into(),
                 ok: true,
                 output: json!({"done": true}),
+            }),
+            WorkerFrame::WebhookDelivery(WebhookDelivery {
+                delivery_id: "wh_1".into(),
+                event: "issue.opened".into(),
+                payload: json!({"n": 1}),
+            }),
+            WorkerFrame::WebhookAck(WebhookAck {
+                delivery_id: "wh_1".into(),
+                ok: true,
+            }),
+            WorkerFrame::SecretHandoff(SecretHandoff {
+                name: "api_token".into(),
+                value: SecretString::new("super-secret-key"),
+            }),
+            WorkerFrame::SecretAck(SecretAck {
+                name: "api_token".into(),
             }),
         ];
         for frame in frames {
@@ -198,6 +290,48 @@ mod tests {
             })
             .to_line(),
             r#"{"type":"job_result","job_id":"job_1","ok":true,"output":{"count":2}}"#
+        );
+        assert_eq!(
+            WorkerFrame::WebhookDelivery(WebhookDelivery {
+                delivery_id: "wh_1".into(),
+                event: "issue.opened".into(),
+                payload: json!({"n": 1}),
+            })
+            .to_line(),
+            r#"{"type":"webhook_delivery","delivery_id":"wh_1","event":"issue.opened","payload":{"n":1}}"#
+        );
+        assert_eq!(
+            WorkerFrame::WebhookAck(WebhookAck {
+                delivery_id: "wh_1".into(),
+                ok: true,
+            })
+            .to_line(),
+            r#"{"type":"webhook_ack","delivery_id":"wh_1","ok":true}"#
+        );
+        // The secret travels as a plain string on the wire (the worker
+        // must be able to read it), but never prints.
+        assert_eq!(
+            WorkerFrame::SecretHandoff(SecretHandoff {
+                name: "api_token".into(),
+                value: SecretString::new("super-secret-key"),
+            })
+            .to_line(),
+            r#"{"type":"secret_handoff","name":"api_token","value":"super-secret-key"}"#
+        );
+        assert!(!format!(
+            "{:?}",
+            WorkerFrame::SecretHandoff(SecretHandoff {
+                name: "api_token".into(),
+                value: SecretString::new("super-secret-key"),
+            })
+        )
+        .contains("super-secret-key"));
+        assert_eq!(
+            WorkerFrame::SecretAck(SecretAck {
+                name: "api_token".into(),
+            })
+            .to_line(),
+            r#"{"type":"secret_ack","name":"api_token"}"#
         );
         // Harness chatter and other junk is not a frame.
         assert_eq!(WorkerFrame::from_line("running 1 test"), None);

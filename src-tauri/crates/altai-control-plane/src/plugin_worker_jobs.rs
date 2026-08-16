@@ -30,9 +30,10 @@ pub struct JobResult {
     pub output: Value,
 }
 
-/// What the host knows about one dispatched job.
+/// What the host knows about one dispatched item (a job, a webhook
+/// delivery — anything handed to the worker exactly once).
 #[derive(Debug, Clone, PartialEq)]
-pub enum JobState {
+pub enum DispatchState {
     /// Sent; no result has arrived. Includes jobs whose worker died
     /// mid-flight — the honest state is "never completed", not "failed".
     Dispatched,
@@ -40,10 +41,12 @@ pub enum JobState {
     Completed { ok: bool, output: Value },
 }
 
-/// The result of a [`SupervisedWorker::dispatch_job`](crate::SupervisedWorker::dispatch_job)
-/// call.
+/// The result of handing one item to the worker exactly once —
+/// [`dispatch_job`](crate::SupervisedWorker::dispatch_job) and
+/// [`deliver_webhook`](crate::SupervisedWorker::deliver_webhook) both
+/// answer this.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum JobDispatch {
+pub enum DispatchOutcome {
     /// Recorded and sent to a live worker.
     Sent,
     /// The job id is already known: nothing was sent, nothing will be.
@@ -53,16 +56,17 @@ pub enum JobDispatch {
     WorkerDown,
 }
 
-/// Host-side record of every job id this worker has been told about.
-/// In-memory for now: it survives worker restarts (the host does not
-/// restart with them) and is the seam a durable store attaches to when
-/// jobs join the work graph.
+/// Host-side at-most-once record: every id this worker has been told
+/// about, jobs and webhook deliveries alike (one ledger per family so
+/// their ids cannot collide). In-memory for now: it survives worker
+/// restarts (the host does not restart with them) and is the seam a
+/// durable store attaches to when dispatch joins the work graph.
 #[derive(Debug, Default)]
-pub struct JobDispatchLedger {
-    entries: std::collections::HashMap<String, JobState>,
+pub struct DispatchLedger {
+    entries: std::collections::HashMap<String, DispatchState>,
 }
 
-impl JobDispatchLedger {
+impl DispatchLedger {
     pub fn new() -> Self {
         Self::default()
     }
@@ -73,7 +77,7 @@ impl JobDispatchLedger {
     /// the two cannot lead to a second send on the next attempt.
     pub fn record_dispatch(&mut self, job_id: &str) -> bool {
         self.entries
-            .insert(job_id.to_string(), JobState::Dispatched)
+            .insert(job_id.to_string(), DispatchState::Dispatched)
             .is_none()
     }
 
@@ -81,13 +85,18 @@ impl JobDispatchLedger {
     /// evidence from the worker is never discarded.
     pub fn record_result(&mut self, result: JobResult) {
         let JobResult { job_id, ok, output } = result;
-        self.entries.insert(
-            job_id,
-            JobState::Completed { ok, output },
-        );
+        self.record_completion(&job_id, ok, output);
     }
 
-    pub fn state(&self, job_id: &str) -> Option<&JobState> {
+    /// Record an outcome for any dispatched family — a job result or a
+    /// webhook ack, whatever its id namespace. An ack carries no payload,
+    /// so the completion is `ok` plus `Value::Null`.
+    pub fn record_completion(&mut self, id: &str, ok: bool, output: Value) {
+        self.entries
+            .insert(id.to_string(), DispatchState::Completed { ok, output });
+    }
+
+    pub fn state(&self, job_id: &str) -> Option<&DispatchState> {
         self.entries.get(job_id)
     }
 }
@@ -107,20 +116,20 @@ mod tests {
 
     #[test]
     fn a_job_id_is_dispatched_at_most_once() {
-        let mut ledger = JobDispatchLedger::new();
+        let mut ledger = DispatchLedger::new();
         assert!(ledger.record_dispatch("job_1"));
         assert!(!ledger.record_dispatch("job_1"));
-        assert_eq!(ledger.state("job_1"), Some(&JobState::Dispatched));
+        assert_eq!(ledger.state("job_1"), Some(&DispatchState::Dispatched));
     }
 
     #[test]
     fn a_result_completes_its_job() {
-        let mut ledger = JobDispatchLedger::new();
+        let mut ledger = DispatchLedger::new();
         ledger.record_dispatch("job_1");
         ledger.record_result(result("job_1", true));
         assert_eq!(
             ledger.state("job_1"),
-            Some(&JobState::Completed {
+            Some(&DispatchState::Completed {
                 ok: true,
                 output: json!({"echo": "job_1"}),
             })
@@ -129,11 +138,11 @@ mod tests {
 
     #[test]
     fn a_result_for_an_unknown_job_is_still_evidence() {
-        let mut ledger = JobDispatchLedger::new();
+        let mut ledger = DispatchLedger::new();
         ledger.record_result(result("from_before", false));
         assert!(matches!(
             ledger.state("from_before"),
-            Some(JobState::Completed { ok: false, .. })
+            Some(DispatchState::Completed { ok: false, .. })
         ));
     }
 }
