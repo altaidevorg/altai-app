@@ -169,14 +169,14 @@ architecture, security, and replacement decision. “Study” does not count as 
 
 The next PRs are fixed until this list is updated by an accepted change:
 
-1. `CP-08-81` — Stand up the Paperclip downstream (080 PR 2)
-   (Per the charter (CP-08-80, `PAPERCLIP_DOWNSTREAM_CHARTER.md` §2):
-   create the organization-owned downstream from upstream
-   `paperclipai/paperclip` at base `f0e6c0f` with the `upstream` remote,
-   preserved license/notices/history, `UPSTREAM_BASE.md`, the reviewed
-   sync-PR policy, and the security-review checklist — before any §3
-   module is touched. The altai-app PR records the stood-up downstream
-   and wires its pointer into the charter.)
+1. `CP-08-82` — Paperclip acceptance spike (080 PR 3)
+   (Charter §4, through the reviewed conformance harness — a demo run
+   makes nothing production-critical: run the downstream control plane
+   locally and dispatch one existing ALTAI Work to a local host over
+   the 051/052 protocol; reconnect is idempotent (020–024 dispatch
+   correctness holds); the global projection reaches Review (045
+   evidence gates). Scope the spike's harness shape first: the pieces
+   051–053 already shipped are the wire it must ride.)
 
 ## 5. Project-manager update protocol
 
