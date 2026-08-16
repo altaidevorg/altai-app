@@ -21,13 +21,15 @@ use std::process::{Child, Command, Stdio};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use altai_control_protocol::PluginManifest;
+use altai_control_protocol::{PluginCapability, PluginManifest};
+use serde_json::Value;
 
 use crate::plugin_worker::{
     HealthProbePolicy, WorkerDirective, WorkerError, WorkerHealth, WorkerObservation,
     WorkerRestartPolicy, WorkerSupervisor,
 };
-use crate::plugin_worker_transport::StdioWorkerTransport;
+use crate::plugin_worker_jobs::{JobDispatch, JobDispatchLedger, JobRequest, JobResult, JobState};
+use crate::plugin_worker_transport::{StdioWorkerTransport, WorkerFrame};
 
 /// How to launch one plugin's worker process. Implemented by the host
 /// environment; [`CommandWorkerLauncher`] is the std-process default.
@@ -105,6 +107,17 @@ impl WorkerProcess {
         self.transport.probe(window)
     }
 
+    /// Send one job request to this worker.
+    pub fn send_job(&mut self, request: &JobRequest) -> Result<(), WorkerError> {
+        self.transport.send(&WorkerFrame::JobRequest(request.clone()))
+    }
+
+    /// Wait for one job's result; results for other jobs arriving
+    /// meanwhile are stashed by the transport for their own awaiters.
+    pub fn await_job_result(&mut self, job_id: &str, window: Duration) -> Option<JobResult> {
+        self.transport.await_result(job_id, window)
+    }
+
     /// Terminate the process and reap it, so a killed worker does not
     /// linger. Deliberately infallible: killing an already-exited
     /// process is the no-op it should be — the fact "this process is
@@ -126,6 +139,7 @@ pub struct SupervisedWorker {
     process: Option<WorkerProcess>,
     probe: Option<HealthProbePolicy>,
     launched_at: Instant,
+    jobs: JobDispatchLedger,
 }
 
 impl std::fmt::Debug for SupervisedWorker {
@@ -156,6 +170,7 @@ impl SupervisedWorker {
             process: Some(process),
             probe,
             launched_at: Instant::now(),
+            jobs: JobDispatchLedger::new(),
         })
     }
 
@@ -233,6 +248,79 @@ impl SupervisedWorker {
         self.supervisor.observe(WorkerObservation::StoppedByHost)?;
         Ok(())
     }
+
+    /// Dispatch one job to this worker. The `job_id` is the idempotency
+    /// key: it is sent at most once, ever. Requires the `Jobs`
+    /// capability. A dead worker refuses without recording (nothing was
+    /// sent, so a later dispatch is safe); a send that fails after
+    /// recording stays `Dispatched` — ambiguous delivery is surfaced as
+    /// a job that never completes, never silently retried.
+    pub fn dispatch_job(
+        &mut self,
+        job_id: &str,
+        payload: Value,
+    ) -> Result<JobDispatch, WorkerError> {
+        if !self
+            .manifest
+            .capabilities
+            .contains(&PluginCapability::Jobs)
+        {
+            return Err(WorkerError::CapabilityMissing {
+                plugin_id: self.manifest.plugin_id.clone(),
+                capability: PluginCapability::Jobs,
+            });
+        }
+        if self.jobs.state(job_id).is_some() {
+            return Ok(JobDispatch::AlreadyKnown);
+        }
+        let Some(process) = self.process.as_mut() else {
+            return Ok(JobDispatch::WorkerDown);
+        };
+        // Record before sending: the at-most-once guarantee. A crash
+        // between these lines cannot lead to a second send.
+        self.jobs.record_dispatch(job_id);
+        process.send_job(&JobRequest {
+            job_id: job_id.to_string(),
+            payload,
+        })?;
+        Ok(JobDispatch::Sent)
+    }
+
+    /// Wait for one job's result, recording it when it arrives. A
+    /// completed job answers instantly from the ledger; an unknown job
+    /// has nothing to await; a result that never comes leaves the job
+    /// `Dispatched` — visible, not failed.
+    pub fn await_job_result(
+        &mut self,
+        job_id: &str,
+        window: Duration,
+    ) -> Result<Option<JobResult>, WorkerError> {
+        if let Some(JobState::Completed { ok, output }) = self.jobs.state(job_id) {
+            return Ok(Some(JobResult {
+                job_id: job_id.to_string(),
+                ok: *ok,
+                output: output.clone(),
+            }));
+        }
+        if self.jobs.state(job_id).is_none() {
+            return Ok(None);
+        }
+        let Some(process) = self.process.as_mut() else {
+            return Ok(None);
+        };
+        match process.await_job_result(job_id, window) {
+            Some(result) => {
+                self.jobs.record_result(result.clone());
+                Ok(Some(result))
+            }
+            None => Ok(None),
+        }
+    }
+
+    /// What the host knows about one job id.
+    pub fn job_state(&self, job_id: &str) -> Option<&JobState> {
+        self.jobs.state(job_id)
+    }
 }
 
 #[cfg(test)]
@@ -278,6 +366,7 @@ mod tests {
             Ok("crash") => std::process::exit(7),
             Ok("hang") => std::thread::sleep(Duration::from_secs(60)),
             Ok("probe") => serve_probes(),
+            Ok("jobs") => serve_jobs(),
             _ => {}
         }
     }
@@ -294,6 +383,47 @@ mod tests {
                 if writeln!(stdout, "{reply}").and_then(|()| stdout.flush()).is_err() {
                     break;
                 }
+            }
+        }
+        std::process::exit(0);
+    }
+
+    /// The jobs-mode child: a full-protocol worker. It counts the job
+    /// requests it receives and reports that count when a job's payload
+    /// asks (`{"report_requests": true}`), so tests can prove how many
+    /// requests actually reached the worker; other jobs get their payload
+    /// echoed back.
+    fn serve_jobs() {
+        let mut requests = 0u64;
+        let stdin = std::io::stdin();
+        let mut stdout = std::io::stdout();
+        for line in stdin.lock().lines() {
+            let Ok(line) = line else { break };
+            let reply = match WorkerFrame::from_line(&line) {
+                Some(WorkerFrame::HealthProbe) => WorkerFrame::HealthOk.to_line(),
+                Some(WorkerFrame::JobRequest(request)) => {
+                    requests += 1;
+                    let output = if request.payload.get("report_requests")
+                        == Some(&serde_json::json!(true))
+                    {
+                        serde_json::json!({ "requests": requests })
+                    } else {
+                        request.payload
+                    };
+                    WorkerFrame::JobResult(JobResult {
+                        job_id: request.job_id,
+                        ok: true,
+                        output,
+                    })
+                    .to_line()
+                }
+                _ => continue,
+            };
+            if writeln!(stdout, "{reply}")
+                .and_then(|()| stdout.flush())
+                .is_err()
+            {
+                break;
             }
         }
         std::process::exit(0);
@@ -580,6 +710,149 @@ mod tests {
             worker.health(),
             WorkerHealth::Crashed { restarts: 1, .. }
         ));
+        worker.stop().unwrap();
+    }
+
+    #[test]
+    fn a_job_round_trips_over_real_stdio() {
+        let mut worker = SupervisedWorker::start(
+            manifest(),
+            WorkerRestartPolicy::new(3),
+            None,
+            launcher("jobs"),
+        )
+        .unwrap();
+
+        assert_eq!(
+            worker
+                .dispatch_job("job_1", serde_json::json!({"input": 7}))
+                .unwrap(),
+            JobDispatch::Sent
+        );
+        let result = worker
+            .await_job_result("job_1", Duration::from_secs(5))
+            .unwrap()
+            .expect("the jobs child answers");
+        assert!(result.ok);
+        assert_eq!(result.output, serde_json::json!({"input": 7}));
+        assert!(matches!(
+            worker.job_state("job_1"),
+            Some(JobState::Completed { ok: true, .. })
+        ));
+
+        // The id is burned: a re-dispatch sends nothing.
+        assert_eq!(
+            worker
+                .dispatch_job("job_1", serde_json::json!({"input": 8}))
+                .unwrap(),
+            JobDispatch::AlreadyKnown
+        );
+        // And a completed job answers from the ledger, instantly.
+        let replayed = worker
+            .await_job_result("job_1", Duration::from_millis(1))
+            .unwrap()
+            .expect("completed jobs answer from the ledger");
+        assert_eq!(replayed.output, serde_json::json!({"input": 7}));
+        worker.stop().unwrap();
+    }
+
+    #[test]
+    fn a_re_dispatch_never_reaches_the_worker() {
+        // The child counts its requests and reports the count, so a
+        // re-sent job would show up as one request too many.
+        let mut worker = SupervisedWorker::start(
+            manifest(),
+            WorkerRestartPolicy::new(3),
+            None,
+            launcher("jobs"),
+        )
+        .unwrap();
+        worker
+            .dispatch_job("job_1", serde_json::json!({"input": 1}))
+            .unwrap();
+        worker
+            .await_job_result("job_1", Duration::from_secs(5))
+            .unwrap()
+            .expect("first dispatch completes");
+        worker
+            .dispatch_job("job_1", serde_json::json!({"input": 2}))
+            .unwrap();
+
+        worker
+            .dispatch_job("job_count", serde_json::json!({"report_requests": true}))
+            .unwrap();
+        let report = worker
+            .await_job_result("job_count", Duration::from_secs(5))
+            .unwrap()
+            .expect("the report job completes");
+        // job_1 once + the report itself: the re-dispatch added nothing.
+        assert_eq!(report.output, serde_json::json!({ "requests": 2 }));
+        worker.stop().unwrap();
+    }
+
+    #[test]
+    fn a_worker_without_the_jobs_capability_refuses_dispatch() {
+        let mut manifest = manifest();
+        manifest.capabilities = Vec::new();
+        let mut worker = SupervisedWorker::start(
+            manifest,
+            WorkerRestartPolicy::new(3),
+            None,
+            launcher("jobs"),
+        )
+        .unwrap();
+        assert_eq!(
+            worker.dispatch_job("job_1", serde_json::json!({})).unwrap_err(),
+            WorkerError::CapabilityMissing {
+                plugin_id: PluginId::new("plug_1"),
+                capability: PluginCapability::Jobs,
+            }
+        );
+        worker.stop().unwrap();
+    }
+
+    #[test]
+    fn dispatch_to_a_dead_worker_records_nothing_and_says_so() {
+        let mut worker = SupervisedWorker::start(
+            manifest(),
+            WorkerRestartPolicy::new(0),
+            None,
+            launcher("crash"),
+        )
+        .unwrap();
+        assert_eq!(
+            reconcile_until_decided(&mut worker, 100),
+            WorkerDirective::GiveUp
+        );
+        assert_eq!(
+            worker.dispatch_job("job_1", serde_json::json!({})).unwrap(),
+            JobDispatch::WorkerDown
+        );
+        // Nothing was sent, so nothing was recorded: the id is not
+        // burned, a later dispatch to a healthy worker is safe.
+        assert_eq!(worker.job_state("job_1"), None);
+    }
+
+    #[test]
+    fn a_result_that_arrives_during_a_probe_is_not_lost() {
+        // Dispatch, then reconcile (probe): the result can land while the
+        // probe waits. Either receive order must deliver the result.
+        let mut worker = SupervisedWorker::start(
+            manifest(),
+            WorkerRestartPolicy::new(3),
+            probing(0, Duration::from_secs(5)),
+            launcher("jobs"),
+        )
+        .unwrap();
+        worker
+            .dispatch_job("job_1", serde_json::json!({"input": 1}))
+            .unwrap();
+        worker.reconcile().unwrap();
+        let result = worker
+            .await_job_result("job_1", Duration::from_secs(5))
+            .unwrap()
+            .expect("the result survives the probe");
+        assert!(result.ok);
         worker.stop().unwrap();
     }
 }

@@ -9,7 +9,7 @@
 
 use std::time::Duration;
 
-use altai_control_protocol::{PluginId, PluginKind, PluginManifest};
+use altai_control_protocol::{PluginCapability, PluginId, PluginKind, PluginManifest};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum WorkerError {
@@ -22,6 +22,12 @@ pub enum WorkerError {
     Launch { plugin_id: PluginId, reason: String },
     /// Interacting with a launched worker process failed.
     Process { reason: String },
+    /// The manifest does not declare the capability the caller asked the
+    /// worker to exercise.
+    CapabilityMissing {
+        plugin_id: PluginId,
+        capability: PluginCapability,
+    },
 }
 
 impl std::fmt::Display for WorkerError {

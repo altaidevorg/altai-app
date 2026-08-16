@@ -13,6 +13,7 @@ pub mod budget_repository;
 pub mod approval_repository;
 pub mod plugin_registry;
 pub mod plugin_worker;
+pub mod plugin_worker_jobs;
 pub mod plugin_worker_launcher;
 pub mod plugin_worker_transport;
 pub mod attempt_finalizer;
@@ -74,6 +75,9 @@ pub use plugin_worker::{
 };
 pub use plugin_worker_launcher::{
     CommandWorkerLauncher, SupervisedWorker, WorkerLauncher, WorkerProcess,
+};
+pub use plugin_worker_jobs::{
+    JobDispatch, JobDispatchLedger, JobRequest, JobResult, JobState,
 };
 pub use plugin_worker_transport::{StdioWorkerTransport, WorkerFrame};
 pub use control_event_projection::{AggregateCheckpoint, fold_checkpoints};
