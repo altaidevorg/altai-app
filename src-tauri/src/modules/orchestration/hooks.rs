@@ -843,7 +843,11 @@ mod tests {
         HookSpec {
             event: HookEvent::BeforeTool,
             command: command.into(),
-            timeout_secs: 5,
+            // Windows oneshot shells (pwsh) cold-start slowly under CI
+            // load — 5s here flaked entire jobs on contended runners
+            // (see `hook_runs_in_cwd`, which hit this first). Tests that
+            // need a short timeout set it explicitly.
+            timeout_secs: 30,
             blocking: true,
         }
     }
