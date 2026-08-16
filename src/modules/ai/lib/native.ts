@@ -233,6 +233,22 @@ export type ExternalSyncReport = {
   conflicts: ExternalSyncConflict[];
 };
 
+/** An explicit decision on a refused external-object overwrite (package 070). */
+export type ExternalObjectResolution = "take_external" | "keep_local";
+
+/** An external object's identity and conflict state, as the store holds it. */
+export type ExternalObjectStatus = {
+  externalObjectId: string;
+  integration: string;
+  externalId: string;
+  objectKind: string;
+  title: string;
+  url: string | null;
+  authority: "external" | "local";
+  refusedContentHash: string | null;
+  declinedContentHash: string | null;
+};
+
 /** A pre-edit checkpoint of a file the agent mutated, for one-step undo. */
 export type CheckpointInfo = {
   id: string;
@@ -1392,6 +1408,22 @@ export const native = {
       workspacePath,
       owner,
       repo,
+    }),
+  /**
+   * Apply an explicit decision to a refused external-object overwrite
+   * (package 070): `take_external` lets the provider's next version apply,
+   * `keep_local` dismisses exactly the refused content. The decision is
+   * recorded in the control-plane activity stream.
+   */
+  externalObjectResolveConflict: (
+    workspacePath: string,
+    externalObjectId: string,
+    resolution: ExternalObjectResolution,
+  ) =>
+    invoke<ExternalObjectStatus>("external_object_resolve_conflict", {
+      workspacePath,
+      externalObjectId,
+      resolution,
     }),
   orchestrationSnapshot: (workspaceKey: string) =>
     invoke<OrchestrationSnapshot>("orchestration_snapshot", { workspaceKey }),

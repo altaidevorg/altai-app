@@ -125,7 +125,7 @@ changes only when an exit gate is accepted.
 
 | Order | Package | Status | Depends on | Planned PRs | Acceptance gate |
 | ---: | --- | --- | --- | ---: | --- |
-| 070 | ExternalObject model and GitHub adapter | in_progress | 051, 060 | #809, #810, #811 | Idempotent sync, explicit authority and conflict resolution |
+| 070 | ExternalObject model and GitHub adapter | in_progress | 051, 060 | #809, #810, #811, #812 | Idempotent sync, explicit authority and conflict resolution |
 | 071 | Application plugin manifest/capabilities | accepted | 051 | #787, #789 | Agent-content and application plugins are distinct; upgrades disclose capability expansion |
 | 072 | Out-of-process plugin workers | planned | 071 | 2–3 | Crash isolation, health, jobs, webhooks, scoped secrets and idempotency |
 | 073 | Schema-driven/sandboxed plugin UI | planned | 061, 072 | 2 | UI cannot bypass worker capability checks |
@@ -169,9 +169,8 @@ architecture, security, and replacement decision. “Study” does not count as 
 
 The next PRs are fixed until this list is updated by an accepted change:
 
-1. `CP-08-64` — ExternalObject model and GitHub adapter
-   (Package 070 PR 4: conflict resolution — an explicit action on a refused
-   overwrite) or 068 PR 2.
+1. `CP-08-65` — close package 070 (acceptance bookkeeping after #812) or
+   068 PR 2 (large-graph measurement).
 
 ## 5. Project-manager update protocol
 

@@ -15,6 +15,11 @@ use std::{path::Path, sync::Mutex};
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ExternalObjectError {
     NotFound { external_object_id: String },
+    /// The object exists but is not in a state that resolution applies to.
+    InvalidResolution {
+        external_object_id: String,
+        reason: String,
+    },
     Internal { reason: String },
 }
 
@@ -37,6 +42,17 @@ pub enum ExternalSyncOutcome {
         stored_content_hash: String,
         incoming_content_hash: String,
     },
+}
+
+/// An explicit decision on a refused overwrite. Neither direction rewrites
+/// content here: `TakeExternal` flips authority so the next sync applies the
+/// provider's version through the normal update path, and `KeepLocal`
+/// dismisses exactly the refused external content so an identical payload
+/// stops re-conflicting.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConflictResolution {
+    TakeExternal,
+    KeepLocal,
 }
 
 pub trait ExternalObjectRepository: Send + Sync {
@@ -65,6 +81,13 @@ pub trait ExternalObjectRepository: Send + Sync {
         id: &ExternalObjectId,
         work_item_id: Option<WorkItemId>,
     ) -> Result<(), ExternalObjectError>;
+    /// Apply an explicit decision to a refused overwrite. Returns the
+    /// object as it stands after the decision.
+    fn resolve_conflict(
+        &self,
+        id: &ExternalObjectId,
+        resolution: ConflictResolution,
+    ) -> Result<ExternalObject, ExternalObjectError>;
 }
 
 pub struct SqliteExternalObjectRepository {
@@ -155,7 +178,7 @@ impl ExternalObjectRepository for SqliteExternalObjectRepository {
                 ExternalSyncOutcome::Inserted
             }
             Some(stored) => {
-                let existing = Self::decode(stored)?;
+                let mut existing = Self::decode(stored)?;
                 if existing.content_hash == object.content_hash {
                     ExternalSyncOutcome::Unchanged
                 } else if existing.authority == ExternalAuthority::External {
@@ -175,7 +198,28 @@ impl ExternalObjectRepository for SqliteExternalObjectRepository {
                         )
                         .map_err(Self::db)?;
                     ExternalSyncOutcome::Updated
+                } else if existing.declined_content_hash.as_deref()
+                    == Some(object.content_hash.as_str())
+                {
+                    // A `KeepLocal` resolution already dismissed exactly this
+                    // external content; re-reporting it would contradict the
+                    // decision. Nothing is written.
+                    ExternalSyncOutcome::Unchanged
                 } else {
+                    // Record what was refused so a resolver can present the
+                    // divergence without re-deriving it; local content and
+                    // the sync ordering stay untouched.
+                    existing.refused_content_hash = Some(object.content_hash.clone());
+                    let refused = serde_json::to_string(&existing).map_err(|e| {
+                        ExternalObjectError::Internal { reason: e.to_string() }
+                    })?;
+                    transaction
+                        .execute(
+                            "UPDATE control_plane_external_objects SET payload_json = ?2
+                             WHERE external_object_id = ?1",
+                            params![existing.id.value, refused],
+                        )
+                        .map_err(Self::db)?;
                     ExternalSyncOutcome::Conflict {
                         external_object_id: existing.id,
                         stored_content_hash: existing.content_hash,
@@ -285,6 +329,73 @@ impl ExternalObjectRepository for SqliteExternalObjectRepository {
         transaction.commit().map_err(Self::db)?;
         Ok(())
     }
+
+    fn resolve_conflict(
+        &self,
+        id: &ExternalObjectId,
+        resolution: ConflictResolution,
+    ) -> Result<ExternalObject, ExternalObjectError> {
+        let mut connection = self.lock()?;
+        let transaction = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(Self::db)?;
+        let payload: Option<String> = transaction
+            .query_row(
+                "SELECT payload_json FROM control_plane_external_objects
+                 WHERE external_object_id = ?1",
+                params![id.value],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(Self::db)?;
+        let Some(payload) = payload else {
+            return Err(ExternalObjectError::NotFound {
+                external_object_id: id.value.clone(),
+            });
+        };
+        let mut object = Self::decode(payload)?;
+        let invalid = |reason: &str| ExternalObjectError::InvalidResolution {
+            external_object_id: id.value.clone(),
+            reason: reason.to_string(),
+        };
+        match resolution {
+            ConflictResolution::TakeExternal => {
+                if object.authority != ExternalAuthority::Local {
+                    return Err(invalid(
+                        "authority is already external; there is no local version to override",
+                    ));
+                }
+                object.authority = ExternalAuthority::External;
+                object.refused_content_hash = None;
+                object.declined_content_hash = None;
+            }
+            ConflictResolution::KeepLocal => {
+                if object.authority != ExternalAuthority::Local {
+                    return Err(invalid(
+                        "authority is external; the provider version already applies",
+                    ));
+                }
+                let Some(refused) = object.refused_content_hash.clone() else {
+                    return Err(invalid("no refused external content to keep against"));
+                };
+                object.declined_content_hash = Some(refused);
+                object.refused_content_hash = None;
+            }
+        }
+        let updated =
+            serde_json::to_string(&object).map_err(|e| ExternalObjectError::Internal {
+                reason: e.to_string(),
+            })?;
+        transaction
+            .execute(
+                "UPDATE control_plane_external_objects SET payload_json = ?2
+                 WHERE external_object_id = ?1",
+                params![id.value, updated],
+            )
+            .map_err(Self::db)?;
+        transaction.commit().map_err(Self::db)?;
+        Ok(object)
+    }
 }
 
 #[cfg(test)]
@@ -302,6 +413,8 @@ mod tests {
             title: "Sync me".into(),
             content_hash: content_hash.into(),
             authority: ExternalAuthority::External,
+            refused_content_hash: None,
+            declined_content_hash: None,
             linked_work_item_id: Some(WorkItemId::new("work_1")),
             external_updated_at_unix_seconds: Some(1_000),
             last_synced_at_unix_seconds: 2_000,
@@ -426,6 +539,122 @@ mod tests {
         let missing = ExternalObjectId::new("ext_missing");
         assert!(matches!(
             repository.link_work_item(&missing, None),
+            Err(ExternalObjectError::NotFound { .. })
+        ));
+    }
+
+    fn local_object(id: &str, external_id: &str, content_hash: &str) -> ExternalObject {
+        let mut object = object(id, external_id, content_hash);
+        object.authority = ExternalAuthority::Local;
+        object
+    }
+
+    #[test]
+    fn a_refusal_records_the_refused_hash_without_touching_local_content() {
+        let (repository, _dir) = repository();
+        repository
+            .upsert(local_object("ext_1", "node_1", "hash_a"))
+            .unwrap();
+        assert_eq!(
+            repository.upsert(object("ext_1", "node_1", "hash_b")).unwrap(),
+            ExternalSyncOutcome::Conflict {
+                external_object_id: ExternalObjectId::new("ext_1"),
+                stored_content_hash: "hash_a".into(),
+                incoming_content_hash: "hash_b".into(),
+            }
+        );
+        let stored = repository
+            .find("github", "node_1")
+            .unwrap()
+            .unwrap();
+        assert_eq!(stored.content_hash, "hash_a");
+        assert_eq!(stored.refused_content_hash.as_deref(), Some("hash_b"));
+        assert_eq!(stored.declined_content_hash, None);
+    }
+
+    #[test]
+    fn keep_local_dismisses_exactly_the_refused_content() {
+        let (repository, _dir) = repository();
+        let local = local_object("ext_1", "node_1", "hash_a");
+        repository.upsert(local.clone()).unwrap();
+        repository
+            .upsert(object("ext_1", "node_1", "hash_b"))
+            .unwrap();
+
+        let resolved = repository
+            .resolve_conflict(&local.id, ConflictResolution::KeepLocal)
+            .unwrap();
+        assert_eq!(resolved.authority, ExternalAuthority::Local);
+        assert_eq!(resolved.declined_content_hash.as_deref(), Some("hash_b"));
+        assert_eq!(resolved.refused_content_hash, None);
+
+        // The dismissed external content stops re-conflicting…
+        assert_eq!(
+            repository.upsert(object("ext_1", "node_1", "hash_b")).unwrap(),
+            ExternalSyncOutcome::Unchanged
+        );
+        // …but a new external version still surfaces.
+        assert!(matches!(
+            repository.upsert(object("ext_1", "node_1", "hash_c")).unwrap(),
+            ExternalSyncOutcome::Conflict { .. }
+        ));
+    }
+
+    #[test]
+    fn take_external_flips_authority_so_the_next_sync_applies() {
+        let (repository, _dir) = repository();
+        let local = local_object("ext_1", "node_1", "hash_a");
+        repository.upsert(local.clone()).unwrap();
+        repository
+            .upsert(object("ext_1", "node_1", "hash_b"))
+            .unwrap();
+
+        let resolved = repository
+            .resolve_conflict(&local.id, ConflictResolution::TakeExternal)
+            .unwrap();
+        assert_eq!(resolved.authority, ExternalAuthority::External);
+        assert_eq!(resolved.refused_content_hash, None);
+        assert_eq!(resolved.declined_content_hash, None);
+
+        assert_eq!(
+            repository.upsert(object("ext_1", "node_1", "hash_b")).unwrap(),
+            ExternalSyncOutcome::Updated
+        );
+        assert_eq!(
+            repository
+                .find("github", "node_1")
+                .unwrap()
+                .unwrap()
+                .content_hash,
+            "hash_b"
+        );
+    }
+
+    #[test]
+    fn resolution_rules_reject_states_that_have_no_conflict() {
+        let (repository, _dir) = repository();
+        let local = local_object("ext_1", "node_1", "hash_a");
+        repository.upsert(local.clone()).unwrap();
+
+        // Nothing was refused yet, so there is nothing to keep.
+        assert!(matches!(
+            repository.resolve_conflict(&local.id, ConflictResolution::KeepLocal),
+            Err(ExternalObjectError::InvalidResolution { .. })
+        ));
+        // External authority has no local version to override.
+        repository
+            .upsert(object("ext_2", "node_2", "hash_a"))
+            .unwrap();
+        assert!(matches!(
+            repository.resolve_conflict(
+                &ExternalObjectId::new("ext_2"),
+                ConflictResolution::TakeExternal
+            ),
+            Err(ExternalObjectError::InvalidResolution { .. })
+        ));
+        let missing = ExternalObjectId::new("ext_missing");
+        assert!(matches!(
+            repository.resolve_conflict(&missing, ConflictResolution::TakeExternal),
             Err(ExternalObjectError::NotFound { .. })
         ));
     }

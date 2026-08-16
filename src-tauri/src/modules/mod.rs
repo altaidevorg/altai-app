@@ -18,6 +18,7 @@ pub mod pty;
 pub mod secrets;
 pub mod shell;
 pub mod webview;
+pub mod external_sync;
 pub mod work;
 pub mod work_import;
 pub mod workspace;

@@ -21,7 +21,8 @@ use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 use crate::{
-    ActivityEventRepository, ExternalObjectError, ExternalObjectRepository, ExternalSyncOutcome,
+    ActivityEventRepository, ConflictResolution, ExternalObjectError, ExternalObjectRepository,
+    ExternalSyncOutcome,
 };
 
 /// One object as the adapter mapped it from the provider's payload.
@@ -148,6 +149,8 @@ impl ExternalSyncService {
                 title: provider_object.title.clone(),
                 content_hash: content_hash(&provider_object.content),
                 authority: self.default_authority,
+                refused_content_hash: None,
+                declined_content_hash: None,
                 linked_work_item_id: None,
                 external_updated_at_unix_seconds: provider_object
                     .external_updated_at_unix_seconds,
@@ -240,6 +243,53 @@ impl ExternalSyncService {
                 reason: error.to_string(),
             })
     }
+}
+
+/// Apply an explicit decision to a refused overwrite and record it as an
+/// `ExternalSync` activity event, so a resolution is as auditable as the
+/// refusal it answers. Standalone from [`ExternalSyncService`] on purpose:
+/// a resolution needs no provider — the user decides on stored state.
+pub fn resolve_external_conflict(
+    organization_id: &OrganizationId,
+    repository: &dyn ExternalObjectRepository,
+    activity: &dyn ActivityEventRepository,
+    id: &ExternalObjectId,
+    resolution: ConflictResolution,
+    timestamp: &str,
+) -> Result<ExternalObject, ExternalSyncError> {
+    let resolved = repository
+        .resolve_conflict(id, resolution)
+        .map_err(ExternalSyncError::Repository)?;
+    let summary = match resolution {
+        ConflictResolution::TakeExternal => format!(
+            "resolution took the external version of {} {}",
+            resolved.object_kind, resolved.title
+        ),
+        ConflictResolution::KeepLocal => format!(
+            "resolution kept local content for {} {}",
+            resolved.object_kind, resolved.title
+        ),
+    };
+    activity
+        .append(ActivityEvent {
+            event_id: format!("evt_{}", Uuid::new_v4()),
+            kind: EventKind::ExternalSync,
+            actor: Actor::System {
+                component: "external-sync".into(),
+            },
+            timestamp: timestamp.to_string(),
+            organization_id: organization_id.clone(),
+            project_id: None,
+            work_item_id: resolved.linked_work_item_id.clone(),
+            attempt_id: None,
+            summary,
+            correlation_id: Some(resolved.external_id.clone()),
+            causation_id: None,
+        })
+        .map_err(|error| ExternalSyncError::Activity {
+            reason: error.to_string(),
+        })?;
+    Ok(resolved)
 }
 
 #[cfg(test)]
@@ -458,6 +508,8 @@ mod tests {
             title: "First issue".into(),
             content_hash: content_hash("content-a"),
             authority: ExternalAuthority::Local,
+            refused_content_hash: None,
+            declined_content_hash: None,
             linked_work_item_id: None,
             external_updated_at_unix_seconds: Some(1_000),
             last_synced_at_unix_seconds: 1_000,
@@ -502,6 +554,68 @@ mod tests {
         let events = sync_events(&harness.activity, &OrganizationId::new("org"));
         assert_eq!(events.len(), 1);
         assert!(events[0].summary.contains("refused"));
+    }
+
+    #[test]
+    fn a_keep_local_resolution_quiets_the_same_conflict_on_the_next_run() {
+        let (repository, activity, _dir) = stores();
+        let local = ExternalObject {
+            id: ExternalObjectId::new("ext_1"),
+            organization_id: OrganizationId::new("org"),
+            integration: "github".into(),
+            external_id: "node_1".into(),
+            object_kind: "issue".into(),
+            url: None,
+            title: "First issue".into(),
+            content_hash: content_hash("content-a"),
+            authority: ExternalAuthority::Local,
+            refused_content_hash: None,
+            declined_content_hash: None,
+            linked_work_item_id: None,
+            external_updated_at_unix_seconds: Some(1_000),
+            last_synced_at_unix_seconds: 1_000,
+            created_at_unix_seconds: 1_000,
+            updated_at_unix_seconds: 1_000,
+        };
+        repository.upsert(local.clone()).unwrap();
+        let changed_page = || {
+            Arc::new(FakeProvider::new(
+                "github",
+                vec![FakeProvider::page(vec![provider_object(
+                    "node_1",
+                    "First issue renamed",
+                    "content-a2",
+                )])],
+            ))
+        };
+
+        let first_run = harness(changed_page(), repository.clone(), activity.clone());
+        let first = first_run.service.run(3_000, "2026-08-15T01:00:00Z").unwrap();
+        assert_eq!(first.conflicts.len(), 1);
+
+        resolve_external_conflict(
+            &OrganizationId::new("org"),
+            repository.as_ref(),
+            activity.as_ref(),
+            &local.id,
+            ConflictResolution::KeepLocal,
+            "2026-08-15T02:00:00Z",
+        )
+        .unwrap();
+
+        // The same external content no longer conflicts; nothing was written.
+        let second_run = harness(changed_page(), repository.clone(), activity.clone());
+        let second = second_run.service.run(4_000, "2026-08-15T03:00:00Z").unwrap();
+        assert_eq!(second.conflicts.len(), 0);
+        assert_eq!(second.unchanged, 1);
+
+        // One audit fact for the refusal, one for the decision, none for the
+        // quieted run.
+        let events = sync_events(&activity, &OrganizationId::new("org"));
+        assert_eq!(events.len(), 2);
+        assert!(events
+            .iter()
+            .any(|event| event.summary.contains("kept local content")));
     }
 
     #[test]
