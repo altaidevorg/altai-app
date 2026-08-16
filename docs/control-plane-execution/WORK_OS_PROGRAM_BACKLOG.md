@@ -169,14 +169,13 @@ architecture, security, and replacement decision. “Study” does not count as 
 
 The next PRs are fixed until this list is updated by an accepted change:
 
-1. `CP-08-82` — Paperclip acceptance spike (080 PR 3)
-   (Charter §4, through the reviewed conformance harness — a demo run
-   makes nothing production-critical: run the downstream control plane
-   locally and dispatch one existing ALTAI Work to a local host over
-   the 051/052 protocol; reconnect is idempotent (020–024 dispatch
-   correctness holds); the global projection reaches Review (045
-   evidence gates). Scope the spike's harness shape first: the pieces
-   051–053 already shipped are the wire it must ride.)
+1. `CP-08-83` — Paperclip acceptance spike, adapter skeleton (080 PR 4)
+   (Per `PAPERCLIP_SPIKE_PLAN.md` §4: a named downstream package
+   `packages/adapters/altai-host` that registers with Paperclip's
+   adapter registry and declares capabilities — no execution yet.
+   Lands in `altaidevorg/paperclip` as a reviewed PR on top of the
+   base-plus-policy `master`; upstream tests must pass. Record the
+   downstream PR in the altai-app task doc.)
 
 ## 5. Project-manager update protocol
 
