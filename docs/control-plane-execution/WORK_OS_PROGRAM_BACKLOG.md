@@ -169,13 +169,14 @@ architecture, security, and replacement decision. “Study” does not count as 
 
 The next PRs are fixed until this list is updated by an accepted change:
 
-1. `CP-08-83` — Paperclip acceptance spike, adapter skeleton (080 PR 4)
-   (Per `PAPERCLIP_SPIKE_PLAN.md` §4: a named downstream package
-   `packages/adapters/altai-host` that registers with Paperclip's
-   adapter registry and declares capabilities — no execution yet.
-   Lands in `altaidevorg/paperclip` as a reviewed PR on top of the
-   base-plus-policy `master`; upstream tests must pass. Record the
-   downstream PR in the altai-app task doc.)
+1. `CP-08-84` — Paperclip acceptance-spike harness vs stub plane (080 PR 5)
+   (Per `PAPERCLIP_SPIKE_PLAN.md` §3–4: an `altai-cli paperclip-spike`
+   subcommand that drives registration (bootstrap credential →
+   registration grant → host register), provisions one Work fixture,
+   enqueues a wake, claims it, checks out, and executes the reconnect
+   drop twice with the 020–024 idempotency invariants asserted between
+   runs — against a stub plane first, so the harness is green in CI
+   without the Paperclip service. Typed non-zero exit on any break.)
 
 ## 5. Project-manager update protocol
 
