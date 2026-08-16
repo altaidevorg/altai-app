@@ -27,6 +27,8 @@ pub mod cron_due;
 pub mod delivery_gate;
 pub mod dispatch_eligibility;
 pub mod evidence_repository;
+pub mod account_credentials;
+pub mod external_account_repository;
 pub mod external_object_repository;
 pub mod external_sync;
 pub mod execution_repository;
@@ -110,6 +112,12 @@ pub use repository_scope_repository::{
 };
 pub use routine_cron_bridge::{RoutineCronBridge, DEFAULT_CRON_TICK};
 pub use routine_materializer::{RoutineMaterializationError, RoutineMaterializer};
+pub use account_credentials::{
+    AccountCredentialStore, InMemoryAccountCredentialStore,
+};
+pub use external_account_repository::{
+    ExternalAccountError, ExternalAccountRepository, SqliteExternalAccountRepository,
+};
 pub use external_object_repository::{
     ConflictResolution, ExternalObjectError, ExternalObjectRepository, ExternalSyncOutcome,
     SqliteExternalObjectRepository,

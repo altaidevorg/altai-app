@@ -38,7 +38,7 @@ pub use budget::Budget;
 pub use attempt::{Attempt, AttemptState, RunBinding, ScheduleBackend, ScheduleBackendBinding};
 pub use error::{ControlError, ControlErrorCode};
 pub use event::{ActivityEvent, ControlEvent, EventKind};
-pub use external::{ExternalAuthority, ExternalObject};
+pub use external::{ExternalAccount, ExternalAuthority, ExternalObject};
 pub use evidence::Evidence;
 pub use id::*;
 pub use protocol::{

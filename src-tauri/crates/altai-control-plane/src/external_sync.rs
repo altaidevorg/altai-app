@@ -143,6 +143,10 @@ impl ExternalSyncService {
                 id: ExternalObjectId::new(Uuid::new_v4().to_string()),
                 organization_id: self.organization_id.clone(),
                 integration: integration.to_string(),
+                // Unattributed: this engine serves single-account
+                // integrations. Account-backed sync (074) carries the
+                // account on every object it maps.
+                account_id: None,
                 external_id: provider_object.external_id.clone(),
                 object_kind: provider_object.object_kind.clone(),
                 url: provider_object.url.clone(),
@@ -487,7 +491,7 @@ mod tests {
         );
         let stored = harness
             .repository
-            .find("github", "node_1")
+            .find("github", None, "node_1")
             .unwrap()
             .unwrap();
         assert_eq!(stored.title, "First issue renamed");
@@ -502,6 +506,7 @@ mod tests {
             id: ExternalObjectId::new("seed"),
             organization_id: OrganizationId::new("org"),
             integration: "github".into(),
+            account_id: None,
             external_id: "node_1".into(),
             object_kind: "issue".into(),
             url: None,
@@ -545,7 +550,7 @@ mod tests {
         // The refusal left the stored content untouched.
         let after = harness
             .repository
-            .find("github", "node_1")
+            .find("github", None, "node_1")
             .unwrap()
             .unwrap();
         assert_eq!(after.title, "First issue");
@@ -563,6 +568,7 @@ mod tests {
             id: ExternalObjectId::new("ext_1"),
             organization_id: OrganizationId::new("org"),
             integration: "github".into(),
+            account_id: None,
             external_id: "node_1".into(),
             object_kind: "issue".into(),
             url: None,

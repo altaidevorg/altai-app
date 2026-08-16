@@ -6,8 +6,34 @@
 //! [`ExternalAuthority`], never by write order. Nothing here performs network
 //! I/O: adapters fetch, this model records.
 
-use crate::{ExternalObjectId, OrganizationId, WorkItemId};
+use crate::{ExternalAccountId, ExternalObjectId, OrganizationId, WorkItemId};
 use serde::{Deserialize, Serialize};
+
+/// One connected account at an external provider (package 074). The
+/// account is the isolation boundary: objects and credentials belong to
+/// exactly one account, and a second account at the same integration
+/// (a second Gmail mailbox) never sees the first account's data. This
+/// type is metadata only — credential material is never carried here;
+/// the host brokers it separately, scoped to the account.
+///
+/// `account_ref` is the provider's stable identity for the account
+/// (for Gmail, the mailbox address), and `(integration, account_ref)`
+/// is the upsert key: connecting the same account again resolves to the
+/// same row, never a duplicate.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExternalAccount {
+    pub id: ExternalAccountId,
+    pub organization_id: OrganizationId,
+    /// Owning integration name (e.g. "gmail"); part of the upsert key.
+    pub integration: String,
+    /// The provider's stable identity for this account (e.g. the
+    /// mailbox address), not a display name.
+    pub account_ref: String,
+    /// Human-readable label for surfaces; purely presentational.
+    pub display_name: String,
+    pub created_at_unix_seconds: u64,
+    pub updated_at_unix_seconds: u64,
+}
 
 /// Which side is the source of truth when the same external object changed
 /// locally and at the provider. Authority is recorded per object, so a sync
@@ -31,6 +57,13 @@ pub struct ExternalObject {
     pub organization_id: OrganizationId,
     /// Owning integration name (e.g. "github"); part of the upsert key.
     pub integration: String,
+    /// The account this object belongs to (package 074). `None` marks
+    /// an unattributed object of a single-account integration; an
+    /// account-backed integration (Gmail) always sets it, making the
+    /// upsert key `(integration, account, external_id)` — two accounts
+    /// never collide, never share.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub account_id: Option<ExternalAccountId>,
     /// The provider's immutable id for this object (not its number).
     pub external_id: String,
     /// Provider object type (e.g. "issue", "pull_request").
