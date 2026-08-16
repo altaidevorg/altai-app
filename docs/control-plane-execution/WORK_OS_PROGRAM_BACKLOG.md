@@ -35,8 +35,8 @@ Definition of done for every package:
 
 | Measure | Current |
 | --- | ---: |
-| Overall Work OS completion | **26%** |
-| Foundation/control-plane backbone | **58%** |
+| Overall Work OS completion | **27%** |
+| Foundation/control-plane backbone | **59%** |
 | End-to-end autonomous execution | **8%** |
 | Product/UX surfaces | **21%** |
 | Ecosystem/plugin/upstream adoption | **2%** |
@@ -127,7 +127,7 @@ changes only when an exit gate is accepted.
 | ---: | --- | --- | --- | ---: | --- |
 | 070 | ExternalObject model and GitHub adapter | accepted | 051, 060 | #809, #810, #811, #812 | Idempotent sync, explicit authority and conflict resolution |
 | 071 | Application plugin manifest/capabilities | accepted | 051 | #787, #789 | Agent-content and application plugins are distinct; upgrades disclose capability expansion |
-| 072 | Out-of-process plugin workers | in_progress | 071 | #815–#818, #820 | Crash isolation, health, jobs, webhooks, scoped secrets and idempotency |
+| 072 | Out-of-process plugin workers | accepted | 071 | #815–#818, #820 | Crash isolation, health, jobs, webhooks, scoped secrets and idempotency |
 | 073 | Schema-driven/sandboxed plugin UI | planned | 061, 072 | 2 | UI cannot bypass worker capability checks |
 | 074 | Full Gmail multi-account adapter | planned | 071–073 | 2–3 | Account isolation, scoped credentials, idempotent thread/message sync |
 
@@ -169,10 +169,11 @@ architecture, security, and replacement decision. “Study” does not count as 
 
 The next PRs are fixed until this list is updated by an accepted change:
 
-1. `CP-08-72` — Accept package 072 (dashboard bookkeeping: 072 →
-   accepted, dashboard row, queue advance; the gate scope — crash
-   isolation, health, jobs, webhooks, scoped secrets, idempotency — is
-   closed by #820).
+1. `CP-08-73` — Schema-driven/sandboxed plugin UI
+   (Package 073 PR 1: the declarative UI schema contract — what a
+   plugin may declare as surfaces, validated at registration; the
+   sandbox enforcement, UI cannot bypass worker capability checks,
+   follows in PR 2).
 
 ## 5. Project-manager update protocol
 
