@@ -14,6 +14,7 @@ pub mod approval_repository;
 pub mod plugin_registry;
 pub mod plugin_worker;
 pub mod plugin_worker_launcher;
+pub mod plugin_worker_transport;
 pub mod attempt_finalizer;
 pub mod attempt_repository;
 pub mod control_event_projection;
@@ -68,12 +69,13 @@ pub use attempt_repository::{AttemptError, AttemptRepository, SqliteAttemptRepos
 pub use approval_repository::{ApprovalError, ApprovalRepository, SqliteApprovalRepository};
 pub use plugin_registry::{PluginRegistry, PluginRegistryError, PluginRegistryOutcome, SqlitePluginRegistry};
 pub use plugin_worker::{
-    WorkerDirective, WorkerError, WorkerHealth, WorkerObservation, WorkerRestartPolicy,
-    WorkerSupervisor,
+    HealthProbePolicy, WorkerDirective, WorkerError, WorkerHealth, WorkerObservation,
+    WorkerRestartPolicy, WorkerSupervisor,
 };
 pub use plugin_worker_launcher::{
     CommandWorkerLauncher, SupervisedWorker, WorkerLauncher, WorkerProcess,
 };
+pub use plugin_worker_transport::{StdioWorkerTransport, WorkerFrame};
 pub use control_event_projection::{AggregateCheckpoint, fold_checkpoints};
 pub use control_event_repository::{
     ControlEventError, ControlEventRepository, SqliteControlEventRepository,

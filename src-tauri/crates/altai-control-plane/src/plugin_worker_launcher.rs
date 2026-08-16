@@ -8,17 +8,26 @@
 //!
 //! The launcher does not decide *how* plugin code runs: the host hands it
 //! a command builder per manifest, so the same supervision drives a
-//! packaged binary, an interpreter, or a test double. Health *probing*
-//! (asking a live worker how it feels) needs the worker IPC transport and
-//! is a later package-072 PR; here a process that has not exited is
-//! running, and every exit is a crash observation.
+//! packaged binary, an interpreter, or a test double.
+//!
+//! PR 3 adds probing: with a [`HealthProbePolicy`](crate::HealthProbePolicy),
+//! reconcile also asks a live worker how it feels over its stdio
+//! transport — an answer is the `Healthy` observation the supervision
+//! core was designed around, silence inside the window kills the worker
+//! and is observed as the crash it is. Without a policy, a process that
+//! has not exited is considered running.
 
 use std::process::{Child, Command, Stdio};
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use altai_control_protocol::PluginManifest;
 
-use crate::plugin_worker::{WorkerDirective, WorkerError, WorkerHealth, WorkerObservation, WorkerRestartPolicy, WorkerSupervisor};
+use crate::plugin_worker::{
+    HealthProbePolicy, WorkerDirective, WorkerError, WorkerHealth, WorkerObservation,
+    WorkerRestartPolicy, WorkerSupervisor,
+};
+use crate::plugin_worker_transport::StdioWorkerTransport;
 
 /// How to launch one plugin's worker process. Implemented by the host
 /// environment; [`CommandWorkerLauncher`] is the std-process default.
@@ -44,16 +53,30 @@ impl CommandWorkerLauncher {
 
 impl WorkerLauncher for CommandWorkerLauncher {
     fn launch(&self, manifest: &PluginManifest) -> Result<WorkerProcess, WorkerError> {
-        let mut command = (self.build)(manifest);
-        command
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null());
-        let child = command.spawn().map_err(|error| WorkerError::Launch {
+        let launch_error = |reason: String| WorkerError::Launch {
             plugin_id: manifest.plugin_id.clone(),
-            reason: error.to_string(),
-        })?;
-        Ok(WorkerProcess { child })
+            reason,
+        };
+        let mut command = (self.build)(manifest);
+        // The stdio channel is the health-probe wire (and later the job
+        // wire); only stderr is host-irrelevant.
+        command
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null());
+        let mut child = command.spawn().map_err(|error| launch_error(error.to_string()))?;
+        let stdin = child
+            .stdin
+            .take()
+            .ok_or_else(|| launch_error("worker stdin was not piped".into()))?;
+        let stdout = child
+            .stdout
+            .take()
+            .ok_or_else(|| launch_error("worker stdout was not piped".into()))?;
+        Ok(WorkerProcess {
+            child,
+            transport: StdioWorkerTransport::new(stdin, stdout),
+        })
     }
 }
 
@@ -61,6 +84,7 @@ impl WorkerLauncher for CommandWorkerLauncher {
 /// owner reconciles on its own schedule.
 pub struct WorkerProcess {
     child: Child,
+    transport: StdioWorkerTransport,
 }
 
 impl WorkerProcess {
@@ -75,23 +99,33 @@ impl WorkerProcess {
         }
     }
 
-    /// Terminate the process. Killing an already-exited process is not an
-    /// error: the fact "this process is done" does not change.
-    pub fn stop(&mut self) -> Result<(), WorkerError> {
-        self.child.kill().map_err(|error| WorkerError::Process {
-            reason: error.to_string(),
-        })
+    /// Ask this worker how it is, waiting up to `window` for its answer.
+    /// `Ok(false)`: no answer came back.
+    pub fn probe(&mut self, window: Duration) -> Result<bool, WorkerError> {
+        self.transport.probe(window)
+    }
+
+    /// Terminate the process and reap it, so a killed worker does not
+    /// linger. Deliberately infallible: killing an already-exited
+    /// process is the no-op it should be — the fact "this process is
+    /// done" does not change.
+    pub fn stop(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
     }
 }
 
 /// A supervised worker end to end: the process and the policy over it in
 /// one place. Every [`reconcile`](Self::reconcile) reports exits the
-/// supervisor has not seen and acts on the directive it returns.
+/// supervisor has not seen, probes a live worker when the policy says
+/// so, and acts on the directive it returns.
 pub struct SupervisedWorker {
     supervisor: WorkerSupervisor,
     launcher: Arc<dyn WorkerLauncher>,
     manifest: PluginManifest,
     process: Option<WorkerProcess>,
+    probe: Option<HealthProbePolicy>,
+    launched_at: Instant,
 }
 
 impl std::fmt::Debug for SupervisedWorker {
@@ -110,6 +144,7 @@ impl SupervisedWorker {
     pub fn start(
         manifest: PluginManifest,
         policy: WorkerRestartPolicy,
+        probe: Option<HealthProbePolicy>,
         launcher: Arc<dyn WorkerLauncher>,
     ) -> Result<Self, WorkerError> {
         let supervisor = WorkerSupervisor::new(manifest.clone(), policy)?;
@@ -119,6 +154,8 @@ impl SupervisedWorker {
             launcher,
             manifest,
             process: Some(process),
+            probe,
+            launched_at: Instant::now(),
         })
     }
 
@@ -130,23 +167,59 @@ impl SupervisedWorker {
         self.supervisor.plugin_id()
     }
 
-    /// Report any not-yet-seen exit, then act on the supervisor's
-    /// directive: a `Restart` relaunches here, an exhausted budget leaves
-    /// the plugin down, and a live process reconciles to `None`.
+    /// Report any not-yet-seen exit — a process that has died is never
+    /// probed, its exit is the observation — then, if the worker lives
+    /// and a probe policy is set and its startup grace has passed, ask
+    /// how it feels. Act on the supervisor's directive: a `Restart`
+    /// relaunches here, an exhausted budget leaves the plugin down.
     pub fn reconcile(&mut self) -> Result<WorkerDirective, WorkerError> {
         let exited = match self.process.as_mut() {
             Some(process) => process.try_wait()?,
             None => None,
         };
         let Some(reason) = exited else {
+            return self.reconcile_alive();
+        };
+        // try_wait already reaped it; nothing to stop.
+        self.process = None;
+        self.observe_death_and_maybe_relaunch(reason)
+    }
+
+    fn reconcile_alive(&mut self) -> Result<WorkerDirective, WorkerError> {
+        let Some(policy) = self.probe else {
             return Ok(WorkerDirective::None);
         };
-        self.process = None;
+        if self.launched_at.elapsed() < policy.startup_grace {
+            // Still starting: a worker booting is not yet silent.
+            return Ok(WorkerDirective::None);
+        }
+        let answered = match self.process.as_mut() {
+            Some(process) => process.probe(policy.probe_window)?,
+            None => return Ok(WorkerDirective::None),
+        };
+        if answered {
+            return self.supervisor.observe(WorkerObservation::Healthy);
+        }
+        // Silent while alive: kill it (it has not exited by itself), then
+        // let the death be the crash fact it is.
+        if let Some(mut process) = self.process.take() {
+            process.stop();
+        }
+        self.observe_death_and_maybe_relaunch(
+            "worker did not answer its health probe".into(),
+        )
+    }
+
+    fn observe_death_and_maybe_relaunch(
+        &mut self,
+        reason: String,
+    ) -> Result<WorkerDirective, WorkerError> {
         let directive = self
             .supervisor
             .observe(WorkerObservation::Crashed { reason })?;
         if directive == WorkerDirective::Restart {
             self.process = Some(self.launcher.launch(&self.manifest)?);
+            self.launched_at = Instant::now();
         }
         Ok(directive)
     }
@@ -155,7 +228,7 @@ impl SupervisedWorker {
     /// Stopping twice is the same single fact.
     pub fn stop(&mut self) -> Result<(), WorkerError> {
         if let Some(mut process) = self.process.take() {
-            process.stop()?;
+            process.stop();
         }
         self.supervisor.observe(WorkerObservation::StoppedByHost)?;
         Ok(())
@@ -165,7 +238,10 @@ impl SupervisedWorker {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::plugin_worker_transport::WorkerFrame;
     use altai_control_protocol::{PluginCapability, PluginId, PluginKind, PluginVersion};
+    use std::io::{BufRead, Write};
+    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::time::Duration;
 
     fn manifest() -> PluginManifest {
@@ -178,13 +254,18 @@ mod tests {
         }
     }
 
-    /// Runs this test binary again in a controlled child mode, so exit
-    /// observation is exercised against real process exits on every
-    /// platform CI runs on.
+    /// Runs this test binary again in a controlled child mode, so exits
+    /// and probes are exercised against real processes on every platform
+    /// CI runs on. `--nocapture` keeps the child's stdout on the pipe:
+    /// libtest would otherwise swallow it into its capture buffer.
     fn child_command(mode: &'static str) -> Command {
         let mut command = Command::new(std::env::current_exe().unwrap());
         command
-            .args(["--exact", "plugin_worker_launcher::tests::child_mode"])
+            .args([
+                "--exact",
+                "plugin_worker_launcher::tests::child_mode",
+                "--nocapture",
+            ])
             .env("WORKER_CHILD_MODE", mode);
         command
     }
@@ -196,8 +277,26 @@ mod tests {
         match std::env::var("WORKER_CHILD_MODE").as_deref() {
             Ok("crash") => std::process::exit(7),
             Ok("hang") => std::thread::sleep(Duration::from_secs(60)),
+            Ok("probe") => serve_probes(),
             _ => {}
         }
+    }
+
+    /// The probe-mode child: answer health probes over real stdio until
+    /// the host closes the pipe.
+    fn serve_probes() {
+        let stdin = std::io::stdin();
+        let mut stdout = std::io::stdout();
+        for line in stdin.lock().lines() {
+            let Ok(line) = line else { break };
+            if matches!(WorkerFrame::from_line(&line), Some(WorkerFrame::HealthProbe)) {
+                let reply = WorkerFrame::HealthOk.to_line();
+                if writeln!(stdout, "{reply}").and_then(|()| stdout.flush()).is_err() {
+                    break;
+                }
+            }
+        }
+        std::process::exit(0);
     }
 
     fn launcher(mode: &'static str) -> Arc<CommandWorkerLauncher> {
@@ -206,18 +305,23 @@ mod tests {
         })))
     }
 
-    /// A launcher whose first worker crashes and whose replacements hang:
-    /// the stand-in for a plugin whose bad build dies and whose relaunched
-    /// process stays up.
-    fn crash_once_launcher() -> Arc<CommandWorkerLauncher> {
-        let crashed = std::sync::atomic::AtomicBool::new(false);
+    /// A launcher that runs the given modes in order, repeating the last:
+    /// the stand-in for a plugin whose bad build dies or hangs and whose
+    /// replacement behaves.
+    fn sequencing_launcher(modes: &'static [&'static str]) -> Arc<CommandWorkerLauncher> {
+        let step = AtomicUsize::new(0);
         Arc::new(CommandWorkerLauncher::new(Box::new(move |_| {
-            if crashed.swap(true, std::sync::atomic::Ordering::SeqCst) {
-                child_command("hang")
-            } else {
-                child_command("crash")
-            }
+            let index = step.fetch_add(1, Ordering::SeqCst).min(modes.len() - 1);
+            child_command(modes[index])
         })))
+    }
+
+    /// Generous enough for a slow CI child to boot and answer.
+    fn probing(grace_ms: u64, window: Duration) -> Option<HealthProbePolicy> {
+        Some(HealthProbePolicy {
+            startup_grace: Duration::from_millis(grace_ms),
+            probe_window: window,
+        })
     }
 
     /// A crash-mode child exits on its own schedule, so the first
@@ -236,11 +340,23 @@ mod tests {
         panic!("worker did not decide within {attempts} reconcile attempts");
     }
 
+    fn reconcile_until_healthy(worker: &mut SupervisedWorker, attempts: u32) {
+        for _ in 0..attempts {
+            worker.reconcile().unwrap();
+            if matches!(worker.health(), WorkerHealth::Healthy) {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        panic!("worker never answered healthy within {attempts} reconcile attempts");
+    }
+
     #[test]
     fn a_live_process_reconciles_to_none() {
         let mut worker = SupervisedWorker::start(
             manifest(),
             WorkerRestartPolicy::new(3),
+            None,
             launcher("hang"),
         )
         .unwrap();
@@ -254,7 +370,8 @@ mod tests {
         let mut worker = SupervisedWorker::start(
             manifest(),
             WorkerRestartPolicy::new(2),
-            crash_once_launcher(),
+            None,
+            sequencing_launcher(&["crash", "hang"]),
         )
         .unwrap();
 
@@ -280,6 +397,7 @@ mod tests {
         let mut worker = SupervisedWorker::start(
             manifest(),
             WorkerRestartPolicy::new(2),
+            None,
             launcher("crash"),
         )
         .unwrap();
@@ -312,6 +430,7 @@ mod tests {
         let mut worker = SupervisedWorker::start(
             manifest(),
             WorkerRestartPolicy::new(0),
+            None,
             launcher("crash"),
         )
         .unwrap();
@@ -335,6 +454,7 @@ mod tests {
         let mut worker = SupervisedWorker::start(
             manifest(),
             WorkerRestartPolicy::new(3),
+            None,
             launcher("hang"),
         )
         .unwrap();
@@ -351,6 +471,7 @@ mod tests {
         let error = SupervisedWorker::start(
             manifest.clone(),
             WorkerRestartPolicy::new(3),
+            None,
             launcher("hang"),
         )
         .unwrap_err();
@@ -360,5 +481,105 @@ mod tests {
                 plugin_id: PluginId::new("plug_1"),
             }
         );
+    }
+
+    #[test]
+    fn an_answering_worker_becomes_healthy_through_a_real_probe() {
+        let mut worker = SupervisedWorker::start(
+            manifest(),
+            WorkerRestartPolicy::new(3),
+            probing(0, Duration::from_secs(5)),
+            launcher("probe"),
+        )
+        .unwrap();
+        reconcile_until_healthy(&mut worker, 100);
+        assert_eq!(worker.health(), &WorkerHealth::Healthy);
+        worker.stop().unwrap();
+        assert_eq!(worker.health(), &WorkerHealth::Stopped);
+    }
+
+    #[test]
+    fn a_silent_worker_is_killed_and_its_silence_is_a_crash_fact() {
+        // The hang child never answers a probe; with no restart budget,
+        // its silence takes the plugin down.
+        let mut worker = SupervisedWorker::start(
+            manifest(),
+            WorkerRestartPolicy::new(0),
+            probing(0, Duration::from_millis(150)),
+            launcher("hang"),
+        )
+        .unwrap();
+        assert_eq!(
+            reconcile_until_decided(&mut worker, 100),
+            WorkerDirective::GiveUp
+        );
+        assert!(matches!(
+            worker.health(),
+            WorkerHealth::Crashed {
+                exhausted: true,
+                reason,
+                ..
+            } if reason.contains("health probe"),
+        ));
+        assert!(worker.process.is_none());
+    }
+
+    #[test]
+    fn a_silent_worker_is_replaced_by_one_that_answers() {
+        // First launch hangs, replacement answers: the probe observes the
+        // silence, the restart observes the answer — Healthy-from-Crashed
+        // from real evidence, exactly the transition the supervision
+        // core designed for restarts.
+        let mut worker = SupervisedWorker::start(
+            manifest(),
+            WorkerRestartPolicy::new(2),
+            probing(0, Duration::from_millis(150)),
+            sequencing_launcher(&["hang", "probe"]),
+        )
+        .unwrap();
+        assert_eq!(
+            reconcile_until_decided(&mut worker, 100),
+            WorkerDirective::Restart
+        );
+        reconcile_until_healthy(&mut worker, 100);
+        assert_eq!(worker.health(), &WorkerHealth::Healthy);
+        worker.stop().unwrap();
+    }
+
+    #[test]
+    fn a_fresh_worker_is_not_probed_before_its_startup_grace() {
+        let mut worker = SupervisedWorker::start(
+            manifest(),
+            WorkerRestartPolicy::new(0),
+            probing(10_000, Duration::from_millis(150)),
+            launcher("hang"),
+        )
+        .unwrap();
+        assert_eq!(worker.reconcile().unwrap(), WorkerDirective::None);
+        // Still starting: not probed, so not yet silent.
+        assert_eq!(worker.health(), &WorkerHealth::Starting);
+        worker.stop().unwrap();
+    }
+
+    #[test]
+    fn an_exiting_worker_is_observed_through_its_exit_not_a_probe() {
+        // With probing on, a crash child still reports through its exit:
+        // exits are checked before any probe is sent.
+        let mut worker = SupervisedWorker::start(
+            manifest(),
+            WorkerRestartPolicy::new(2),
+            probing(0, Duration::from_secs(5)),
+            sequencing_launcher(&["crash", "hang"]),
+        )
+        .unwrap();
+        assert_eq!(
+            reconcile_until_decided(&mut worker, 100),
+            WorkerDirective::Restart
+        );
+        assert!(matches!(
+            worker.health(),
+            WorkerHealth::Crashed { restarts: 1, .. }
+        ));
+        worker.stop().unwrap();
     }
 }
