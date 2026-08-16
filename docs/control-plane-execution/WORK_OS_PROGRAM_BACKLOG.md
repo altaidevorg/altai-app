@@ -169,14 +169,14 @@ architecture, security, and replacement decision. “Study” does not count as 
 
 The next PRs are fixed until this list is updated by an accepted change:
 
-1. `CP-08-80` — Paperclip downstream charter (080 PR 1)
-   (Record the organization-owned downstream DEC-001 authorized: the
-   downstream repository and its upstream base SHA, license and history
-   preservation, the update/rebase policy, and the module selection
-   through narrow ALTAI adapter boundaries. "Study" does not count as
-   shipped — the charter names concrete modules and the boundaries they
-   ride; adopting code itself follows in later PRs against that
-   charter.)
+1. `CP-08-81` — Stand up the Paperclip downstream (080 PR 2)
+   (Per the charter (CP-08-80, `PAPERCLIP_DOWNSTREAM_CHARTER.md` §2):
+   create the organization-owned downstream from upstream
+   `paperclipai/paperclip` at base `f0e6c0f` with the `upstream` remote,
+   preserved license/notices/history, `UPSTREAM_BASE.md`, the reviewed
+   sync-PR policy, and the security-review checklist — before any §3
+   module is touched. The altai-app PR records the stood-up downstream
+   and wires its pointer into the charter.)
 
 ## 5. Project-manager update protocol
 
