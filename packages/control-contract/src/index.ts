@@ -11,3 +11,4 @@ export * from "./wake.js";
 export * from "./scope.js";
 export * from "./protocol.js";
 export * from "./plugin.js";
+export * from "./plugin-ui.js";

@@ -10,8 +10,13 @@
 //! Upgrades must disclose capability expansion: [`PluginUpgradeDisclosure`]
 //! computes what an upgrade adds and removes so the registry can refuse a
 //! silent expansion (PR 2 enforces the disclosure on install/upgrade).
+//!
+//! Since 073 PR 1 the manifest may carry a UI declaration
+//! ([`ui`](PluginManifest::ui)) — a schema the host renders, validated
+//! here so registration is where an unsound UI dies.
 
 use crate::PluginId;
+use crate::plugin_ui::PluginUiDeclaration;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 
@@ -94,6 +99,12 @@ pub struct PluginManifest {
     pub version: PluginVersion,
     pub display_name: String,
     pub capabilities: Vec<PluginCapability>,
+    /// The plugin's declared UI surfaces (073). Optional and absent on
+    /// the wire for plugins that predate it; a declaration requires the
+    /// `PluginUi` capability and validates with the rest of the
+    /// manifest, so registration refuses an unsound UI up front.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ui: Option<PluginUiDeclaration>,
 }
 
 /// Typed manifest validation failure.
@@ -105,14 +116,22 @@ pub enum PluginManifestError {
     CapabilityNotAllowedForKind { kind: PluginKind, capability: PluginCapability },
     /// The display name is empty.
     EmptyDisplayName,
+    /// The declared UI failed its own validation; the manifest is
+    /// refused with the UI's reason.
+    InvalidUi { reason: crate::plugin_ui::PluginUiError },
 }
 
 impl PluginManifest {
     /// Validate the manifest's internal consistency: non-empty name, no
-    /// duplicate capabilities, and capabilities permitted for the kind.
+    /// duplicate capabilities, capabilities permitted for the kind, and
+    /// — when present — a UI declaration that is sound against them.
     pub fn validate(&self) -> Result<(), PluginManifestError> {
         if self.display_name.trim().is_empty() {
             return Err(PluginManifestError::EmptyDisplayName);
+        }
+        if let Some(ui) = &self.ui {
+            ui.validate(&self.capabilities)
+                .map_err(|reason| PluginManifestError::InvalidUi { reason })?;
         }
         let mut seen = BTreeSet::new();
         for capability in &self.capabilities {
@@ -183,6 +202,7 @@ mod tests {
             version: PluginVersion::new(1, 0, 0),
             display_name: "Demo plugin".into(),
             capabilities: capabilities.to_vec(),
+            ui: None,
         }
     }
 

@@ -8,6 +8,7 @@ import {
   validatePluginManifest,
   type PluginManifest,
 } from "../plugin.js";
+import type { PluginUiDeclaration } from "../plugin-ui.js";
 
 const manifest = (
   kind: PluginManifest["kind"],
@@ -111,5 +112,30 @@ describe("plugin manifest JSON shape", () => {
       value: "plg_demo",
     });
     expect(ALL_ID_KINDS).toContain("plugin_id");
+  });
+  test("an unsound UI declaration fails manifest validation", () => {
+    const ui: PluginUiDeclaration = {
+      surfaces: [
+        {
+          surface_id: "main",
+          title: "Panel",
+          root: { type: "action", label: "Run", action: { type: "invoke_job", job_id: "job_1" } },
+        },
+      ],
+    };
+    // Sound with jobs declared...
+    expect(
+      validatePluginManifest({ ...manifest("application", ["plugin_ui", "jobs"]), ui }),
+    ).toBeNull();
+    // ...refused without it, before any capability-loop check runs.
+    expect(validatePluginManifest({ ...manifest("application", ["plugin_ui"]), ui })).toEqual({
+      type: "invalid_ui",
+      reason: { type: "action_capability_missing", capability: "jobs" },
+    });
+    // And a declaration at all is refused without plugin_ui.
+    expect(validatePluginManifest({ ...manifest("application", ["jobs"]), ui })).toEqual({
+      type: "invalid_ui",
+      reason: { type: "missing_plugin_ui_capability" },
+    });
   });
 });

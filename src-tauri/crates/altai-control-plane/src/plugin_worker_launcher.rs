@@ -551,6 +551,7 @@ mod tests {
                 PluginCapability::Webhooks,
                 PluginCapability::ScopedSecrets,
             ],
+            ui: None,
         }
     }
 

@@ -193,7 +193,10 @@ impl PluginRegistry for SqlitePluginRegistry {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use altai_control_protocol::{PluginCapability, PluginKind, PluginVersion};
+    use altai_control_protocol::{
+        PluginCapability, PluginKind, PluginManifestError, PluginUiAction, PluginUiDeclaration,
+        PluginUiError, PluginUiNode, PluginUiSurface, PluginVersion,
+    };
 
     fn temp_registry() -> (tempfile::TempDir, SqlitePluginRegistry) {
         let dir = tempfile::tempdir().expect("tempdir");
@@ -212,6 +215,7 @@ mod tests {
             version: PluginVersion::new(version.0, version.1, version.2),
             display_name: "Alpha".into(),
             capabilities,
+            ui: None,
         }
     }
 
@@ -331,6 +335,49 @@ mod tests {
             }
         ));
         assert_eq!(registry.get(&org(), &invalid.plugin_id).expect("get"), None);
+    }
+
+    #[test]
+    fn a_manifest_with_an_unsound_ui_is_refused_at_registration() {
+        // The declaration rides in the manifest, so the registry's
+        // existing validation path is where an unsound UI dies — before
+        // any storage, and inside the upgrade rules for free.
+        let (_dir, registry) = temp_registry();
+        let mut manifest = agent_manifest((1, 0, 0), vec![PluginCapability::PluginUi]);
+        manifest.kind = PluginKind::Application;
+        manifest.ui = Some(PluginUiDeclaration {
+            surfaces: vec![PluginUiSurface {
+                surface_id: "main".into(),
+                title: "Panel".into(),
+                root: PluginUiNode::Action {
+                    label: "Run".into(),
+                    action: PluginUiAction::InvokeJob {
+                        job_id: "job_refresh".into(),
+                    },
+                },
+            }],
+        });
+        // The invoke-job action needs Jobs, which this manifest does not
+        // declare: refused, nothing stored.
+        let error = registry.install(&org(), manifest.clone(), true).expect_err("refused");
+        assert!(matches!(
+            error,
+            PluginRegistryError::InvalidManifest {
+                reason: PluginManifestError::InvalidUi {
+                    reason: PluginUiError::ActionCapabilityMissing { .. }
+                }
+            }
+        ));
+        assert_eq!(registry.get(&org(), &manifest.plugin_id).expect("get"), None);
+
+        // With Jobs declared the same declaration installs.
+        let mut sound = manifest.clone();
+        sound.capabilities.push(PluginCapability::Jobs);
+        registry.install(&org(), sound.clone(), false).expect("install");
+        assert_eq!(
+            registry.get(&org(), &sound.plugin_id).expect("get"),
+            Some(sound)
+        );
     }
 
     #[test]
