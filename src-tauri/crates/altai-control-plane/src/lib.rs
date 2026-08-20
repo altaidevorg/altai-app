@@ -27,6 +27,7 @@ pub mod cron_due;
 pub mod delivery_gate;
 pub mod dispatch_eligibility;
 pub mod evidence_repository;
+pub mod evidence_replay;
 pub mod account_credentials;
 pub mod external_account_repository;
 pub mod external_object_repository;
@@ -165,6 +166,10 @@ pub use budget_enforcer::BudgetEnforcer;
 pub use completion_gate::{CompletionBlocker, CompletionError, CompletionGate, CompletionOutcome};
 pub use delivery_gate::{DeliveryBlocker, DeliveryDecision, DeliveryError, DeliveryGate};
 pub use evidence_repository::{EvidenceError, EvidenceRepository, SqliteEvidenceRepository};
+pub use evidence_replay::{
+    EvidenceReplayActivity, EvidenceReplayArtifact, EvidenceReplayError, EvidenceReplayInput,
+    QM_084_EVIDENCE_REPLAY_SCHEMA_VERSION,
+};
 pub use work_graph_repository::{InMemoryWorkGraphRepository, WorkGraphError, WorkGraphRepository};
 pub use workspace_scope_gate::{
     DenialReason, ScopePermit, WorkspaceScopeError, WorkspaceScopeGate,
