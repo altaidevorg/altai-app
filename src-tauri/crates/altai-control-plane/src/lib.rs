@@ -31,6 +31,7 @@ pub mod account_credentials;
 pub mod external_account_repository;
 pub mod external_object_repository;
 pub mod external_sync;
+pub mod opentag_adapter;
 pub mod execution_repository;
 pub mod legacy_work_bridge;
 pub mod liveness_monitor;
@@ -125,6 +126,10 @@ pub use external_object_repository::{
 pub use external_sync::{
     content_hash, resolve_external_conflict, ExternalObjectProvider, ExternalSyncConflict,
     ExternalSyncError, ExternalSyncReport, ExternalSyncService, ProviderObject,
+};
+pub use opentag_adapter::{
+    normalize_opentag_event, NormalizedOpenTagEvent, OpenTagAdapterError,
+    OpenTagAdapterPolicy, OpenTagInboundEvent,
 };
 pub use routine_repository::{RoutineError, RoutineRepository, SqliteRoutineRepository};
 pub use run_binding_repository::{
