@@ -173,7 +173,9 @@ The next PRs are fixed until this list is updated by an accepted change:
    (Inventory the existing repository/context paths and define a bounded,
    measured context-pack fixture. Canonical Work, Attempt, Evidence and
    repository scope are referenced rather than copied; no new state owner or
-   workspace credential path may be introduced.)
+   workspace credential path may be introduced.) **In review:**
+   `REPOSITORY_CONTEXT_CONFORMANCE_DISCOVERY.md` keeps the follow-up bounded
+   to an ALTAI-native, read-only readiness manifest and fixture.
 
 ## 5. Project-manager update protocol
 
