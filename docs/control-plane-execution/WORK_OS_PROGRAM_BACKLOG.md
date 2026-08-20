@@ -142,7 +142,7 @@ architecture, security, and replacement decision. “Study” does not count as 
 | 081 | LongHorizon codebase | accepted (defer) | 035, 044 | Pinned-source discovery and `LH-081-recovery-evidence-v1` passed; direct adoption deferred because its local state/ownership would conflict with ALTAI authority |
 | 082 | Macro codebase | blocked: legal gate | 071 | License/provenance clearance before any Apache artifact; then isolate adopted modules |
 | 083 | OpenTag codebase | accepted (defer) | 051, 071 | Pinned-source conformance and safe ingress fixture passed; direct runtime/identity/lease adoption deferred to preserve ALTAI authority |
-| 084 | qm codebase | in_progress | 045, 060 | Provenance and evidence/replay conformance discovery first; adopt quality/evaluation modules only behind canonical contracts |
+| 084 | qm codebase | in_progress | 045, 060 | Provenance/evidence-replay discovery recorded in `QM_CONFORMANCE_DISCOVERY.md`; direct harness adoption deferred, pending ALTAI-native fixture |
 
 ### Stage 9 — Learning, collaboration and advanced clients
 
@@ -173,7 +173,10 @@ The next PRs are fixed until this list is updated by an accepted change:
    (Locate and pin the authoritative qm source, license and candidate quality
    mechanisms. Map them to ALTAI Evidence (045), Activity projections (060)
    and replay contracts; publish an adopt/defer/reject decision before source
-   is copied or an evaluation authority is introduced.)
+   is copied or an evaluation authority is introduced.) **In review:**
+   `QM_CONFORMANCE_DISCOVERY.md` records the pinned source and defers direct
+   harness adoption; its accepted follow-up is the ALTAI-native
+   `QM-084-evidence-replay-v1` fixture.
 
 ## 5. Project-manager update protocol
 
