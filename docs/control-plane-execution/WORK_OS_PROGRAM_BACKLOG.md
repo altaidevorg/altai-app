@@ -169,11 +169,12 @@ architecture, security, and replacement decision. “Study” does not count as 
 
 The next PRs are fixed until this list is updated by an accepted change:
 
-1. `CP-08-88` — OpenTag provenance and identity conformance discovery (083 PR 1)
-   (Pin the authoritative source, license and candidate metadata/tag concepts;
-   map them to the accepted protocol framing (051) and plugin/identity
-   boundaries (071). Record an adopt/defer/reject decision before copying code
-   or creating a second tag/identity authority.)
+1. `CP-08-89` — OpenTag identity/metadata conformance fixture (083 PR 2)
+   (Implement `OT-083-identity-metadata-v1` as a transport-free ALTAI adapter
+   contract: reject unverified source events and untrusted metadata, resolve
+   only a canonical active agent, and derive a stable redelivery correlation.
+   No OpenTag runtime, database, identity registry, or lease authority is
+   adopted.)
 
 ## 5. Project-manager update protocol
 
