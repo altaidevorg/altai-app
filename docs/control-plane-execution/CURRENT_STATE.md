@@ -64,7 +64,7 @@ All current and future ordering comes from `WORK_OS_PROGRAM_BACKLOG.md`.
 
 | Task ID | Risk | Depends on | Status |
 | --- | --- | --- | --- |
-| CP-08-90 | B | 045, 060, CP-08-89 | **in progress** — qm provenance and evidence/replay conformance discovery (Package 084 PR 1) |
+| CP-08-91 | B | 045, 060, CP-08-90 | **in progress** — ALTAI-native `QM-084-evidence-replay-v1` fixture (Package 084 PR 2) |
 
 ## Known Failing Tests / Blockers
 
