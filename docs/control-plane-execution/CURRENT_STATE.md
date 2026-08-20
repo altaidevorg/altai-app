@@ -36,6 +36,7 @@ All current and future ordering comes from `WORK_OS_PROGRAM_BACKLOG.md`.
 | CP-08 (080) | accepted | PR #833 / `6126a31b` | 2026-08-20 | Paperclip downstream charter and adapter boundary delivered; the real ALT-7 plane reached `in_review` with exactly one attributed `altai` work product, and required upstream CI (including Linux/macOS/Windows Rust and CLI smoke) succeeded |
 | CP-08 (081) | accepted (defer) | PRs #834–#835 / `904b05bc` | 2026-08-20 | LongHorizon source/provenance and a recovery/evidence benchmark were evaluated; `LH-081-recovery-evidence-v1` passed without an external runtime, while direct code adoption was deferred to preserve canonical ALTAI Work, Attempt, lease, Activity and Evidence ownership |
 | CP-08 (083) | accepted (defer) | PRs #837–#838 / `db806198` | 2026-08-20 | OpenTag source/provenance was evaluated and a verified-source ingress conformance fixture passed; direct runtime, identity, lease and ledger adoption was deferred so only canonical ALTAI authority can mutate Work, Attempt, Activity and Evidence |
+| CP-08 (084) | accepted (defer) | PRs #840–#842 / `75837305` | 2026-08-20 | qm provenance was pinned and direct harness adoption was deferred; the ALTAI-native replay fixture produces deterministic, scoped Evidence/Activity comparison input with fail-closed source validation and no external evaluator authority |
 
 ## Current Schema and Protocol Versions
 
@@ -64,7 +65,7 @@ All current and future ordering comes from `WORK_OS_PROGRAM_BACKLOG.md`.
 
 | Task ID | Risk | Depends on | Status |
 | --- | --- | --- | --- |
-| CP-08-91 | B | 045, 060, CP-08-90 | **in progress** — ALTAI-native `QM-084-evidence-replay-v1` fixture (Package 084 PR 2) |
+| CP-08-92 | B | 031, 045, CP-08-91 | **in progress** — repository readiness and bounded context-pack discovery (Package 090 PR 1) |
 
 ## Known Failing Tests / Blockers
 
