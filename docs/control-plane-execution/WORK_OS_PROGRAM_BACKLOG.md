@@ -139,9 +139,9 @@ architecture, security, and replacement decision. “Study” does not count as 
 | Order | Track | Status | Depends on | Required decision and outcome |
 | ---: | --- | --- | --- | --- |
 | 080 | Paperclip downstream/codebase | accepted | 034, 060 | Real-plane acceptance ALT-7 passed; PR #833 (`6126a31b`) merged with all required CI green; downstream bridge `efecnc/paperclip#1` merged |
-| 081 | LongHorizon codebase | in_progress | 035, 044 | Conformance discovery and benchmark first; adopt long-running recovery/evaluation mechanisms only after its decision |
+| 081 | LongHorizon codebase | accepted (defer) | 035, 044 | Pinned-source discovery and `LH-081-recovery-evidence-v1` passed; direct adoption deferred because its local state/ownership would conflict with ALTAI authority |
 | 082 | Macro codebase | blocked: legal gate | 071 | License/provenance clearance before any Apache artifact; then isolate adopted modules |
-| 083 | OpenTag codebase | planned | 051, 071 | Normalize tag/metadata concepts without creating a second identity system |
+| 083 | OpenTag codebase | in_progress | 051, 071 | Normalize tag/metadata concepts without creating a second identity system; provenance and conformance discovery first |
 | 084 | qm codebase | planned | 045, 060 | Adopt quality/evaluation modules behind evidence and replay contracts |
 
 ### Stage 9 — Learning, collaboration and advanced clients
@@ -169,12 +169,11 @@ architecture, security, and replacement decision. “Study” does not count as 
 
 The next PRs are fixed until this list is updated by an accepted change:
 
-1. `CP-08-87` — LongHorizon recovery/evidence conformance benchmark (081 PR 2)
-   (Execute `LH-081-recovery-evidence-v1` against the existing real-plane
-   control-plane wiring: interrupt after `Started`, reattach over the
-   authenticated protocol, and prove one lease/Attempt, correlated Activity,
-   idempotent finalization, and immutable Evidence. No LongHorizon runtime or
-   source is adopted.)
+1. `CP-08-88` — OpenTag provenance and identity conformance discovery (083 PR 1)
+   (Pin the authoritative source, license and candidate metadata/tag concepts;
+   map them to the accepted protocol framing (051) and plugin/identity
+   boundaries (071). Record an adopt/defer/reject decision before copying code
+   or creating a second tag/identity authority.)
 
 ## 5. Project-manager update protocol
 
