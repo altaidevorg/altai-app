@@ -141,8 +141,8 @@ architecture, security, and replacement decision. “Study” does not count as 
 | 080 | Paperclip downstream/codebase | accepted | 034, 060 | Real-plane acceptance ALT-7 passed; PR #833 (`6126a31b`) merged with all required CI green; downstream bridge `efecnc/paperclip#1` merged |
 | 081 | LongHorizon codebase | accepted (defer) | 035, 044 | Pinned-source discovery and `LH-081-recovery-evidence-v1` passed; direct adoption deferred because its local state/ownership would conflict with ALTAI authority |
 | 082 | Macro codebase | blocked: legal gate | 071 | License/provenance clearance before any Apache artifact; then isolate adopted modules |
-| 083 | OpenTag codebase | in_progress | 051, 071 | Normalize tag/metadata concepts without creating a second identity system; provenance and conformance discovery first |
-| 084 | qm codebase | planned | 045, 060 | Adopt quality/evaluation modules behind evidence and replay contracts |
+| 083 | OpenTag codebase | accepted (defer) | 051, 071 | Pinned-source conformance and safe ingress fixture passed; direct runtime/identity/lease adoption deferred to preserve ALTAI authority |
+| 084 | qm codebase | in_progress | 045, 060 | Provenance and evidence/replay conformance discovery first; adopt quality/evaluation modules only behind canonical contracts |
 
 ### Stage 9 — Learning, collaboration and advanced clients
 
@@ -169,12 +169,11 @@ architecture, security, and replacement decision. “Study” does not count as 
 
 The next PRs are fixed until this list is updated by an accepted change:
 
-1. `CP-08-89` — OpenTag identity/metadata conformance fixture (083 PR 2)
-   (Implement `OT-083-identity-metadata-v1` as a transport-free ALTAI adapter
-   contract: reject unverified source events and untrusted metadata, resolve
-   only a canonical active agent, and derive a stable redelivery correlation.
-   No OpenTag runtime, database, identity registry, or lease authority is
-   adopted.)
+1. `CP-08-90` — qm provenance and evidence/replay conformance discovery (084 PR 1)
+   (Locate and pin the authoritative qm source, license and candidate quality
+   mechanisms. Map them to ALTAI Evidence (045), Activity projections (060)
+   and replay contracts; publish an adopt/defer/reject decision before source
+   is copied or an evaluation authority is introduced.)
 
 ## 5. Project-manager update protocol
 
