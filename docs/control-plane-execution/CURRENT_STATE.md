@@ -35,6 +35,7 @@ All current and future ordering comes from `WORK_OS_PROGRAM_BACKLOG.md`.
 | CP-08 (074) | accepted | PRs #825–#827 | 2026-08-16 | Full Gmail multi-account adapter: account model with per-account identity and a (plugin, account, name)-scoped credential store, an account-scoped sync engine where every object carries the account and the watermark is the account's alone, and the live wiring — Gmail client over the SSRF-safe transport, connect/list/disconnect/sync commands, TS bindings — so account isolation, scoped credentials and idempotent thread/message sync hold end to end |
 | CP-08 (080) | accepted | PR #833 / `6126a31b` | 2026-08-20 | Paperclip downstream charter and adapter boundary delivered; the real ALT-7 plane reached `in_review` with exactly one attributed `altai` work product, and required upstream CI (including Linux/macOS/Windows Rust and CLI smoke) succeeded |
 | CP-08 (081) | accepted (defer) | PRs #834–#835 / `904b05bc` | 2026-08-20 | LongHorizon source/provenance and a recovery/evidence benchmark were evaluated; `LH-081-recovery-evidence-v1` passed without an external runtime, while direct code adoption was deferred to preserve canonical ALTAI Work, Attempt, lease, Activity and Evidence ownership |
+| CP-08 (083) | accepted (defer) | PRs #837–#838 / `db806198` | 2026-08-20 | OpenTag source/provenance was evaluated and a verified-source ingress conformance fixture passed; direct runtime, identity, lease and ledger adoption was deferred so only canonical ALTAI authority can mutate Work, Attempt, Activity and Evidence |
 
 ## Current Schema and Protocol Versions
 
@@ -63,7 +64,7 @@ All current and future ordering comes from `WORK_OS_PROGRAM_BACKLOG.md`.
 
 | Task ID | Risk | Depends on | Status |
 | --- | --- | --- | --- |
-| CP-08-88 | B | 051, 071, CP-08-87 | **in progress** — OpenTag provenance and identity conformance discovery (Package 083 PR 1) |
+| CP-08-90 | B | 045, 060, CP-08-89 | **in progress** — qm provenance and evidence/replay conformance discovery (Package 084 PR 1) |
 
 ## Known Failing Tests / Blockers
 
