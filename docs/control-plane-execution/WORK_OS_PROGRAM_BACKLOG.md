@@ -169,11 +169,12 @@ architecture, security, and replacement decision. “Study” does not count as 
 
 The next PRs are fixed until this list is updated by an accepted change:
 
-1. `CP-08-86` — LongHorizon conformance discovery (081 PR 1)
-   (Inventory the candidate upstream mechanisms and their provenance; define
-   a reproducible benchmark against ALTAI's accepted event-translation
-   (035), liveness/recovery (044), evidence (045), and replay contracts.
-   Publish an adopt/defer decision record before copying or enabling code.)
+1. `CP-08-87` — LongHorizon recovery/evidence conformance benchmark (081 PR 2)
+   (Execute `LH-081-recovery-evidence-v1` against the existing real-plane
+   control-plane wiring: interrupt after `Started`, reattach over the
+   authenticated protocol, and prove one lease/Attempt, correlated Activity,
+   idempotent finalization, and immutable Evidence. No LongHorizon runtime or
+   source is adopted.)
 
 ## 5. Project-manager update protocol
 
