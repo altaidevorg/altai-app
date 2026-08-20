@@ -142,7 +142,7 @@ architecture, security, and replacement decision. “Study” does not count as 
 | 081 | LongHorizon codebase | accepted (defer) | 035, 044 | Pinned-source discovery and `LH-081-recovery-evidence-v1` passed; direct adoption deferred because its local state/ownership would conflict with ALTAI authority |
 | 082 | Macro codebase | blocked: legal gate | 071 | License/provenance clearance before any Apache artifact; then isolate adopted modules |
 | 083 | OpenTag codebase | accepted (defer) | 051, 071 | Pinned-source conformance and safe ingress fixture passed; direct runtime/identity/lease adoption deferred to preserve ALTAI authority |
-| 084 | qm codebase | in_progress | 045, 060 | Provenance/evidence-replay discovery recorded in `QM_CONFORMANCE_DISCOVERY.md`; direct harness adoption deferred, pending ALTAI-native fixture |
+| 084 | qm codebase | in_progress | 045, 060 | CP-08-90 accepted (PR #840); direct harness adoption deferred. `QM-084-evidence-replay-v1` is in progress as the only approved follow-up |
 
 ### Stage 9 — Learning, collaboration and advanced clients
 
@@ -169,14 +169,11 @@ architecture, security, and replacement decision. “Study” does not count as 
 
 The next PRs are fixed until this list is updated by an accepted change:
 
-1. `CP-08-90` — qm provenance and evidence/replay conformance discovery (084 PR 1)
-   (Locate and pin the authoritative qm source, license and candidate quality
-   mechanisms. Map them to ALTAI Evidence (045), Activity projections (060)
-   and replay contracts; publish an adopt/defer/reject decision before source
-   is copied or an evaluation authority is introduced.) **In review:**
-   `QM_CONFORMANCE_DISCOVERY.md` records the pinned source and defers direct
-   harness adoption; its accepted follow-up is the ALTAI-native
-   `QM-084-evidence-replay-v1` fixture.
+1. `CP-08-91` — ALTAI-native qm evidence/replay conformance fixture (084 PR 2)
+   (Implement `QM-084-evidence-replay-v1` against immutable Evidence and
+   ordered Activity replay. Produce only a deterministic, versioned comparison
+   input; it may not introduce a quality model, external evaluator, completion
+   authority, or qm runtime/state.)
 
 ## 5. Project-manager update protocol
 
